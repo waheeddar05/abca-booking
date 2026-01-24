@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { generateSlotsForDate, filterPastSlots } from '@/lib/time';
-import { startOfDay, endOfDay, parseISO, isPast, isToday } from 'date-fns';
+import { startOfDay, endOfDay, parseISO, isToday } from 'date-fns';
+import { getRelevantBallTypes, isValidBallType } from '@/lib/constants';
 
 export async function GET(req: NextRequest) {
   try {
@@ -16,8 +17,7 @@ export async function GET(req: NextRequest) {
     const date = parseISO(dateStr);
     
     // Validate ballType and determine machine
-    const validBallTypes = ['TENNIS', 'LEATHER', 'MACHINE'];
-    if (!validBallTypes.includes(ballType)) {
+    if (!isValidBallType(ballType)) {
       return NextResponse.json({ error: 'Invalid ball type' }, { status: 400 });
     }
 
@@ -40,10 +40,7 @@ export async function GET(req: NextRequest) {
 
     // Machine A: LEATHER, MACHINE
     // Machine B: TENNIS
-    const machineABalls = ['LEATHER', 'MACHINE'];
-    const machineBBalls = ['TENNIS'];
-    const isMachineA = machineABalls.includes(ballType);
-    const relevantBallTypes = isMachineA ? machineABalls : machineBBalls;
+    const relevantBallTypes = getRelevantBallTypes(ballType);
 
     const occupiedBookings = await prisma.booking.findMany({
       where: {

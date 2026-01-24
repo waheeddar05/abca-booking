@@ -1,40 +1,19 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { verifyToken } from '@/lib/jwt';
 import { startOfDay, parseISO, isAfter } from 'date-fns';
-import { getServerSession } from "next-auth/next";
+import { getAuthenticatedUser } from '@/lib/auth';
+import { getRelevantBallTypes, isValidBallType } from '@/lib/constants';
 
 export async function POST(req: NextRequest) {
   try {
-    let userId: string | undefined;
-    let userName: string | undefined;
+    const user = await getAuthenticatedUser(req);
 
-    // Check for NextAuth session
-    const session = await getServerSession();
-    if (session?.user?.email) {
-      const dbUser = await prisma.user.findUnique({
-        where: { email: session.user.email },
-      });
-      userId = dbUser?.id;
-      userName = dbUser?.name || undefined;
-    }
-
-    // Check for JWT token if no NextAuth session
-    if (!userId) {
-      const token = req.cookies.get('token')?.value;
-      const decoded = token ? (verifyToken(token) as any) : null;
-      if (decoded?.userId) {
-        userId = decoded.userId;
-        const dbUser = await prisma.user.findUnique({
-          where: { id: userId },
-        });
-        userName = dbUser?.name || undefined;
-      }
-    }
-
-    if (!userId) {
+    if (!user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
+
+    const userId = user.id;
+    const userName = user.name;
 
     const body = await req.json();
     const slotsToBook = Array.isArray(body) ? body : [body];
@@ -61,12 +40,7 @@ export async function POST(req: NextRequest) {
       const end = new Date(endTime);
 
       // Validate ballType and machine constraints
-      // Machine A supports: LEATHER, MACHINE
-      // Machine B supports: TENNIS
-      const machineABalls = ['LEATHER', 'MACHINE'];
-      const machineBBalls = ['TENNIS'];
-
-      if (!machineABalls.includes(ballType) && !machineBBalls.includes(ballType)) {
+      if (!isValidBallType(ballType)) {
         return NextResponse.json({ error: 'Invalid ball type' }, { status: 400 });
       }
 
@@ -78,8 +52,7 @@ export async function POST(req: NextRequest) {
       // Use DB transaction to prevent double booking
       const result = await prisma.$transaction(async (tx) => {
         // Check for overlapping bookings on the same machine
-        const isMachineA = machineABalls.includes(ballType);
-        const relevantBallTypes = isMachineA ? machineABalls : machineBBalls;
+        const relevantBallTypes = getRelevantBallTypes(ballType);
 
         const existingBooked = await tx.booking.findFirst({
           where: {

@@ -1,33 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { verifyToken } from '@/lib/jwt';
-import { getServerSession } from "next-auth/next";
+import { getAuthenticatedUser } from '@/lib/auth';
 
 export async function GET(req: NextRequest) {
   try {
-    let userId: string | undefined;
+    const user = await getAuthenticatedUser(req);
 
-    // Check for NextAuth session
-    const session = await getServerSession();
-    if (session?.user?.email) {
-      const dbUser = await prisma.user.findUnique({
-        where: { email: session.user.email },
-      });
-      userId = dbUser?.id;
-    }
-
-    // Check for JWT token if no NextAuth session
-    if (!userId) {
-      const token = req.cookies.get('token')?.value;
-      const decoded = token ? (verifyToken(token) as any) : null;
-      if (decoded?.userId) {
-        userId = decoded.userId;
-      }
-    }
-
-    if (!userId) {
+    if (!user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
+
+    const userId = user.id;
 
     const bookings = await prisma.booking.findMany({
       where: {
