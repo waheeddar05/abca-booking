@@ -1,0 +1,73 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  USER
+  ADMIN
+}
+
+model User {
+  id           String       @id @default(cuid())
+  name         String?
+  email        String?      @unique
+  mobileNumber String?      @unique
+  authProvider AuthProvider
+  role         UserRole     @default(USER)
+  createdAt    DateTime     @default(now())
+  bookings     Booking[]
+  otps         Otp[]
+}
+
+model Policy {
+  id        String   @id @default(cuid())
+  key       String   @unique
+  value     String
+  updatedAt DateTime @updatedAt
+}
+
+model Otp {
+  id        String   @id @default(cuid())
+  userId    String
+  codeHash  String
+  expiresAt DateTime
+  used      Boolean  @default(false)
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id])
+}
+
+model Booking {
+  id         String        @id @default(cuid())
+  userId     String?
+  date       DateTime      @db.Date
+  startTime  DateTime
+  endTime    DateTime
+  status     BookingStatus @default(BOOKED)
+  ballType   BallType      @default(TENNIS)
+  playerName String
+  createdAt  DateTime      @default(now())
+  user       User?         @relation(fields: [userId], references: [id])
+
+  @@unique([date, startTime, ballType])
+}
+
+enum AuthProvider {
+  GOOGLE
+  OTP
+}
+
+enum BookingStatus {
+  BOOKED
+  CANCELLED
+}
+
+enum BallType {
+  TENNIS
+  LEATHER
+  MACHINE
+}
