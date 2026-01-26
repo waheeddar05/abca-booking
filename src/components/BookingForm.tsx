@@ -111,7 +111,7 @@ export default function BookingForm() {
                     : 'bg-gray-100 text-gray-400 cursor-not-allowed'
                 }`}
               >
-                {parseISO(slot.startTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                {new Date(slot.startTime).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit' })}
               </button>
             ))}
           </div>

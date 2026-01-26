@@ -35,6 +35,26 @@ export default function AdminBookings() {
     setFilters({ ...filters, [e.target.name]: e.target.value });
   };
 
+  const updateStatus = async (bookingId: string, status: string) => {
+    if (!confirm(`Are you sure you want to mark this booking as ${status}?`)) return;
+    try {
+      const res = await fetch('/api/admin/bookings', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ bookingId, status }),
+      });
+      if (res.ok) {
+        fetchBookings();
+      } else {
+        const data = await res.json();
+        alert(data.error || 'Update failed');
+      }
+    } catch (error) {
+      console.error('Failed to update booking', error);
+      alert('Failed to update booking');
+    }
+  };
+
   return (
     <div>
       <h1 className="text-2xl font-bold text-gray-800 mb-6">All Bookings</h1>
@@ -61,6 +81,7 @@ export default function AdminBookings() {
             <option value="">All</option>
             <option value="BOOKED">Booked</option>
             <option value="CANCELLED">Cancelled</option>
+            <option value="DONE">Done</option>
           </select>
         </div>
         <div>
@@ -76,8 +97,8 @@ export default function AdminBookings() {
         </div>
       </div>
 
-      <div className="bg-white rounded-lg shadow-sm border border-gray-100 overflow-hidden">
-        <table className="w-full text-left">
+      <div className="bg-white rounded-lg shadow-sm border border-gray-100 overflow-x-auto">
+        <table className="w-full text-left min-w-[600px]">
           <thead className="bg-gray-50 border-b border-gray-200">
             <tr>
               <th className="px-6 py-3 text-xs font-semibold text-gray-500 uppercase">Customer</th>
@@ -108,7 +129,7 @@ export default function AdminBookings() {
                       {new Date(booking.date).toLocaleDateString()}
                     </div>
                     <div className="text-xs text-gray-500">
-                      {new Date(booking.startTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} - {new Date(booking.endTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                      {new Date(booking.startTime).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit' })} - {new Date(booking.endTime).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit' })}
                     </div>
                   </td>
                   <td className="px-6 py-4">
@@ -118,13 +139,37 @@ export default function AdminBookings() {
                   </td>
                   <td className="px-6 py-4">
                     <span className={`px-2 py-1 text-xs font-semibold rounded-full ${
-                      booking.status === 'BOOKED' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
+                      booking.status === 'BOOKED' ? 'bg-green-100 text-green-800' : 
+                      booking.status === 'DONE' ? 'bg-blue-100 text-blue-800' : 'bg-red-100 text-red-800'
                     }`}>
                       {booking.status}
                     </span>
                   </td>
-                  <td className="px-6 py-4 text-right text-sm font-medium">
-                    <button className="text-blue-600 hover:text-blue-900">Details</button>
+                  <td className="px-6 py-4 text-right text-sm font-medium flex gap-2 justify-end">
+                    {booking.status === 'BOOKED' && (
+                      <>
+                        <button 
+                          onClick={() => updateStatus(booking.id, 'DONE')}
+                          className="text-green-600 hover:text-green-900"
+                        >
+                          Mark Done
+                        </button>
+                        <button 
+                          onClick={() => updateStatus(booking.id, 'CANCELLED')}
+                          className="text-red-600 hover:text-red-900"
+                        >
+                          Cancel
+                        </button>
+                      </>
+                    )}
+                    {booking.status !== 'BOOKED' && (
+                       <button 
+                        onClick={() => updateStatus(booking.id, 'BOOKED')}
+                        className="text-gray-600 hover:text-gray-900"
+                      >
+                        Restore
+                      </button>
+                    )}
                   </td>
                 </tr>
               ))

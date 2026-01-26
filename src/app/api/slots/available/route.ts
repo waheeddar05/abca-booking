@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { generateSlotsForDate, filterPastSlots } from '@/lib/time';
 import { startOfDay, endOfDay, parseISO, isToday } from 'date-fns';
+import { toDate } from 'date-fns-tz';
 import { getRelevantBallTypes, isValidBallType } from '@/lib/constants';
 
 export async function GET(req: NextRequest) {
@@ -26,12 +27,33 @@ export async function GET(req: NextRequest) {
     // They are independent machines, so checking availability for one doesn't affect the other.
     
     // Check if date is in the past
-    const today = startOfDay(new Date());
+    const today = startOfDay(toDate(new Date(), { timeZone: 'Asia/Kolkata' }));
     if (isBeforeDateOnly(date, today)) {
       return NextResponse.json([]);
     }
 
-    let slots = generateSlotsForDate(date);
+    // Fetch policies
+    const policies = await prisma.policy.findMany({
+      where: {
+        key: { in: ['SLOT_WINDOW_START', 'SLOT_WINDOW_END', 'SLOT_DURATION', 'DISABLED_DATES'] }
+      }
+    });
+
+    const policyMap = Object.fromEntries(policies.map(p => [p.key, p.value]));
+
+    // Check if date is disabled
+    const disabledDates = policyMap['DISABLED_DATES'] ? policyMap['DISABLED_DATES'].split(',') : [];
+    if (disabledDates.includes(dateStr)) {
+      return NextResponse.json([]);
+    }
+
+    const config = {
+      startHour: policyMap['SLOT_WINDOW_START'] ? parseInt(policyMap['SLOT_WINDOW_START']) : undefined,
+      endHour: policyMap['SLOT_WINDOW_END'] ? parseInt(policyMap['SLOT_WINDOW_END']) : undefined,
+      duration: policyMap['SLOT_DURATION'] ? parseInt(policyMap['SLOT_DURATION']) : undefined,
+    };
+
+    let slots = generateSlotsForDate(date, config);
 
     // If today, only future slots
     if (isToday(date)) {

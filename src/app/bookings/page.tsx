@@ -8,7 +8,7 @@ interface Booking {
   date: string;
   startTime: string;
   endTime: string;
-  status: 'BOOKED' | 'CANCELLED';
+  status: 'BOOKED' | 'CANCELLED' | 'DONE';
   playerName: string;
   ballType: string;
 }
@@ -64,8 +64,8 @@ export default function BookingsPage() {
   };
 
   return (
-    <div className="max-w-4xl mx-auto p-6">
-      <h1 className="text-3xl font-bold mb-8">My Bookings</h1>
+    <div className="max-w-4xl mx-auto p-4 sm:p-6">
+      <h1 className="text-2xl sm:text-3xl font-bold mb-6 sm:mb-8">My Bookings</h1>
 
       {loading ? (
         <div className="text-center py-12">Loading bookings...</div>
@@ -76,13 +76,13 @@ export default function BookingsPage() {
       ) : (
         <div className="space-y-4">
           {bookings.map((booking) => (
-            <div key={booking.id} className="p-6 bg-white border rounded-lg shadow-sm flex justify-between items-center">
-              <div>
+            <div key={booking.id} className="p-4 sm:p-6 bg-white border rounded-lg shadow-sm flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+              <div className="w-full sm:w-auto">
                 <div className="text-sm text-gray-500">{format(new Date(booking.date), 'EEEE, MMMM do, yyyy')}</div>
-                <div className="text-xl font-bold">
-                  {format(new Date(booking.startTime), 'HH:mm')} - {format(new Date(booking.endTime), 'HH:mm')}
+                <div className="text-lg sm:text-xl font-bold">
+                  {new Date(booking.startTime).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit' })} - {new Date(booking.endTime).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit' })}
                 </div>
-                <div className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 text-sm">
+                <div className="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1 text-sm">
                   <div className="text-gray-600">
                     <span className="font-semibold">Player:</span> {booking.playerName}
                   </div>
@@ -91,16 +91,17 @@ export default function BookingsPage() {
                   </div>
                 </div>
                 <div className={`mt-3 inline-block px-2 py-1 text-xs font-semibold rounded-full ${
-                  booking.status === 'BOOKED' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
+                  booking.status === 'BOOKED' ? 'bg-green-100 text-green-800' : 
+                  booking.status === 'DONE' ? 'bg-blue-100 text-blue-800' : 'bg-red-100 text-red-800'
                 }`}>
                   {booking.status}
                 </div>
               </div>
-              {booking.status === 'BOOKED' && (
+              {booking.status === 'BOOKED' && new Date(booking.startTime) > new Date() && (
                 <button
                   disabled={!!cancellingId}
                   onClick={() => handleCancel(booking.id)}
-                  className="px-4 py-2 border border-red-600 text-red-600 rounded-md hover:bg-red-50 disabled:opacity-50 transition-colors"
+                  className="w-full sm:w-auto px-4 py-2 border border-red-600 text-red-600 rounded-md hover:bg-red-50 disabled:opacity-50 transition-colors"
                 >
                   {cancellingId === booking.id ? 'Cancelling...' : 'Cancel'}
                 </button>

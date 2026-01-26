@@ -1,24 +1,39 @@
-import { startOfDay, endOfDay, addMinutes, isAfter, isBefore, isEqual, format } from 'date-fns';
+import { formatInTimeZone, toDate } from 'date-fns-tz';
+import { addMinutes, isAfter, isBefore } from 'date-fns';
 
-export const BUSINESS_START_HOUR = 9;
-export const BUSINESS_END_HOUR = 18;
-export const SLOT_DURATION_MINUTES = 30;
+export const TIMEZONE = 'Asia/Kolkata';
 
-export function getServerTime() {
-  return new Date();
+// Default values if not in DB
+export const DEFAULT_START_HOUR = 7;
+export const DEFAULT_END_HOUR = 22;
+export const DEFAULT_SLOT_DURATION = 30;
+
+export function getISTTime() {
+  return toDate(new Date(), { timeZone: TIMEZONE });
 }
 
-export function generateSlotsForDate(date: Date) {
-  const slots: { startTime: Date; endTime: Date }[] = [];
-  const start = new Date(date);
-  start.setHours(BUSINESS_START_HOUR, 0, 0, 0);
+export function getServerTime() {
+  return getISTTime();
+}
 
-  const end = new Date(date);
-  end.setHours(BUSINESS_END_HOUR, 0, 0, 0);
+export function generateSlotsForDate(date: Date, config?: { startHour?: number; endHour?: number; duration?: number }) {
+  const startHour = config?.startHour ?? DEFAULT_START_HOUR;
+  const endHour = config?.endHour ?? DEFAULT_END_HOUR;
+  const duration = config?.duration ?? DEFAULT_SLOT_DURATION;
+
+  const slots: { startTime: Date; endTime: Date }[] = [];
+  
+  // Create start time in IST
+  const start = toDate(date, { timeZone: TIMEZONE });
+  start.setHours(startHour, 0, 0, 0);
+
+  // Create end time in IST
+  const end = toDate(date, { timeZone: TIMEZONE });
+  end.setHours(endHour, 0, 0, 0);
 
   let current = start;
   while (isBefore(current, end)) {
-    const next = addMinutes(current, SLOT_DURATION_MINUTES);
+    const next = addMinutes(current, duration);
     slots.push({
       startTime: new Date(current),
       endTime: new Date(next),
@@ -30,6 +45,10 @@ export function generateSlotsForDate(date: Date) {
 }
 
 export function filterPastSlots(slots: { startTime: Date; endTime: Date }[]) {
-  const now = getServerTime();
+  const now = getISTTime();
   return slots.filter(slot => isAfter(slot.startTime, now));
+}
+
+export function formatIST(date: Date, formatStr: string) {
+  return formatInTimeZone(date, TIMEZONE, formatStr);
 }

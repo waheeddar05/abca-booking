@@ -42,9 +42,9 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="flex flex-col h-[calc(100vh-64px)] bg-slate-950 overflow-hidden">
+    <div className="flex flex-col min-h-[calc(100vh-64px)] bg-slate-950">
       {/* Background Image with Overlay */}
-      <div className="absolute inset-0 z-0">
+      <div className="fixed inset-0 z-0">
         <img 
           src="https://images.unsplash.com/photo-1531415074968-036ba1b575da?q=80&w=2067&auto=format&fit=crop" 
           alt="Cricket Ground" 
@@ -54,7 +54,7 @@ export default function LoginPage() {
       </div>
 
       {/* Hero Content - Repurposed for Login */}
-      <div className="flex-1 flex flex-col items-center justify-center px-4 py-4 md:py-8 relative z-10">
+      <div className="flex-1 flex flex-col items-center justify-center px-4 py-12 md:py-8 relative z-10">
         <div className="max-w-4xl mx-auto text-center relative z-10 mb-4 md:mb-8">
           <div className="mb-4 flex justify-center gap-4">
             <div className="w-12 h-12 md:w-16 md:h-16 rounded-full border-2 border-red-600 overflow-hidden shadow-xl transform -rotate-12">

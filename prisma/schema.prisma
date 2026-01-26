@@ -64,6 +64,7 @@ enum AuthProvider {
 enum BookingStatus {
   BOOKED
   CANCELLED
+  DONE
 }
 
 enum BallType {

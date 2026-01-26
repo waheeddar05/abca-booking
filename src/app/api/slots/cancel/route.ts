@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { getAuthenticatedUser } from '@/lib/auth';
+import { getISTTime } from '@/lib/time';
+import { isBefore } from 'date-fns';
 
 export async function POST(req: NextRequest) {
   try {
@@ -26,8 +28,16 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Booking not found' }, { status: 404 });
     }
 
-    if (booking.userId !== userId) {
+    if (booking.userId !== userId && user.role !== 'ADMIN') {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    // User side: Users should NOT be able to cancel sessions that are already in the past
+    if (user.role !== 'ADMIN') {
+      const now = getISTTime();
+      if (isBefore(booking.startTime, now)) {
+        return NextResponse.json({ error: 'Cannot cancel past sessions' }, { status: 400 });
+      }
     }
 
     await prisma.booking.update({

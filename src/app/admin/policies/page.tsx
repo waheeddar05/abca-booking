@@ -54,6 +54,26 @@ export default function PolicyManagement() {
       <h1 className="text-2xl font-bold text-gray-800 mb-6">Policy Management</h1>
 
       <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-100 mb-8">
+        <h2 className="text-lg font-bold text-gray-800 mb-4">Quick Links & Help</h2>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 text-sm">
+          <div>
+            <h3 className="font-semibold mb-2">Timing Configuration Keys:</h3>
+            <ul className="list-disc list-inside space-y-1 text-gray-600">
+              <li><code className="bg-gray-100 px-1 rounded">SLOT_WINDOW_START</code>: Start hour (e.g. 7)</li>
+              <li><code className="bg-gray-100 px-1 rounded">SLOT_WINDOW_END</code>: End hour (e.g. 22)</li>
+              <li><code className="bg-gray-100 px-1 rounded">SLOT_DURATION</code>: Minutes per slot (e.g. 30)</li>
+            </ul>
+          </div>
+          <div>
+            <h3 className="font-semibold mb-2">Other Keys:</h3>
+            <ul className="list-disc list-inside space-y-1 text-gray-600">
+              <li><code className="bg-gray-100 px-1 rounded">DISABLED_DATES</code>: Comma-separated (e.g. 2026-01-26,2026-01-27)</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+
+      <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-100 mb-8">
         <h2 className="text-lg font-bold text-gray-800 mb-4">Update or Create Policy</h2>
         <form onSubmit={handleUpdatePolicy} className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <div>

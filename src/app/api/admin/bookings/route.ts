@@ -64,3 +64,32 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }
+
+export async function PATCH(req: NextRequest) {
+  try {
+    const session = await getSession(req);
+    if (session?.role !== 'ADMIN') {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 403 });
+    }
+
+    const { bookingId, status } = await req.json();
+
+    if (!bookingId || !status) {
+      return NextResponse.json({ error: 'Booking ID and status are required' }, { status: 400 });
+    }
+
+    if (!['BOOKED', 'CANCELLED', 'DONE'].includes(status)) {
+      return NextResponse.json({ error: 'Invalid status' }, { status: 400 });
+    }
+
+    const booking = await prisma.booking.update({
+      where: { id: bookingId },
+      data: { status },
+    });
+
+    return NextResponse.json(booking);
+  } catch (error) {
+    console.error('Admin booking update error:', error);
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+  }
+}
