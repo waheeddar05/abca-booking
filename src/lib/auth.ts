@@ -6,6 +6,7 @@ import { verifyToken } from '@/lib/jwt';
 export async function getAuthenticatedUser(req: NextRequest) {
   let userId: string | undefined;
   let userName: string | undefined;
+  let userRole: string | undefined;
 
   // Check for NextAuth session
   const session = await getServerSession();
@@ -15,6 +16,7 @@ export async function getAuthenticatedUser(req: NextRequest) {
     });
     userId = dbUser?.id;
     userName = dbUser?.name || undefined;
+    userRole = dbUser?.role;
   }
 
   // Check for JWT token if no NextAuth session
@@ -27,10 +29,11 @@ export async function getAuthenticatedUser(req: NextRequest) {
         where: { id: userId },
       });
       userName = dbUser?.name || undefined;
+      userRole = dbUser?.role;
     }
   }
 
   if (!userId) return null;
 
-  return { id: userId, name: userName };
+  return { id: userId, name: userName, role: userRole };
 }
