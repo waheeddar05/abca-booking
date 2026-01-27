@@ -55,3 +55,28 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }
+
+export async function DELETE(req: NextRequest) {
+  try {
+    const session = await getSession(req);
+    if (session?.role !== 'ADMIN') {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 403 });
+    }
+
+    const { searchParams } = new URL(req.url);
+    const key = searchParams.get('key');
+
+    if (!key) {
+      return NextResponse.json({ error: 'Policy key is required' }, { status: 400 });
+    }
+
+    await prisma.policy.delete({
+      where: { key },
+    });
+
+    return NextResponse.json({ message: 'Policy deleted successfully' });
+  } catch (error) {
+    console.error('Admin policy delete error:', error);
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+  }
+}

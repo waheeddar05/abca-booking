@@ -49,6 +49,27 @@ export default function PolicyManagement() {
     }
   };
 
+  const handleDeletePolicy = async (key: string) => {
+    if (!confirm(`Are you sure you want to delete the policy "${key}"?`)) {
+      return;
+    }
+    setMessage({ text: '', type: '' });
+    try {
+      const res = await fetch(`/api/admin/policies?key=${encodeURIComponent(key)}`, {
+        method: 'DELETE',
+      });
+      if (res.ok) {
+        setMessage({ text: 'Policy deleted successfully', type: 'success' });
+        fetchPolicies();
+      } else {
+        const data = await res.json();
+        setMessage({ text: data.error || 'Failed to delete policy', type: 'error' });
+      }
+    } catch (error) {
+      setMessage({ text: 'Internal server error', type: 'error' });
+    }
+  };
+
   return (
     <div>
       <h1 className="text-2xl font-bold text-gray-800 mb-6">Policy Management</h1>
@@ -147,6 +168,12 @@ export default function PolicyManagement() {
                       className="text-blue-600 hover:text-blue-900 mr-4"
                     >
                       Edit
+                    </button>
+                    <button 
+                      onClick={() => handleDeletePolicy(policy.key)}
+                      className="text-red-600 hover:text-red-900"
+                    >
+                      Delete
                     </button>
                   </td>
                 </tr>
