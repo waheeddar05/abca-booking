@@ -6,8 +6,8 @@ import { Calendar, Check, Loader2 } from 'lucide-react';
 
 export default function SlotsPage() {
   const [selectedDate, setSelectedDate] = useState(new Date());
-  const [category, setCategory] = useState<'TENNIS' | 'MACHINE'>('TENNIS');
-  const [ballType, setBallType] = useState('TENNIS');
+  const [category, setCategory] = useState<'TENNIS' | 'MACHINE'>('MACHINE');
+  const [ballType, setBallType] = useState('LEATHER');
   const [slots, setSlots] = useState<any[]>([]);
   const [selectedSlots, setSelectedSlots] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
@@ -83,13 +83,13 @@ export default function SlotsPage() {
   };
 
   const categories = [
-    { value: 'TENNIS' as const, label: 'Tennis', color: 'bg-green-500' },
-    { value: 'MACHINE' as const, label: 'Machine', color: 'bg-blue-500' },
+    { value: 'MACHINE' as const, label: 'Leather Ball Machine', color: 'bg-red-500' },
+    { value: 'TENNIS' as const, label: 'Tennis Ball Machine', color: 'bg-green-500' },
   ];
 
   const machineSubTypes = [
     { value: 'LEATHER', label: 'Leather', color: 'bg-red-500' },
-    { value: 'MACHINE', label: 'Machine', color: 'bg-blue-500' },
+    { value: 'MACHINE', label: 'Machine', color: 'bg-green-500' },
   ];
 
   const handleCategoryChange = (cat: 'TENNIS' | 'MACHINE') => {
@@ -259,7 +259,7 @@ export default function SlotsPage() {
           <div className="max-w-2xl mx-auto flex items-center justify-between gap-4">
             <div>
               <p className="text-sm font-bold text-gray-900">{selectedSlots.length} slot{selectedSlots.length > 1 ? 's' : ''} selected</p>
-              <p className="text-[11px] text-gray-400">{format(selectedDate, 'EEE, MMM d')} &middot; {ballType === 'TENNIS' ? 'Tennis' : ballType === 'LEATHER' ? 'Machine (Leather)' : 'Machine'}</p>
+              <p className="text-[11px] text-gray-400">{format(selectedDate, 'EEE, MMM d')} &middot; {ballType === 'TENNIS' ? 'Tennis Ball Machine' : ballType === 'LEATHER' ? 'Leather Ball Machine (Leather)' : 'Leather Ball Machine (Machine)'}</p>
             </div>
             <button
               onClick={handleBook}
