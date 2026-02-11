@@ -12,6 +12,7 @@ model User {
   name         String?
   email        String?      @unique
   mobileNumber String?      @unique
+  image        String?
   authProvider AuthProvider
   createdAt    DateTime     @default(now())
   role         UserRole     @default(USER)

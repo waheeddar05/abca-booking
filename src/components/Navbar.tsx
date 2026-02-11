@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import Image from 'next/image';
 import { useSession, signOut } from 'next-auth/react';
 import { usePathname } from 'next/navigation';
 import { useState, useEffect } from 'react';
@@ -32,6 +33,10 @@ export default function Navbar() {
   ].filter(link => link.show);
 
   const isActive = (href: string) => pathname === href || pathname.startsWith(href + '/');
+
+  const userImage = session?.user?.image;
+  const userName = session?.user?.name;
+  const userInitial = userName ? userName.charAt(0).toUpperCase() : (session?.user?.email?.charAt(0).toUpperCase() || '?');
 
   return (
     <nav className={`sticky top-0 z-50 transition-all duration-300 ${
@@ -78,11 +83,29 @@ export default function Navbar() {
 
             {session ? (
               <div className="flex items-center ml-2 pl-2 border-l border-gray-200/20">
-                <span className={`text-xs font-medium mr-3 max-w-[120px] truncate ${
-                  isLanding ? 'text-white/60' : 'text-gray-400'
-                }`}>
-                  {session.user?.name || session.user?.email}
-                </span>
+                <div className="flex items-center gap-2 mr-3">
+                  {userImage ? (
+                    <Image
+                      src={userImage}
+                      alt={userName || 'Profile'}
+                      width={28}
+                      height={28}
+                      className="rounded-full"
+                      referrerPolicy="no-referrer"
+                    />
+                  ) : (
+                    <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold ${
+                      isLanding ? 'bg-accent text-primary' : 'bg-primary/10 text-primary'
+                    }`}>
+                      {userInitial}
+                    </div>
+                  )}
+                  <span className={`text-xs font-medium max-w-[120px] truncate ${
+                    isLanding ? 'text-white/60' : 'text-gray-400'
+                  }`}>
+                    {session.user?.name || session.user?.email}
+                  </span>
+                </div>
                 <button
                   onClick={() => signOut({ callbackUrl: '/login' })}
                   className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium transition-all cursor-pointer ${
@@ -132,10 +155,26 @@ export default function Navbar() {
           isLanding ? 'bg-[#0f1d2f]/98 backdrop-blur-md' : 'bg-white border-t border-gray-100'
         }`}>
           {session && (
-            <div className={`px-3 py-2.5 mb-2 rounded-lg text-sm font-medium ${
+            <div className={`flex items-center gap-3 px-3 py-2.5 mb-2 rounded-lg text-sm font-medium ${
               isLanding ? 'bg-white/5 text-white/80' : 'bg-gray-50 text-gray-700'
             }`}>
-              {session.user?.name || session.user?.email}
+              {userImage ? (
+                <Image
+                  src={userImage}
+                  alt={userName || 'Profile'}
+                  width={32}
+                  height={32}
+                  className="rounded-full"
+                  referrerPolicy="no-referrer"
+                />
+              ) : (
+                <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold ${
+                  isLanding ? 'bg-accent text-primary' : 'bg-primary/10 text-primary'
+                }`}>
+                  {userInitial}
+                </div>
+              )}
+              <span className="truncate">{session.user?.name || session.user?.email}</span>
             </div>
           )}
 
