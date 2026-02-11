@@ -1,13 +1,14 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Search, Filter, CheckCircle, XCircle, RotateCcw } from 'lucide-react';
+import { format, addDays } from 'date-fns';
+import { Search, Filter, CheckCircle, XCircle, RotateCcw, Calendar, Loader2 } from 'lucide-react';
 
 export default function AdminBookings() {
   const [bookings, setBookings] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [selectedDate, setSelectedDate] = useState(new Date());
   const [filters, setFilters] = useState({
-    date: '',
     status: '',
     customer: '',
   });
@@ -15,7 +16,11 @@ export default function AdminBookings() {
   const fetchBookings = async () => {
     setLoading(true);
     try {
-      const params = new URLSearchParams(filters);
+      const params = new URLSearchParams({
+        date: format(selectedDate, 'yyyy-MM-dd'),
+        ...(filters.status && { status: filters.status }),
+        ...(filters.customer && { customer: filters.customer }),
+      });
       const res = await fetch(`/api/admin/bookings?${params.toString()}`);
       if (res.ok) {
         const data = await res.json();
@@ -30,7 +35,7 @@ export default function AdminBookings() {
 
   useEffect(() => {
     fetchBookings();
-  }, [filters]);
+  }, [selectedDate, filters]);
 
   const handleFilterChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     setFilters({ ...filters, [e.target.name]: e.target.value });
@@ -68,9 +73,68 @@ export default function AdminBookings() {
     MACHINE: 'bg-blue-500',
   };
 
+  const bookedCount = bookings.filter(b => b.status === 'BOOKED').length;
+  const doneCount = bookings.filter(b => b.status === 'DONE').length;
+  const cancelledCount = bookings.filter(b => b.status === 'CANCELLED').length;
+
   return (
     <div>
-      <h1 className="text-xl font-bold text-gray-900 mb-5">All Bookings</h1>
+      <div className="flex items-center gap-3 mb-5">
+        <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center">
+          <Calendar className="w-5 h-5 text-primary" />
+        </div>
+        <div>
+          <h1 className="text-xl font-bold text-gray-900">All Bookings</h1>
+          <p className="text-xs text-gray-400">Manage bookings by date</p>
+        </div>
+      </div>
+
+      {/* 7-Day Date Selector */}
+      <div className="mb-5">
+        <label className="block text-xs font-medium text-gray-500 mb-2 uppercase tracking-wider">Select Date</label>
+        <div className="flex gap-2 overflow-x-auto pb-2 -mx-1 px-1 scrollbar-hide">
+          {[0, 1, 2, 3, 4, 5, 6].map((days) => {
+            const date = addDays(new Date(), days);
+            const isSelected = format(selectedDate, 'yyyy-MM-dd') === format(date, 'yyyy-MM-dd');
+            const isToday = days === 0;
+            return (
+              <button
+                key={days}
+                onClick={() => setSelectedDate(date)}
+                className={`flex-shrink-0 w-16 py-3 rounded-xl text-center transition-all cursor-pointer ${
+                  isSelected
+                    ? 'bg-primary text-white shadow-md shadow-primary/20'
+                    : 'bg-white text-gray-600 border border-gray-200 hover:border-primary/30'
+                }`}
+              >
+                <div className={`text-[10px] uppercase font-medium ${isSelected ? 'text-white/70' : 'text-gray-400'}`}>
+                  {isToday ? 'Today' : format(date, 'EEE')}
+                </div>
+                <div className="text-lg font-bold mt-0.5">{format(date, 'd')}</div>
+                <div className={`text-[10px] ${isSelected ? 'text-white/60' : 'text-gray-400'}`}>
+                  {format(date, 'MMM')}
+                </div>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Day Summary */}
+      <div className="grid grid-cols-3 gap-2 mb-5">
+        <div className="bg-green-50 rounded-xl p-3 text-center">
+          <div className="text-lg font-bold text-green-700">{bookedCount}</div>
+          <div className="text-[10px] font-medium text-green-600 uppercase tracking-wider">Booked</div>
+        </div>
+        <div className="bg-blue-50 rounded-xl p-3 text-center">
+          <div className="text-lg font-bold text-blue-700">{doneCount}</div>
+          <div className="text-[10px] font-medium text-blue-600 uppercase tracking-wider">Done</div>
+        </div>
+        <div className="bg-gray-50 rounded-xl p-3 text-center">
+          <div className="text-lg font-bold text-gray-500">{cancelledCount}</div>
+          <div className="text-[10px] font-medium text-gray-400 uppercase tracking-wider">Cancelled</div>
+        </div>
+      </div>
 
       {/* Filters */}
       <div className="bg-white rounded-xl border border-gray-100 p-4 mb-5">
@@ -78,17 +142,7 @@ export default function AdminBookings() {
           <Filter className="w-4 h-4 text-gray-400" />
           <span className="text-xs font-medium text-gray-500 uppercase tracking-wider">Filters</span>
         </div>
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-          <div>
-            <label className="block text-[11px] font-medium text-gray-400 mb-1">Date</label>
-            <input
-              type="date"
-              name="date"
-              value={filters.date}
-              onChange={handleFilterChange}
-              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-primary focus:ring-1 focus:ring-primary/20"
-            />
-          </div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div>
             <label className="block text-[11px] font-medium text-gray-400 mb-1">Status</label>
             <select
@@ -120,11 +174,19 @@ export default function AdminBookings() {
         </div>
       </div>
 
-      {/* Mobile: Card view / Desktop: Table */}
+      {/* Bookings List */}
       {loading ? (
-        <div className="text-center py-16 text-gray-400 text-sm">Loading bookings...</div>
+        <div className="flex flex-col items-center justify-center py-16 text-gray-400">
+          <Loader2 className="w-5 h-5 animate-spin mb-2" />
+          <span className="text-sm">Loading bookings...</span>
+        </div>
       ) : bookings.length === 0 ? (
-        <div className="text-center py-16 text-gray-400 text-sm">No bookings found</div>
+        <div className="text-center py-16">
+          <div className="w-12 h-12 rounded-full bg-gray-100 flex items-center justify-center mx-auto mb-3">
+            <Calendar className="w-5 h-5 text-gray-400" />
+          </div>
+          <p className="text-sm text-gray-500">No bookings for {format(selectedDate, 'EEE, MMM d')}</p>
+        </div>
       ) : (
         <>
           {/* Mobile Cards */}
@@ -144,8 +206,6 @@ export default function AdminBookings() {
                     {booking.user?.email || booking.user?.mobileNumber}
                   </div>
                   <div className="text-sm text-gray-900 mb-1">
-                    {new Date(booking.date).toLocaleDateString()}
-                    {' '}
                     {new Date(booking.startTime).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit' })}
                     {' - '}
                     {new Date(booking.endTime).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit' })}
@@ -194,7 +254,7 @@ export default function AdminBookings() {
               <thead className="bg-gray-50/80 border-b border-gray-100">
                 <tr>
                   <th className="px-5 py-3 text-[11px] font-semibold text-gray-400 uppercase tracking-wider">Customer</th>
-                  <th className="px-5 py-3 text-[11px] font-semibold text-gray-400 uppercase tracking-wider">Date & Time</th>
+                  <th className="px-5 py-3 text-[11px] font-semibold text-gray-400 uppercase tracking-wider">Time</th>
                   <th className="px-5 py-3 text-[11px] font-semibold text-gray-400 uppercase tracking-wider">Type</th>
                   <th className="px-5 py-3 text-[11px] font-semibold text-gray-400 uppercase tracking-wider">Status</th>
                   <th className="px-5 py-3 text-[11px] font-semibold text-gray-400 uppercase tracking-wider text-right">Actions</th>
@@ -211,9 +271,6 @@ export default function AdminBookings() {
                       </td>
                       <td className="px-5 py-3.5">
                         <div className="text-sm text-gray-900">
-                          {new Date(booking.date).toLocaleDateString()}
-                        </div>
-                        <div className="text-xs text-gray-400">
                           {new Date(booking.startTime).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit' })}
                           {' - '}
                           {new Date(booking.endTime).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit' })}

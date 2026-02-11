@@ -1,7 +1,6 @@
 'use client';
 
 import Link from 'next/link';
-import { useSession } from 'next-auth/react';
 import { usePathname } from 'next/navigation';
 import { LayoutDashboard, CalendarCheck, Users, Settings } from 'lucide-react';
 
@@ -10,14 +9,12 @@ export default function AdminLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const { data: session } = useSession();
   const pathname = usePathname();
-  const isSuperAdmin = session?.user?.email === 'waheeddar8@gmail.com';
 
   const links = [
     { href: '/admin', label: 'Dashboard', icon: LayoutDashboard },
     { href: '/admin/bookings', label: 'Bookings', icon: CalendarCheck },
-    ...(isSuperAdmin ? [{ href: '/admin/users', label: 'Admins', icon: Users }] : []),
+    { href: '/admin/users', label: 'Users', icon: Users },
     { href: '/admin/policies', label: 'Policies', icon: Settings },
   ];
 
