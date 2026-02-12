@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { startOfDay, parseISO, isAfter } from 'date-fns';
+import { Prisma, type BallType, type PitchType } from '@prisma/client';
+import { startOfDay, parseISO, isAfter, isValid } from 'date-fns';
 import { getAuthenticatedUser } from '@/lib/auth';
 import { getRelevantBallTypes, isValidBallType, MACHINE_A_BALLS } from '@/lib/constants';
 import { getDiscountConfig, calculatePricing, SlotWithPrice } from '@/lib/discount';
-import { BallType, PitchType } from '@prisma/client';
 
 async function getMachineConfig() {
   const policies = await prisma.policy.findMany({
@@ -36,6 +36,43 @@ async function getMachineConfig() {
 
 function isValidPitchType(val: string): val is PitchType {
   return ['ASTRO', 'TURF'].includes(val);
+}
+
+const MAX_TRANSACTION_RETRIES = 3;
+
+class BookingConflictError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'BookingConflictError';
+  }
+}
+
+function isSerializableConflict(error: unknown): boolean {
+  return (
+    error instanceof Prisma.PrismaClientKnownRequestError &&
+    error.code === 'P2034'
+  );
+}
+
+function isUniqueConstraintError(error: unknown): boolean {
+  return (
+    error instanceof Prisma.PrismaClientKnownRequestError &&
+    error.code === 'P2002'
+  );
+}
+
+function isTransactionAborted(error: unknown): boolean {
+  return (
+    error instanceof Prisma.PrismaClientUnknownRequestError &&
+    error.message.includes('25P02')
+  );
+}
+
+function isMissingColumnError(error: unknown): boolean {
+  return (
+    error instanceof Error &&
+    error.message.includes('does not exist in the current database')
+  );
 }
 
 export async function POST(req: NextRequest) {
@@ -70,8 +107,15 @@ export async function POST(req: NextRequest) {
     }> = [];
 
     for (const slotData of slotsToBook) {
-      const { date, startTime, endTime, ballType = 'TENNIS', pitchType } = slotData;
-      let { playerName } = slotData;
+      const { date, startTime, endTime, ballType = 'TENNIS', pitchType } = slotData as {
+        date: string;
+        startTime: string;
+        endTime: string;
+        ballType?: string;
+        pitchType?: string;
+        playerName?: string;
+      };
+      let { playerName } = slotData as { playerName?: string };
 
       if ((!playerName || playerName === 'Guest') && userName) {
         playerName = userName;
@@ -94,7 +138,18 @@ export async function POST(req: NextRequest) {
         validatedPitchType = pitchType as PitchType;
       }
 
+      const bookingDate = parseISO(date);
       const start = new Date(startTime);
+      const end = new Date(endTime);
+
+      if (!isValid(bookingDate) || !isValid(start) || !isValid(end)) {
+        return NextResponse.json({ error: 'Invalid date/time values' }, { status: 400 });
+      }
+
+      if (!isAfter(end, start)) {
+        return NextResponse.json({ error: 'End time must be after start time' }, { status: 400 });
+      }
+
       if (!isAfter(start, new Date())) {
         return NextResponse.json({ error: 'Cannot book in the past' }, { status: 400 });
       }
@@ -110,9 +165,9 @@ export async function POST(req: NextRequest) {
       }
 
       validatedSlots.push({
-        date: parseISO(date),
+        date: startOfDay(bookingDate),
         startTime: start,
-        endTime: new Date(endTime),
+        endTime: end,
         ballType: ballType as BallType,
         pitchType: validatedPitchType,
         playerName,
@@ -130,7 +185,7 @@ export async function POST(req: NextRequest) {
       try {
         const dbSlot = await prisma.slot.findFirst({
           where: {
-            date: startOfDay(slot.date),
+            date: slot.date,
             startTime: slot.startTime,
             isActive: true,
           },
@@ -166,104 +221,166 @@ export async function POST(req: NextRequest) {
     const pricing = calculatePricing(slotPrices, discountConfig);
 
     // Book all slots in transaction
-    const results = [];
+    const results: Array<{ id: string; status: string }> = [];
     for (let i = 0; i < validatedSlots.length; i++) {
       const slot = validatedSlots[i];
       const priceInfo = pricing[i];
 
-      const result = await prisma.$transaction(async (tx) => {
-        const relevantBallTypes = getRelevantBallTypes(slot.ballType);
+      if (!priceInfo) {
+        throw new Error('Pricing not found for slot');
+      }
 
-        // Use select to only fetch columns guaranteed to exist
-        const existingBooked = await tx.booking.findFirst({
-          where: {
-            date: {
-              gte: startOfDay(slot.date),
-              lte: startOfDay(slot.date),
-            },
-            startTime: slot.startTime,
-            ballType: { in: relevantBallTypes as any },
-            status: 'BOOKED',
-          },
-          select: { id: true },
-        });
+      const slotTime = slot.startTime.toLocaleTimeString();
 
-        if (existingBooked) {
-          throw new Error(`Slot at ${slot.startTime.toLocaleTimeString()} already booked`);
-        }
-
-        const existingSameBallType = await tx.booking.findFirst({
-          where: {
-            date: {
-              gte: startOfDay(slot.date),
-              lte: startOfDay(slot.date),
-            },
-            startTime: slot.startTime,
-            ballType: slot.ballType || 'TENNIS',
-          },
-          select: { id: true },
-        });
-
-        // Base booking data (columns that always exist)
-        const baseBookingData: any = {
-          userId: userId!,
-          date: slot.date,
-          startTime: slot.startTime,
-          endTime: slot.endTime,
-          status: 'BOOKED' as const,
-          ballType: slot.ballType || 'TENNIS',
-          playerName: slot.playerName,
-        };
-
-        // Extended data with pricing columns (may not exist if migration not applied)
-        const fullBookingData: any = {
-          ...baseBookingData,
-          price: priceInfo.price,
-          originalPrice: priceInfo.originalPrice,
-          discountAmount: priceInfo.discountAmount || null,
-          discountType: priceInfo.discountType || null,
-        };
-        if (slot.pitchType !== null) fullBookingData.pitchType = slot.pitchType;
-        if (slot.extraCharge) fullBookingData.extraCharge = slot.extraCharge;
-
-        // Try with full data first, fall back to base data if pricing columns don't exist
+      let result: { id: string; status: string } | null = null;
+      for (let attempt = 1; attempt <= MAX_TRANSACTION_RETRIES; attempt++) {
         try {
-          if (existingSameBallType) {
-            const { date: _d, startTime: _st, ballType: _bt, ...updateData } = fullBookingData;
-            return await tx.booking.update({
-              where: { id: existingSameBallType.id },
-              data: updateData,
-              select: { id: true, status: true },
+          result = await prisma.$transaction(async (tx) => {
+            const relevantBallTypes = getRelevantBallTypes(slot.ballType);
+
+            const existingBooked = await tx.booking.findFirst({
+              where: {
+                date: slot.date,
+                startTime: slot.startTime,
+                ballType: { in: relevantBallTypes },
+                status: 'BOOKED',
+              },
+              select: { id: true },
             });
-          }
-          return await tx.booking.create({
-            data: fullBookingData,
-            select: { id: true, status: true },
-          });
-        } catch (err: any) {
-          if (err?.message?.includes('does not exist in the current database')) {
-            if (existingSameBallType) {
-              const { date: _d, startTime: _st, ballType: _bt, ...updateData } = baseBookingData;
-              return await tx.booking.update({
-                where: { id: existingSameBallType.id },
-                data: updateData,
+
+            if (existingBooked) {
+              throw new BookingConflictError(`Slot at ${slotTime} is already booked`);
+            }
+
+            const existingSameBallType = await tx.booking.findFirst({
+              where: {
+                date: slot.date,
+                startTime: slot.startTime,
+                ballType: slot.ballType,
+              },
+              select: { id: true },
+            });
+
+            const baseBookingData: Prisma.BookingUncheckedCreateInput = {
+              userId: userId!,
+              date: slot.date,
+              startTime: slot.startTime,
+              endTime: slot.endTime,
+              status: 'BOOKED',
+              ballType: slot.ballType,
+              playerName: slot.playerName,
+            };
+
+            const baseUpdateData: Prisma.BookingUncheckedUpdateInput = {
+              userId: userId!,
+              endTime: slot.endTime,
+              status: 'BOOKED',
+              playerName: slot.playerName,
+            };
+
+            const fullBookingData: Record<string, unknown> = {
+              ...baseBookingData,
+              price: priceInfo.price,
+              originalPrice: priceInfo.originalPrice,
+              discountAmount: priceInfo.discountAmount || null,
+              discountType: priceInfo.discountType || null,
+            };
+
+            const fullUpdateData: Record<string, unknown> = {
+              ...baseUpdateData,
+              price: priceInfo.price,
+              originalPrice: priceInfo.originalPrice,
+              discountAmount: priceInfo.discountAmount || null,
+              discountType: priceInfo.discountType || null,
+            };
+
+            if (slot.pitchType !== null) {
+              fullBookingData.pitchType = slot.pitchType;
+              fullUpdateData.pitchType = slot.pitchType;
+            }
+            if (slot.extraCharge) {
+              fullBookingData.extraCharge = slot.extraCharge;
+              fullUpdateData.extraCharge = slot.extraCharge;
+            }
+
+            try {
+              if (existingSameBallType) {
+                return await tx.booking.update({
+                  where: { id: existingSameBallType.id },
+                  data: fullUpdateData as Prisma.BookingUncheckedUpdateInput,
+                  select: { id: true, status: true },
+                });
+              }
+
+              return await tx.booking.create({
+                data: fullBookingData as unknown as Prisma.BookingUncheckedCreateInput,
                 select: { id: true, status: true },
               });
+            } catch (error) {
+              if (isMissingColumnError(error)) {
+                try {
+                  if (existingSameBallType) {
+                    return await tx.booking.update({
+                      where: { id: existingSameBallType.id },
+                      data: baseUpdateData,
+                      select: { id: true, status: true },
+                    });
+                  }
+
+                  return await tx.booking.create({
+                    data: baseBookingData,
+                    select: { id: true, status: true },
+                  });
+                } catch (fallbackError) {
+                  if (isUniqueConstraintError(fallbackError) || isTransactionAborted(fallbackError)) {
+                    throw new BookingConflictError(`Slot at ${slotTime} is already booked`);
+                  }
+                  throw fallbackError;
+                }
+              }
+
+              if (isUniqueConstraintError(error) || isTransactionAborted(error)) {
+                throw new BookingConflictError(`Slot at ${slotTime} is already booked`);
+              }
+
+              throw error;
             }
-            return await tx.booking.create({
-              data: baseBookingData,
-              select: { id: true, status: true },
-            });
+          }, {
+            isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+          });
+
+          break;
+        } catch (error) {
+          if (error instanceof BookingConflictError) {
+            throw error;
           }
-          throw err;
+
+          if (isSerializableConflict(error) && attempt < MAX_TRANSACTION_RETRIES) {
+            continue;
+          }
+
+          if (isUniqueConstraintError(error) || isTransactionAborted(error)) {
+            throw new BookingConflictError(`Slot at ${slotTime} is already booked`);
+          }
+
+          throw error;
         }
-      });
+      }
+
+      if (!result) {
+        throw new Error('Unable to complete booking after retries');
+      }
+
       results.push(result);
     }
 
     return NextResponse.json(Array.isArray(body) ? results : results[0]);
-  } catch (error: any) {
+  } catch (error: unknown) {
+    if (error instanceof BookingConflictError) {
+      return NextResponse.json({ error: error.message }, { status: 409 });
+    }
+    const message = error instanceof Error ? error.message : 'Internal server error';
     console.error('Booking error:', error);
-    return NextResponse.json({ error: error.message || 'Internal server error' }, { status: 400 });
+    return NextResponse.json({ error: message }, { status: 400 });
   }
 }
