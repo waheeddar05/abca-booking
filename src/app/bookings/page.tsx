@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { format } from 'date-fns';
-import { ClipboardList, Loader2, X, Calendar, Clock } from 'lucide-react';
+import { ClipboardList, Loader2, X, Calendar, Clock, IndianRupee } from 'lucide-react';
 
 interface Booking {
   id: string;
@@ -12,6 +12,11 @@ interface Booking {
   status: 'BOOKED' | 'CANCELLED' | 'DONE';
   playerName: string;
   ballType: string;
+  pitchType: string | null;
+  price: number | null;
+  originalPrice: number | null;
+  discountAmount: number | null;
+  extraCharge: number | null;
 }
 
 export default function BookingsPage() {
@@ -70,10 +75,10 @@ export default function BookingsPage() {
     CANCELLED: { label: 'Cancelled', bg: 'bg-gray-50', text: 'text-gray-500', dot: 'bg-gray-400' },
   };
 
-  const ballTypeConfig: Record<string, { color: string }> = {
-    TENNIS: { color: 'bg-green-500' },
-    LEATHER: { color: 'bg-red-500' },
-    MACHINE: { color: 'bg-blue-500' },
+  const ballTypeConfig: Record<string, { color: string; label: string }> = {
+    TENNIS: { color: 'bg-green-500', label: 'Tennis' },
+    LEATHER: { color: 'bg-red-500', label: 'Leather' },
+    MACHINE: { color: 'bg-blue-500', label: 'Machine' },
   };
 
   const getDisplayStatus = (booking: Booking): Booking['status'] => {
@@ -117,8 +122,9 @@ export default function BookingsPage() {
           {bookings.map((booking) => {
             const displayStatus = getDisplayStatus(booking);
             const status = statusConfig[displayStatus];
-            const ballColor = ballTypeConfig[booking.ballType]?.color || 'bg-gray-400';
+            const ballInfo = ballTypeConfig[booking.ballType] || { color: 'bg-gray-400', label: booking.ballType };
             const canCancel = booking.status === 'BOOKED' && new Date(booking.startTime) > new Date();
+            const hasDiscount = booking.discountAmount && booking.discountAmount > 0;
 
             return (
               <div key={booking.id} className="bg-white rounded-xl border border-gray-100 p-4 transition-all hover:shadow-sm">
@@ -159,13 +165,32 @@ export default function BookingsPage() {
                 </div>
 
                 {/* Meta Row */}
-                <div className="flex items-center gap-3 pt-3 border-t border-gray-50">
-                  <div className="flex items-center gap-1.5 text-xs text-gray-500">
-                    <span className={`w-2 h-2 rounded-full ${ballColor}`}></span>
-                    {booking.ballType}
+                <div className="flex items-center justify-between pt-3 border-t border-gray-50">
+                  <div className="flex items-center gap-3">
+                    <div className="flex items-center gap-1.5 text-xs text-gray-500">
+                      <span className={`w-2 h-2 rounded-full ${ballInfo.color}`}></span>
+                      {ballInfo.label}
+                    </div>
+                    {booking.pitchType && (
+                      <>
+                        <span className="text-gray-200">|</span>
+                        <span className="text-xs text-gray-500">{booking.pitchType}</span>
+                      </>
+                    )}
+                    <span className="text-gray-200">|</span>
+                    <span className="text-xs text-gray-500">{booking.playerName}</span>
                   </div>
-                  <span className="text-gray-200">|</span>
-                  <span className="text-xs text-gray-500">{booking.playerName}</span>
+
+                  {/* Price */}
+                  {booking.price != null && (
+                    <div className="flex items-center gap-1">
+                      <IndianRupee className="w-3 h-3 text-gray-400" />
+                      <span className="text-sm font-semibold text-gray-900">{booking.price}</span>
+                      {hasDiscount && (
+                        <span className="text-[10px] text-green-600 line-through ml-1">₹{booking.originalPrice}</span>
+                      )}
+                    </div>
+                  )}
                 </div>
               </div>
             );

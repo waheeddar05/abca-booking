@@ -2,9 +2,41 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { startOfDay, parseISO, isAfter } from 'date-fns';
 import { getAuthenticatedUser } from '@/lib/auth';
-import { getRelevantBallTypes, isValidBallType } from '@/lib/constants';
+import { getRelevantBallTypes, isValidBallType, MACHINE_A_BALLS } from '@/lib/constants';
 import { getDiscountConfig, calculatePricing, SlotWithPrice } from '@/lib/discount';
-import { BallType } from '@prisma/client';
+import { BallType, PitchType } from '@prisma/client';
+
+async function getMachineConfig() {
+  const policies = await prisma.policy.findMany({
+    where: {
+      key: {
+        in: [
+          'BALL_TYPE_SELECTION_ENABLED',
+          'LEATHER_BALL_EXTRA_CHARGE',
+          'MACHINE_BALL_EXTRA_CHARGE',
+          'PITCH_TYPE_SELECTION_ENABLED',
+          'ASTRO_PITCH_PRICE',
+          'TURF_PITCH_PRICE',
+        ],
+      },
+    },
+  });
+  const config: Record<string, string> = {};
+  for (const p of policies) config[p.key] = p.value;
+
+  return {
+    ballTypeSelectionEnabled: config['BALL_TYPE_SELECTION_ENABLED'] === 'true',
+    leatherBallExtraCharge: parseFloat(config['LEATHER_BALL_EXTRA_CHARGE'] || '100'),
+    machineBallExtraCharge: parseFloat(config['MACHINE_BALL_EXTRA_CHARGE'] || '0'),
+    pitchTypeSelectionEnabled: config['PITCH_TYPE_SELECTION_ENABLED'] === 'true',
+    astroPitchPrice: parseFloat(config['ASTRO_PITCH_PRICE'] || '600'),
+    turfPitchPrice: parseFloat(config['TURF_PITCH_PRICE'] || '700'),
+  };
+}
+
+function isValidPitchType(val: string): val is PitchType {
+  return ['ASTRO', 'TURF'].includes(val);
+}
 
 export async function POST(req: NextRequest) {
   try {
@@ -24,17 +56,22 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'No slots provided' }, { status: 400 });
     }
 
+    const machineConfig = await getMachineConfig();
+
     // Validate all slots first
     const validatedSlots: Array<{
       date: Date;
       startTime: Date;
       endTime: Date;
       ballType: BallType;
+      pitchType: PitchType | null;
       playerName: string;
+      extraCharge: number;
     }> = [];
 
     for (const slotData of slotsToBook) {
-      let { date, startTime, endTime, ballType = 'TENNIS', playerName } = slotData;
+      const { date, startTime, endTime, ballType = 'TENNIS', pitchType } = slotData;
+      let { playerName } = slotData;
 
       if ((!playerName || playerName === 'Guest') && userName) {
         playerName = userName;
@@ -48,9 +85,28 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: 'Invalid ball type' }, { status: 400 });
       }
 
+      // Validate pitch type for Tennis Machine
+      let validatedPitchType: PitchType | null = null;
+      if (ballType === 'TENNIS' && machineConfig.pitchTypeSelectionEnabled && pitchType) {
+        if (!isValidPitchType(pitchType)) {
+          return NextResponse.json({ error: 'Invalid pitch type' }, { status: 400 });
+        }
+        validatedPitchType = pitchType as PitchType;
+      }
+
       const start = new Date(startTime);
       if (!isAfter(start, new Date())) {
         return NextResponse.json({ error: 'Cannot book in the past' }, { status: 400 });
+      }
+
+      // Calculate extra charge based on ball type / pitch type
+      let extraCharge = 0;
+      if (MACHINE_A_BALLS.includes(ballType as BallType) && machineConfig.ballTypeSelectionEnabled) {
+        if (ballType === 'LEATHER') {
+          extraCharge = machineConfig.leatherBallExtraCharge;
+        } else if (ballType === 'MACHINE') {
+          extraCharge = machineConfig.machineBallExtraCharge;
+        }
       }
 
       validatedSlots.push({
@@ -58,7 +114,9 @@ export async function POST(req: NextRequest) {
         startTime: start,
         endTime: new Date(endTime),
         ballType: ballType as BallType,
+        pitchType: validatedPitchType,
         playerName,
+        extraCharge,
       });
     }
 
@@ -75,10 +133,25 @@ export async function POST(req: NextRequest) {
           isActive: true,
         },
       });
+
+      let basePrice = dbSlot?.price ?? discountConfig.defaultSlotPrice;
+
+      // For Tennis Machine with pitch type pricing
+      if (slot.ballType === 'TENNIS' && slot.pitchType && machineConfig.pitchTypeSelectionEnabled) {
+        if (slot.pitchType === 'ASTRO') {
+          basePrice = machineConfig.astroPitchPrice;
+        } else if (slot.pitchType === 'TURF') {
+          basePrice = machineConfig.turfPitchPrice;
+        }
+      }
+
+      // Add extra charge for ball type
+      const totalPrice = basePrice + slot.extraCharge;
+
       slotPrices.push({
         startTime: slot.startTime,
         endTime: slot.endTime,
-        price: dbSlot?.price ?? discountConfig.defaultSlotPrice,
+        price: totalPrice,
       });
     }
 
@@ -129,10 +202,12 @@ export async function POST(req: NextRequest) {
               endTime: slot.endTime,
               status: 'BOOKED',
               playerName: slot.playerName,
+              pitchType: slot.pitchType,
               price: priceInfo.price,
               originalPrice: priceInfo.originalPrice,
               discountAmount: priceInfo.discountAmount || null,
               discountType: priceInfo.discountType || null,
+              extraCharge: slot.extraCharge || null,
             },
           });
         }
@@ -145,11 +220,13 @@ export async function POST(req: NextRequest) {
             endTime: slot.endTime,
             status: 'BOOKED',
             ballType: slot.ballType || 'TENNIS',
+            pitchType: slot.pitchType,
             playerName: slot.playerName,
             price: priceInfo.price,
             originalPrice: priceInfo.originalPrice,
             discountAmount: priceInfo.discountAmount || null,
             discountType: priceInfo.discountType || null,
+            extraCharge: slot.extraCharge || null,
           },
         });
       });

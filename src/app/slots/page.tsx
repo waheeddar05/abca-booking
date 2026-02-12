@@ -2,17 +2,40 @@
 
 import { useState, useEffect } from 'react';
 import { format, addDays, parseISO } from 'date-fns';
-import { Calendar, Check, Loader2 } from 'lucide-react';
+import { Calendar, Check, Loader2, IndianRupee } from 'lucide-react';
+
+interface MachineConfig {
+  leatherMachine: {
+    ballTypeSelectionEnabled: boolean;
+    leatherBallExtraCharge: number;
+    machineBallExtraCharge: number;
+  };
+  tennisMachine: {
+    pitchTypeSelectionEnabled: boolean;
+    astroPitchPrice: number;
+    turfPitchPrice: number;
+  };
+  defaultSlotPrice: number;
+}
 
 export default function SlotsPage() {
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [category, setCategory] = useState<'TENNIS' | 'MACHINE'>('MACHINE');
   const [ballType, setBallType] = useState('LEATHER');
+  const [pitchType, setPitchType] = useState<string>('ASTRO');
   const [slots, setSlots] = useState<any[]>([]);
   const [selectedSlots, setSelectedSlots] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [bookingLoading, setBookingLoading] = useState(false);
+  const [machineConfig, setMachineConfig] = useState<MachineConfig | null>(null);
+
+  useEffect(() => {
+    fetch('/api/machine-config')
+      .then(r => r.json())
+      .then(setMachineConfig)
+      .catch(() => {});
+  }, []);
 
   useEffect(() => {
     fetchSlots();
@@ -48,10 +71,37 @@ export default function SlotsPage() {
     });
   };
 
+  const getExtraCharge = (): number => {
+    if (!machineConfig) return 0;
+    if (category === 'MACHINE' && machineConfig.leatherMachine.ballTypeSelectionEnabled) {
+      return ballType === 'LEATHER'
+        ? machineConfig.leatherMachine.leatherBallExtraCharge
+        : machineConfig.leatherMachine.machineBallExtraCharge;
+    }
+    return 0;
+  };
+
+  const getSlotDisplayPrice = (slot: any): number => {
+    const basePrice = slot.price ?? machineConfig?.defaultSlotPrice ?? 600;
+    if (category === 'TENNIS' && machineConfig?.tennisMachine.pitchTypeSelectionEnabled) {
+      return pitchType === 'ASTRO'
+        ? machineConfig.tennisMachine.astroPitchPrice
+        : machineConfig.tennisMachine.turfPitchPrice;
+    }
+    return basePrice + getExtraCharge();
+  };
+
+  const getTotalPrice = (): number => {
+    return selectedSlots.reduce((sum, slot) => sum + getSlotDisplayPrice(slot), 0);
+  };
+
   const handleBook = async () => {
     if (selectedSlots.length === 0) return;
 
-    const confirmBooking = window.confirm(`Are you sure you want to book ${selectedSlots.length} slot(s)?`);
+    const total = getTotalPrice();
+    const confirmBooking = window.confirm(
+      `Book ${selectedSlots.length} slot(s) for ₹${total.toLocaleString()}?`
+    );
     if (!confirmBooking) return;
 
     setBookingLoading(true);
@@ -64,6 +114,9 @@ export default function SlotsPage() {
           startTime: slot.startTime,
           endTime: slot.endTime,
           ballType: ballType,
+          ...(category === 'TENNIS' && machineConfig?.tennisMachine.pitchTypeSelectionEnabled
+            ? { pitchType }
+            : {}),
         }))),
       });
 
@@ -82,24 +135,27 @@ export default function SlotsPage() {
     }
   };
 
-  const categories = [
-    { value: 'MACHINE' as const, label: 'Leather Ball Machine', color: 'bg-red-500' },
-    { value: 'TENNIS' as const, label: 'Tennis Ball Machine', color: 'bg-green-500' },
+  const machineSubTypes = [
+    { value: 'LEATHER', label: 'Leather Ball', color: 'bg-red-500' },
+    { value: 'MACHINE', label: 'Machine Ball', color: 'bg-green-500' },
   ];
 
-  const machineSubTypes = [
-    { value: 'LEATHER', label: 'Leather', color: 'bg-red-500' },
-    { value: 'MACHINE', label: 'Machine', color: 'bg-green-500' },
+  const pitchTypes = [
+    { value: 'ASTRO', label: 'Astro Turf', color: 'bg-emerald-500' },
+    { value: 'TURF', label: 'Turf', color: 'bg-amber-500' },
   ];
 
   const handleCategoryChange = (cat: 'TENNIS' | 'MACHINE') => {
     setCategory(cat);
+    setSelectedSlots([]);
     if (cat === 'TENNIS') {
       setBallType('TENNIS');
     } else {
       setBallType('LEATHER');
     }
   };
+
+  const extraCharge = getExtraCharge();
 
   return (
     <div className="max-w-2xl mx-auto px-4 py-5 pb-28">
@@ -141,7 +197,7 @@ export default function SlotsPage() {
                 {machineSubTypes.map((type) => (
                   <button
                     key={type.value}
-                    onClick={() => setBallType(type.value)}
+                    onClick={() => { setBallType(type.value); setSelectedSlots([]); }}
                     className={`flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
                       ballType === type.value
                         ? 'bg-primary/10 text-primary border border-primary/30'
@@ -150,6 +206,15 @@ export default function SlotsPage() {
                   >
                     <span className={`w-1.5 h-1.5 rounded-full ${type.color}`}></span>
                     {type.label}
+                    {machineConfig?.leatherMachine.ballTypeSelectionEnabled && (
+                      <span className="text-[10px] opacity-70">
+                        {type.value === 'LEATHER' && machineConfig.leatherMachine.leatherBallExtraCharge > 0
+                          ? `+₹${machineConfig.leatherMachine.leatherBallExtraCharge}`
+                          : type.value === 'MACHINE' && machineConfig.leatherMachine.machineBallExtraCharge > 0
+                            ? `+₹${machineConfig.leatherMachine.machineBallExtraCharge}`
+                            : ''}
+                      </span>
+                    )}
                   </button>
                 ))}
               </div>
@@ -170,11 +235,45 @@ export default function SlotsPage() {
                 <span className="w-2 h-2 rounded-full bg-green-500"></span>
                 <span className="text-sm font-semibold">Tennis Ball Machine</span>
               </div>
-              <p className={`text-[10px] mt-1 ${category === 'TENNIS' ? 'text-white/60' : 'text-gray-400'}`}>No options needed</p>
+              <p className={`text-[10px] mt-1 ${category === 'TENNIS' ? 'text-white/60' : 'text-gray-400'}`}>
+                {machineConfig?.tennisMachine.pitchTypeSelectionEnabled ? 'Select pitch type' : 'No options needed'}
+              </p>
             </button>
+
+            {/* Pitch type sub-selector for Tennis Machine */}
+            {category === 'TENNIS' && machineConfig?.tennisMachine.pitchTypeSelectionEnabled && (
+              <div className="flex gap-2 mt-2">
+                {pitchTypes.map((type) => (
+                  <button
+                    key={type.value}
+                    onClick={() => { setPitchType(type.value); setSelectedSlots([]); }}
+                    className={`flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+                      pitchType === type.value
+                        ? 'bg-primary/10 text-primary border border-primary/30'
+                        : 'bg-gray-50 text-gray-500 border border-gray-100 hover:border-primary/20'
+                    }`}
+                  >
+                    <span className={`w-1.5 h-1.5 rounded-full ${type.color}`}></span>
+                    {type.label}
+                    <span className="text-[10px] opacity-70">
+                      ₹{type.value === 'ASTRO' ? machineConfig.tennisMachine.astroPitchPrice : machineConfig.tennisMachine.turfPitchPrice}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
         </div>
       </div>
+
+      {/* Extra charge notice */}
+      {extraCharge > 0 && (
+        <div className="mb-4 px-3 py-2 bg-amber-50 border border-amber-100 rounded-lg">
+          <p className="text-xs text-amber-700">
+            +₹{extraCharge} extra charge per slot for {ballType === 'LEATHER' ? 'Leather Ball' : 'Machine Ball'}
+          </p>
+        </div>
+      )}
 
       {/* Date Selector - Horizontal scroll */}
       <div className="mb-6">
@@ -235,6 +334,7 @@ export default function SlotsPage() {
             {slots.map((slot) => {
               const isSelected = selectedSlots.some(s => s.startTime === slot.startTime);
               const isBooked = slot.status === 'Booked';
+              const displayPrice = getSlotDisplayPrice(slot);
 
               return (
                 <button
@@ -262,10 +362,19 @@ export default function SlotsPage() {
                   }`}>
                     to {format(parseISO(slot.endTime), 'HH:mm')}
                   </div>
-                  <div className={`text-[10px] mt-1.5 font-semibold uppercase tracking-wider ${
-                    isBooked ? 'text-red-300' : isSelected ? 'text-white/80' : 'text-green-500'
-                  }`}>
-                    {isBooked ? 'Booked' : isSelected ? 'Selected' : 'Open'}
+                  <div className="flex items-center justify-between mt-1.5">
+                    <span className={`text-[10px] font-semibold uppercase tracking-wider ${
+                      isBooked ? 'text-red-300' : isSelected ? 'text-white/80' : 'text-green-500'
+                    }`}>
+                      {isBooked ? 'Booked' : isSelected ? 'Selected' : 'Open'}
+                    </span>
+                    {!isBooked && (
+                      <span className={`text-[10px] font-medium ${
+                        isSelected ? 'text-white/70' : 'text-gray-400'
+                      }`}>
+                        ₹{displayPrice}
+                      </span>
+                    )}
                   </div>
                 </button>
               );
@@ -280,7 +389,13 @@ export default function SlotsPage() {
           <div className="max-w-2xl mx-auto flex items-center justify-between gap-4">
             <div>
               <p className="text-sm font-bold text-gray-900">{selectedSlots.length} slot{selectedSlots.length > 1 ? 's' : ''} selected</p>
-              <p className="text-[11px] text-gray-400">{format(selectedDate, 'EEE, MMM d')} &middot; {ballType === 'TENNIS' ? 'Tennis Ball Machine' : ballType === 'LEATHER' ? 'Leather Ball Machine (Leather)' : 'Leather Ball Machine (Machine)'}</p>
+              <p className="text-[11px] text-gray-400">
+                {format(selectedDate, 'EEE, MMM d')} &middot; {ballType === 'TENNIS' ? `Tennis Machine${machineConfig?.tennisMachine.pitchTypeSelectionEnabled ? ` (${pitchType})` : ''}` : ballType === 'LEATHER' ? 'Leather Machine (Leather)' : 'Leather Machine (Machine)'}
+              </p>
+              <div className="flex items-center gap-1 mt-0.5">
+                <IndianRupee className="w-3 h-3 text-primary" />
+                <span className="text-sm font-bold text-primary">{getTotalPrice().toLocaleString()}</span>
+              </div>
             </div>
             <button
               onClick={handleBook}
