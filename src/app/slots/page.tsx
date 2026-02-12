@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { format, addDays, parseISO } from 'date-fns';
-import { Calendar, Check, Loader2, IndianRupee } from 'lucide-react';
+import { Calendar, Check, Loader2, IndianRupee, AlertTriangle } from 'lucide-react';
 
 interface MachineConfig {
   leatherMachine: {
@@ -16,6 +16,7 @@ interface MachineConfig {
     turfPitchPrice: number;
   };
   defaultSlotPrice: number;
+  numberOfOperators: number;
 }
 
 export default function SlotsPage() {
@@ -23,6 +24,7 @@ export default function SlotsPage() {
   const [category, setCategory] = useState<'TENNIS' | 'MACHINE'>('MACHINE');
   const [ballType, setBallType] = useState('LEATHER');
   const [pitchType, setPitchType] = useState<string>('ASTRO');
+  const [operationMode, setOperationMode] = useState<'WITH_OPERATOR' | 'SELF_OPERATE'>('WITH_OPERATOR');
   const [slots, setSlots] = useState<any[]>([]);
   const [selectedSlots, setSelectedSlots] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
@@ -42,6 +44,17 @@ export default function SlotsPage() {
     setSelectedSlots([]);
   }, [selectedDate, ballType]);
 
+  // When switching to Tennis and some selected slots don't have operator available,
+  // auto-switch to SELF_OPERATE if currently WITH_OPERATOR
+  useEffect(() => {
+    if (category === 'TENNIS') {
+      const hasNoOperatorSlots = selectedSlots.some(s => !s.operatorAvailable);
+      if (hasNoOperatorSlots && operationMode === 'WITH_OPERATOR') {
+        setOperationMode('SELF_OPERATE');
+      }
+    }
+  }, [selectedSlots, category]);
+
   const fetchSlots = async () => {
     setLoading(true);
     setError('');
@@ -59,7 +72,7 @@ export default function SlotsPage() {
   };
 
   const handleToggleSlot = (slot: any) => {
-    if (slot.status === 'Booked') return;
+    if (slot.status === 'Booked' || slot.status === 'OperatorUnavailable') return;
 
     setSelectedSlots(prev => {
       const isSelected = prev.find(s => s.startTime === slot.startTime);
@@ -95,13 +108,31 @@ export default function SlotsPage() {
     return selectedSlots.reduce((sum, slot) => sum + getSlotDisplayPrice(slot), 0);
   };
 
+  // Check if any selected slot has no operator available (for Tennis)
+  const hasSelectedSlotsWithoutOperator = category === 'TENNIS' &&
+    selectedSlots.some(s => !s.operatorAvailable);
+
+  // Determine effective operation mode for each slot when booking
+  const getSlotOperationMode = (slot: any): 'WITH_OPERATOR' | 'SELF_OPERATE' => {
+    if (category === 'MACHINE') return 'WITH_OPERATOR'; // Leather always needs operator
+    if (!slot.operatorAvailable) return 'SELF_OPERATE'; // No operator = must self-operate
+    return operationMode; // Use selected mode
+  };
+
   const handleBook = async () => {
     if (selectedSlots.length === 0) return;
 
     const total = getTotalPrice();
-    const confirmBooking = window.confirm(
-      `Book ${selectedSlots.length} slot(s) for ₹${total.toLocaleString()}?`
-    );
+    const selfOperateSlots = category === 'TENNIS'
+      ? selectedSlots.filter(s => getSlotOperationMode(s) === 'SELF_OPERATE').length
+      : 0;
+
+    let confirmMessage = `Book ${selectedSlots.length} slot(s) for ₹${total.toLocaleString()}?`;
+    if (selfOperateSlots > 0) {
+      confirmMessage += `\n\n${selfOperateSlots} slot(s) will be self-operated (no operator available).`;
+    }
+
+    const confirmBooking = window.confirm(confirmMessage);
     if (!confirmBooking) return;
 
     setBookingLoading(true);
@@ -114,6 +145,7 @@ export default function SlotsPage() {
           startTime: slot.startTime,
           endTime: slot.endTime,
           ballType: ballType,
+          operationMode: getSlotOperationMode(slot),
           ...(category === 'TENNIS' && machineConfig?.tennisMachine.pitchTypeSelectionEnabled
             ? { pitchType }
             : {}),
@@ -150,6 +182,7 @@ export default function SlotsPage() {
     setSelectedSlots([]);
     if (cat === 'TENNIS') {
       setBallType('TENNIS');
+      setOperationMode('WITH_OPERATOR');
     } else {
       setBallType('LEATHER');
     }
@@ -266,6 +299,37 @@ export default function SlotsPage() {
         </div>
       </div>
 
+      {/* Operation Mode Selector (Tennis Machine only) */}
+      {category === 'TENNIS' && (
+        <div className="mb-5">
+          <label className="block text-xs font-medium text-gray-500 mb-2 uppercase tracking-wider">Operation Mode</label>
+          <div className="flex gap-2">
+            <button
+              onClick={() => { setOperationMode('WITH_OPERATOR'); setSelectedSlots([]); }}
+              className={`flex-1 flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+                operationMode === 'WITH_OPERATOR'
+                  ? 'bg-primary/10 text-primary border border-primary/30'
+                  : 'bg-gray-50 text-gray-500 border border-gray-100 hover:border-primary/20'
+              }`}
+            >
+              <span className="w-1.5 h-1.5 rounded-full bg-blue-500"></span>
+              With Operator
+            </button>
+            <button
+              onClick={() => { setOperationMode('SELF_OPERATE'); setSelectedSlots([]); }}
+              className={`flex-1 flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+                operationMode === 'SELF_OPERATE'
+                  ? 'bg-primary/10 text-primary border border-primary/30'
+                  : 'bg-gray-50 text-gray-500 border border-gray-100 hover:border-primary/20'
+              }`}
+            >
+              <span className="w-1.5 h-1.5 rounded-full bg-orange-500"></span>
+              Self-Operate
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Extra charge notice */}
       {extraCharge > 0 && (
         <div className="mb-4 px-3 py-2 bg-amber-50 border border-amber-100 rounded-lg">
@@ -334,18 +398,30 @@ export default function SlotsPage() {
             {slots.map((slot) => {
               const isSelected = selectedSlots.some(s => s.startTime === slot.startTime);
               const isBooked = slot.status === 'Booked';
+              const isOperatorUnavailable = slot.status === 'OperatorUnavailable';
+              // Tennis slots without operator are still bookable (as self-operate)
+              // Leather slots without operator are not bookable
+              const isDisabled = isBooked || isOperatorUnavailable || bookingLoading;
               const displayPrice = getSlotDisplayPrice(slot);
+
+              // For Tennis: show operator warning on available slots where operator is not available
+              const showOperatorWarning = category === 'TENNIS' &&
+                !isBooked && !isOperatorUnavailable &&
+                !slot.operatorAvailable &&
+                operationMode === 'WITH_OPERATOR';
 
               return (
                 <button
                   key={slot.startTime}
-                  disabled={isBooked || bookingLoading}
+                  disabled={isDisabled}
                   onClick={() => handleToggleSlot(slot)}
                   className={`relative p-3.5 rounded-xl transition-all text-left cursor-pointer ${
-                    isBooked
+                    isBooked || isOperatorUnavailable
                       ? 'bg-gray-50 border border-gray-100 cursor-not-allowed'
                       : isSelected
                       ? 'bg-primary text-white shadow-md shadow-primary/20 border border-primary'
+                      : showOperatorWarning
+                      ? 'bg-amber-50 border border-amber-200 hover:border-amber-300 active:scale-[0.97]'
                       : 'bg-white border border-gray-200 hover:border-primary/40 active:scale-[0.97]'
                   }`}
                 >
@@ -354,21 +430,34 @@ export default function SlotsPage() {
                       <Check className="w-4 h-4" />
                     </div>
                   )}
-                  <div className={`text-sm font-bold ${isBooked ? 'text-gray-300' : ''}`}>
+                  {(showOperatorWarning || (!isBooked && !isOperatorUnavailable && !slot.operatorAvailable && category === 'TENNIS')) && !isSelected && (
+                    <div className="absolute top-2 right-2">
+                      <AlertTriangle className="w-3.5 h-3.5 text-amber-500" />
+                    </div>
+                  )}
+                  <div className={`text-sm font-bold ${isBooked || isOperatorUnavailable ? 'text-gray-300' : ''}`}>
                     {format(parseISO(slot.startTime), 'HH:mm')}
                   </div>
                   <div className={`text-[10px] mt-0.5 ${
-                    isBooked ? 'text-gray-300' : isSelected ? 'text-white/70' : 'text-gray-400'
+                    isBooked || isOperatorUnavailable ? 'text-gray-300' : isSelected ? 'text-white/70' : 'text-gray-400'
                   }`}>
                     to {format(parseISO(slot.endTime), 'HH:mm')}
                   </div>
                   <div className="flex items-center justify-between mt-1.5">
                     <span className={`text-[10px] font-semibold uppercase tracking-wider ${
-                      isBooked ? 'text-red-300' : isSelected ? 'text-white/80' : 'text-green-500'
+                      isOperatorUnavailable ? 'text-amber-400' :
+                      isBooked ? 'text-red-300' :
+                      isSelected ? 'text-white/80' :
+                      !slot.operatorAvailable && category === 'TENNIS' ? 'text-amber-500' :
+                      'text-green-500'
                     }`}>
-                      {isBooked ? 'Booked' : isSelected ? 'Selected' : 'Open'}
+                      {isOperatorUnavailable ? 'No Operator' :
+                       isBooked ? 'Booked' :
+                       isSelected ? 'Selected' :
+                       !slot.operatorAvailable && category === 'TENNIS' ? 'Self Only' :
+                       'Open'}
                     </span>
-                    {!isBooked && (
+                    {!isBooked && !isOperatorUnavailable && (
                       <span className={`text-[10px] font-medium ${
                         isSelected ? 'text-white/70' : 'text-gray-400'
                       }`}>
@@ -383,6 +472,27 @@ export default function SlotsPage() {
         )}
       </div>
 
+      {/* Operator warning for Tennis self-operate slots */}
+      {category === 'TENNIS' && hasSelectedSlotsWithoutOperator && (
+        <div className="mt-4 px-3 py-2.5 bg-amber-50 border border-amber-200 rounded-lg flex items-start gap-2">
+          <AlertTriangle className="w-4 h-4 text-amber-500 mt-0.5 flex-shrink-0" />
+          <p className="text-xs text-amber-700">
+            Operator not available for some selected slots. Those slots will be booked as self-operate.
+          </p>
+        </div>
+      )}
+
+      {/* Operator unavailable warning for Leather Machine */}
+      {category === 'MACHINE' && slots.some(s => s.status === 'OperatorUnavailable') && (
+        <div className="mt-4 px-3 py-2.5 bg-amber-50 border border-amber-200 rounded-lg flex items-start gap-2">
+          <AlertTriangle className="w-4 h-4 text-amber-500 mt-0.5 flex-shrink-0" />
+          <p className="text-xs text-amber-700">
+            Some slots show &ldquo;No Operator&rdquo; because the operator is busy with another machine at that time.
+            Leather machine always requires an operator.
+          </p>
+        </div>
+      )}
+
       {/* Fixed Bottom Booking Bar */}
       {selectedSlots.length > 0 && (
         <div className="fixed bottom-0 left-0 right-0 bg-white/95 backdrop-blur-md border-t border-gray-200 p-4 z-40 safe-bottom">
@@ -391,6 +501,9 @@ export default function SlotsPage() {
               <p className="text-sm font-bold text-gray-900">{selectedSlots.length} slot{selectedSlots.length > 1 ? 's' : ''} selected</p>
               <p className="text-[11px] text-gray-400">
                 {format(selectedDate, 'EEE, MMM d')} &middot; {ballType === 'TENNIS' ? `Tennis Machine${machineConfig?.tennisMachine.pitchTypeSelectionEnabled ? ` (${pitchType})` : ''}` : ballType === 'LEATHER' ? 'Leather Machine (Leather)' : 'Leather Machine (Machine)'}
+                {category === 'TENNIS' && (
+                  <span> &middot; {hasSelectedSlotsWithoutOperator ? 'Mixed modes' : operationMode === 'WITH_OPERATOR' ? 'With Operator' : 'Self-Operate'}</span>
+                )}
               </p>
               <div className="flex items-center gap-1 mt-0.5">
                 <IndianRupee className="w-3 h-3 text-primary" />

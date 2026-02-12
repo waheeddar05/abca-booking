@@ -54,6 +54,7 @@ export async function GET(req: NextRequest) {
       discountType: b.discountType ?? null,
       pitchType: b.pitchType ?? null,
       extraCharge: b.extraCharge ?? null,
+      operationMode: b.operationMode ?? 'WITH_OPERATOR',
     }));
 
     return NextResponse.json(mappedBookings);

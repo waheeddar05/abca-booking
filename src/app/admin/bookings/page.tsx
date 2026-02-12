@@ -356,6 +356,11 @@ export default function AdminBookings() {
                       <span className={`w-2 h-2 rounded-full ${ballTypeConfig[booking.ballType] || 'bg-gray-400'}`}></span>
                       <span className="text-xs text-gray-500">{booking.ballType}</span>
                     </div>
+                    {booking.operationMode && (
+                      <span className={`text-xs px-1.5 py-0.5 rounded ${booking.operationMode === 'SELF_OPERATE' ? 'bg-orange-50 text-orange-600' : 'bg-blue-50 text-blue-600'}`}>
+                        {booking.operationMode === 'SELF_OPERATE' ? 'Self' : 'Operator'}
+                      </span>
+                    )}
                     {booking.price != null && (
                       <div className="flex items-center gap-0.5 text-xs text-gray-600">
                         <IndianRupee className="w-3 h-3" />
@@ -437,6 +442,11 @@ export default function AdminBookings() {
                         <div className="flex items-center gap-1.5">
                           <span className={`w-2 h-2 rounded-full ${ballTypeConfig[booking.ballType] || 'bg-gray-400'}`}></span>
                           <span className="text-sm text-gray-600">{booking.ballType}</span>
+                          {booking.operationMode && (
+                            <span className={`text-[10px] px-1.5 py-0.5 rounded ${booking.operationMode === 'SELF_OPERATE' ? 'bg-orange-50 text-orange-600' : 'bg-blue-50 text-blue-600'}`}>
+                              {booking.operationMode === 'SELF_OPERATE' ? 'Self' : 'Op'}
+                            </span>
+                          )}
                         </div>
                       </td>
                       <td className="px-5 py-3.5">

@@ -36,6 +36,7 @@ interface MachineConfig {
     astroPitchPrice: number;
     turfPitchPrice: number;
   };
+  numberOfOperators: number;
 }
 
 export default function AdminDashboard() {
@@ -56,6 +57,7 @@ export default function AdminDashboard() {
   const [machineConfig, setMachineConfig] = useState<MachineConfig>({
     leatherMachine: { ballTypeSelectionEnabled: false, leatherBallExtraCharge: 100, machineBallExtraCharge: 0 },
     tennisMachine: { pitchTypeSelectionEnabled: false, astroPitchPrice: 600, turfPitchPrice: 700 },
+    numberOfOperators: 1,
   });
   const [machineLoading, setMachineLoading] = useState(true);
   const [savingMachine, setSavingMachine] = useState(false);
@@ -348,6 +350,33 @@ export default function AdminDashboard() {
                   </div>
                 </div>
               )}
+            </div>
+
+            {/* Operator Configuration */}
+            <div className="pt-4 border-t border-gray-100">
+              <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">Operator Configuration</h3>
+              <div className="mb-3">
+                <p className="text-sm font-medium text-gray-700">Number of Operators</p>
+                <p className="text-xs text-gray-400 mb-2">How many parallel operator-assisted bookings are allowed per time slot</p>
+                <input
+                  type="number"
+                  value={machineConfig.numberOfOperators}
+                  onChange={e => setMachineConfig(prev => ({
+                    ...prev,
+                    numberOfOperators: Math.max(1, Math.floor(Number(e.target.value))),
+                  }))}
+                  min="1"
+                  className="w-32 border border-gray-200 rounded-lg px-3 py-2.5 text-sm outline-none focus:border-primary focus:ring-1 focus:ring-primary/20"
+                />
+              </div>
+              <div className="bg-blue-50 border border-blue-100 rounded-lg px-3 py-2">
+                <p className="text-xs text-blue-700">
+                  With {machineConfig.numberOfOperators} operator{machineConfig.numberOfOperators > 1 ? 's' : ''},
+                  up to {machineConfig.numberOfOperators} machine{machineConfig.numberOfOperators > 1 ? 's' : ''} can
+                  be operated simultaneously per time slot. Leather machine always requires an operator.
+                  Tennis machine can be self-operated when no operator is available.
+                </p>
+              </div>
             </div>
 
             <div className="flex items-center gap-3 pt-3">

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { Prisma, type BallType, type PitchType } from '@prisma/client';
+import { Prisma, type BallType, type PitchType, type OperationMode } from '@prisma/client';
 import { isAfter, isValid } from 'date-fns';
 import { getAuthenticatedUser } from '@/lib/auth';
 import { getRelevantBallTypes, isValidBallType, MACHINE_A_BALLS } from '@/lib/constants';
@@ -18,6 +18,7 @@ async function getMachineConfig() {
           'PITCH_TYPE_SELECTION_ENABLED',
           'ASTRO_PITCH_PRICE',
           'TURF_PITCH_PRICE',
+          'NUMBER_OF_OPERATORS',
         ],
       },
     },
@@ -32,11 +33,16 @@ async function getMachineConfig() {
     pitchTypeSelectionEnabled: config['PITCH_TYPE_SELECTION_ENABLED'] === 'true',
     astroPitchPrice: parseFloat(config['ASTRO_PITCH_PRICE'] || '600'),
     turfPitchPrice: parseFloat(config['TURF_PITCH_PRICE'] || '700'),
+    numberOfOperators: parseInt(config['NUMBER_OF_OPERATORS'] || '1', 10),
   };
 }
 
 function isValidPitchType(val: string): val is PitchType {
   return ['ASTRO', 'TURF'].includes(val);
+}
+
+function isValidOperationMode(val: string): val is OperationMode {
+  return ['WITH_OPERATOR', 'SELF_OPERATE'].includes(val);
 }
 
 const MAX_TRANSACTION_RETRIES = 3;
@@ -45,6 +51,13 @@ class BookingConflictError extends Error {
   constructor(message: string) {
     super(message);
     this.name = 'BookingConflictError';
+  }
+}
+
+class OperatorUnavailableError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'OperatorUnavailableError';
   }
 }
 
@@ -103,17 +116,19 @@ export async function POST(req: NextRequest) {
       endTime: Date;
       ballType: BallType;
       pitchType: PitchType | null;
+      operationMode: OperationMode;
       playerName: string;
       extraCharge: number;
     }> = [];
 
     for (const slotData of slotsToBook) {
-      const { date, startTime, endTime, ballType = 'TENNIS', pitchType } = slotData as {
+      const { date, startTime, endTime, ballType = 'TENNIS', pitchType, operationMode } = slotData as {
         date: string;
         startTime: string;
         endTime: string;
         ballType?: string;
         pitchType?: string;
+        operationMode?: string;
         playerName?: string;
       };
       let { playerName } = slotData as { playerName?: string };
@@ -128,6 +143,15 @@ export async function POST(req: NextRequest) {
 
       if (!isValidBallType(ballType)) {
         return NextResponse.json({ error: 'Invalid ball type' }, { status: 400 });
+      }
+
+      // Determine operation mode
+      let resolvedOperationMode: OperationMode = 'WITH_OPERATOR';
+      if (MACHINE_A_BALLS.includes(ballType as BallType)) {
+        // Leather machine always requires operator
+        resolvedOperationMode = 'WITH_OPERATOR';
+      } else if (operationMode && isValidOperationMode(operationMode)) {
+        resolvedOperationMode = operationMode as OperationMode;
       }
 
       // Validate pitch type for Tennis Machine
@@ -171,6 +195,7 @@ export async function POST(req: NextRequest) {
         endTime: end,
         ballType: ballType as BallType,
         pitchType: validatedPitchType,
+        operationMode: resolvedOperationMode,
         playerName,
         extraCharge,
       });
@@ -232,6 +257,7 @@ export async function POST(req: NextRequest) {
       }
 
       const slotTime = slot.startTime.toLocaleTimeString();
+      const requiresOperator = slot.operationMode === 'WITH_OPERATOR';
 
       let result: { id: string; status: string } | null = null;
       for (let attempt = 1; attempt <= MAX_TRANSACTION_RETRIES; attempt++) {
@@ -251,6 +277,46 @@ export async function POST(req: NextRequest) {
 
             if (existingBooked) {
               throw new BookingConflictError(`Slot at ${slotTime} is already booked`);
+            }
+
+            // Operator constraint check: count how many operators are already consumed
+            // for this time slot across ALL machines
+            if (requiresOperator) {
+              let operatorsUsed = 0;
+              try {
+                const operatorBookings = await tx.booking.findMany({
+                  where: {
+                    date: slot.date,
+                    startTime: slot.startTime,
+                    status: 'BOOKED',
+                    OR: [
+                      // Leather/Machine ball types always consume an operator
+                      { ballType: { in: MACHINE_A_BALLS } },
+                      // Tennis with operator consumes an operator
+                      { ballType: 'TENNIS', operationMode: 'WITH_OPERATOR' },
+                    ],
+                  },
+                  select: { id: true },
+                });
+                operatorsUsed = operatorBookings.length;
+              } catch {
+                // If operationMode column doesn't exist yet, count all bookings as operator-consuming
+                const allBookingsForSlot = await tx.booking.findMany({
+                  where: {
+                    date: slot.date,
+                    startTime: slot.startTime,
+                    status: 'BOOKED',
+                  },
+                  select: { id: true },
+                });
+                operatorsUsed = allBookingsForSlot.length;
+              }
+
+              if (operatorsUsed >= machineConfig.numberOfOperators) {
+                throw new OperatorUnavailableError(
+                  `Operator not available for slot at ${slotTime}. All ${machineConfig.numberOfOperators} operator(s) are already booked.`
+                );
+              }
             }
 
             const existingSameBallType = await tx.booking.findFirst({
@@ -285,6 +351,7 @@ export async function POST(req: NextRequest) {
               originalPrice: priceInfo.originalPrice,
               discountAmount: priceInfo.discountAmount || null,
               discountType: priceInfo.discountType || null,
+              operationMode: slot.operationMode,
             };
 
             const fullUpdateData: Record<string, unknown> = {
@@ -293,6 +360,7 @@ export async function POST(req: NextRequest) {
               originalPrice: priceInfo.originalPrice,
               discountAmount: priceInfo.discountAmount || null,
               discountType: priceInfo.discountType || null,
+              operationMode: slot.operationMode,
             };
 
             if (slot.pitchType !== null) {
@@ -352,7 +420,7 @@ export async function POST(req: NextRequest) {
 
           break;
         } catch (error) {
-          if (error instanceof BookingConflictError) {
+          if (error instanceof BookingConflictError || error instanceof OperatorUnavailableError) {
             throw error;
           }
 
@@ -378,6 +446,9 @@ export async function POST(req: NextRequest) {
     return NextResponse.json(Array.isArray(body) ? results : results[0]);
   } catch (error: unknown) {
     if (error instanceof BookingConflictError) {
+      return NextResponse.json({ error: error.message }, { status: 409 });
+    }
+    if (error instanceof OperatorUnavailableError) {
       return NextResponse.json({ error: error.message }, { status: 409 });
     }
     const message = error instanceof Error ? error.message : 'Internal server error';

@@ -64,6 +64,7 @@ model Booking {
   discountAmount Float?
   discountType   DiscountType?
   extraCharge    Float?
+  operationMode  OperationMode @default(WITH_OPERATOR)
   createdAt      DateTime      @default(now())
   user           User?         @relation(fields: [userId], references: [id])
 
@@ -100,4 +101,9 @@ enum PitchType {
 enum DiscountType {
   PERCENTAGE
   FIXED
+}
+
+enum OperationMode {
+  WITH_OPERATOR
+  SELF_OPERATE
 }

@@ -9,6 +9,7 @@ const MACHINE_CONFIG_KEYS = [
   'ASTRO_PITCH_PRICE',
   'TURF_PITCH_PRICE',
   'DEFAULT_SLOT_PRICE',
+  'NUMBER_OF_OPERATORS',
 ];
 
 export async function GET() {
@@ -34,6 +35,7 @@ export async function GET() {
         turfPitchPrice: parseFloat(config['TURF_PITCH_PRICE'] || '700'),
       },
       defaultSlotPrice: parseFloat(config['DEFAULT_SLOT_PRICE'] || '600'),
+      numberOfOperators: parseInt(config['NUMBER_OF_OPERATORS'] || '1', 10),
     });
   } catch (error: any) {
     console.error('Public machine config fetch error:', error);

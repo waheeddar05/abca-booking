@@ -3,7 +3,7 @@ import { prisma } from '@/lib/prisma';
 import { type BallType } from '@prisma/client';
 import { generateSlotsForDate, filterPastSlots, getISTTodayUTC, dateStringToUTC } from '@/lib/time';
 import { isSameDay, isValid } from 'date-fns';
-import { getRelevantBallTypes, isValidBallType } from '@/lib/constants';
+import { getRelevantBallTypes, isValidBallType, MACHINE_A_BALLS } from '@/lib/constants';
 
 export async function GET(req: NextRequest) {
   try {
@@ -33,10 +33,10 @@ export async function GET(req: NextRequest) {
       return NextResponse.json([]);
     }
 
-    // Fetch policies
+    // Fetch policies (include NUMBER_OF_OPERATORS)
     const policies = await prisma.policy.findMany({
       where: {
-        key: { in: ['SLOT_WINDOW_START', 'SLOT_WINDOW_END', 'SLOT_DURATION', 'DISABLED_DATES'] }
+        key: { in: ['SLOT_WINDOW_START', 'SLOT_WINDOW_END', 'SLOT_DURATION', 'DISABLED_DATES', 'NUMBER_OF_OPERATORS'] }
       }
     });
 
@@ -47,6 +47,8 @@ export async function GET(req: NextRequest) {
     if (disabledDates.includes(dateStr)) {
       return NextResponse.json([]);
     }
+
+    const numberOfOperators = parseInt(policyMap['NUMBER_OF_OPERATORS'] || '1', 10);
 
     const config = {
       startHour: policyMap['SLOT_WINDOW_START'] ? parseInt(policyMap['SLOT_WINDOW_START']) : undefined,
@@ -65,6 +67,7 @@ export async function GET(req: NextRequest) {
     // Machine B: TENNIS
     const relevantBallTypes = getRelevantBallTypes(validatedBallType);
 
+    // Get bookings on the same machine (for machine-level occupancy)
     const occupiedBookings = await prisma.booking.findMany({
       where: {
         date: dateUTC,
@@ -73,6 +76,47 @@ export async function GET(req: NextRequest) {
       },
       select: { startTime: true },
     });
+
+    // Get ALL active bookings for this date to compute operator usage per slot
+    let allBookings: { startTime: Date; ballType: BallType; operationMode: string }[] = [];
+    try {
+      allBookings = await prisma.booking.findMany({
+        where: {
+          date: dateUTC,
+          status: 'BOOKED',
+        },
+        select: { startTime: true, ballType: true, operationMode: true },
+      });
+    } catch {
+      // operationMode column may not exist yet if migration hasn't been applied
+      // Fall back to treating all bookings as WITH_OPERATOR
+      const fallbackBookings = await prisma.booking.findMany({
+        where: {
+          date: dateUTC,
+          status: 'BOOKED',
+        },
+        select: { startTime: true, ballType: true },
+      });
+      allBookings = fallbackBookings.map(b => ({ ...b, operationMode: 'WITH_OPERATOR' }));
+    }
+
+    // Build a map of startTime -> number of operators consumed
+    const operatorUsageMap = new Map<number, number>();
+    for (const booking of allBookings) {
+      const timeKey = booking.startTime.getTime();
+      // Leather/Machine ball types always consume an operator
+      // Tennis with WITH_OPERATOR consumes an operator
+      // Tennis with SELF_OPERATE does NOT consume an operator
+      const consumesOperator =
+        MACHINE_A_BALLS.includes(booking.ballType) ||
+        booking.operationMode === 'WITH_OPERATOR';
+
+      if (consumesOperator) {
+        operatorUsageMap.set(timeKey, (operatorUsageMap.get(timeKey) || 0) + 1);
+      }
+    }
+
+    const isLeatherMachine = MACHINE_A_BALLS.includes(validatedBallType);
 
     // Fetch slot prices from admin-created slots (graceful if Slot table doesn't exist yet)
     let adminSlots: { startTime: Date; price: number }[] = [];
@@ -103,19 +147,37 @@ export async function GET(req: NextRequest) {
     const defaultPrice = parseFloat(mcMap['DEFAULT_SLOT_PRICE'] || '600');
 
     const availableSlots = slots.map(slot => {
+      const timeKey = slot.startTime.getTime();
+
       const isOccupied = occupiedBookings.some(booking => {
-        return booking.startTime.getTime() === slot.startTime.getTime();
+        return booking.startTime.getTime() === timeKey;
       });
 
+      const operatorsUsed = operatorUsageMap.get(timeKey) || 0;
+      const operatorAvailable = operatorsUsed < numberOfOperators;
+
       // Find admin-set price for this slot
-      const adminSlot = adminSlots.find(s => s.startTime.getTime() === slot.startTime.getTime());
+      const adminSlot = adminSlots.find(s => s.startTime.getTime() === timeKey);
       const basePrice = adminSlot?.price ?? defaultPrice;
+
+      // Determine slot status
+      let status: string;
+      if (isOccupied) {
+        // Machine itself is already booked
+        status = 'Booked';
+      } else if (isLeatherMachine && !operatorAvailable) {
+        // Leather machine always needs operator - block if none available
+        status = 'OperatorUnavailable';
+      } else {
+        status = 'Available';
+      }
 
       return {
         startTime: slot.startTime.toISOString(),
         endTime: slot.endTime.toISOString(),
-        status: isOccupied ? 'Booked' : 'Available',
+        status,
         price: basePrice,
+        operatorAvailable,
       };
     });
 

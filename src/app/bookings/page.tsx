@@ -17,6 +17,7 @@ interface Booking {
   originalPrice: number | null;
   discountAmount: number | null;
   extraCharge: number | null;
+  operationMode: 'WITH_OPERATOR' | 'SELF_OPERATE';
 }
 
 export default function BookingsPage() {
@@ -179,6 +180,14 @@ export default function BookingsPage() {
                     )}
                     <span className="text-gray-200">|</span>
                     <span className="text-xs text-gray-500">{booking.playerName}</span>
+                    {booking.ballType === 'TENNIS' && (
+                      <>
+                        <span className="text-gray-200">|</span>
+                        <span className={`text-xs ${booking.operationMode === 'SELF_OPERATE' ? 'text-orange-500' : 'text-blue-500'}`}>
+                          {booking.operationMode === 'SELF_OPERATE' ? 'Self' : 'Operator'}
+                        </span>
+                      </>
+                    )}
                   </div>
 
                   {/* Price */}

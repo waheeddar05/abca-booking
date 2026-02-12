@@ -9,6 +9,7 @@ const MACHINE_CONFIG_KEYS = [
   'PITCH_TYPE_SELECTION_ENABLED',
   'ASTRO_PITCH_PRICE',
   'TURF_PITCH_PRICE',
+  'NUMBER_OF_OPERATORS',
 ];
 
 export async function GET(req: NextRequest) {
@@ -38,6 +39,7 @@ export async function GET(req: NextRequest) {
         astroPitchPrice: parseFloat(config['ASTRO_PITCH_PRICE'] || '600'),
         turfPitchPrice: parseFloat(config['TURF_PITCH_PRICE'] || '700'),
       },
+      numberOfOperators: parseInt(config['NUMBER_OF_OPERATORS'] || '1', 10),
     });
   } catch (error: any) {
     console.error('Machine config fetch error:', error);
@@ -53,7 +55,7 @@ export async function POST(req: NextRequest) {
     }
 
     const body = await req.json();
-    const { leatherMachine, tennisMachine } = body;
+    const { leatherMachine, tennisMachine, numberOfOperators } = body;
 
     const updates: Array<{ key: string; value: string }> = [];
 
@@ -79,6 +81,11 @@ export async function POST(req: NextRequest) {
       if (tennisMachine.turfPitchPrice !== undefined) {
         updates.push({ key: 'TURF_PITCH_PRICE', value: String(tennisMachine.turfPitchPrice) });
       }
+    }
+
+    if (numberOfOperators !== undefined) {
+      const val = Math.max(1, Math.floor(Number(numberOfOperators)));
+      updates.push({ key: 'NUMBER_OF_OPERATORS', value: String(val) });
     }
 
     for (const { key, value } of updates) {
