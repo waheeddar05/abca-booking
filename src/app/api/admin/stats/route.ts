@@ -1,9 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { requireAdmin } from '@/lib/adminAuth';
-import { startOfDay, endOfDay, subMonths, startOfMonth, endOfMonth } from 'date-fns';
-import { toDate } from 'date-fns-tz';
-import { TIMEZONE } from '@/lib/time';
+import { getISTTodayUTC, getISTLastMonthRange } from '@/lib/time';
 
 export async function GET(req: NextRequest) {
   try {
@@ -12,10 +10,8 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 403 });
     }
 
-    const now = toDate(new Date(), { timeZone: TIMEZONE });
-    const todayStart = startOfDay(now);
-    const todayEnd = endOfDay(now);
-    const lastMonth = subMonths(now, 1);
+    const todayUTC = getISTTodayUTC();
+    const lastMonthRange = getISTLastMonthRange();
 
     const [
       totalBookings,
@@ -30,16 +26,16 @@ export async function GET(req: NextRequest) {
       prisma.booking.count(),
       prisma.user.count({ where: { role: 'ADMIN' } }),
       prisma.booking.count({
-        where: { date: { gte: todayStart, lte: todayEnd } },
+        where: { date: todayUTC },
       }),
       prisma.booking.count({
-        where: { date: { gt: todayEnd }, status: 'BOOKED' },
+        where: { date: { gt: todayUTC }, status: 'BOOKED' },
       }),
       prisma.booking.count({
         where: {
           date: {
-            gte: startOfMonth(lastMonth),
-            lte: endOfMonth(lastMonth),
+            gte: lastMonthRange.start,
+            lte: lastMonthRange.end,
           },
         },
       }),

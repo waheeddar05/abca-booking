@@ -21,7 +21,6 @@ export async function GET(req: NextRequest) {
       },
     });
 
-    // Map to frontend Booking interface if necessary
     const mappedBookings = bookings.map(b => ({
       id: b.id,
       date: b.date.toISOString(),
@@ -29,7 +28,13 @@ export async function GET(req: NextRequest) {
       endTime: b.endTime.toISOString(),
       ballType: b.ballType,
       playerName: b.playerName,
-      status: b.status
+      status: b.status,
+      price: b.price ?? null,
+      originalPrice: b.originalPrice ?? null,
+      discountAmount: b.discountAmount ?? null,
+      discountType: b.discountType ?? null,
+      pitchType: (b as any).pitchType ?? null,
+      extraCharge: (b as any).extraCharge ?? null,
     }));
 
     return NextResponse.json(mappedBookings);

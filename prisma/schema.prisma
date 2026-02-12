@@ -57,11 +57,13 @@ model Booking {
   endTime        DateTime
   status         BookingStatus @default(BOOKED)
   ballType       BallType      @default(TENNIS)
+  pitchType      PitchType?
   playerName     String
   price          Float?
   originalPrice  Float?
   discountAmount Float?
   discountType   DiscountType?
+  extraCharge    Float?
   createdAt      DateTime      @default(now())
   user           User?         @relation(fields: [userId], references: [id])
 
@@ -88,6 +90,11 @@ enum BallType {
   TENNIS
   LEATHER
   MACHINE
+}
+
+enum PitchType {
+  ASTRO
+  TURF
 }
 
 enum DiscountType {

@@ -1,9 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { requireAdmin } from '@/lib/adminAuth';
-import { startOfDay, endOfDay, parseISO, subMonths, startOfMonth, endOfMonth } from 'date-fns';
-import { toDate } from 'date-fns-tz';
-import { TIMEZONE } from '@/lib/time';
+import { getISTTodayUTC, getISTLastMonthRange, dateStringToUTC } from '@/lib/time';
 
 export async function GET(req: NextRequest) {
   try {
@@ -26,33 +24,31 @@ export async function GET(req: NextRequest) {
     const sortOrder = searchParams.get('sortOrder') || 'desc'; // asc, desc
 
     const where: any = {};
-    const now = toDate(new Date(), { timeZone: TIMEZONE });
-    const todayStart = startOfDay(now);
-    const todayEnd = endOfDay(now);
+    const todayUTC = getISTTodayUTC();
 
-    // Category-based filtering
+    // Category-based filtering (using IST-aware UTC dates for @db.Date)
     if (category === 'today') {
-      where.date = { gte: todayStart, lte: todayEnd };
+      where.date = todayUTC;
     } else if (category === 'upcoming') {
-      where.date = { gt: todayEnd };
+      where.date = { gt: todayUTC };
       where.status = 'BOOKED';
     } else if (category === 'previous') {
-      where.date = { lt: todayStart };
+      where.date = { lt: todayUTC };
     } else if (category === 'lastMonth') {
-      const lastMonth = subMonths(now, 1);
+      const lastMonthRange = getISTLastMonthRange();
       where.date = {
-        gte: startOfMonth(lastMonth),
-        lte: endOfMonth(lastMonth),
+        gte: lastMonthRange.start,
+        lte: lastMonthRange.end,
       };
     }
 
     // Direct date / date range filters (override category)
     if (date) {
-      where.date = new Date(date);
+      where.date = dateStringToUTC(date);
     } else if (from && to) {
       where.date = {
-        gte: startOfDay(parseISO(from)),
-        lte: endOfDay(parseISO(to)),
+        gte: dateStringToUTC(from),
+        lte: dateStringToUTC(to),
       };
     }
 
