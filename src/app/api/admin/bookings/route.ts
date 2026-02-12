@@ -1,39 +1,67 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { getToken } from 'next-auth/jwt';
-import { verifyToken } from '@/lib/jwt';
-
-async function getSession(req: NextRequest) {
-  const token = await getToken({ req, secret: process.env.NEXTAUTH_SECRET });
-  if (token) return { role: token.role, email: token.email };
-
-  const otpTokenStr = req.cookies.get('token')?.value;
-  if (otpTokenStr) {
-    const otpToken = verifyToken(otpTokenStr) as any;
-    return { role: otpToken?.role, email: otpToken?.email };
-  }
-  return null;
-}
+import { requireAdmin } from '@/lib/adminAuth';
+import { startOfDay, endOfDay, parseISO, subMonths, startOfMonth, endOfMonth } from 'date-fns';
+import { toDate } from 'date-fns-tz';
+import { TIMEZONE } from '@/lib/time';
 
 export async function GET(req: NextRequest) {
   try {
-    const session = await getSession(req);
-    if (session?.role !== 'ADMIN') {
+    const session = await requireAdmin(req);
+    if (!session) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 403 });
     }
 
     const { searchParams } = new URL(req.url);
+    const category = searchParams.get('category'); // all, today, upcoming, previous, lastMonth
     const date = searchParams.get('date');
+    const from = searchParams.get('from');
+    const to = searchParams.get('to');
     const status = searchParams.get('status');
     const customer = searchParams.get('customer');
+    const userId = searchParams.get('userId');
+    const page = parseInt(searchParams.get('page') || '1');
+    const limit = parseInt(searchParams.get('limit') || '50');
+    const sortBy = searchParams.get('sortBy') || 'date'; // date, createdAt
+    const sortOrder = searchParams.get('sortOrder') || 'desc'; // asc, desc
 
     const where: any = {};
+    const now = toDate(new Date(), { timeZone: TIMEZONE });
+    const todayStart = startOfDay(now);
+    const todayEnd = endOfDay(now);
+
+    // Category-based filtering
+    if (category === 'today') {
+      where.date = { gte: todayStart, lte: todayEnd };
+    } else if (category === 'upcoming') {
+      where.date = { gt: todayEnd };
+      where.status = 'BOOKED';
+    } else if (category === 'previous') {
+      where.date = { lt: todayStart };
+    } else if (category === 'lastMonth') {
+      const lastMonth = subMonths(now, 1);
+      where.date = {
+        gte: startOfMonth(lastMonth),
+        lte: endOfMonth(lastMonth),
+      };
+    }
+
+    // Direct date / date range filters (override category)
     if (date) {
       where.date = new Date(date);
+    } else if (from && to) {
+      where.date = {
+        gte: startOfDay(parseISO(from)),
+        lte: endOfDay(parseISO(to)),
+      };
     }
+
+    // Status filter
     if (status) {
       where.status = status;
     }
+
+    // Customer filter
     if (customer) {
       where.OR = [
         { playerName: { contains: customer, mode: 'insensitive' } },
@@ -42,23 +70,65 @@ export async function GET(req: NextRequest) {
       ];
     }
 
-    const bookings = await prisma.booking.findMany({
-      where,
-      include: {
-        user: {
-          select: {
-            name: true,
-            email: true,
-            mobileNumber: true,
+    // User filter
+    if (userId) {
+      where.userId = userId;
+    }
+
+    // Build orderBy
+    const orderBy: any = [];
+    if (sortBy === 'createdAt') {
+      orderBy.push({ createdAt: sortOrder });
+    } else {
+      orderBy.push({ date: sortOrder });
+      orderBy.push({ startTime: sortOrder });
+    }
+
+    const skip = (page - 1) * limit;
+
+    const [bookings, total] = await Promise.all([
+      prisma.booking.findMany({
+        where,
+        include: {
+          user: {
+            select: {
+              name: true,
+              email: true,
+              mobileNumber: true,
+            },
           },
         },
+        orderBy,
+        skip,
+        take: limit,
+      }),
+      prisma.booking.count({ where }),
+    ]);
+
+    // Get summary counts for the current filter set (without status filter)
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const { status: _statusFilter, ...whereWithoutStatus } = where;
+    const [bookedCount, doneCount, cancelledCount] = await Promise.all([
+      prisma.booking.count({ where: { ...whereWithoutStatus, status: 'BOOKED' } }),
+      prisma.booking.count({ where: { ...whereWithoutStatus, status: 'DONE' } }),
+      prisma.booking.count({ where: { ...whereWithoutStatus, status: 'CANCELLED' } }),
+    ]);
+
+    return NextResponse.json({
+      bookings,
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages: Math.ceil(total / limit),
       },
-      orderBy: {
-        startTime: 'desc',
+      summary: {
+        booked: bookedCount,
+        done: doneCount,
+        cancelled: cancelledCount,
+        total: bookedCount + doneCount + cancelledCount,
       },
     });
-
-    return NextResponse.json(bookings);
   } catch (error) {
     console.error('Admin bookings fetch error:', error);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
@@ -67,8 +137,8 @@ export async function GET(req: NextRequest) {
 
 export async function PATCH(req: NextRequest) {
   try {
-    const session = await getSession(req);
-    if (session?.role !== 'ADMIN') {
+    const session = await requireAdmin(req);
+    if (!session) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 403 });
     }
 

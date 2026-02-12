@@ -3,6 +3,8 @@ import { prisma } from '@/lib/prisma';
 import { startOfDay, parseISO, isAfter } from 'date-fns';
 import { getAuthenticatedUser } from '@/lib/auth';
 import { getRelevantBallTypes, isValidBallType } from '@/lib/constants';
+import { getDiscountConfig, calculatePricing, SlotWithPrice } from '@/lib/discount';
+import { BallType } from '@prisma/client';
 
 export async function POST(req: NextRequest) {
   try {
@@ -22,11 +24,18 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'No slots provided' }, { status: 400 });
     }
 
-    const results = [];
+    // Validate all slots first
+    const validatedSlots: Array<{
+      date: Date;
+      startTime: Date;
+      endTime: Date;
+      ballType: BallType;
+      playerName: string;
+    }> = [];
+
     for (const slotData of slotsToBook) {
       let { date, startTime, endTime, ballType = 'TENNIS', playerName } = slotData;
 
-      // Automatically take playerName from user if not provided or if it's 'Guest'
       if ((!playerName || playerName === 'Guest') && userName) {
         playerName = userName;
       }
@@ -35,79 +44,114 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
       }
 
-      const bookingDate = parseISO(date);
-      const start = new Date(startTime);
-      const end = new Date(endTime);
-
-      // Validate ballType and machine constraints
       if (!isValidBallType(ballType)) {
         return NextResponse.json({ error: 'Invalid ball type' }, { status: 400 });
       }
 
-      // No slots in the past
+      const start = new Date(startTime);
       if (!isAfter(start, new Date())) {
         return NextResponse.json({ error: 'Cannot book in the past' }, { status: 400 });
       }
 
-      // Use DB transaction to prevent double booking
+      validatedSlots.push({
+        date: parseISO(date),
+        startTime: start,
+        endTime: new Date(endTime),
+        ballType: ballType as BallType,
+        playerName,
+      });
+    }
+
+    // Fetch discount config and slot prices
+    const discountConfig = await getDiscountConfig();
+
+    // Lookup slot prices from Slot table, fall back to default
+    const slotPrices: SlotWithPrice[] = [];
+    for (const slot of validatedSlots) {
+      const dbSlot = await prisma.slot.findFirst({
+        where: {
+          date: startOfDay(slot.date),
+          startTime: slot.startTime,
+          isActive: true,
+        },
+      });
+      slotPrices.push({
+        startTime: slot.startTime,
+        endTime: slot.endTime,
+        price: dbSlot?.price ?? discountConfig.defaultSlotPrice,
+      });
+    }
+
+    // Calculate pricing with discount
+    const pricing = calculatePricing(slotPrices, discountConfig);
+
+    // Book all slots in transaction
+    const results = [];
+    for (let i = 0; i < validatedSlots.length; i++) {
+      const slot = validatedSlots[i];
+      const priceInfo = pricing[i];
+
       const result = await prisma.$transaction(async (tx) => {
-        // Check for overlapping bookings on the same machine
-        const relevantBallTypes = getRelevantBallTypes(ballType);
+        const relevantBallTypes = getRelevantBallTypes(slot.ballType);
 
         const existingBooked = await tx.booking.findFirst({
           where: {
             date: {
-              gte: startOfDay(bookingDate),
-              lte: startOfDay(bookingDate),
+              gte: startOfDay(slot.date),
+              lte: startOfDay(slot.date),
             },
-            startTime: start,
+            startTime: slot.startTime,
             ballType: { in: relevantBallTypes as any },
             status: 'BOOKED',
           },
         });
 
         if (existingBooked) {
-          throw new Error(`Slot at ${start.toLocaleTimeString()} already booked`);
+          throw new Error(`Slot at ${slot.startTime.toLocaleTimeString()} already booked`);
         }
 
         const existingSameBallType = await tx.booking.findFirst({
           where: {
             date: {
-              gte: startOfDay(bookingDate),
-              lte: startOfDay(bookingDate),
+              gte: startOfDay(slot.date),
+              lte: startOfDay(slot.date),
             },
-            startTime: start,
-            ballType: ballType || 'TENNIS',
+            startTime: slot.startTime,
+            ballType: slot.ballType || 'TENNIS',
           },
         });
 
         if (existingSameBallType) {
-          // If it exists but is not BOOKED (checked above), it must be CANCELLED.
-          // We update it to reuse the record and avoid unique constraint violation.
           return await tx.booking.update({
             where: { id: existingSameBallType.id },
             data: {
               userId: userId!,
-              endTime: end,
+              endTime: slot.endTime,
               status: 'BOOKED',
-              playerName: playerName,
+              playerName: slot.playerName,
+              price: priceInfo.price,
+              originalPrice: priceInfo.originalPrice,
+              discountAmount: priceInfo.discountAmount || null,
+              discountType: priceInfo.discountType || null,
             },
           });
         }
 
-        const booking = await tx.booking.create({
+        return await tx.booking.create({
           data: {
             userId: userId!,
-            date: bookingDate,
-            startTime: start,
-            endTime: end,
+            date: slot.date,
+            startTime: slot.startTime,
+            endTime: slot.endTime,
             status: 'BOOKED',
-            ballType: ballType || 'TENNIS',
-            playerName: playerName,
+            ballType: slot.ballType || 'TENNIS',
+            playerName: slot.playerName,
+            price: priceInfo.price,
+            originalPrice: priceInfo.originalPrice,
+            discountAmount: priceInfo.discountAmount || null,
+            discountType: priceInfo.discountType || null,
           },
         });
-
-        return booking;
       });
       results.push(result);
     }

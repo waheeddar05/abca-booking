@@ -37,17 +37,33 @@ model Otp {
   user      User     @relation(fields: [userId], references: [id])
 }
 
+model Slot {
+  id        String   @id @default(cuid())
+  date      DateTime @db.Date
+  startTime DateTime
+  endTime   DateTime
+  price     Float    @default(600)
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  @@unique([date, startTime])
+}
+
 model Booking {
-  id         String        @id @default(cuid())
-  userId     String?
-  date       DateTime      @db.Date
-  startTime  DateTime
-  endTime    DateTime
-  status     BookingStatus @default(BOOKED)
-  ballType   BallType      @default(TENNIS)
-  playerName String
-  createdAt  DateTime      @default(now())
-  user       User?         @relation(fields: [userId], references: [id])
+  id             String        @id @default(cuid())
+  userId         String?
+  date           DateTime      @db.Date
+  startTime      DateTime
+  endTime        DateTime
+  status         BookingStatus @default(BOOKED)
+  ballType       BallType      @default(TENNIS)
+  playerName     String
+  price          Float?
+  originalPrice  Float?
+  discountAmount Float?
+  discountType   DiscountType?
+  createdAt      DateTime      @default(now())
+  user           User?         @relation(fields: [userId], references: [id])
 
   @@unique([date, startTime, ballType])
 }
@@ -72,4 +88,9 @@ enum BallType {
   TENNIS
   LEATHER
   MACHINE
+}
+
+enum DiscountType {
+  PERCENTAGE
+  FIXED
 }
