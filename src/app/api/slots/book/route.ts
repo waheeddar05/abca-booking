@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { Prisma, type BallType, type PitchType } from '@prisma/client';
-import { startOfDay, parseISO, isAfter, isValid } from 'date-fns';
+import { isAfter, isValid } from 'date-fns';
 import { getAuthenticatedUser } from '@/lib/auth';
 import { getRelevantBallTypes, isValidBallType, MACHINE_A_BALLS } from '@/lib/constants';
 import { getDiscountConfig, calculatePricing, SlotWithPrice } from '@/lib/discount';
+import { dateStringToUTC } from '@/lib/time';
 
 async function getMachineConfig() {
   const policies = await prisma.policy.findMany({
@@ -138,7 +139,7 @@ export async function POST(req: NextRequest) {
         validatedPitchType = pitchType as PitchType;
       }
 
-      const bookingDate = parseISO(date);
+      const bookingDate = dateStringToUTC(date);
       const start = new Date(startTime);
       const end = new Date(endTime);
 
@@ -165,7 +166,7 @@ export async function POST(req: NextRequest) {
       }
 
       validatedSlots.push({
-        date: startOfDay(bookingDate),
+        date: bookingDate,
         startTime: start,
         endTime: end,
         ballType: ballType as BallType,

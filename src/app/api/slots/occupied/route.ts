@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { startOfDay, endOfDay, parseISO } from 'date-fns';
+import { isValid } from 'date-fns';
+import { dateStringToUTC } from '@/lib/time';
 
 export async function GET(req: NextRequest) {
   try {
@@ -11,14 +12,14 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: 'Date is required' }, { status: 400 });
     }
 
-    const date = parseISO(dateStr);
+    const dateUTC = dateStringToUTC(dateStr);
+    if (!isValid(dateUTC)) {
+      return NextResponse.json({ error: 'Invalid date' }, { status: 400 });
+    }
 
     const occupiedBookings = await prisma.booking.findMany({
       where: {
-        date: {
-          gte: startOfDay(date),
-          lte: endOfDay(date),
-        },
+        date: dateUTC,
         status: 'BOOKED',
       },
       select: {

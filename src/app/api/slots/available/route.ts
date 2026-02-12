@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
+import { type BallType } from '@prisma/client';
 import { generateSlotsForDate, filterPastSlots, getISTTodayUTC, dateStringToUTC } from '@/lib/time';
-import { startOfDay, endOfDay, parseISO, isSameDay } from 'date-fns';
+import { isSameDay, isValid } from 'date-fns';
 import { getRelevantBallTypes, isValidBallType } from '@/lib/constants';
 
 export async function GET(req: NextRequest) {
@@ -14,16 +15,20 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: 'Date is required' }, { status: 400 });
     }
 
-    const date = parseISO(dateStr);
+    const dateUTC = dateStringToUTC(dateStr);
 
     // Validate ballType and determine machine
     if (!isValidBallType(ballType)) {
       return NextResponse.json({ error: 'Invalid ball type' }, { status: 400 });
     }
+    const validatedBallType = ballType as BallType;
+
+    if (!isValid(dateUTC)) {
+      return NextResponse.json({ error: 'Invalid date' }, { status: 400 });
+    }
 
     // Check if date is in the past (using IST-aware today)
     const todayUTC = getISTTodayUTC();
-    const dateUTC = dateStringToUTC(dateStr);
     if (dateUTC < todayUTC) {
       return NextResponse.json([]);
     }
@@ -49,7 +54,7 @@ export async function GET(req: NextRequest) {
       duration: policyMap['SLOT_DURATION'] ? parseInt(policyMap['SLOT_DURATION']) : undefined,
     };
 
-    let slots = generateSlotsForDate(date, config);
+    let slots = generateSlotsForDate(dateUTC, config);
 
     // If today, only future slots
     if (isSameDay(dateUTC, todayUTC)) {
@@ -58,15 +63,12 @@ export async function GET(req: NextRequest) {
 
     // Machine A: LEATHER, MACHINE
     // Machine B: TENNIS
-    const relevantBallTypes = getRelevantBallTypes(ballType);
+    const relevantBallTypes = getRelevantBallTypes(validatedBallType);
 
     const occupiedBookings = await prisma.booking.findMany({
       where: {
-        date: {
-          gte: startOfDay(date),
-          lte: endOfDay(date),
-        },
-        ballType: { in: relevantBallTypes as any },
+        date: dateUTC,
+        ballType: { in: relevantBallTypes },
         status: 'BOOKED',
       },
       select: { startTime: true },
@@ -118,10 +120,12 @@ export async function GET(req: NextRequest) {
     });
 
     return NextResponse.json(availableSlots);
-  } catch (error: any) {
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'Internal server error';
+    const stack = error instanceof Error ? error.stack : undefined;
     console.error('Available slots error:', error);
     return NextResponse.json(
-      { error: error?.message || 'Internal server error', stack: process.env.NODE_ENV === 'development' ? error?.stack : undefined },
+      { error: message, stack: process.env.NODE_ENV === 'development' ? stack : undefined },
       { status: 500 }
     );
   }
