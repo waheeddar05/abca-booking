@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { LayoutDashboard, CalendarCheck, Users, Settings, Clock } from 'lucide-react';
+import { LayoutDashboard, CalendarCheck, Users, Settings, Clock, Wrench } from 'lucide-react';
 
 export default function AdminLayout({
   children,
@@ -17,6 +17,7 @@ export default function AdminLayout({
     { href: '/admin/slots', label: 'Slots', icon: Clock },
     { href: '/admin/users', label: 'Users', icon: Users },
     { href: '/admin/policies', label: 'Policies', icon: Settings },
+    { href: '/admin/maintenance', label: 'Maintenance', icon: Wrench },
   ];
 
   const isActive = (href: string) =>

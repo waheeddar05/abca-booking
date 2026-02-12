@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useSession } from 'next-auth/react';
-import { CalendarCheck, Activity, UserPlus, CalendarDays, Settings, Clock, IndianRupee, TrendingUp, Percent, Save, Loader2, Zap } from 'lucide-react';
+import { CalendarCheck, Activity, UserPlus, CalendarDays, Settings, Clock, IndianRupee, TrendingUp, Percent, Save, Loader2, Zap, Wrench } from 'lucide-react';
 
 interface Stats {
   totalBookings: number;
@@ -213,6 +213,12 @@ export default function AdminDashboard() {
             <Settings className="w-4 h-4" />
             Manage Policies
           </Link>
+          {isSuperAdmin && (
+            <Link href="/admin/maintenance" className="inline-flex items-center gap-2 px-4 py-2.5 bg-amber-500/10 text-amber-300 rounded-lg text-sm font-medium hover:bg-amber-500/20 transition-colors">
+              <Wrench className="w-4 h-4" />
+              Maintenance Mode
+            </Link>
+          )}
         </div>
       </div>
 
