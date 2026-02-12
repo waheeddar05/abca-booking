@@ -82,11 +82,46 @@ function isTransactionAborted(error: unknown): boolean {
   );
 }
 
-function isMissingColumnError(error: unknown): boolean {
-  return (
-    error instanceof Error &&
-    error.message.includes('does not exist in the current database')
-  );
+type BookingColumnSupport = {
+  operationMode: boolean;
+  price: boolean;
+  originalPrice: boolean;
+  discountAmount: boolean;
+  discountType: boolean;
+  pitchType: boolean;
+  extraCharge: boolean;
+};
+
+async function getBookingColumnSupport(): Promise<BookingColumnSupport> {
+  try {
+    const columns = await prisma.$queryRaw<{ column_name: string }[]>`
+      SELECT column_name
+      FROM information_schema.columns
+      WHERE table_schema = 'public' AND table_name = 'Booking'
+    `;
+    const columnSet = new Set(columns.map((c) => c.column_name));
+
+    return {
+      operationMode: columnSet.has('operationMode'),
+      price: columnSet.has('price'),
+      originalPrice: columnSet.has('originalPrice'),
+      discountAmount: columnSet.has('discountAmount'),
+      discountType: columnSet.has('discountType'),
+      pitchType: columnSet.has('pitchType'),
+      extraCharge: columnSet.has('extraCharge'),
+    };
+  } catch {
+    // If schema introspection fails, use base-booking fields only.
+    return {
+      operationMode: false,
+      price: false,
+      originalPrice: false,
+      discountAmount: false,
+      discountType: false,
+      pitchType: false,
+      extraCharge: false,
+    };
+  }
 }
 
 export async function POST(req: NextRequest) {
@@ -108,6 +143,7 @@ export async function POST(req: NextRequest) {
     }
 
     const machineConfig = await getMachineConfig();
+    const bookingColumns = await getBookingColumnSupport();
 
     // Validate all slots first
     const validatedSlots: Array<{
@@ -282,10 +318,8 @@ export async function POST(req: NextRequest) {
             // Operator constraint check: count how many operators are already consumed
             // for this time slot across ALL machines
             if (requiresOperator) {
-              let operatorsUsed = 0;
-              try {
-                const operatorBookings = await tx.booking.findMany({
-                  where: {
+              const operatorWhere: Prisma.BookingWhereInput = bookingColumns.operationMode
+                ? {
                     date: slot.date,
                     startTime: slot.startTime,
                     status: 'BOOKED',
@@ -295,22 +329,19 @@ export async function POST(req: NextRequest) {
                       // Tennis with operator consumes an operator
                       { ballType: 'TENNIS', operationMode: 'WITH_OPERATOR' },
                     ],
-                  },
-                  select: { id: true },
-                });
-                operatorsUsed = operatorBookings.length;
-              } catch {
-                // If operationMode column doesn't exist yet, count all bookings as operator-consuming
-                const allBookingsForSlot = await tx.booking.findMany({
-                  where: {
+                  }
+                : {
+                    // Legacy schema without operationMode: treat all booked slots as operator-consuming.
                     date: slot.date,
                     startTime: slot.startTime,
                     status: 'BOOKED',
-                  },
-                  select: { id: true },
-                });
-                operatorsUsed = allBookingsForSlot.length;
-              }
+                  };
+
+              const operatorBookings = await tx.booking.findMany({
+                where: operatorWhere,
+                select: { id: true },
+              });
+              const operatorsUsed = operatorBookings.length;
 
               if (operatorsUsed >= machineConfig.numberOfOperators) {
                 throw new OperatorUnavailableError(
@@ -345,29 +376,29 @@ export async function POST(req: NextRequest) {
               playerName: slot.playerName,
             };
 
-            const fullBookingData: Record<string, unknown> = {
+            const fullBookingData: Prisma.BookingUncheckedCreateInput = {
               ...baseBookingData,
-              price: priceInfo.price,
-              originalPrice: priceInfo.originalPrice,
-              discountAmount: priceInfo.discountAmount || null,
-              discountType: priceInfo.discountType || null,
-              operationMode: slot.operationMode,
+              ...(bookingColumns.price ? { price: priceInfo.price } : {}),
+              ...(bookingColumns.originalPrice ? { originalPrice: priceInfo.originalPrice } : {}),
+              ...(bookingColumns.discountAmount ? { discountAmount: priceInfo.discountAmount || null } : {}),
+              ...(bookingColumns.discountType ? { discountType: priceInfo.discountType || null } : {}),
+              ...(bookingColumns.operationMode ? { operationMode: slot.operationMode } : {}),
             };
 
-            const fullUpdateData: Record<string, unknown> = {
+            const fullUpdateData: Prisma.BookingUncheckedUpdateInput = {
               ...baseUpdateData,
-              price: priceInfo.price,
-              originalPrice: priceInfo.originalPrice,
-              discountAmount: priceInfo.discountAmount || null,
-              discountType: priceInfo.discountType || null,
-              operationMode: slot.operationMode,
+              ...(bookingColumns.price ? { price: priceInfo.price } : {}),
+              ...(bookingColumns.originalPrice ? { originalPrice: priceInfo.originalPrice } : {}),
+              ...(bookingColumns.discountAmount ? { discountAmount: priceInfo.discountAmount || null } : {}),
+              ...(bookingColumns.discountType ? { discountType: priceInfo.discountType || null } : {}),
+              ...(bookingColumns.operationMode ? { operationMode: slot.operationMode } : {}),
             };
 
-            if (slot.pitchType !== null) {
+            if (slot.pitchType !== null && bookingColumns.pitchType) {
               fullBookingData.pitchType = slot.pitchType;
               fullUpdateData.pitchType = slot.pitchType;
             }
-            if (slot.extraCharge) {
+            if (slot.extraCharge && bookingColumns.extraCharge) {
               fullBookingData.extraCharge = slot.extraCharge;
               fullUpdateData.extraCharge = slot.extraCharge;
             }
@@ -376,38 +407,16 @@ export async function POST(req: NextRequest) {
               if (existingSameBallType) {
                 return await tx.booking.update({
                   where: { id: existingSameBallType.id },
-                  data: fullUpdateData as Prisma.BookingUncheckedUpdateInput,
+                  data: fullUpdateData,
                   select: { id: true, status: true },
                 });
               }
 
               return await tx.booking.create({
-                data: fullBookingData as unknown as Prisma.BookingUncheckedCreateInput,
+                data: fullBookingData,
                 select: { id: true, status: true },
               });
             } catch (error) {
-              if (isMissingColumnError(error)) {
-                try {
-                  if (existingSameBallType) {
-                    return await tx.booking.update({
-                      where: { id: existingSameBallType.id },
-                      data: baseUpdateData,
-                      select: { id: true, status: true },
-                    });
-                  }
-
-                  return await tx.booking.create({
-                    data: baseBookingData,
-                    select: { id: true, status: true },
-                  });
-                } catch (fallbackError) {
-                  if (isUniqueConstraintError(fallbackError) || isTransactionAborted(fallbackError)) {
-                    throw new BookingConflictError(`Slot at ${slotTime} is already booked`);
-                  }
-                  throw fallbackError;
-                }
-              }
-
               if (isUniqueConstraintError(error) || isTransactionAborted(error)) {
                 throw new BookingConflictError(`Slot at ${slotTime} is already booked`);
               }
