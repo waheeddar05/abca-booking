@@ -158,31 +158,31 @@ export default function AdminDashboard() {
   };
 
   const statCards = [
-    { label: 'Total Bookings', value: stats?.totalBookings ?? 0, icon: CalendarCheck, color: 'text-primary', bg: 'bg-primary/5' },
-    { label: 'Today', value: stats?.todayBookings ?? 0, icon: CalendarDays, color: 'text-orange-600', bg: 'bg-orange-50' },
-    { label: 'Upcoming', value: stats?.upcomingBookings ?? 0, icon: TrendingUp, color: 'text-blue-600', bg: 'bg-blue-50' },
-    { label: 'Total Slots', value: stats?.totalSlots ?? 0, icon: Clock, color: 'text-purple-600', bg: 'bg-purple-50' },
-    { label: 'Revenue', value: stats?.totalRevenue ? `₹${stats.totalRevenue.toLocaleString()}` : '₹0', icon: IndianRupee, color: 'text-green-600', bg: 'bg-green-50', isText: true },
-    { label: 'System Status', value: stats?.systemStatus ?? 'Healthy', icon: Activity, color: 'text-green-600', bg: 'bg-green-50', isText: true },
+    { label: 'Total Bookings', value: stats?.totalBookings ?? 0, icon: CalendarCheck, color: 'text-primary', bg: 'bg-accent/10' },
+    { label: 'Today', value: stats?.todayBookings ?? 0, icon: CalendarDays, color: 'text-orange-600', bg: 'bg-orange-500/10' },
+    { label: 'Upcoming', value: stats?.upcomingBookings ?? 0, icon: TrendingUp, color: 'text-blue-600', bg: 'bg-blue-500/10' },
+    { label: 'Total Slots', value: stats?.totalSlots ?? 0, icon: Clock, color: 'text-purple-600', bg: 'bg-purple-500/10' },
+    { label: 'Revenue', value: stats?.totalRevenue ? `₹${stats.totalRevenue.toLocaleString()}` : '₹0', icon: IndianRupee, color: 'text-green-600', bg: 'bg-green-500/10', isText: true },
+    { label: 'System Status', value: stats?.systemStatus ?? 'Healthy', icon: Activity, color: 'text-green-600', bg: 'bg-green-500/10', isText: true },
   ];
 
-  const inputClass = "w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm outline-none focus:border-primary focus:ring-1 focus:ring-primary/20";
+  const inputClass = "w-full bg-white/[0.04] border border-white/[0.1] text-white placeholder:text-slate-500 rounded-lg px-3 py-2.5 text-sm outline-none focus:border-accent focus:ring-1 focus:ring-accent/20";
 
   return (
     <div>
-      <h1 className="text-xl font-bold text-gray-900 mb-5">Dashboard</h1>
+      <h1 className="text-xl font-bold text-white mb-5">Dashboard</h1>
 
       {/* Stats Grid */}
       <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mb-6">
         {statCards.map((card) => (
-          <div key={card.label} className="bg-white rounded-xl border border-gray-100 p-4">
+          <div key={card.label} className="bg-white/[0.04] backdrop-blur-sm rounded-xl border border-white/[0.08] p-4">
             <div className="flex items-center gap-3">
               <div className={`w-10 h-10 rounded-xl ${card.bg} flex items-center justify-center`}>
                 <card.icon className={`w-5 h-5 ${card.color}`} />
               </div>
               <div>
-                <p className="text-[11px] font-medium text-gray-400 uppercase tracking-wider">{card.label}</p>
-                <p className={`text-xl font-bold ${card.isText ? card.color : 'text-gray-900'}`}>
+                <p className="text-[11px] font-medium text-slate-400 uppercase tracking-wider">{card.label}</p>
+                <p className={`text-xl font-bold ${card.isText ? card.color : 'text-white'}`}>
                   {loading ? '...' : card.value}
                 </p>
               </div>
@@ -192,24 +192,24 @@ export default function AdminDashboard() {
       </div>
 
       {/* Quick Actions */}
-      <div className="bg-white rounded-xl border border-gray-100 p-5 mb-6">
-        <h2 className="text-sm font-semibold text-gray-900 mb-3">Quick Actions</h2>
+      <div className="bg-white/[0.04] backdrop-blur-sm rounded-xl border border-white/[0.08] p-5 mb-6">
+        <h2 className="text-sm font-semibold text-white mb-3">Quick Actions</h2>
         <div className="flex flex-wrap gap-2">
           {isSuperAdmin && (
-            <Link href="/admin/users" className="inline-flex items-center gap-2 px-4 py-2.5 bg-primary text-white rounded-lg text-sm font-medium hover:bg-primary-light transition-colors">
+            <Link href="/admin/users" className="inline-flex items-center gap-2 px-4 py-2.5 bg-accent hover:bg-accent-light text-primary rounded-lg text-sm font-medium transition-colors">
               <UserPlus className="w-4 h-4" />
               Invite Admin
             </Link>
           )}
-          <Link href="/admin/bookings" className="inline-flex items-center gap-2 px-4 py-2.5 bg-gray-100 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-200 transition-colors">
+          <Link href="/admin/bookings" className="inline-flex items-center gap-2 px-4 py-2.5 bg-white/[0.06] text-slate-300 rounded-lg text-sm font-medium hover:bg-white/[0.1] transition-colors">
             <CalendarDays className="w-4 h-4" />
             View Bookings
           </Link>
-          <Link href="/admin/slots" className="inline-flex items-center gap-2 px-4 py-2.5 bg-gray-100 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-200 transition-colors">
+          <Link href="/admin/slots" className="inline-flex items-center gap-2 px-4 py-2.5 bg-white/[0.06] text-slate-300 rounded-lg text-sm font-medium hover:bg-white/[0.1] transition-colors">
             <Clock className="w-4 h-4" />
             Manage Slots
           </Link>
-          <Link href="/admin/policies" className="inline-flex items-center gap-2 px-4 py-2.5 bg-gray-100 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-200 transition-colors">
+          <Link href="/admin/policies" className="inline-flex items-center gap-2 px-4 py-2.5 bg-white/[0.06] text-slate-300 rounded-lg text-sm font-medium hover:bg-white/[0.1] transition-colors">
             <Settings className="w-4 h-4" />
             Manage Policies
           </Link>
@@ -217,14 +217,14 @@ export default function AdminDashboard() {
       </div>
 
       {/* Machine Configuration */}
-      <div className="bg-white rounded-xl border border-gray-100 p-5 mb-6">
+      <div className="bg-white/[0.04] backdrop-blur-sm rounded-xl border border-white/[0.08] p-5 mb-6">
         <div className="flex items-center gap-2 mb-4">
           <Zap className="w-5 h-5 text-primary" />
-          <h2 className="text-sm font-semibold text-gray-900">Machine Configuration</h2>
+          <h2 className="text-sm font-semibold text-white">Machine Configuration</h2>
         </div>
 
         {machineLoading ? (
-          <div className="flex items-center justify-center py-8 text-gray-400">
+          <div className="flex items-center justify-center py-8 text-slate-400">
             <Loader2 className="w-5 h-5 animate-spin mr-2" />
             <span className="text-sm">Loading configuration...</span>
           </div>
@@ -232,11 +232,11 @@ export default function AdminDashboard() {
           <div className="space-y-6">
             {/* Leather Ball Machine */}
             <div>
-              <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">Leather Ball Machine</h3>
+              <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">Leather Ball Machine</h3>
               <div className="flex items-center justify-between mb-3">
                 <div>
-                  <p className="text-sm font-medium text-gray-700">Enable Ball Type Selection</p>
-                  <p className="text-xs text-gray-400">Users choose between Leather Ball and Machine Ball</p>
+                  <p className="text-sm font-medium text-slate-300">Enable Ball Type Selection</p>
+                  <p className="text-xs text-slate-400">Users choose between Leather Ball and Machine Ball</p>
                 </div>
                 <button
                   onClick={() => setMachineConfig(prev => ({
@@ -244,7 +244,7 @@ export default function AdminDashboard() {
                     leatherMachine: { ...prev.leatherMachine, ballTypeSelectionEnabled: !prev.leatherMachine.ballTypeSelectionEnabled },
                   }))}
                   className={`relative w-12 h-7 rounded-full transition-colors cursor-pointer ${
-                    machineConfig.leatherMachine.ballTypeSelectionEnabled ? 'bg-primary' : 'bg-gray-200'
+                    machineConfig.leatherMachine.ballTypeSelectionEnabled ? 'bg-primary' : 'bg-white/[0.1]'
                   }`}
                 >
                   <span className={`absolute top-1 w-5 h-5 rounded-full bg-white shadow transition-transform ${
@@ -254,11 +254,11 @@ export default function AdminDashboard() {
               </div>
 
               {machineConfig.leatherMachine.ballTypeSelectionEnabled && (
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-3 border-t border-gray-100">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-3 border-t border-white/[0.06]">
                   <div>
-                    <label className="block text-[11px] font-medium text-gray-400 mb-1">Leather Ball Extra Charge</label>
+                    <label className="block text-[11px] font-medium text-slate-400 mb-1">Leather Ball Extra Charge</label>
                     <div className="relative">
-                      <IndianRupee className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-300" />
+                      <IndianRupee className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
                       <input
                         type="number"
                         value={machineConfig.leatherMachine.leatherBallExtraCharge}
@@ -267,14 +267,14 @@ export default function AdminDashboard() {
                           leatherMachine: { ...prev.leatherMachine, leatherBallExtraCharge: Number(e.target.value) },
                         }))}
                         min="0"
-                        className="w-full border border-gray-200 rounded-lg pl-9 pr-3 py-2.5 text-sm outline-none focus:border-primary focus:ring-1 focus:ring-primary/20"
+                        className="w-full bg-white/[0.04] border border-white/[0.1] text-white placeholder:text-slate-500 rounded-lg pl-9 pr-3 py-2.5 text-sm outline-none focus:border-accent focus:ring-1 focus:ring-accent/20"
                       />
                     </div>
                   </div>
                   <div>
-                    <label className="block text-[11px] font-medium text-gray-400 mb-1">Machine Ball Extra Charge</label>
+                    <label className="block text-[11px] font-medium text-slate-400 mb-1">Machine Ball Extra Charge</label>
                     <div className="relative">
-                      <IndianRupee className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-300" />
+                      <IndianRupee className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
                       <input
                         type="number"
                         value={machineConfig.leatherMachine.machineBallExtraCharge}
@@ -283,7 +283,7 @@ export default function AdminDashboard() {
                           leatherMachine: { ...prev.leatherMachine, machineBallExtraCharge: Number(e.target.value) },
                         }))}
                         min="0"
-                        className="w-full border border-gray-200 rounded-lg pl-9 pr-3 py-2.5 text-sm outline-none focus:border-primary focus:ring-1 focus:ring-primary/20"
+                        className="w-full bg-white/[0.04] border border-white/[0.1] text-white placeholder:text-slate-500 rounded-lg pl-9 pr-3 py-2.5 text-sm outline-none focus:border-accent focus:ring-1 focus:ring-accent/20"
                       />
                     </div>
                   </div>
@@ -292,12 +292,12 @@ export default function AdminDashboard() {
             </div>
 
             {/* Tennis Ball Machine */}
-            <div className="pt-4 border-t border-gray-100">
-              <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">Tennis Ball Machine</h3>
+            <div className="pt-4 border-t border-white/[0.06]">
+              <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">Tennis Ball Machine</h3>
               <div className="flex items-center justify-between mb-3">
                 <div>
-                  <p className="text-sm font-medium text-gray-700">Enable Pitch Type Selection</p>
-                  <p className="text-xs text-gray-400">Users choose between Astro and Turf pitch types</p>
+                  <p className="text-sm font-medium text-slate-300">Enable Pitch Type Selection</p>
+                  <p className="text-xs text-slate-400">Users choose between Astro and Turf pitch types</p>
                 </div>
                 <button
                   onClick={() => setMachineConfig(prev => ({
@@ -305,7 +305,7 @@ export default function AdminDashboard() {
                     tennisMachine: { ...prev.tennisMachine, pitchTypeSelectionEnabled: !prev.tennisMachine.pitchTypeSelectionEnabled },
                   }))}
                   className={`relative w-12 h-7 rounded-full transition-colors cursor-pointer ${
-                    machineConfig.tennisMachine.pitchTypeSelectionEnabled ? 'bg-primary' : 'bg-gray-200'
+                    machineConfig.tennisMachine.pitchTypeSelectionEnabled ? 'bg-primary' : 'bg-white/[0.1]'
                   }`}
                 >
                   <span className={`absolute top-1 w-5 h-5 rounded-full bg-white shadow transition-transform ${
@@ -315,11 +315,11 @@ export default function AdminDashboard() {
               </div>
 
               {machineConfig.tennisMachine.pitchTypeSelectionEnabled && (
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-3 border-t border-gray-100">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-3 border-t border-white/[0.06]">
                   <div>
-                    <label className="block text-[11px] font-medium text-gray-400 mb-1">Astro Pitch Price</label>
+                    <label className="block text-[11px] font-medium text-slate-400 mb-1">Astro Pitch Price</label>
                     <div className="relative">
-                      <IndianRupee className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-300" />
+                      <IndianRupee className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
                       <input
                         type="number"
                         value={machineConfig.tennisMachine.astroPitchPrice}
@@ -328,14 +328,14 @@ export default function AdminDashboard() {
                           tennisMachine: { ...prev.tennisMachine, astroPitchPrice: Number(e.target.value) },
                         }))}
                         min="0"
-                        className="w-full border border-gray-200 rounded-lg pl-9 pr-3 py-2.5 text-sm outline-none focus:border-primary focus:ring-1 focus:ring-primary/20"
+                        className="w-full bg-white/[0.04] border border-white/[0.1] text-white placeholder:text-slate-500 rounded-lg pl-9 pr-3 py-2.5 text-sm outline-none focus:border-accent focus:ring-1 focus:ring-accent/20"
                       />
                     </div>
                   </div>
                   <div>
-                    <label className="block text-[11px] font-medium text-gray-400 mb-1">Turf Pitch Price</label>
+                    <label className="block text-[11px] font-medium text-slate-400 mb-1">Turf Pitch Price</label>
                     <div className="relative">
-                      <IndianRupee className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-300" />
+                      <IndianRupee className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
                       <input
                         type="number"
                         value={machineConfig.tennisMachine.turfPitchPrice}
@@ -344,7 +344,7 @@ export default function AdminDashboard() {
                           tennisMachine: { ...prev.tennisMachine, turfPitchPrice: Number(e.target.value) },
                         }))}
                         min="0"
-                        className="w-full border border-gray-200 rounded-lg pl-9 pr-3 py-2.5 text-sm outline-none focus:border-primary focus:ring-1 focus:ring-primary/20"
+                        className="w-full bg-white/[0.04] border border-white/[0.1] text-white placeholder:text-slate-500 rounded-lg pl-9 pr-3 py-2.5 text-sm outline-none focus:border-accent focus:ring-1 focus:ring-accent/20"
                       />
                     </div>
                   </div>
@@ -353,11 +353,11 @@ export default function AdminDashboard() {
             </div>
 
             {/* Operator Configuration */}
-            <div className="pt-4 border-t border-gray-100">
-              <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">Operator Configuration</h3>
+            <div className="pt-4 border-t border-white/[0.06]">
+              <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">Operator Configuration</h3>
               <div className="mb-3">
-                <p className="text-sm font-medium text-gray-700">Number of Operators</p>
-                <p className="text-xs text-gray-400 mb-2">How many parallel operator-assisted bookings are allowed per time slot</p>
+                <p className="text-sm font-medium text-slate-300">Number of Operators</p>
+                <p className="text-xs text-slate-400 mb-2">How many parallel operator-assisted bookings are allowed per time slot</p>
                 <input
                   type="number"
                   value={machineConfig.numberOfOperators}
@@ -366,11 +366,11 @@ export default function AdminDashboard() {
                     numberOfOperators: Math.max(1, Math.floor(Number(e.target.value))),
                   }))}
                   min="1"
-                  className="w-32 border border-gray-200 rounded-lg px-3 py-2.5 text-sm outline-none focus:border-primary focus:ring-1 focus:ring-primary/20"
+                  className="w-32 bg-white/[0.04] border border-white/[0.1] text-white placeholder:text-slate-500 rounded-lg px-3 py-2.5 text-sm outline-none focus:border-accent focus:ring-1 focus:ring-accent/20"
                 />
               </div>
-              <div className="bg-blue-50 border border-blue-100 rounded-lg px-3 py-2">
-                <p className="text-xs text-blue-700">
+              <div className="bg-blue-500/10 border border-blue-500/20 rounded-lg px-3 py-2">
+                <p className="text-xs text-blue-300">
                   With {machineConfig.numberOfOperators} operator{machineConfig.numberOfOperators > 1 ? 's' : ''},
                   up to {machineConfig.numberOfOperators} machine{machineConfig.numberOfOperators > 1 ? 's' : ''} can
                   be operated simultaneously per time slot. Leather machine always requires an operator.
@@ -383,13 +383,13 @@ export default function AdminDashboard() {
               <button
                 onClick={handleSaveMachine}
                 disabled={savingMachine}
-                className="inline-flex items-center gap-2 bg-primary hover:bg-primary-light text-white px-5 py-2.5 rounded-lg text-sm font-medium transition-colors cursor-pointer disabled:opacity-50"
+                className="inline-flex items-center gap-2 bg-accent hover:bg-accent-light text-primary px-5 py-2.5 rounded-lg text-sm font-medium transition-colors cursor-pointer disabled:opacity-50"
               >
                 {savingMachine ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
                 Save Machine Config
               </button>
               {machineMessage.text && (
-                <span className={`text-sm ${machineMessage.type === 'success' ? 'text-green-600' : 'text-red-500'}`}>
+                <span className={`text-sm ${machineMessage.type === 'success' ? 'text-green-400' : 'text-red-400'}`}>
                   {machineMessage.text}
                 </span>
               )}
@@ -399,14 +399,14 @@ export default function AdminDashboard() {
       </div>
 
       {/* Discount Configuration */}
-      <div className="bg-white rounded-xl border border-gray-100 p-5">
+      <div className="bg-white/[0.04] backdrop-blur-sm rounded-xl border border-white/[0.08] p-5">
         <div className="flex items-center gap-2 mb-4">
           <Percent className="w-5 h-5 text-primary" />
-          <h2 className="text-sm font-semibold text-gray-900">Consecutive Slot Discount</h2>
+          <h2 className="text-sm font-semibold text-white">Consecutive Slot Discount</h2>
         </div>
 
         {discountLoading ? (
-          <div className="flex items-center justify-center py-8 text-gray-400">
+          <div className="flex items-center justify-center py-8 text-slate-400">
             <Loader2 className="w-5 h-5 animate-spin mr-2" />
             <span className="text-sm">Loading configuration...</span>
           </div>
@@ -414,13 +414,13 @@ export default function AdminDashboard() {
           <div className="space-y-4">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm font-medium text-gray-700">Enable Consecutive Discount</p>
-                <p className="text-xs text-gray-400">Apply discount when users book consecutive slots</p>
+                <p className="text-sm font-medium text-slate-300">Enable Consecutive Discount</p>
+                <p className="text-xs text-slate-400">Apply discount when users book consecutive slots</p>
               </div>
               <button
                 onClick={() => setDiscountConfig(prev => ({ ...prev, enabled: !prev.enabled }))}
                 className={`relative w-12 h-7 rounded-full transition-colors cursor-pointer ${
-                  discountConfig.enabled ? 'bg-primary' : 'bg-gray-200'
+                  discountConfig.enabled ? 'bg-primary' : 'bg-white/[0.1]'
                 }`}
               >
                 <span className={`absolute top-1 w-5 h-5 rounded-full bg-white shadow transition-transform ${
@@ -430,51 +430,51 @@ export default function AdminDashboard() {
             </div>
 
             {discountConfig.enabled && (
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-3 border-t border-gray-100">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-3 border-t border-white/[0.06]">
                 <div>
-                  <label className="block text-[11px] font-medium text-gray-400 mb-1">Default Slot Price</label>
+                  <label className="block text-[11px] font-medium text-slate-400 mb-1">Default Slot Price</label>
                   <div className="relative">
-                    <IndianRupee className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-300" />
-                    <input type="number" value={discountConfig.defaultSlotPrice} onChange={e => setDiscountConfig(prev => ({ ...prev, defaultSlotPrice: Number(e.target.value) }))} min="0" className="w-full border border-gray-200 rounded-lg pl-9 pr-3 py-2.5 text-sm outline-none focus:border-primary focus:ring-1 focus:ring-primary/20" />
+                    <IndianRupee className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
+                    <input type="number" value={discountConfig.defaultSlotPrice} onChange={e => setDiscountConfig(prev => ({ ...prev, defaultSlotPrice: Number(e.target.value) }))} min="0" className="w-full bg-white/[0.04] border border-white/[0.1] text-white placeholder:text-slate-500 rounded-lg pl-9 pr-3 py-2.5 text-sm outline-none focus:border-accent focus:ring-1 focus:ring-accent/20" />
                   </div>
                 </div>
                 <div>
-                  <label className="block text-[11px] font-medium text-gray-400 mb-1">Min Consecutive Slots</label>
+                  <label className="block text-[11px] font-medium text-slate-400 mb-1">Min Consecutive Slots</label>
                   <input type="number" value={discountConfig.minSlots} onChange={e => setDiscountConfig(prev => ({ ...prev, minSlots: Number(e.target.value) }))} min="2" className={inputClass} />
                 </div>
                 <div>
-                  <label className="block text-[11px] font-medium text-gray-400 mb-1">Discount Type</label>
+                  <label className="block text-[11px] font-medium text-slate-400 mb-1">Discount Type</label>
                   <select value={discountConfig.discountType} onChange={e => setDiscountConfig(prev => ({ ...prev, discountType: e.target.value }))} className={`${inputClass} cursor-pointer`}>
                     <option value="PERCENTAGE">Percentage (%)</option>
                     <option value="FIXED">Fixed Amount (₹)</option>
                   </select>
                 </div>
                 <div>
-                  <label className="block text-[11px] font-medium text-gray-400 mb-1">Discount Value {discountConfig.discountType === 'PERCENTAGE' ? '(%)' : '(₹)'}</label>
+                  <label className="block text-[11px] font-medium text-slate-400 mb-1">Discount Value {discountConfig.discountType === 'PERCENTAGE' ? '(%)' : '(₹)'}</label>
                   <input type="number" value={discountConfig.discountValue} onChange={e => setDiscountConfig(prev => ({ ...prev, discountValue: Number(e.target.value) }))} min="0" max={discountConfig.discountType === 'PERCENTAGE' ? 100 : undefined} className={inputClass} />
                 </div>
               </div>
             )}
 
             {!discountConfig.enabled && (
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-3 border-t border-gray-100">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-3 border-t border-white/[0.06]">
                 <div>
-                  <label className="block text-[11px] font-medium text-gray-400 mb-1">Default Slot Price</label>
+                  <label className="block text-[11px] font-medium text-slate-400 mb-1">Default Slot Price</label>
                   <div className="relative">
-                    <IndianRupee className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-300" />
-                    <input type="number" value={discountConfig.defaultSlotPrice} onChange={e => setDiscountConfig(prev => ({ ...prev, defaultSlotPrice: Number(e.target.value) }))} min="0" className="w-full border border-gray-200 rounded-lg pl-9 pr-3 py-2.5 text-sm outline-none focus:border-primary focus:ring-1 focus:ring-primary/20" />
+                    <IndianRupee className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
+                    <input type="number" value={discountConfig.defaultSlotPrice} onChange={e => setDiscountConfig(prev => ({ ...prev, defaultSlotPrice: Number(e.target.value) }))} min="0" className="w-full bg-white/[0.04] border border-white/[0.1] text-white placeholder:text-slate-500 rounded-lg pl-9 pr-3 py-2.5 text-sm outline-none focus:border-accent focus:ring-1 focus:ring-accent/20" />
                   </div>
                 </div>
               </div>
             )}
 
             <div className="flex items-center gap-3 pt-3">
-              <button onClick={handleSaveDiscount} disabled={savingDiscount} className="inline-flex items-center gap-2 bg-primary hover:bg-primary-light text-white px-5 py-2.5 rounded-lg text-sm font-medium transition-colors cursor-pointer disabled:opacity-50">
+              <button onClick={handleSaveDiscount} disabled={savingDiscount} className="inline-flex items-center gap-2 bg-accent hover:bg-accent-light text-primary px-5 py-2.5 rounded-lg text-sm font-medium transition-colors cursor-pointer disabled:opacity-50">
                 {savingDiscount ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
                 Save Discount Config
               </button>
               {discountMessage.text && (
-                <span className={`text-sm ${discountMessage.type === 'success' ? 'text-green-600' : 'text-red-500'}`}>
+                <span className={`text-sm ${discountMessage.type === 'success' ? 'text-green-400' : 'text-red-400'}`}>
                   {discountMessage.text}
                 </span>
               )}

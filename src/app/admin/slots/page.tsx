@@ -226,18 +226,18 @@ export default function SlotManagement() {
     <div>
       <div className="flex items-center justify-between mb-5">
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center">
-            <Clock className="w-5 h-5 text-primary" />
+          <div className="w-10 h-10 rounded-xl bg-accent/10 flex items-center justify-center">
+            <Clock className="w-5 h-5 text-accent" />
           </div>
           <div>
-            <h1 className="text-xl font-bold text-gray-900">Slot Management</h1>
-            <p className="text-xs text-gray-400">Create and manage booking slots</p>
+            <h1 className="text-xl font-bold text-white">Slot Management</h1>
+            <p className="text-xs text-slate-400">Create and manage booking slots</p>
           </div>
         </div>
         <div className="flex gap-2">
           <button
             onClick={() => setViewMode(viewMode === 'calendar' ? 'list' : 'calendar')}
-            className="p-2 text-gray-400 hover:text-primary hover:bg-primary/5 rounded-lg transition-colors cursor-pointer"
+            className="p-2 text-slate-400 hover:text-accent hover:bg-accent/10 rounded-lg transition-colors cursor-pointer"
             title={viewMode === 'calendar' ? 'Switch to list view' : 'Switch to calendar view'}
           >
             {viewMode === 'calendar' ? <List className="w-5 h-5" /> : <Calendar className="w-5 h-5" />}
@@ -249,14 +249,14 @@ export default function SlotManagement() {
       <div className="flex flex-wrap gap-2 mb-5">
         <button
           onClick={() => { setShowBulkCreate(!showBulkCreate); setShowSingleCreate(false); }}
-          className="inline-flex items-center gap-2 px-4 py-2.5 bg-primary text-white rounded-lg text-sm font-medium hover:bg-primary-light transition-colors cursor-pointer"
+          className="inline-flex items-center gap-2 px-4 py-2.5 bg-accent text-primary rounded-lg text-sm font-medium hover:bg-accent-light transition-colors cursor-pointer"
         >
           <Plus className="w-4 h-4" />
           Bulk Create Slots
         </button>
         <button
           onClick={() => { setShowSingleCreate(!showSingleCreate); setShowBulkCreate(false); }}
-          className="inline-flex items-center gap-2 px-4 py-2.5 bg-gray-100 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-200 transition-colors cursor-pointer"
+          className="inline-flex items-center gap-2 px-4 py-2.5 bg-white/[0.06] text-slate-300 rounded-lg text-sm font-medium hover:bg-white/[0.1] transition-colors cursor-pointer"
         >
           <Plus className="w-4 h-4" />
           Create Single Slot
@@ -265,52 +265,52 @@ export default function SlotManagement() {
 
       {/* Message */}
       {message.text && (
-        <div className={`mb-4 px-4 py-3 rounded-lg text-sm ${message.type === 'success' ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'}`}>
+        <div className={`mb-4 px-4 py-3 rounded-lg text-sm ${message.type === 'success' ? 'bg-green-500/10 text-green-400' : 'bg-red-500/10 text-red-400'}`}>
           {message.text}
         </div>
       )}
 
       {/* Bulk Create Form */}
       {showBulkCreate && (
-        <div className="bg-white rounded-xl border border-gray-100 p-5 mb-5">
-          <h2 className="text-sm font-semibold text-gray-900 mb-3">Bulk Create Slots</h2>
+        <div className="bg-white/[0.04] backdrop-blur-sm rounded-xl border border-white/[0.08] p-5 mb-5">
+          <h2 className="text-sm font-semibold text-white mb-3">Bulk Create Slots</h2>
           <form onSubmit={handleBulkCreate} className="space-y-3">
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
-                <label className="block text-[11px] font-medium text-gray-400 mb-1">From Date</label>
+                <label className="block text-[11px] font-medium text-slate-400 mb-1">From Date</label>
                 <input
                   type="date"
                   value={bulkForm.fromDate}
                   onChange={e => setBulkForm({ ...bulkForm, fromDate: e.target.value })}
                   required
-                  className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm outline-none focus:border-primary focus:ring-1 focus:ring-primary/20"
+                  className="w-full bg-white/[0.04] border border-white/[0.1] rounded-lg px-3 py-2.5 text-sm text-white outline-none focus:border-accent focus:ring-1 focus:ring-accent/20 placeholder:text-slate-500"
                 />
               </div>
               <div>
-                <label className="block text-[11px] font-medium text-gray-400 mb-1">To Date</label>
+                <label className="block text-[11px] font-medium text-slate-400 mb-1">To Date</label>
                 <input
                   type="date"
                   value={bulkForm.toDate}
                   onChange={e => setBulkForm({ ...bulkForm, toDate: e.target.value })}
                   required
-                  className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm outline-none focus:border-primary focus:ring-1 focus:ring-primary/20"
+                  className="w-full bg-white/[0.04] border border-white/[0.1] rounded-lg px-3 py-2.5 text-sm text-white outline-none focus:border-accent focus:ring-1 focus:ring-accent/20 placeholder:text-slate-500"
                 />
               </div>
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
               <div>
-                <label className="block text-[11px] font-medium text-gray-400 mb-1">Price per Slot</label>
+                <label className="block text-[11px] font-medium text-slate-400 mb-1">Price per Slot</label>
                 <input
                   type="number"
                   value={bulkForm.price}
                   onChange={e => setBulkForm({ ...bulkForm, price: e.target.value })}
                   min="0"
                   step="1"
-                  className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm outline-none focus:border-primary focus:ring-1 focus:ring-primary/20"
+                  className="w-full bg-white/[0.04] border border-white/[0.1] rounded-lg px-3 py-2.5 text-sm text-white outline-none focus:border-accent focus:ring-1 focus:ring-accent/20 placeholder:text-slate-500"
                 />
               </div>
               <div>
-                <label className="block text-[11px] font-medium text-gray-400 mb-1">Start Hour (opt)</label>
+                <label className="block text-[11px] font-medium text-slate-400 mb-1">Start Hour (opt)</label>
                 <input
                   type="number"
                   value={bulkForm.startHour}
@@ -318,11 +318,11 @@ export default function SlotManagement() {
                   min="0"
                   max="23"
                   placeholder="e.g. 7"
-                  className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm outline-none focus:border-primary focus:ring-1 focus:ring-primary/20"
+                  className="w-full bg-white/[0.04] border border-white/[0.1] rounded-lg px-3 py-2.5 text-sm text-white outline-none focus:border-accent focus:ring-1 focus:ring-accent/20 placeholder:text-slate-500"
                 />
               </div>
               <div>
-                <label className="block text-[11px] font-medium text-gray-400 mb-1">End Hour (opt)</label>
+                <label className="block text-[11px] font-medium text-slate-400 mb-1">End Hour (opt)</label>
                 <input
                   type="number"
                   value={bulkForm.endHour}
@@ -330,11 +330,11 @@ export default function SlotManagement() {
                   min="0"
                   max="24"
                   placeholder="e.g. 22"
-                  className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm outline-none focus:border-primary focus:ring-1 focus:ring-primary/20"
+                  className="w-full bg-white/[0.04] border border-white/[0.1] rounded-lg px-3 py-2.5 text-sm text-white outline-none focus:border-accent focus:ring-1 focus:ring-accent/20 placeholder:text-slate-500"
                 />
               </div>
               <div>
-                <label className="block text-[11px] font-medium text-gray-400 mb-1">Duration (opt)</label>
+                <label className="block text-[11px] font-medium text-slate-400 mb-1">Duration (opt)</label>
                 <input
                   type="number"
                   value={bulkForm.duration}
@@ -342,7 +342,7 @@ export default function SlotManagement() {
                   min="15"
                   step="15"
                   placeholder="e.g. 30"
-                  className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm outline-none focus:border-primary focus:ring-1 focus:ring-primary/20"
+                  className="w-full bg-white/[0.04] border border-white/[0.1] rounded-lg px-3 py-2.5 text-sm text-white outline-none focus:border-accent focus:ring-1 focus:ring-accent/20 placeholder:text-slate-500"
                 />
               </div>
             </div>
@@ -350,7 +350,7 @@ export default function SlotManagement() {
               <button
                 type="submit"
                 disabled={bulkLoading}
-                className="inline-flex items-center gap-2 bg-primary hover:bg-primary-light text-white px-5 py-2.5 rounded-lg text-sm font-medium transition-colors cursor-pointer disabled:opacity-50"
+                className="inline-flex items-center gap-2 bg-accent hover:bg-accent-light text-primary px-5 py-2.5 rounded-lg text-sm font-medium transition-colors cursor-pointer disabled:opacity-50"
               >
                 {bulkLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
                 Create Slots
@@ -358,7 +358,7 @@ export default function SlotManagement() {
               <button
                 type="button"
                 onClick={() => setShowBulkCreate(false)}
-                className="px-4 py-2.5 bg-gray-100 text-gray-600 rounded-lg text-sm font-medium hover:bg-gray-200 transition-colors cursor-pointer"
+                className="px-4 py-2.5 bg-white/[0.06] text-slate-300 rounded-lg text-sm font-medium hover:bg-white/[0.1] transition-colors cursor-pointer"
               >
                 Cancel
               </button>
@@ -369,49 +369,49 @@ export default function SlotManagement() {
 
       {/* Single Create Form */}
       {showSingleCreate && (
-        <div className="bg-white rounded-xl border border-gray-100 p-5 mb-5">
-          <h2 className="text-sm font-semibold text-gray-900 mb-3">Create Single Slot</h2>
+        <div className="bg-white/[0.04] backdrop-blur-sm rounded-xl border border-white/[0.08] p-5 mb-5">
+          <h2 className="text-sm font-semibold text-white mb-3">Create Single Slot</h2>
           <form onSubmit={handleSingleCreate} className="space-y-3">
             <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
               <div>
-                <label className="block text-[11px] font-medium text-gray-400 mb-1">Date</label>
+                <label className="block text-[11px] font-medium text-slate-400 mb-1">Date</label>
                 <input
                   type="date"
                   value={singleForm.date}
                   onChange={e => setSingleForm({ ...singleForm, date: e.target.value })}
                   required
-                  className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm outline-none focus:border-primary focus:ring-1 focus:ring-primary/20"
+                  className="w-full bg-white/[0.04] border border-white/[0.1] rounded-lg px-3 py-2.5 text-sm text-white outline-none focus:border-accent focus:ring-1 focus:ring-accent/20 placeholder:text-slate-500"
                 />
               </div>
               <div>
-                <label className="block text-[11px] font-medium text-gray-400 mb-1">Start Time</label>
+                <label className="block text-[11px] font-medium text-slate-400 mb-1">Start Time</label>
                 <input
                   type="time"
                   value={singleForm.startTime}
                   onChange={e => setSingleForm({ ...singleForm, startTime: e.target.value })}
                   required
-                  className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm outline-none focus:border-primary focus:ring-1 focus:ring-primary/20"
+                  className="w-full bg-white/[0.04] border border-white/[0.1] rounded-lg px-3 py-2.5 text-sm text-white outline-none focus:border-accent focus:ring-1 focus:ring-accent/20 placeholder:text-slate-500"
                 />
               </div>
               <div>
-                <label className="block text-[11px] font-medium text-gray-400 mb-1">End Time</label>
+                <label className="block text-[11px] font-medium text-slate-400 mb-1">End Time</label>
                 <input
                   type="time"
                   value={singleForm.endTime}
                   onChange={e => setSingleForm({ ...singleForm, endTime: e.target.value })}
                   required
-                  className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm outline-none focus:border-primary focus:ring-1 focus:ring-primary/20"
+                  className="w-full bg-white/[0.04] border border-white/[0.1] rounded-lg px-3 py-2.5 text-sm text-white outline-none focus:border-accent focus:ring-1 focus:ring-accent/20 placeholder:text-slate-500"
                 />
               </div>
               <div>
-                <label className="block text-[11px] font-medium text-gray-400 mb-1">Price</label>
+                <label className="block text-[11px] font-medium text-slate-400 mb-1">Price</label>
                 <input
                   type="number"
                   value={singleForm.price}
                   onChange={e => setSingleForm({ ...singleForm, price: e.target.value })}
                   min="0"
                   step="1"
-                  className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm outline-none focus:border-primary focus:ring-1 focus:ring-primary/20"
+                  className="w-full bg-white/[0.04] border border-white/[0.1] rounded-lg px-3 py-2.5 text-sm text-white outline-none focus:border-accent focus:ring-1 focus:ring-accent/20 placeholder:text-slate-500"
                 />
               </div>
             </div>
@@ -419,7 +419,7 @@ export default function SlotManagement() {
               <button
                 type="submit"
                 disabled={singleLoading}
-                className="inline-flex items-center gap-2 bg-primary hover:bg-primary-light text-white px-5 py-2.5 rounded-lg text-sm font-medium transition-colors cursor-pointer disabled:opacity-50"
+                className="inline-flex items-center gap-2 bg-accent hover:bg-accent-light text-primary px-5 py-2.5 rounded-lg text-sm font-medium transition-colors cursor-pointer disabled:opacity-50"
               >
                 {singleLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
                 Create Slot
@@ -427,7 +427,7 @@ export default function SlotManagement() {
               <button
                 type="button"
                 onClick={() => setShowSingleCreate(false)}
-                className="px-4 py-2.5 bg-gray-100 text-gray-600 rounded-lg text-sm font-medium hover:bg-gray-200 transition-colors cursor-pointer"
+                className="px-4 py-2.5 bg-white/[0.06] text-slate-300 rounded-lg text-sm font-medium hover:bg-white/[0.1] transition-colors cursor-pointer"
               >
                 Cancel
               </button>
@@ -438,30 +438,30 @@ export default function SlotManagement() {
 
       {/* Calendar View */}
       {viewMode === 'calendar' && (
-        <div className="bg-white rounded-xl border border-gray-100 p-4 mb-5">
+        <div className="bg-white/[0.04] backdrop-blur-sm rounded-xl border border-white/[0.08] p-4 mb-5">
           {/* Month Navigation */}
           <div className="flex items-center justify-between mb-4">
             <button
               onClick={() => setCurrentMonth(prev => new Date(prev.getFullYear(), prev.getMonth() - 1, 1))}
-              className="p-2 hover:bg-gray-100 rounded-lg transition-colors cursor-pointer"
+              className="p-2 hover:bg-white/[0.06] rounded-lg transition-colors cursor-pointer"
             >
-              <ChevronLeft className="w-5 h-5 text-gray-500" />
+              <ChevronLeft className="w-5 h-5 text-slate-400" />
             </button>
-            <h3 className="text-sm font-semibold text-gray-900">
+            <h3 className="text-sm font-semibold text-white">
               {format(currentMonth, 'MMMM yyyy')}
             </h3>
             <button
               onClick={() => setCurrentMonth(prev => new Date(prev.getFullYear(), prev.getMonth() + 1, 1))}
-              className="p-2 hover:bg-gray-100 rounded-lg transition-colors cursor-pointer"
+              className="p-2 hover:bg-white/[0.06] rounded-lg transition-colors cursor-pointer"
             >
-              <ChevronRight className="w-5 h-5 text-gray-500" />
+              <ChevronRight className="w-5 h-5 text-slate-400" />
             </button>
           </div>
 
           {/* Day Headers */}
           <div className="grid grid-cols-7 gap-1 mb-1">
             {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map(d => (
-              <div key={d} className="text-center text-[10px] font-semibold text-gray-400 uppercase py-1">
+              <div key={d} className="text-center text-[10px] font-semibold text-slate-500 uppercase py-1">
                 {d}
               </div>
             ))}
@@ -483,22 +483,22 @@ export default function SlotManagement() {
                   onClick={() => setSelectedDate(calDay)}
                   className={`relative p-2 rounded-lg text-center transition-all cursor-pointer min-h-[60px] ${
                     isSelected
-                      ? 'bg-primary text-white ring-2 ring-primary/30'
+                      ? 'bg-accent text-primary ring-2 ring-accent/30'
                       : isCurrentMonth
-                        ? 'hover:bg-gray-50'
+                        ? 'hover:bg-white/[0.04]'
                         : 'opacity-30'
                   } ${isPast && !isSelected ? 'opacity-50' : ''}`}
                 >
-                  <div className={`text-xs font-medium ${isSelected ? 'text-white' : 'text-gray-700'}`}>
+                  <div className={`text-xs font-medium ${isSelected ? 'text-primary' : 'text-slate-300'}`}>
                     {format(calDay, 'd')}
                   </div>
                   {hasSlots && (
                     <div className="mt-1">
-                      <div className={`text-[9px] font-medium ${isSelected ? 'text-white/80' : 'text-primary'}`}>
+                      <div className={`text-[9px] font-medium ${isSelected ? 'text-primary/80' : 'text-accent'}`}>
                         {daySlots.length} slots
                       </div>
                       {bookedSlots > 0 && (
-                        <div className={`text-[9px] ${isSelected ? 'text-white/60' : 'text-orange-500'}`}>
+                        <div className={`text-[9px] ${isSelected ? 'text-primary/60' : 'text-orange-500'}`}>
                           {bookedSlots} booked
                         </div>
                       )}
@@ -515,13 +515,13 @@ export default function SlotManagement() {
       {(viewMode === 'list' || selectedDate) && (
         <div>
           {viewMode === 'calendar' && selectedDate && (
-            <h3 className="text-sm font-semibold text-gray-900 mb-3">
+            <h3 className="text-sm font-semibold text-white mb-3">
               Slots for {format(selectedDate, 'EEE, MMM d, yyyy')}
             </h3>
           )}
 
           {loading ? (
-            <div className="flex flex-col items-center justify-center py-16 text-gray-400">
+            <div className="flex flex-col items-center justify-center py-16 text-slate-400">
               <Loader2 className="w-5 h-5 animate-spin mb-2" />
               <span className="text-sm">Loading slots...</span>
             </div>
@@ -531,13 +531,13 @@ export default function SlotManagement() {
               if (displaySlots.length === 0) {
                 return (
                   <div className="text-center py-12">
-                    <div className="w-12 h-12 rounded-full bg-gray-100 flex items-center justify-center mx-auto mb-3">
-                      <Clock className="w-5 h-5 text-gray-400" />
+                    <div className="w-12 h-12 rounded-full bg-white/[0.04] flex items-center justify-center mx-auto mb-3">
+                      <Clock className="w-5 h-5 text-slate-500" />
                     </div>
-                    <p className="text-sm text-gray-500">
+                    <p className="text-sm text-slate-400">
                       {viewMode === 'calendar' ? 'No slots for this date' : 'No slots found for this month'}
                     </p>
-                    <p className="text-xs text-gray-400 mt-1">Use Bulk Create to add slots</p>
+                    <p className="text-xs text-slate-500 mt-1">Use Bulk Create to add slots</p>
                   </div>
                 );
               }
@@ -553,7 +553,7 @@ export default function SlotManagement() {
               return Object.entries(grouped).map(([dateKey, dateSlots]) => (
                 <div key={dateKey} className="mb-4">
                   {viewMode === 'list' && (
-                    <div className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">
+                    <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">
                       {format(parseISO(dateKey), 'EEE, MMM d, yyyy')}
                     </div>
                   )}
@@ -561,13 +561,13 @@ export default function SlotManagement() {
                     {dateSlots.map(slot => (
                       <div
                         key={slot.id}
-                        className={`bg-white rounded-xl border p-4 flex items-center justify-between ${
-                          slot.isActive ? 'border-gray-100' : 'border-gray-200 bg-gray-50 opacity-60'
+                        className={`bg-white/[0.04] rounded-xl border p-4 flex items-center justify-between ${
+                          slot.isActive ? 'border-white/[0.08]' : 'border-white/[0.04] bg-white/[0.02] opacity-60'
                         }`}
                       >
                         <div className="flex items-center gap-4 flex-1 min-w-0">
                           <div className="flex-shrink-0">
-                            <div className="text-sm font-semibold text-gray-900">
+                            <div className="text-sm font-semibold text-white">
                               {formatTime(slot.startTime)} - {formatTime(slot.endTime)}
                             </div>
                             {slot.isBooked && (
@@ -576,29 +576,29 @@ export default function SlotManagement() {
                               </div>
                             )}
                             {!slot.isActive && (
-                              <div className="text-[10px] text-gray-400 font-medium mt-0.5">Inactive</div>
+                              <div className="text-[10px] text-slate-500 font-medium mt-0.5">Inactive</div>
                             )}
                           </div>
                           <div className="flex items-center gap-1">
                             {editingSlot === slot.id ? (
                               <div className="flex items-center gap-1">
-                                <IndianRupee className="w-3 h-3 text-gray-400" />
+                                <IndianRupee className="w-3 h-3 text-slate-400" />
                                 <input
                                   type="number"
                                   value={editPrice}
                                   onChange={e => setEditPrice(e.target.value)}
-                                  className="w-20 border border-gray-200 rounded px-2 py-1 text-sm outline-none focus:border-primary"
+                                  className="w-20 bg-white/[0.04] border border-white/[0.1] rounded px-2 py-1 text-sm text-white outline-none focus:border-accent"
                                   autoFocus
                                 />
                                 <button
                                   onClick={() => handleUpdatePrice(slot.id)}
-                                  className="p-1 text-green-600 hover:bg-green-50 rounded cursor-pointer"
+                                  className="p-1 text-green-400 hover:bg-green-500/10 rounded cursor-pointer"
                                 >
                                   <Save className="w-3.5 h-3.5" />
                                 </button>
                                 <button
                                   onClick={() => setEditingSlot(null)}
-                                  className="p-1 text-gray-400 hover:bg-gray-100 rounded cursor-pointer"
+                                  className="p-1 text-slate-400 hover:bg-white/[0.06] rounded cursor-pointer"
                                 >
                                   <X className="w-3.5 h-3.5" />
                                 </button>
@@ -613,8 +613,8 @@ export default function SlotManagement() {
                                 }}
                                 className={`inline-flex items-center gap-1 px-2 py-1 rounded text-sm font-medium ${
                                   slot.isBooked
-                                    ? 'text-gray-500 bg-gray-50'
-                                    : 'text-primary bg-primary/5 hover:bg-primary/10 cursor-pointer'
+                                    ? 'text-slate-400 bg-white/[0.04]'
+                                    : 'text-accent bg-accent/10 hover:bg-accent/20 cursor-pointer'
                                 }`}
                                 disabled={slot.isBooked}
                               >
@@ -629,7 +629,7 @@ export default function SlotManagement() {
                           <button
                             onClick={() => handleToggleActive(slot.id, slot.isActive)}
                             className={`p-2 rounded-lg transition-colors cursor-pointer ${
-                              slot.isActive ? 'text-green-600 hover:bg-green-50' : 'text-gray-400 hover:bg-gray-100'
+                              slot.isActive ? 'text-green-400 hover:bg-green-500/10' : 'text-slate-500 hover:bg-white/[0.06]'
                             }`}
                             title={slot.isActive ? 'Deactivate slot' : 'Activate slot'}
                           >
@@ -638,7 +638,7 @@ export default function SlotManagement() {
                           {!slot.isBooked && (
                             <button
                               onClick={() => handleDelete(slot.id)}
-                              className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors cursor-pointer"
+                              className="p-2 text-slate-500 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-colors cursor-pointer"
                               title="Delete slot"
                             >
                               <Trash2 className="w-4 h-4" />

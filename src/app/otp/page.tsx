@@ -66,12 +66,12 @@ export default function OtpPage() {
             </div>
           </div>
 
-          <div className="bg-white rounded-2xl shadow-2xl shadow-black/20 p-6 md:p-8">
+          <div className="bg-white/[0.04] backdrop-blur-sm rounded-2xl border border-white/[0.08] p-6 md:p-8">
             <div className="text-center mb-6">
-              <h1 className="text-xl font-bold text-gray-900 mb-1">Verify Your Number</h1>
-              <p className="text-sm text-gray-500">
+              <h1 className="text-xl font-bold text-white mb-1">Verify Your Number</h1>
+              <p className="text-sm text-slate-400">
                 Enter the 6-digit code sent to{' '}
-                <span className="font-semibold text-primary">{mobileNumber}</span>
+                <span className="font-semibold text-accent">{mobileNumber}</span>
               </p>
             </div>
 
@@ -87,14 +87,14 @@ export default function OtpPage() {
                   maxLength={6}
                   value={otp}
                   onChange={(e) => setOtp(e.target.value.replace(/\D/g, ''))}
-                  className="w-full px-4 py-4 border-2 border-gray-100 rounded-xl text-center text-2xl tracking-[0.4em] font-mono outline-none transition-all focus:border-primary focus:ring-2 focus:ring-primary/10"
+                  className="w-full px-4 py-4 bg-white/[0.04] border-2 border-white/[0.1] rounded-xl text-center text-2xl tracking-[0.4em] font-mono text-white outline-none transition-all focus:border-accent focus:ring-2 focus:ring-accent/10 placeholder:text-slate-600"
                   placeholder="------"
                   disabled={loading}
                 />
               </div>
 
               {error && (
-                <div className="flex items-center gap-2 p-3 bg-red-50 border border-red-100 text-red-600 rounded-xl text-sm">
+                <div className="flex items-center gap-2 p-3 bg-red-500/10 border border-red-500/20 text-red-400 rounded-xl text-sm">
                   <svg className="w-4 h-4 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
                     <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
                   </svg>
@@ -105,7 +105,7 @@ export default function OtpPage() {
               <button
                 type="submit"
                 disabled={loading || otp.length < 6}
-                className="w-full py-3.5 bg-primary hover:bg-primary-light text-white rounded-xl font-semibold text-sm transition-all active:scale-[0.98] disabled:opacity-50 cursor-pointer"
+                className="w-full py-3.5 bg-accent hover:bg-accent-light text-primary rounded-xl font-semibold text-sm transition-all active:scale-[0.98] disabled:opacity-50 cursor-pointer"
               >
                 {loading ? 'Verifying...' : 'Verify & Continue'}
               </button>
@@ -113,7 +113,7 @@ export default function OtpPage() {
 
             <button
               onClick={() => router.push('/login')}
-              className="flex items-center justify-center gap-1.5 w-full mt-4 py-2 text-sm text-gray-400 hover:text-primary transition-colors cursor-pointer"
+              className="flex items-center justify-center gap-1.5 w-full mt-4 py-2 text-sm text-slate-400 hover:text-accent transition-colors cursor-pointer"
             >
               <ArrowLeft className="w-3.5 h-3.5" />
               Back to Login

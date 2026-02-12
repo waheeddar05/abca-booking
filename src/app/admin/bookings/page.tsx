@@ -127,9 +127,9 @@ export default function AdminBookings() {
   };
 
   const statusConfig: Record<string, { label: string; bg: string; text: string; dot: string }> = {
-    BOOKED: { label: 'Booked', bg: 'bg-green-50', text: 'text-green-700', dot: 'bg-green-500' },
-    DONE: { label: 'Done', bg: 'bg-blue-50', text: 'text-blue-700', dot: 'bg-blue-500' },
-    CANCELLED: { label: 'Cancelled', bg: 'bg-gray-50', text: 'text-gray-500', dot: 'bg-gray-400' },
+    BOOKED: { label: 'Booked', bg: 'bg-green-500/10', text: 'text-green-400', dot: 'bg-green-500' },
+    DONE: { label: 'Done', bg: 'bg-blue-500/10', text: 'text-blue-400', dot: 'bg-blue-500' },
+    CANCELLED: { label: 'Cancelled', bg: 'bg-white/[0.04]', text: 'text-slate-400', dot: 'bg-gray-400' },
   };
 
   const ballTypeConfig: Record<string, string> = {
@@ -150,17 +150,17 @@ export default function AdminBookings() {
     <div>
       <div className="flex items-center justify-between mb-5">
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center">
-            <Calendar className="w-5 h-5 text-primary" />
+          <div className="w-10 h-10 rounded-xl bg-accent/10 flex items-center justify-center">
+            <Calendar className="w-5 h-5 text-accent" />
           </div>
           <div>
-            <h1 className="text-xl font-bold text-gray-900">Bookings</h1>
-            <p className="text-xs text-gray-400">Manage all bookings</p>
+            <h1 className="text-xl font-bold text-white">Bookings</h1>
+            <p className="text-xs text-slate-400">Manage all bookings</p>
           </div>
         </div>
         <button
           onClick={handleExport}
-          className="inline-flex items-center gap-2 px-3 py-2 bg-gray-100 text-gray-700 rounded-lg text-xs font-medium hover:bg-gray-200 transition-colors cursor-pointer"
+          className="inline-flex items-center gap-2 px-3 py-2 bg-white/[0.06] text-slate-300 rounded-lg text-xs font-medium hover:bg-white/[0.1] transition-colors cursor-pointer"
         >
           <Download className="w-3.5 h-3.5" />
           Export CSV
@@ -175,8 +175,8 @@ export default function AdminBookings() {
             onClick={() => handleCategoryChange(tab.key)}
             className={`flex-shrink-0 px-4 py-2 rounded-lg text-sm font-medium transition-colors cursor-pointer ${
               category === tab.key
-                ? 'bg-primary text-white'
-                : 'bg-white text-gray-500 border border-gray-200 hover:border-primary/30'
+                ? 'bg-accent text-primary'
+                : 'bg-white/[0.04] text-slate-400 border border-white/[0.08] hover:border-primary/30'
             }`}
           >
             {tab.label}
@@ -186,26 +186,26 @@ export default function AdminBookings() {
 
       {/* Summary Cards */}
       <div className="grid grid-cols-3 gap-2 mb-5">
-        <div className="bg-green-50 rounded-xl p-3 text-center">
-          <div className="text-lg font-bold text-green-700">{summary.booked}</div>
-          <div className="text-[10px] font-medium text-green-600 uppercase tracking-wider">Booked</div>
+        <div className="bg-green-500/10 rounded-xl p-3 text-center">
+          <div className="text-lg font-bold text-green-400">{summary.booked}</div>
+          <div className="text-[10px] font-medium text-green-400 uppercase tracking-wider">Booked</div>
         </div>
-        <div className="bg-blue-50 rounded-xl p-3 text-center">
-          <div className="text-lg font-bold text-blue-700">{summary.done}</div>
-          <div className="text-[10px] font-medium text-blue-600 uppercase tracking-wider">Done</div>
+        <div className="bg-blue-500/10 rounded-xl p-3 text-center">
+          <div className="text-lg font-bold text-blue-400">{summary.done}</div>
+          <div className="text-[10px] font-medium text-blue-400 uppercase tracking-wider">Done</div>
         </div>
-        <div className="bg-gray-50 rounded-xl p-3 text-center">
-          <div className="text-lg font-bold text-gray-500">{summary.cancelled}</div>
-          <div className="text-[10px] font-medium text-gray-400 uppercase tracking-wider">Cancelled</div>
+        <div className="bg-white/[0.04] rounded-xl p-3 text-center">
+          <div className="text-lg font-bold text-slate-400">{summary.cancelled}</div>
+          <div className="text-[10px] font-medium text-slate-400 uppercase tracking-wider">Cancelled</div>
         </div>
       </div>
 
       {/* Filters */}
-      <div className="bg-white rounded-xl border border-gray-100 p-4 mb-5">
+      <div className="bg-white/[0.04] backdrop-blur-sm rounded-xl border border-white/[0.08] p-4 mb-5">
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-2">
-            <Filter className="w-4 h-4 text-gray-400" />
-            <span className="text-xs font-medium text-gray-500 uppercase tracking-wider">Filters</span>
+            <Filter className="w-4 h-4 text-slate-400" />
+            <span className="text-xs font-medium text-slate-400 uppercase tracking-wider">Filters</span>
           </div>
           <button
             onClick={() => setShowDateRange(!showDateRange)}
@@ -216,12 +216,12 @@ export default function AdminBookings() {
         </div>
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           <div>
-            <label className="block text-[11px] font-medium text-gray-400 mb-1">Status</label>
+            <label className="block text-[11px] font-medium text-slate-400 mb-1">Status</label>
             <select
               name="status"
               value={filters.status}
               onChange={handleFilterChange}
-              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-primary focus:ring-1 focus:ring-primary/20 cursor-pointer"
+              className="w-full bg-white/[0.04] border border-white/[0.1] text-white rounded-lg px-3 py-2 text-sm outline-none focus:border-primary focus:ring-1 focus:ring-primary/20 cursor-pointer"
             >
               <option value="">All</option>
               <option value="BOOKED">Booked</option>
@@ -230,7 +230,7 @@ export default function AdminBookings() {
             </select>
           </div>
           <div>
-            <label className="block text-[11px] font-medium text-gray-400 mb-1">Customer</label>
+            <label className="block text-[11px] font-medium text-slate-400 mb-1">Customer</label>
             <div className="relative">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-300" />
               <input
@@ -239,12 +239,12 @@ export default function AdminBookings() {
                 placeholder="Search name or email..."
                 value={filters.customer}
                 onChange={handleFilterChange}
-                className="w-full border border-gray-200 rounded-lg pl-9 pr-3 py-2 text-sm outline-none focus:border-primary focus:ring-1 focus:ring-primary/20"
+                className="w-full bg-white/[0.04] border border-white/[0.1] text-white placeholder:text-slate-500 rounded-lg pl-9 pr-3 py-2 text-sm outline-none focus:border-primary focus:ring-1 focus:ring-primary/20"
               />
             </div>
           </div>
           <div>
-            <label className="block text-[11px] font-medium text-gray-400 mb-1">Single Date</label>
+            <label className="block text-[11px] font-medium text-slate-400 mb-1">Single Date</label>
             <input
               type="date"
               name="date"
@@ -253,14 +253,14 @@ export default function AdminBookings() {
                 setFilters(prev => ({ ...prev, date: e.target.value, from: '', to: '' }));
                 setPagination(prev => ({ ...prev, page: 1 }));
               }}
-              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-primary focus:ring-1 focus:ring-primary/20"
+              className="w-full bg-white/[0.04] border border-white/[0.1] text-white placeholder:text-slate-500 rounded-lg px-3 py-2 text-sm outline-none focus:border-primary focus:ring-1 focus:ring-primary/20"
             />
           </div>
         </div>
         {showDateRange && (
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-3 pt-3 border-t border-gray-50">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-3 pt-3 border-t border-white/[0.04]">
             <div>
-              <label className="block text-[11px] font-medium text-gray-400 mb-1">From Date</label>
+              <label className="block text-[11px] font-medium text-slate-400 mb-1">From Date</label>
               <input
                 type="date"
                 name="from"
@@ -269,11 +269,11 @@ export default function AdminBookings() {
                   setFilters(prev => ({ ...prev, from: e.target.value, date: '' }));
                   setPagination(prev => ({ ...prev, page: 1 }));
                 }}
-                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-primary focus:ring-1 focus:ring-primary/20"
+                className="w-full bg-white/[0.04] border border-white/[0.1] text-white placeholder:text-slate-500 rounded-lg px-3 py-2 text-sm outline-none focus:border-primary focus:ring-1 focus:ring-primary/20"
               />
             </div>
             <div>
-              <label className="block text-[11px] font-medium text-gray-400 mb-1">To Date</label>
+              <label className="block text-[11px] font-medium text-slate-400 mb-1">To Date</label>
               <input
                 type="date"
                 name="to"
@@ -282,7 +282,7 @@ export default function AdminBookings() {
                   setFilters(prev => ({ ...prev, to: e.target.value, date: '' }));
                   setPagination(prev => ({ ...prev, page: 1 }));
                 }}
-                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-primary focus:ring-1 focus:ring-primary/20"
+                className="w-full bg-white/[0.04] border border-white/[0.1] text-white placeholder:text-slate-500 rounded-lg px-3 py-2 text-sm outline-none focus:border-primary focus:ring-1 focus:ring-primary/20"
               />
             </div>
           </div>
@@ -291,11 +291,11 @@ export default function AdminBookings() {
 
       {/* Sort Controls */}
       <div className="flex items-center gap-2 mb-3">
-        <span className="text-[11px] font-medium text-gray-400 uppercase tracking-wider">Sort by:</span>
+        <span className="text-[11px] font-medium text-slate-400 uppercase tracking-wider">Sort by:</span>
         <button
           onClick={() => handleSort('date')}
           className={`inline-flex items-center gap-1 px-2 py-1 rounded text-xs font-medium cursor-pointer ${
-            sortBy === 'date' ? 'bg-primary/10 text-primary' : 'text-gray-500 hover:bg-gray-100'
+            sortBy === 'date' ? 'bg-accent/15 text-accent' : 'text-slate-400 hover:bg-white/[0.06]'
           }`}
         >
           Date
@@ -304,7 +304,7 @@ export default function AdminBookings() {
         <button
           onClick={() => handleSort('createdAt')}
           className={`inline-flex items-center gap-1 px-2 py-1 rounded text-xs font-medium cursor-pointer ${
-            sortBy === 'createdAt' ? 'bg-primary/10 text-primary' : 'text-gray-500 hover:bg-gray-100'
+            sortBy === 'createdAt' ? 'bg-accent/15 text-accent' : 'text-slate-400 hover:bg-white/[0.06]'
           }`}
         >
           Created
@@ -314,16 +314,16 @@ export default function AdminBookings() {
 
       {/* Bookings List */}
       {loading ? (
-        <div className="flex flex-col items-center justify-center py-16 text-gray-400">
+        <div className="flex flex-col items-center justify-center py-16 text-slate-400">
           <Loader2 className="w-5 h-5 animate-spin mb-2" />
           <span className="text-sm">Loading bookings...</span>
         </div>
       ) : bookings.length === 0 ? (
         <div className="text-center py-16">
-          <div className="w-12 h-12 rounded-full bg-gray-100 flex items-center justify-center mx-auto mb-3">
-            <Calendar className="w-5 h-5 text-gray-400" />
+          <div className="w-12 h-12 rounded-full bg-white/[0.04] flex items-center justify-center mx-auto mb-3">
+            <Calendar className="w-5 h-5 text-slate-400" />
           </div>
-          <p className="text-sm text-gray-500">No bookings found</p>
+          <p className="text-sm text-slate-400">No bookings found</p>
         </div>
       ) : (
         <>
@@ -332,21 +332,21 @@ export default function AdminBookings() {
             {bookings.map((booking) => {
               const status = statusConfig[booking.status] || statusConfig.BOOKED;
               return (
-                <div key={booking.id} className="bg-white rounded-xl border border-gray-100 p-4">
+                <div key={booking.id} className="bg-white/[0.04] backdrop-blur-sm rounded-xl border border-white/[0.08] p-4">
                   <div className="flex items-center justify-between mb-3">
-                    <div className="font-semibold text-sm text-gray-900">{booking.playerName}</div>
+                    <div className="font-semibold text-sm text-white">{booking.playerName}</div>
                     <div className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-semibold ${status.bg} ${status.text}`}>
                       <span className={`w-1.5 h-1.5 rounded-full ${status.dot}`}></span>
                       {status.label}
                     </div>
                   </div>
-                  <div className="text-xs text-gray-500 mb-1">
+                  <div className="text-xs text-slate-400 mb-1">
                     {booking.user?.email || booking.user?.mobileNumber}
                   </div>
-                  <div className="text-xs text-gray-400 mb-1">
+                  <div className="text-xs text-slate-400 mb-1">
                     {format(new Date(booking.date), 'MMM d, yyyy')}
                   </div>
-                  <div className="text-sm text-gray-900 mb-1">
+                  <div className="text-sm text-white mb-1">
                     {new Date(booking.startTime).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit' })}
                     {' - '}
                     {new Date(booking.endTime).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit' })}
@@ -354,36 +354,36 @@ export default function AdminBookings() {
                   <div className="flex items-center gap-3 mb-3">
                     <div className="flex items-center gap-1.5">
                       <span className={`w-2 h-2 rounded-full ${ballTypeConfig[booking.ballType] || 'bg-gray-400'}`}></span>
-                      <span className="text-xs text-gray-500">{booking.ballType}</span>
+                      <span className="text-xs text-slate-400">{booking.ballType}</span>
                     </div>
                     {booking.operationMode && (
-                      <span className={`text-xs px-1.5 py-0.5 rounded ${booking.operationMode === 'SELF_OPERATE' ? 'bg-orange-50 text-orange-600' : 'bg-blue-50 text-blue-600'}`}>
+                      <span className={`text-xs px-1.5 py-0.5 rounded ${booking.operationMode === 'SELF_OPERATE' ? 'bg-orange-500/10 text-orange-400' : 'bg-blue-500/10 text-blue-400'}`}>
                         {booking.operationMode === 'SELF_OPERATE' ? 'Self' : 'Operator'}
                       </span>
                     )}
                     {booking.price != null && (
-                      <div className="flex items-center gap-0.5 text-xs text-gray-600">
+                      <div className="flex items-center gap-0.5 text-xs text-slate-300">
                         <IndianRupee className="w-3 h-3" />
                         {booking.price}
                         {booking.discountAmount > 0 && (
-                          <span className="text-green-600 ml-1">(-{booking.discountAmount})</span>
+                          <span className="text-green-400 ml-1">(-{booking.discountAmount})</span>
                         )}
                       </div>
                     )}
                   </div>
-                  <div className="flex gap-2 pt-3 border-t border-gray-50">
+                  <div className="flex gap-2 pt-3 border-t border-white/[0.04]">
                     {booking.status === 'BOOKED' && (
                       <>
                         <button
                           onClick={() => updateStatus(booking.id, 'DONE')}
-                          className="flex-1 flex items-center justify-center gap-1.5 py-2 text-xs font-medium text-green-600 bg-green-50 rounded-lg hover:bg-green-100 transition-colors cursor-pointer"
+                          className="flex-1 flex items-center justify-center gap-1.5 py-2 text-xs font-medium text-green-400 bg-green-500/10 rounded-lg hover:bg-green-500/20 transition-colors cursor-pointer"
                         >
                           <CheckCircle className="w-3.5 h-3.5" />
                           Done
                         </button>
                         <button
                           onClick={() => updateStatus(booking.id, 'CANCELLED')}
-                          className="flex-1 flex items-center justify-center gap-1.5 py-2 text-xs font-medium text-red-500 bg-red-50 rounded-lg hover:bg-red-100 transition-colors cursor-pointer"
+                          className="flex-1 flex items-center justify-center gap-1.5 py-2 text-xs font-medium text-red-400 bg-red-500/10 rounded-lg hover:bg-red-500/20 transition-colors cursor-pointer"
                         >
                           <XCircle className="w-3.5 h-3.5" />
                           Cancel
@@ -393,7 +393,7 @@ export default function AdminBookings() {
                     {booking.status !== 'BOOKED' && (
                       <button
                         onClick={() => updateStatus(booking.id, 'BOOKED')}
-                        className="flex-1 flex items-center justify-center gap-1.5 py-2 text-xs font-medium text-gray-600 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors cursor-pointer"
+                        className="flex-1 flex items-center justify-center gap-1.5 py-2 text-xs font-medium text-slate-400 bg-white/[0.04] rounded-lg hover:bg-white/[0.08] transition-colors cursor-pointer"
                       >
                         <RotateCcw className="w-3.5 h-3.5" />
                         Restore
@@ -406,33 +406,33 @@ export default function AdminBookings() {
           </div>
 
           {/* Desktop Table */}
-          <div className="hidden md:block bg-white rounded-xl border border-gray-100 overflow-hidden">
+          <div className="hidden md:block bg-white/[0.04] backdrop-blur-sm rounded-xl border border-white/[0.08] overflow-hidden">
             <table className="w-full text-left">
-              <thead className="bg-gray-50/80 border-b border-gray-100">
+              <thead className="bg-white/[0.02] border-b border-white/[0.06]">
                 <tr>
-                  <th className="px-5 py-3 text-[11px] font-semibold text-gray-400 uppercase tracking-wider">Customer</th>
-                  <th className="px-5 py-3 text-[11px] font-semibold text-gray-400 uppercase tracking-wider">Date</th>
-                  <th className="px-5 py-3 text-[11px] font-semibold text-gray-400 uppercase tracking-wider">Time</th>
-                  <th className="px-5 py-3 text-[11px] font-semibold text-gray-400 uppercase tracking-wider">Type</th>
-                  <th className="px-5 py-3 text-[11px] font-semibold text-gray-400 uppercase tracking-wider">Price</th>
-                  <th className="px-5 py-3 text-[11px] font-semibold text-gray-400 uppercase tracking-wider">Status</th>
-                  <th className="px-5 py-3 text-[11px] font-semibold text-gray-400 uppercase tracking-wider text-right">Actions</th>
+                  <th className="px-5 py-3 text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Customer</th>
+                  <th className="px-5 py-3 text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Date</th>
+                  <th className="px-5 py-3 text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Time</th>
+                  <th className="px-5 py-3 text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Type</th>
+                  <th className="px-5 py-3 text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Price</th>
+                  <th className="px-5 py-3 text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Status</th>
+                  <th className="px-5 py-3 text-[11px] font-semibold text-slate-400 uppercase tracking-wider text-right">Actions</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-gray-50">
+              <tbody className="divide-y divide-white/[0.04]">
                 {bookings.map((booking) => {
                   const status = statusConfig[booking.status] || statusConfig.BOOKED;
                   return (
-                    <tr key={booking.id} className="hover:bg-gray-50/50 transition-colors">
+                    <tr key={booking.id} className="hover:bg-white/[0.04] transition-colors">
                       <td className="px-5 py-3.5">
-                        <div className="text-sm font-medium text-gray-900">{booking.playerName}</div>
-                        <div className="text-xs text-gray-400">{booking.user?.email || booking.user?.mobileNumber}</div>
+                        <div className="text-sm font-medium text-white">{booking.playerName}</div>
+                        <div className="text-xs text-slate-400">{booking.user?.email || booking.user?.mobileNumber}</div>
                       </td>
                       <td className="px-5 py-3.5">
-                        <div className="text-sm text-gray-900">{format(new Date(booking.date), 'MMM d, yyyy')}</div>
+                        <div className="text-sm text-white">{format(new Date(booking.date), 'MMM d, yyyy')}</div>
                       </td>
                       <td className="px-5 py-3.5">
-                        <div className="text-sm text-gray-900">
+                        <div className="text-sm text-white">
                           {new Date(booking.startTime).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit' })}
                           {' - '}
                           {new Date(booking.endTime).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit' })}
@@ -441,9 +441,9 @@ export default function AdminBookings() {
                       <td className="px-5 py-3.5">
                         <div className="flex items-center gap-1.5">
                           <span className={`w-2 h-2 rounded-full ${ballTypeConfig[booking.ballType] || 'bg-gray-400'}`}></span>
-                          <span className="text-sm text-gray-600">{booking.ballType}</span>
+                          <span className="text-sm text-slate-300">{booking.ballType}</span>
                           {booking.operationMode && (
-                            <span className={`text-[10px] px-1.5 py-0.5 rounded ${booking.operationMode === 'SELF_OPERATE' ? 'bg-orange-50 text-orange-600' : 'bg-blue-50 text-blue-600'}`}>
+                            <span className={`text-[10px] px-1.5 py-0.5 rounded ${booking.operationMode === 'SELF_OPERATE' ? 'bg-orange-500/10 text-orange-400' : 'bg-blue-500/10 text-blue-400'}`}>
                               {booking.operationMode === 'SELF_OPERATE' ? 'Self' : 'Op'}
                             </span>
                           )}
@@ -451,12 +451,12 @@ export default function AdminBookings() {
                       </td>
                       <td className="px-5 py-3.5">
                         {booking.price != null ? (
-                          <div className="text-sm text-gray-900">
+                          <div className="text-sm text-white">
                             <span className="flex items-center gap-0.5">
                               <IndianRupee className="w-3 h-3" />{booking.price}
                             </span>
                             {booking.discountAmount > 0 && (
-                              <div className="text-[10px] text-green-600">-{booking.discountAmount} discount</div>
+                              <div className="text-[10px] text-green-400">-{booking.discountAmount} discount</div>
                             )}
                           </div>
                         ) : (
@@ -475,13 +475,13 @@ export default function AdminBookings() {
                             <>
                               <button
                                 onClick={() => updateStatus(booking.id, 'DONE')}
-                                className="px-2.5 py-1.5 text-xs font-medium text-green-600 hover:bg-green-50 rounded-lg transition-colors cursor-pointer"
+                                className="px-2.5 py-1.5 text-xs font-medium text-green-400 hover:bg-green-500/10 rounded-lg transition-colors cursor-pointer"
                               >
                                 Done
                               </button>
                               <button
                                 onClick={() => updateStatus(booking.id, 'CANCELLED')}
-                                className="px-2.5 py-1.5 text-xs font-medium text-red-500 hover:bg-red-50 rounded-lg transition-colors cursor-pointer"
+                                className="px-2.5 py-1.5 text-xs font-medium text-red-400 hover:bg-red-500/10 rounded-lg transition-colors cursor-pointer"
                               >
                                 Cancel
                               </button>
@@ -490,7 +490,7 @@ export default function AdminBookings() {
                           {booking.status !== 'BOOKED' && (
                             <button
                               onClick={() => updateStatus(booking.id, 'BOOKED')}
-                              className="px-2.5 py-1.5 text-xs font-medium text-gray-500 hover:bg-gray-100 rounded-lg transition-colors cursor-pointer"
+                              className="px-2.5 py-1.5 text-xs font-medium text-slate-400 hover:bg-white/[0.06] rounded-lg transition-colors cursor-pointer"
                             >
                               Restore
                             </button>
@@ -507,26 +507,26 @@ export default function AdminBookings() {
           {/* Pagination */}
           {pagination.totalPages > 1 && (
             <div className="flex items-center justify-between mt-4">
-              <div className="text-xs text-gray-400">
+              <div className="text-xs text-slate-400">
                 Showing {(pagination.page - 1) * pagination.limit + 1}-{Math.min(pagination.page * pagination.limit, pagination.total)} of {pagination.total}
               </div>
               <div className="flex items-center gap-1">
                 <button
                   onClick={() => setPagination(prev => ({ ...prev, page: prev.page - 1 }))}
                   disabled={pagination.page <= 1}
-                  className="p-2 rounded-lg hover:bg-gray-100 transition-colors cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
+                  className="p-2 rounded-lg hover:bg-white/[0.06] transition-colors cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
                 >
-                  <ChevronLeft className="w-4 h-4 text-gray-500" />
+                  <ChevronLeft className="w-4 h-4 text-slate-400" />
                 </button>
-                <span className="text-sm text-gray-600 px-2">
+                <span className="text-sm text-slate-300 px-2">
                   {pagination.page} / {pagination.totalPages}
                 </span>
                 <button
                   onClick={() => setPagination(prev => ({ ...prev, page: prev.page + 1 }))}
                   disabled={pagination.page >= pagination.totalPages}
-                  className="p-2 rounded-lg hover:bg-gray-100 transition-colors cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
+                  className="p-2 rounded-lg hover:bg-white/[0.06] transition-colors cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
                 >
-                  <ChevronRight className="w-4 h-4 text-gray-500" />
+                  <ChevronRight className="w-4 h-4 text-slate-400" />
                 </button>
               </div>
             </div>

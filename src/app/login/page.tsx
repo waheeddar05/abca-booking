@@ -65,9 +65,9 @@ export default function LoginPage() {
 
         {/* Login Card */}
         <div className="w-full max-w-sm">
-          <div className="bg-white rounded-2xl shadow-2xl shadow-black/20 p-6 md:p-8 space-y-5">
+          <div className="bg-white/[0.04] backdrop-blur-sm rounded-2xl border border-white/[0.08] p-6 md:p-8 space-y-5">
             {error && (
-              <div className="flex items-center gap-2 p-3 bg-red-50 border border-red-100 text-red-600 rounded-xl text-sm">
+              <div className="flex items-center gap-2 p-3 bg-red-500/10 border border-red-500/20 text-red-400 rounded-xl text-sm">
                 <svg className="w-4 h-4 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
                   <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
                 </svg>
@@ -76,7 +76,7 @@ export default function LoginPage() {
             )}
 
             {successMessage && (
-              <div className="flex items-center gap-2 p-3 bg-green-50 border border-green-100 text-green-700 rounded-xl text-sm">
+              <div className="flex items-center gap-2 p-3 bg-green-500/10 border border-green-500/20 text-green-400 rounded-xl text-sm">
                 <svg className="w-4 h-4 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
                   <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
                 </svg>
@@ -88,7 +88,7 @@ export default function LoginPage() {
             <button
               onClick={() => signIn('google', { callbackUrl: '/slots' })}
               disabled={loading}
-              className="w-full flex items-center justify-center gap-3 py-3 px-4 border border-gray-200 rounded-xl hover:bg-gray-50 font-medium text-gray-700 transition-all active:scale-[0.98] disabled:opacity-50 cursor-pointer"
+              className="w-full flex items-center justify-center gap-3 py-3 px-4 border border-white/[0.1] rounded-xl hover:bg-white/[0.06] font-medium text-white transition-all active:scale-[0.98] disabled:opacity-50 cursor-pointer"
             >
               <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" alt="Google" className="w-5 h-5" />
               <span className="text-sm">Continue with Google</span>
@@ -97,17 +97,17 @@ export default function LoginPage() {
             {/* Divider */}
             <div className="relative">
               <div className="absolute inset-0 flex items-center">
-                <div className="w-full border-t border-gray-100"></div>
+                <div className="w-full border-t border-white/[0.08]"></div>
               </div>
               <div className="relative flex justify-center text-xs">
-                <span className="px-3 bg-white text-gray-400">or use mobile number</span>
+                <span className="px-3 bg-[#0f1d2f] text-slate-500">or use mobile number</span>
               </div>
             </div>
 
             {/* Mobile Number Form */}
             <form onSubmit={handleSubmit} className="space-y-4">
               <div>
-                <label htmlFor="mobile" className="block text-xs font-medium text-gray-500 mb-1.5">
+                <label htmlFor="mobile" className="block text-xs font-medium text-slate-400 mb-1.5">
                   Mobile Number
                 </label>
                 <input
@@ -116,7 +116,7 @@ export default function LoginPage() {
                   required
                   value={mobileNumber}
                   onChange={(e) => setMobileNumber(e.target.value)}
-                  className="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none transition-all placeholder:text-gray-300"
+                  className="w-full px-4 py-3 bg-white/[0.04] border border-white/[0.1] rounded-xl text-sm text-white focus:ring-2 focus:ring-accent/20 focus:border-accent outline-none transition-all placeholder:text-slate-500"
                   placeholder="Enter your mobile number"
                   disabled={loading}
                 />
@@ -124,7 +124,7 @@ export default function LoginPage() {
               <button
                 type="submit"
                 disabled={loading}
-                className="w-full flex items-center justify-center gap-2 py-3 bg-primary hover:bg-primary-light text-white rounded-xl font-semibold text-sm transition-all active:scale-[0.98] disabled:opacity-50 cursor-pointer"
+                className="w-full flex items-center justify-center gap-2 py-3 bg-accent hover:bg-accent-light text-primary rounded-xl font-semibold text-sm transition-all active:scale-[0.98] disabled:opacity-50 cursor-pointer"
               >
                 {loading ? (
                   <span>Sending OTP...</span>
