@@ -1,44 +1,97 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import { format, addDays } from 'date-fns';
-import { Search, Filter, CheckCircle, XCircle, RotateCcw, Calendar, Loader2 } from 'lucide-react';
+import { useState, useEffect, useCallback } from 'react';
+import { format } from 'date-fns';
+import { Search, Filter, CheckCircle, XCircle, RotateCcw, Calendar, Loader2, Download, ChevronLeft, ChevronRight, ArrowUpDown, IndianRupee } from 'lucide-react';
+
+type Category = 'all' | 'today' | 'upcoming' | 'previous' | 'lastMonth';
+
+interface Pagination {
+  page: number;
+  limit: number;
+  total: number;
+  totalPages: number;
+}
+
+interface Summary {
+  booked: number;
+  done: number;
+  cancelled: number;
+  total: number;
+}
 
 export default function AdminBookings() {
   const [bookings, setBookings] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [selectedDate, setSelectedDate] = useState(new Date());
+  const [category, setCategory] = useState<Category>('all');
+  const [pagination, setPagination] = useState<Pagination>({ page: 1, limit: 50, total: 0, totalPages: 0 });
+  const [summary, setSummary] = useState<Summary>({ booked: 0, done: 0, cancelled: 0, total: 0 });
+  const [sortBy, setSortBy] = useState('date');
+  const [sortOrder, setSortOrder] = useState('desc');
   const [filters, setFilters] = useState({
     status: '',
     customer: '',
+    date: '',
+    from: '',
+    to: '',
   });
+  const [showDateRange, setShowDateRange] = useState(false);
 
-  const fetchBookings = async () => {
+  const fetchBookings = useCallback(async () => {
     setLoading(true);
     try {
-      const params = new URLSearchParams({
-        date: format(selectedDate, 'yyyy-MM-dd'),
-        ...(filters.status && { status: filters.status }),
-        ...(filters.customer && { customer: filters.customer }),
-      });
+      const params = new URLSearchParams();
+      if (category !== 'all') params.set('category', category);
+      if (filters.status) params.set('status', filters.status);
+      if (filters.customer) params.set('customer', filters.customer);
+      if (filters.date) params.set('date', filters.date);
+      if (filters.from && filters.to) {
+        params.set('from', filters.from);
+        params.set('to', filters.to);
+      }
+      params.set('page', String(pagination.page));
+      params.set('limit', '50');
+      params.set('sortBy', sortBy);
+      params.set('sortOrder', sortOrder);
+
       const res = await fetch(`/api/admin/bookings?${params.toString()}`);
       if (res.ok) {
         const data = await res.json();
-        setBookings(data);
+        setBookings(data.bookings);
+        setPagination(data.pagination);
+        setSummary(data.summary);
       }
     } catch (error) {
       console.error('Failed to fetch bookings', error);
     } finally {
       setLoading(false);
     }
-  };
+  }, [category, filters, pagination.page, sortBy, sortOrder]);
 
   useEffect(() => {
     fetchBookings();
-  }, [selectedDate, filters]);
+  }, [fetchBookings]);
+
+  const handleCategoryChange = (newCategory: Category) => {
+    setCategory(newCategory);
+    setPagination(prev => ({ ...prev, page: 1 }));
+    setFilters(prev => ({ ...prev, date: '', from: '', to: '' }));
+    setShowDateRange(false);
+  };
 
   const handleFilterChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
-    setFilters({ ...filters, [e.target.name]: e.target.value });
+    setFilters(prev => ({ ...prev, [e.target.name]: e.target.value }));
+    setPagination(prev => ({ ...prev, page: 1 }));
+  };
+
+  const handleSort = (field: string) => {
+    if (sortBy === field) {
+      setSortOrder(prev => (prev === 'asc' ? 'desc' : 'asc'));
+    } else {
+      setSortBy(field);
+      setSortOrder('desc');
+    }
+    setPagination(prev => ({ ...prev, page: 1 }));
   };
 
   const updateStatus = async (bookingId: string, status: string) => {
@@ -61,6 +114,18 @@ export default function AdminBookings() {
     }
   };
 
+  const handleExport = () => {
+    const params = new URLSearchParams();
+    if (category !== 'all') params.set('category', category);
+    if (filters.status) params.set('status', filters.status);
+    if (filters.date) params.set('date', filters.date);
+    if (filters.from && filters.to) {
+      params.set('from', filters.from);
+      params.set('to', filters.to);
+    }
+    window.open(`/api/admin/bookings/export?${params.toString()}`, '_blank');
+  };
+
   const statusConfig: Record<string, { label: string; bg: string; text: string; dot: string }> = {
     BOOKED: { label: 'Booked', bg: 'bg-green-50', text: 'text-green-700', dot: 'bg-green-500' },
     DONE: { label: 'Done', bg: 'bg-blue-50', text: 'text-blue-700', dot: 'bg-blue-500' },
@@ -73,76 +138,83 @@ export default function AdminBookings() {
     MACHINE: 'bg-blue-500',
   };
 
-  const bookedCount = bookings.filter(b => b.status === 'BOOKED').length;
-  const doneCount = bookings.filter(b => b.status === 'DONE').length;
-  const cancelledCount = bookings.filter(b => b.status === 'CANCELLED').length;
+  const tabs: Array<{ key: Category; label: string }> = [
+    { key: 'all', label: 'All' },
+    { key: 'today', label: 'Today' },
+    { key: 'upcoming', label: 'Upcoming' },
+    { key: 'previous', label: 'Previous' },
+    { key: 'lastMonth', label: 'Last Month' },
+  ];
 
   return (
     <div>
-      <div className="flex items-center gap-3 mb-5">
-        <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center">
-          <Calendar className="w-5 h-5 text-primary" />
+      <div className="flex items-center justify-between mb-5">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center">
+            <Calendar className="w-5 h-5 text-primary" />
+          </div>
+          <div>
+            <h1 className="text-xl font-bold text-gray-900">Bookings</h1>
+            <p className="text-xs text-gray-400">Manage all bookings</p>
+          </div>
         </div>
-        <div>
-          <h1 className="text-xl font-bold text-gray-900">All Bookings</h1>
-          <p className="text-xs text-gray-400">Manage bookings by date</p>
-        </div>
+        <button
+          onClick={handleExport}
+          className="inline-flex items-center gap-2 px-3 py-2 bg-gray-100 text-gray-700 rounded-lg text-xs font-medium hover:bg-gray-200 transition-colors cursor-pointer"
+        >
+          <Download className="w-3.5 h-3.5" />
+          Export CSV
+        </button>
       </div>
 
-      {/* 7-Day Date Selector */}
-      <div className="mb-5">
-        <label className="block text-xs font-medium text-gray-500 mb-2 uppercase tracking-wider">Select Date</label>
-        <div className="flex gap-2 overflow-x-auto pb-2 -mx-1 px-1 scrollbar-hide">
-          {[0, 1, 2, 3, 4, 5, 6].map((days) => {
-            const date = addDays(new Date(), days);
-            const isSelected = format(selectedDate, 'yyyy-MM-dd') === format(date, 'yyyy-MM-dd');
-            const isToday = days === 0;
-            return (
-              <button
-                key={days}
-                onClick={() => setSelectedDate(date)}
-                className={`flex-shrink-0 w-16 py-3 rounded-xl text-center transition-all cursor-pointer ${
-                  isSelected
-                    ? 'bg-primary text-white shadow-md shadow-primary/20'
-                    : 'bg-white text-gray-600 border border-gray-200 hover:border-primary/30'
-                }`}
-              >
-                <div className={`text-[10px] uppercase font-medium ${isSelected ? 'text-white/70' : 'text-gray-400'}`}>
-                  {isToday ? 'Today' : format(date, 'EEE')}
-                </div>
-                <div className="text-lg font-bold mt-0.5">{format(date, 'd')}</div>
-                <div className={`text-[10px] ${isSelected ? 'text-white/60' : 'text-gray-400'}`}>
-                  {format(date, 'MMM')}
-                </div>
-              </button>
-            );
-          })}
-        </div>
+      {/* Category Tabs */}
+      <div className="flex gap-1 overflow-x-auto pb-2 mb-4 scrollbar-hide">
+        {tabs.map(tab => (
+          <button
+            key={tab.key}
+            onClick={() => handleCategoryChange(tab.key)}
+            className={`flex-shrink-0 px-4 py-2 rounded-lg text-sm font-medium transition-colors cursor-pointer ${
+              category === tab.key
+                ? 'bg-primary text-white'
+                : 'bg-white text-gray-500 border border-gray-200 hover:border-primary/30'
+            }`}
+          >
+            {tab.label}
+          </button>
+        ))}
       </div>
 
-      {/* Day Summary */}
+      {/* Summary Cards */}
       <div className="grid grid-cols-3 gap-2 mb-5">
         <div className="bg-green-50 rounded-xl p-3 text-center">
-          <div className="text-lg font-bold text-green-700">{bookedCount}</div>
+          <div className="text-lg font-bold text-green-700">{summary.booked}</div>
           <div className="text-[10px] font-medium text-green-600 uppercase tracking-wider">Booked</div>
         </div>
         <div className="bg-blue-50 rounded-xl p-3 text-center">
-          <div className="text-lg font-bold text-blue-700">{doneCount}</div>
+          <div className="text-lg font-bold text-blue-700">{summary.done}</div>
           <div className="text-[10px] font-medium text-blue-600 uppercase tracking-wider">Done</div>
         </div>
         <div className="bg-gray-50 rounded-xl p-3 text-center">
-          <div className="text-lg font-bold text-gray-500">{cancelledCount}</div>
+          <div className="text-lg font-bold text-gray-500">{summary.cancelled}</div>
           <div className="text-[10px] font-medium text-gray-400 uppercase tracking-wider">Cancelled</div>
         </div>
       </div>
 
       {/* Filters */}
       <div className="bg-white rounded-xl border border-gray-100 p-4 mb-5">
-        <div className="flex items-center gap-2 mb-3">
-          <Filter className="w-4 h-4 text-gray-400" />
-          <span className="text-xs font-medium text-gray-500 uppercase tracking-wider">Filters</span>
+        <div className="flex items-center justify-between mb-3">
+          <div className="flex items-center gap-2">
+            <Filter className="w-4 h-4 text-gray-400" />
+            <span className="text-xs font-medium text-gray-500 uppercase tracking-wider">Filters</span>
+          </div>
+          <button
+            onClick={() => setShowDateRange(!showDateRange)}
+            className="text-xs text-primary font-medium cursor-pointer hover:underline"
+          >
+            {showDateRange ? 'Hide date range' : 'Date range filter'}
+          </button>
         </div>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           <div>
             <label className="block text-[11px] font-medium text-gray-400 mb-1">Status</label>
             <select
@@ -171,7 +243,73 @@ export default function AdminBookings() {
               />
             </div>
           </div>
+          <div>
+            <label className="block text-[11px] font-medium text-gray-400 mb-1">Single Date</label>
+            <input
+              type="date"
+              name="date"
+              value={filters.date}
+              onChange={e => {
+                setFilters(prev => ({ ...prev, date: e.target.value, from: '', to: '' }));
+                setPagination(prev => ({ ...prev, page: 1 }));
+              }}
+              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-primary focus:ring-1 focus:ring-primary/20"
+            />
+          </div>
         </div>
+        {showDateRange && (
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-3 pt-3 border-t border-gray-50">
+            <div>
+              <label className="block text-[11px] font-medium text-gray-400 mb-1">From Date</label>
+              <input
+                type="date"
+                name="from"
+                value={filters.from}
+                onChange={e => {
+                  setFilters(prev => ({ ...prev, from: e.target.value, date: '' }));
+                  setPagination(prev => ({ ...prev, page: 1 }));
+                }}
+                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-primary focus:ring-1 focus:ring-primary/20"
+              />
+            </div>
+            <div>
+              <label className="block text-[11px] font-medium text-gray-400 mb-1">To Date</label>
+              <input
+                type="date"
+                name="to"
+                value={filters.to}
+                onChange={e => {
+                  setFilters(prev => ({ ...prev, to: e.target.value, date: '' }));
+                  setPagination(prev => ({ ...prev, page: 1 }));
+                }}
+                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-primary focus:ring-1 focus:ring-primary/20"
+              />
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Sort Controls */}
+      <div className="flex items-center gap-2 mb-3">
+        <span className="text-[11px] font-medium text-gray-400 uppercase tracking-wider">Sort by:</span>
+        <button
+          onClick={() => handleSort('date')}
+          className={`inline-flex items-center gap-1 px-2 py-1 rounded text-xs font-medium cursor-pointer ${
+            sortBy === 'date' ? 'bg-primary/10 text-primary' : 'text-gray-500 hover:bg-gray-100'
+          }`}
+        >
+          Date
+          {sortBy === 'date' && <ArrowUpDown className="w-3 h-3" />}
+        </button>
+        <button
+          onClick={() => handleSort('createdAt')}
+          className={`inline-flex items-center gap-1 px-2 py-1 rounded text-xs font-medium cursor-pointer ${
+            sortBy === 'createdAt' ? 'bg-primary/10 text-primary' : 'text-gray-500 hover:bg-gray-100'
+          }`}
+        >
+          Created
+          {sortBy === 'createdAt' && <ArrowUpDown className="w-3 h-3" />}
+        </button>
       </div>
 
       {/* Bookings List */}
@@ -185,7 +323,7 @@ export default function AdminBookings() {
           <div className="w-12 h-12 rounded-full bg-gray-100 flex items-center justify-center mx-auto mb-3">
             <Calendar className="w-5 h-5 text-gray-400" />
           </div>
-          <p className="text-sm text-gray-500">No bookings for {format(selectedDate, 'EEE, MMM d')}</p>
+          <p className="text-sm text-gray-500">No bookings found</p>
         </div>
       ) : (
         <>
@@ -205,14 +343,28 @@ export default function AdminBookings() {
                   <div className="text-xs text-gray-500 mb-1">
                     {booking.user?.email || booking.user?.mobileNumber}
                   </div>
+                  <div className="text-xs text-gray-400 mb-1">
+                    {format(new Date(booking.date), 'MMM d, yyyy')}
+                  </div>
                   <div className="text-sm text-gray-900 mb-1">
                     {new Date(booking.startTime).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit' })}
                     {' - '}
                     {new Date(booking.endTime).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit' })}
                   </div>
-                  <div className="flex items-center gap-1.5 mb-3">
-                    <span className={`w-2 h-2 rounded-full ${ballTypeConfig[booking.ballType] || 'bg-gray-400'}`}></span>
-                    <span className="text-xs text-gray-500">{booking.ballType}</span>
+                  <div className="flex items-center gap-3 mb-3">
+                    <div className="flex items-center gap-1.5">
+                      <span className={`w-2 h-2 rounded-full ${ballTypeConfig[booking.ballType] || 'bg-gray-400'}`}></span>
+                      <span className="text-xs text-gray-500">{booking.ballType}</span>
+                    </div>
+                    {booking.price != null && (
+                      <div className="flex items-center gap-0.5 text-xs text-gray-600">
+                        <IndianRupee className="w-3 h-3" />
+                        {booking.price}
+                        {booking.discountAmount > 0 && (
+                          <span className="text-green-600 ml-1">(-{booking.discountAmount})</span>
+                        )}
+                      </div>
+                    )}
                   </div>
                   <div className="flex gap-2 pt-3 border-t border-gray-50">
                     {booking.status === 'BOOKED' && (
@@ -254,8 +406,10 @@ export default function AdminBookings() {
               <thead className="bg-gray-50/80 border-b border-gray-100">
                 <tr>
                   <th className="px-5 py-3 text-[11px] font-semibold text-gray-400 uppercase tracking-wider">Customer</th>
+                  <th className="px-5 py-3 text-[11px] font-semibold text-gray-400 uppercase tracking-wider">Date</th>
                   <th className="px-5 py-3 text-[11px] font-semibold text-gray-400 uppercase tracking-wider">Time</th>
                   <th className="px-5 py-3 text-[11px] font-semibold text-gray-400 uppercase tracking-wider">Type</th>
+                  <th className="px-5 py-3 text-[11px] font-semibold text-gray-400 uppercase tracking-wider">Price</th>
                   <th className="px-5 py-3 text-[11px] font-semibold text-gray-400 uppercase tracking-wider">Status</th>
                   <th className="px-5 py-3 text-[11px] font-semibold text-gray-400 uppercase tracking-wider text-right">Actions</th>
                 </tr>
@@ -270,6 +424,9 @@ export default function AdminBookings() {
                         <div className="text-xs text-gray-400">{booking.user?.email || booking.user?.mobileNumber}</div>
                       </td>
                       <td className="px-5 py-3.5">
+                        <div className="text-sm text-gray-900">{format(new Date(booking.date), 'MMM d, yyyy')}</div>
+                      </td>
+                      <td className="px-5 py-3.5">
                         <div className="text-sm text-gray-900">
                           {new Date(booking.startTime).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit' })}
                           {' - '}
@@ -281,6 +438,20 @@ export default function AdminBookings() {
                           <span className={`w-2 h-2 rounded-full ${ballTypeConfig[booking.ballType] || 'bg-gray-400'}`}></span>
                           <span className="text-sm text-gray-600">{booking.ballType}</span>
                         </div>
+                      </td>
+                      <td className="px-5 py-3.5">
+                        {booking.price != null ? (
+                          <div className="text-sm text-gray-900">
+                            <span className="flex items-center gap-0.5">
+                              <IndianRupee className="w-3 h-3" />{booking.price}
+                            </span>
+                            {booking.discountAmount > 0 && (
+                              <div className="text-[10px] text-green-600">-{booking.discountAmount} discount</div>
+                            )}
+                          </div>
+                        ) : (
+                          <span className="text-xs text-gray-300">-</span>
+                        )}
                       </td>
                       <td className="px-5 py-3.5">
                         <div className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold ${status.bg} ${status.text}`}>
@@ -322,6 +493,34 @@ export default function AdminBookings() {
               </tbody>
             </table>
           </div>
+
+          {/* Pagination */}
+          {pagination.totalPages > 1 && (
+            <div className="flex items-center justify-between mt-4">
+              <div className="text-xs text-gray-400">
+                Showing {(pagination.page - 1) * pagination.limit + 1}-{Math.min(pagination.page * pagination.limit, pagination.total)} of {pagination.total}
+              </div>
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={() => setPagination(prev => ({ ...prev, page: prev.page - 1 }))}
+                  disabled={pagination.page <= 1}
+                  className="p-2 rounded-lg hover:bg-gray-100 transition-colors cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
+                >
+                  <ChevronLeft className="w-4 h-4 text-gray-500" />
+                </button>
+                <span className="text-sm text-gray-600 px-2">
+                  {pagination.page} / {pagination.totalPages}
+                </span>
+                <button
+                  onClick={() => setPagination(prev => ({ ...prev, page: prev.page + 1 }))}
+                  disabled={pagination.page >= pagination.totalPages}
+                  className="p-2 rounded-lg hover:bg-gray-100 transition-colors cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
+                >
+                  <ChevronRight className="w-4 h-4 text-gray-500" />
+                </button>
+              </div>
+            </div>
+          )}
         </>
       )}
     </div>
