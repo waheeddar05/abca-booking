@@ -6,8 +6,8 @@ import { Calendar, Check, Loader2 } from 'lucide-react';
 
 export default function SlotsPage() {
   const [selectedDate, setSelectedDate] = useState(new Date());
-  const [category, setCategory] = useState<'TENNIS' | 'MACHINE'>('TENNIS');
-  const [ballType, setBallType] = useState('TENNIS');
+  const [category, setCategory] = useState<'TENNIS' | 'MACHINE'>('MACHINE');
+  const [ballType, setBallType] = useState('LEATHER');
   const [slots, setSlots] = useState<any[]>([]);
   const [selectedSlots, setSelectedSlots] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
@@ -83,13 +83,13 @@ export default function SlotsPage() {
   };
 
   const categories = [
-    { value: 'TENNIS' as const, label: 'Tennis', color: 'bg-green-500' },
-    { value: 'MACHINE' as const, label: 'Machine', color: 'bg-blue-500' },
+    { value: 'MACHINE' as const, label: 'Leather Ball Machine', color: 'bg-red-500' },
+    { value: 'TENNIS' as const, label: 'Tennis Ball Machine', color: 'bg-green-500' },
   ];
 
   const machineSubTypes = [
     { value: 'LEATHER', label: 'Leather', color: 'bg-red-500' },
-    { value: 'MACHINE', label: 'Machine', color: 'bg-blue-500' },
+    { value: 'MACHINE', label: 'Machine', color: 'bg-green-500' },
   ];
 
   const handleCategoryChange = (cat: 'TENNIS' | 'MACHINE') => {
@@ -114,45 +114,66 @@ export default function SlotsPage() {
         </div>
       </div>
 
-      {/* Ball Type Selection */}
+      {/* Bowling Machine Panel */}
       <div className="mb-5">
-        <label className="block text-xs font-medium text-gray-500 mb-2 uppercase tracking-wider">Support Type</label>
-        <div className="flex gap-2">
-          {categories.map((cat) => (
+        <label className="block text-xs font-medium text-gray-500 mb-2 uppercase tracking-wider">Bowling Machine</label>
+        <div className="flex gap-2 items-start">
+          {/* Leather Ball Machine Card */}
+          <div className="flex-1">
             <button
-              key={cat.value}
-              onClick={() => handleCategoryChange(cat.value)}
-              className={`flex-1 flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl text-sm font-semibold transition-all cursor-pointer ${
-                category === cat.value
+              onClick={() => handleCategoryChange('MACHINE')}
+              className={`w-full rounded-xl transition-all cursor-pointer text-left p-3 ${
+                category === 'MACHINE'
                   ? 'bg-primary text-white shadow-md shadow-primary/20'
                   : 'bg-white text-gray-600 border border-gray-200 hover:border-primary/30'
               }`}
             >
-              <span className={`w-2 h-2 rounded-full ${cat.color}`}></span>
-              {cat.label}
+              <div className="flex items-center gap-2">
+                <span className="w-2 h-2 rounded-full bg-red-500"></span>
+                <span className="text-sm font-semibold">Leather Ball Machine</span>
+              </div>
+              <p className={`text-[10px] mt-1 ${category === 'MACHINE' ? 'text-white/60' : 'text-gray-400'}`}>Select ball type</p>
             </button>
-          ))}
-        </div>
 
-        {/* Machine sub-type selector */}
-        {category === 'MACHINE' && (
-          <div className="flex gap-2 mt-2">
-            {machineSubTypes.map((type) => (
-              <button
-                key={type.value}
-                onClick={() => setBallType(type.value)}
-                className={`flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
-                  ballType === type.value
-                    ? 'bg-primary/10 text-primary border border-primary/30'
-                    : 'bg-gray-50 text-gray-500 border border-gray-100 hover:border-primary/20'
-                }`}
-              >
-                <span className={`w-1.5 h-1.5 rounded-full ${type.color}`}></span>
-                {type.label}
-              </button>
-            ))}
+            {/* Ball type sub-selector */}
+            {category === 'MACHINE' && (
+              <div className="flex gap-2 mt-2">
+                {machineSubTypes.map((type) => (
+                  <button
+                    key={type.value}
+                    onClick={() => setBallType(type.value)}
+                    className={`flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+                      ballType === type.value
+                        ? 'bg-primary/10 text-primary border border-primary/30'
+                        : 'bg-gray-50 text-gray-500 border border-gray-100 hover:border-primary/20'
+                    }`}
+                  >
+                    <span className={`w-1.5 h-1.5 rounded-full ${type.color}`}></span>
+                    {type.label}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
-        )}
+
+          {/* Tennis Ball Machine Card */}
+          <div className="flex-1">
+            <button
+              onClick={() => handleCategoryChange('TENNIS')}
+              className={`w-full rounded-xl transition-all cursor-pointer text-left p-3 ${
+                category === 'TENNIS'
+                  ? 'bg-primary text-white shadow-md shadow-primary/20'
+                  : 'bg-white text-gray-600 border border-gray-200 hover:border-primary/30'
+              }`}
+            >
+              <div className="flex items-center gap-2">
+                <span className="w-2 h-2 rounded-full bg-green-500"></span>
+                <span className="text-sm font-semibold">Tennis Ball Machine</span>
+              </div>
+              <p className={`text-[10px] mt-1 ${category === 'TENNIS' ? 'text-white/60' : 'text-gray-400'}`}>No options needed</p>
+            </button>
+          </div>
+        </div>
       </div>
 
       {/* Date Selector - Horizontal scroll */}
@@ -259,7 +280,7 @@ export default function SlotsPage() {
           <div className="max-w-2xl mx-auto flex items-center justify-between gap-4">
             <div>
               <p className="text-sm font-bold text-gray-900">{selectedSlots.length} slot{selectedSlots.length > 1 ? 's' : ''} selected</p>
-              <p className="text-[11px] text-gray-400">{format(selectedDate, 'EEE, MMM d')} &middot; {ballType === 'TENNIS' ? 'Tennis' : ballType === 'LEATHER' ? 'Machine (Leather)' : 'Machine'}</p>
+              <p className="text-[11px] text-gray-400">{format(selectedDate, 'EEE, MMM d')} &middot; {ballType === 'TENNIS' ? 'Tennis Ball Machine' : ballType === 'LEATHER' ? 'Leather Ball Machine (Leather)' : 'Leather Ball Machine (Machine)'}</p>
             </div>
             <button
               onClick={handleBook}
