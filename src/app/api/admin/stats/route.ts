@@ -19,9 +19,6 @@ export async function GET(req: NextRequest) {
       todayBookings,
       upcomingBookings,
       lastMonthBookings,
-      totalSlots,
-      totalRevenue,
-      totalDiscount,
     ] = await Promise.all([
       prisma.booking.count(),
       prisma.user.count({ where: { role: 'ADMIN' } }),
@@ -39,19 +36,30 @@ export async function GET(req: NextRequest) {
           },
         },
       }),
-      prisma.slot.count(),
-      prisma.booking.aggregate({
-        _sum: { price: true },
-        where: { status: { in: ['BOOKED', 'DONE'] } },
-      }),
-      prisma.booking.aggregate({
-        _sum: { discountAmount: true },
-        where: {
-          status: { in: ['BOOKED', 'DONE'] },
-          discountAmount: { gt: 0 },
-        },
-      }),
     ]);
+
+    // These queries depend on post-migration schema (Slot table, price/discountAmount columns)
+    let totalSlots = 0;
+    let totalRevenueValue = 0;
+    let totalDiscountValue = 0;
+    try {
+      [totalSlots, totalRevenueValue, totalDiscountValue] = await Promise.all([
+        prisma.slot.count(),
+        prisma.booking.aggregate({
+          _sum: { price: true },
+          where: { status: { in: ['BOOKED', 'DONE'] } },
+        }).then(r => r._sum.price || 0),
+        prisma.booking.aggregate({
+          _sum: { discountAmount: true },
+          where: {
+            status: { in: ['BOOKED', 'DONE'] },
+            discountAmount: { gt: 0 },
+          },
+        }).then(r => r._sum.discountAmount || 0),
+      ]);
+    } catch {
+      // Slot table or pricing columns may not exist if migrations haven't been applied
+    }
 
     return NextResponse.json({
       totalBookings,
@@ -60,8 +68,8 @@ export async function GET(req: NextRequest) {
       upcomingBookings,
       lastMonthBookings,
       totalSlots,
-      totalRevenue: totalRevenue._sum.price || 0,
-      totalDiscount: totalDiscount._sum.discountAmount || 0,
+      totalRevenue: totalRevenueValue,
+      totalDiscount: totalDiscountValue,
       systemStatus: 'Healthy',
     });
   } catch (error: any) {

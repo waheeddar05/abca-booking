@@ -62,15 +62,26 @@ export async function POST(req: NextRequest) {
     }
 
     // Filter out slots that already exist
-    const existingSlots = await prisma.slot.findMany({
-      where: {
-        date: {
-          gte: startOfDay(from),
-          lte: startOfDay(to),
+    let existingSlots: { date: Date; startTime: Date }[] = [];
+    try {
+      existingSlots = await prisma.slot.findMany({
+        where: {
+          date: {
+            gte: startOfDay(from),
+            lte: startOfDay(to),
+          },
         },
-      },
-      select: { date: true, startTime: true },
-    });
+        select: { date: true, startTime: true },
+      });
+    } catch (err: any) {
+      if (err?.message?.includes('does not exist in the current database') || err?.code === 'P2021') {
+        return NextResponse.json(
+          { error: 'Slot management is unavailable. Database migrations need to be applied. Run: npx prisma migrate deploy' },
+          { status: 503 }
+        );
+      }
+      throw err;
+    }
 
     const existingSet = new Set(
       existingSlots.map(s => `${s.date.toISOString()}_${s.startTime.toISOString()}`)

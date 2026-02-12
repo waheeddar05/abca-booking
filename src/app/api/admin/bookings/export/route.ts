@@ -11,8 +11,6 @@ const SAFE_BOOKING_SELECT = {
   status: true,
   ballType: true,
   playerName: true,
-  price: true,
-  discountAmount: true,
   createdAt: true,
   user: { select: { email: true, mobileNumber: true } },
 } as const;

@@ -204,8 +204,8 @@ export async function POST(req: NextRequest) {
           select: { id: true },
         });
 
-        // Build data - only include new fields if they won't cause errors
-        const bookingData: any = {
+        // Base booking data (columns that always exist)
+        const baseBookingData: any = {
           userId: userId!,
           date: slot.date,
           startTime: slot.startTime,
@@ -213,30 +213,50 @@ export async function POST(req: NextRequest) {
           status: 'BOOKED' as const,
           ballType: slot.ballType || 'TENNIS',
           playerName: slot.playerName,
+        };
+
+        // Extended data with pricing columns (may not exist if migration not applied)
+        const fullBookingData: any = {
+          ...baseBookingData,
           price: priceInfo.price,
           originalPrice: priceInfo.originalPrice,
           discountAmount: priceInfo.discountAmount || null,
           discountType: priceInfo.discountType || null,
         };
+        if (slot.pitchType !== null) fullBookingData.pitchType = slot.pitchType;
+        if (slot.extraCharge) fullBookingData.extraCharge = slot.extraCharge;
 
-        // Try including new columns - they'll be ignored if migration isn't applied
-        // (Prisma will throw if columns don't exist, caught by outer try-catch)
-        if (slot.pitchType !== null) bookingData.pitchType = slot.pitchType;
-        if (slot.extraCharge) bookingData.extraCharge = slot.extraCharge;
-
-        if (existingSameBallType) {
-          const { date: _d, startTime: _st, ballType: _bt, ...updateData } = bookingData;
-          return await tx.booking.update({
-            where: { id: existingSameBallType.id },
-            data: updateData,
-            select: { id: true, status: true, price: true },
+        // Try with full data first, fall back to base data if pricing columns don't exist
+        try {
+          if (existingSameBallType) {
+            const { date: _d, startTime: _st, ballType: _bt, ...updateData } = fullBookingData;
+            return await tx.booking.update({
+              where: { id: existingSameBallType.id },
+              data: updateData,
+              select: { id: true, status: true },
+            });
+          }
+          return await tx.booking.create({
+            data: fullBookingData,
+            select: { id: true, status: true },
           });
+        } catch (err: any) {
+          if (err?.message?.includes('does not exist in the current database')) {
+            if (existingSameBallType) {
+              const { date: _d, startTime: _st, ballType: _bt, ...updateData } = baseBookingData;
+              return await tx.booking.update({
+                where: { id: existingSameBallType.id },
+                data: updateData,
+                select: { id: true, status: true },
+              });
+            }
+            return await tx.booking.create({
+              data: baseBookingData,
+              select: { id: true, status: true },
+            });
+          }
+          throw err;
         }
-
-        return await tx.booking.create({
-          data: bookingData,
-          select: { id: true, status: true, price: true },
-        });
       });
       results.push(result);
     }

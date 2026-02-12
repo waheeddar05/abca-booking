@@ -49,7 +49,7 @@ async function checkDatabaseConnection() {
       console.error('Initial database tables are missing in the current database.');
       console.error('Migration should have run during deployment via postinstall script.');
       console.error('Please check your Vercel build logs for migration errors.');
-      
+
       if (process.env.NODE_ENV === 'production') {
         console.error('Failing fast to avoid inconsistent application state.');
         process.exit(1);
@@ -57,6 +57,33 @@ async function checkDatabaseConnection() {
     } else {
       console.log('✅ All required tables are present.');
     }
+
+    // Check for optional tables and columns from newer migrations
+    const optionalTables = ['slot'];
+    const missingOptional = optionalTables.filter(t => !existingTables.includes(t));
+    if (missingOptional.length > 0) {
+      console.warn(`⚠️  Optional tables missing: ${missingOptional.join(', ')}`);
+      console.warn('Some features (slot management, pricing) will be unavailable.');
+      console.warn('Run "npx prisma migrate deploy" to apply pending migrations.');
+    }
+
+    // Check for pricing columns on Booking table
+    try {
+      const columns = await prisma.$queryRaw<{ column_name: string }[]>`
+        SELECT column_name FROM information_schema.columns
+        WHERE table_schema = 'public' AND table_name = 'Booking'
+      `;
+      const columnNames = columns.map(c => c.column_name);
+      const pricingColumns = ['price', 'originalPrice', 'discountAmount', 'discountType', 'pitchType', 'extraCharge'];
+      const missingColumns = pricingColumns.filter(c => !columnNames.includes(c));
+      if (missingColumns.length > 0) {
+        console.warn(`⚠️  Missing Booking columns: ${missingColumns.join(', ')}`);
+        console.warn('Pricing features will be degraded. Run "npx prisma migrate deploy" to apply pending migrations.');
+      }
+    } catch {
+      // Non-critical check
+    }
+
     console.log('------------------------------');
   } catch (error) {
     console.error('❌ Database startup check failed:');
