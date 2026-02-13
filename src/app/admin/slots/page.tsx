@@ -38,8 +38,6 @@ export default function SlotManagement() {
     fromDate: format(new Date(), 'yyyy-MM-dd'),
     toDate: format(addDays(new Date(), 6), 'yyyy-MM-dd'),
     price: '600',
-    startHour: '',
-    endHour: '',
     duration: '',
   });
 
@@ -85,8 +83,6 @@ export default function SlotManagement() {
         toDate: bulkForm.toDate,
         price: parseFloat(bulkForm.price),
       };
-      if (bulkForm.startHour) body.startHour = parseInt(bulkForm.startHour);
-      if (bulkForm.endHour) body.endHour = parseInt(bulkForm.endHour);
       if (bulkForm.duration) body.duration = parseInt(bulkForm.duration);
 
       const res = await fetch('/api/admin/slots/bulk', {
@@ -297,7 +293,7 @@ export default function SlotManagement() {
                 />
               </div>
             </div>
-            <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
                 <label className="block text-[11px] font-medium text-slate-400 mb-1">Price per Slot</label>
                 <input
@@ -306,30 +302,6 @@ export default function SlotManagement() {
                   onChange={e => setBulkForm({ ...bulkForm, price: e.target.value })}
                   min="0"
                   step="1"
-                  className="w-full bg-white/[0.04] border border-white/[0.1] rounded-lg px-3 py-2.5 text-sm text-white outline-none focus:border-accent focus:ring-1 focus:ring-accent/20 placeholder:text-slate-500"
-                />
-              </div>
-              <div>
-                <label className="block text-[11px] font-medium text-slate-400 mb-1">Start Hour (opt)</label>
-                <input
-                  type="number"
-                  value={bulkForm.startHour}
-                  onChange={e => setBulkForm({ ...bulkForm, startHour: e.target.value })}
-                  min="0"
-                  max="23"
-                  placeholder="e.g. 7"
-                  className="w-full bg-white/[0.04] border border-white/[0.1] rounded-lg px-3 py-2.5 text-sm text-white outline-none focus:border-accent focus:ring-1 focus:ring-accent/20 placeholder:text-slate-500"
-                />
-              </div>
-              <div>
-                <label className="block text-[11px] font-medium text-slate-400 mb-1">End Hour (opt)</label>
-                <input
-                  type="number"
-                  value={bulkForm.endHour}
-                  onChange={e => setBulkForm({ ...bulkForm, endHour: e.target.value })}
-                  min="0"
-                  max="24"
-                  placeholder="e.g. 22"
                   className="w-full bg-white/[0.04] border border-white/[0.1] rounded-lg px-3 py-2.5 text-sm text-white outline-none focus:border-accent focus:ring-1 focus:ring-accent/20 placeholder:text-slate-500"
                 />
               </div>
@@ -346,6 +318,7 @@ export default function SlotManagement() {
                 />
               </div>
             </div>
+            <p className="text-[10px] text-slate-500">Slot times are configured in Dashboard &gt; Machine Configuration &gt; Slot Timing Configuration</p>
             <div className="flex gap-2">
               <button
                 type="submit"
@@ -389,6 +362,7 @@ export default function SlotManagement() {
                   type="time"
                   value={singleForm.startTime}
                   onChange={e => setSingleForm({ ...singleForm, startTime: e.target.value })}
+                  step="1800"
                   required
                   className="w-full bg-white/[0.04] border border-white/[0.1] rounded-lg px-3 py-2.5 text-sm text-white outline-none focus:border-accent focus:ring-1 focus:ring-accent/20 placeholder:text-slate-500"
                 />
@@ -399,6 +373,7 @@ export default function SlotManagement() {
                   type="time"
                   value={singleForm.endTime}
                   onChange={e => setSingleForm({ ...singleForm, endTime: e.target.value })}
+                  step="1800"
                   required
                   className="w-full bg-white/[0.04] border border-white/[0.1] rounded-lg px-3 py-2.5 text-sm text-white outline-none focus:border-accent focus:ring-1 focus:ring-accent/20 placeholder:text-slate-500"
                 />

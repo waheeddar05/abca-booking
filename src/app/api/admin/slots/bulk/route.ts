@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { requireAdmin } from '@/lib/adminAuth';
-import { generateSlotsForDate } from '@/lib/time';
+import { generateSlotsForDateDualWindow } from '@/lib/time';
+import { getTimeSlabConfig } from '@/lib/pricing';
 import { parseISO, startOfDay, addDays } from 'date-fns';
 
 export async function POST(req: NextRequest) {
@@ -11,7 +12,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 403 });
     }
 
-    const { fromDate, toDate: toDateStr, price = 600, startHour, endHour, duration } = await req.json();
+    const { fromDate, toDate: toDateStr, price = 600, duration } = await req.json();
 
     if (!fromDate || !toDateStr) {
       return NextResponse.json({ error: 'fromDate and toDate are required' }, { status: 400 });
@@ -24,20 +25,17 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'fromDate must be before or equal to toDate' }, { status: 400 });
     }
 
-    // Fetch policies for defaults
+    // Fetch time slab config and slot duration from policies
+    const timeSlabConfig = await getTimeSlabConfig();
+
     const policies = await prisma.policy.findMany({
       where: {
-        key: { in: ['SLOT_WINDOW_START', 'SLOT_WINDOW_END', 'SLOT_DURATION', 'DEFAULT_SLOT_PRICE'] },
+        key: { in: ['SLOT_DURATION', 'DEFAULT_SLOT_PRICE'] },
       },
     });
     const policyMap = Object.fromEntries(policies.map(p => [p.key, p.value]));
 
-    const config = {
-      startHour: startHour ?? (policyMap['SLOT_WINDOW_START'] ? parseInt(policyMap['SLOT_WINDOW_START']) : undefined),
-      endHour: endHour ?? (policyMap['SLOT_WINDOW_END'] ? parseInt(policyMap['SLOT_WINDOW_END']) : undefined),
-      duration: duration ?? (policyMap['SLOT_DURATION'] ? parseInt(policyMap['SLOT_DURATION']) : undefined),
-    };
-
+    const slotDuration = duration ?? (policyMap['SLOT_DURATION'] ? parseInt(policyMap['SLOT_DURATION']) : undefined);
     const slotPrice = Number(price) || (policyMap['DEFAULT_SLOT_PRICE'] ? parseFloat(policyMap['DEFAULT_SLOT_PRICE']) : 600);
 
     const slotsToCreate: Array<{
@@ -49,7 +47,7 @@ export async function POST(req: NextRequest) {
 
     let currentDate = from;
     while (currentDate <= to) {
-      const daySlots = generateSlotsForDate(currentDate, config);
+      const daySlots = generateSlotsForDateDualWindow(currentDate, timeSlabConfig, slotDuration);
       for (const slot of daySlots) {
         slotsToCreate.push({
           date: startOfDay(currentDate),

@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { type BallType, type PitchType } from '@prisma/client';
-import { generateSlotsForDate, filterPastSlots, getISTTodayUTC, dateStringToUTC } from '@/lib/time';
+import { generateSlotsForDateDualWindow, filterPastSlots, getISTTodayUTC, dateStringToUTC } from '@/lib/time';
 import { isSameDay, isValid } from 'date-fns';
 import { getRelevantBallTypes, isValidBallType, MACHINE_A_BALLS } from '@/lib/constants';
+import { getPricingConfig, getTimeSlabConfig, getSlotPrice, getTimeSlab } from '@/lib/pricing';
 
 function isValidPitchType(val: string): val is PitchType {
   return ['ASTRO', 'TURF'].includes(val);
@@ -44,10 +45,10 @@ export async function GET(req: NextRequest) {
       return NextResponse.json([]);
     }
 
-    // Fetch policies (include NUMBER_OF_OPERATORS)
+    // Fetch policies
     const policies = await prisma.policy.findMany({
       where: {
-        key: { in: ['SLOT_WINDOW_START', 'SLOT_WINDOW_END', 'SLOT_DURATION', 'DISABLED_DATES', 'NUMBER_OF_OPERATORS'] }
+        key: { in: ['SLOT_DURATION', 'DISABLED_DATES', 'NUMBER_OF_OPERATORS'] }
       }
     });
 
@@ -60,29 +61,28 @@ export async function GET(req: NextRequest) {
     }
 
     const numberOfOperators = parseInt(policyMap['NUMBER_OF_OPERATORS'] || '1', 10);
+    const duration = policyMap['SLOT_DURATION'] ? parseInt(policyMap['SLOT_DURATION']) : undefined;
 
-    const config = {
-      startHour: policyMap['SLOT_WINDOW_START'] ? parseInt(policyMap['SLOT_WINDOW_START']) : undefined,
-      endHour: policyMap['SLOT_WINDOW_END'] ? parseInt(policyMap['SLOT_WINDOW_END']) : undefined,
-      duration: policyMap['SLOT_DURATION'] ? parseInt(policyMap['SLOT_DURATION']) : undefined,
-    };
+    // Fetch pricing and time slab config
+    const [pricingConfig, timeSlabConfig] = await Promise.all([
+      getPricingConfig(),
+      getTimeSlabConfig(),
+    ]);
 
-    let slots = generateSlotsForDate(dateUTC, config);
+    // Generate slots using dual time windows
+    let slots = generateSlotsForDateDualWindow(dateUTC, timeSlabConfig, duration);
 
     // If today, only future slots
     if (isSameDay(dateUTC, todayUTC)) {
       slots = filterPastSlots(slots);
     }
 
-    // Machine A: LEATHER, MACHINE
-    // Machine B (Astro): TENNIS + ASTRO
-    // Machine B (Turf): TENNIS + TURF
     const relevantBallTypes = getRelevantBallTypes(validatedBallType);
     const isLeatherMachine = MACHINE_A_BALLS.includes(validatedBallType);
     const isTennisMachine = !isLeatherMachine;
+    const category: 'MACHINE' | 'TENNIS' = isLeatherMachine ? 'MACHINE' : 'TENNIS';
 
-    // Get bookings on the same machine (for machine-level occupancy)
-    // For Tennis with pitchType, only same-pitchType bookings count as "occupied"
+    // Get bookings on the same machine
     const occupancyWhere: any = {
       date: dateUTC,
       ballType: { in: relevantBallTypes },
@@ -108,8 +108,6 @@ export async function GET(req: NextRequest) {
         select: { startTime: true, ballType: true, operationMode: true },
       });
     } catch {
-      // operationMode column may not exist yet if migration hasn't been applied
-      // Fall back to treating all bookings as WITH_OPERATOR
       const fallbackBookings = await prisma.booking.findMany({
         where: {
           date: dateUTC,
@@ -124,9 +122,6 @@ export async function GET(req: NextRequest) {
     const operatorUsageMap = new Map<number, number>();
     for (const booking of allBookings) {
       const timeKey = booking.startTime.getTime();
-      // Leather/Machine ball types always consume an operator
-      // Tennis with WITH_OPERATOR consumes an operator
-      // Tennis with SELF_OPERATE does NOT consume an operator
       const consumesOperator =
         MACHINE_A_BALLS.includes(booking.ballType) ||
         booking.operationMode === 'WITH_OPERATOR';
@@ -136,7 +131,7 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    // Fetch slot prices from admin-created slots (graceful if Slot table doesn't exist yet)
+    // Fetch slot prices from admin-created slots
     let adminSlots: { startTime: Date; price: number }[] = [];
     try {
       adminSlots = await prisma.slot.findMany({
@@ -147,22 +142,8 @@ export async function GET(req: NextRequest) {
         select: { startTime: true, price: true },
       });
     } catch {
-      // Slot table may not exist yet if migration hasn't been applied
+      // Slot table may not exist yet
     }
-
-    // Get machine config for extra charges
-    let mcMap: Record<string, string> = {};
-    try {
-      const machineConfigPolicies = await prisma.policy.findMany({
-        where: {
-          key: { in: ['DEFAULT_SLOT_PRICE', 'LEATHER_BALL_EXTRA_CHARGE', 'MACHINE_BALL_EXTRA_CHARGE', 'ASTRO_PITCH_PRICE', 'TURF_PITCH_PRICE'] },
-        },
-      });
-      mcMap = Object.fromEntries(machineConfigPolicies.map(p => [p.key, p.value]));
-    } catch {
-      // Graceful fallback
-    }
-    const defaultPrice = parseFloat(mcMap['DEFAULT_SLOT_PRICE'] || '600');
 
     const availableSlots = slots.map(slot => {
       const timeKey = slot.startTime.getTime();
@@ -174,21 +155,21 @@ export async function GET(req: NextRequest) {
       const operatorsUsed = operatorUsageMap.get(timeKey) || 0;
       const operatorAvailable = operatorsUsed < numberOfOperators;
 
-      // Find admin-set price for this slot
+      // Calculate price using new pricing model
+      const timeSlab = getTimeSlab(slot.startTime, timeSlabConfig);
+      const slotPrice = getSlotPrice(category, ballType, validatedPitchType, timeSlab, pricingConfig);
+
+      // If admin has set a custom price for this specific slot, use that
       const adminSlot = adminSlots.find(s => s.startTime.getTime() === timeKey);
-      const basePrice = adminSlot?.price ?? defaultPrice;
+      const finalPrice = adminSlot?.price ?? slotPrice;
 
       // Determine slot status
       let status: string;
       if (isOccupied) {
-        // This specific machine (ball type + pitch type) is already booked
         status = 'Booked';
       } else if (isLeatherMachine && !operatorAvailable) {
-        // Leather machine always needs operator - block if none available
         status = 'OperatorUnavailable';
       } else {
-        // Tennis slots are ALWAYS available (self-operate is always an option)
-        // Leather slots are available when operator is free
         status = 'Available';
       }
 
@@ -196,8 +177,9 @@ export async function GET(req: NextRequest) {
         startTime: slot.startTime.toISOString(),
         endTime: slot.endTime.toISOString(),
         status,
-        price: basePrice,
+        price: finalPrice,
         operatorAvailable,
+        timeSlab,
       };
     });
 

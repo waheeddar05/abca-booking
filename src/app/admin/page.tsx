@@ -25,6 +25,25 @@ interface DiscountConfig {
   defaultSlotPrice: number;
 }
 
+interface SlabPricing {
+  single: number;
+  consecutive: number;
+}
+
+interface PricingConfig {
+  leatherMachine: {
+    leather: { morning: SlabPricing; evening: SlabPricing };
+    machine: { morning: SlabPricing; evening: SlabPricing };
+  };
+  tennisMachine: { morning: SlabPricing; evening: SlabPricing };
+  cementWicket: { morning: SlabPricing; evening: SlabPricing };
+}
+
+interface TimeSlabConfig {
+  morning: { start: string; end: string };
+  evening: { start: string; end: string };
+}
+
 interface MachineConfig {
   leatherMachine: {
     ballTypeSelectionEnabled: boolean;
@@ -37,7 +56,35 @@ interface MachineConfig {
     turfPitchPrice: number;
   };
   numberOfOperators: number;
+  pricingConfig: PricingConfig;
+  timeSlabConfig: TimeSlabConfig;
 }
+
+const DEFAULT_PRICING: PricingConfig = {
+  leatherMachine: {
+    leather: {
+      morning: { single: 600, consecutive: 1000 },
+      evening: { single: 700, consecutive: 1200 },
+    },
+    machine: {
+      morning: { single: 500, consecutive: 800 },
+      evening: { single: 600, consecutive: 1000 },
+    },
+  },
+  tennisMachine: {
+    morning: { single: 500, consecutive: 800 },
+    evening: { single: 600, consecutive: 1000 },
+  },
+  cementWicket: {
+    morning: { single: 550, consecutive: 900 },
+    evening: { single: 650, consecutive: 1100 },
+  },
+};
+
+const DEFAULT_TIME_SLABS: TimeSlabConfig = {
+  morning: { start: '07:00', end: '17:00' },
+  evening: { start: '19:00', end: '22:30' },
+};
 
 export default function AdminDashboard() {
   const { data: session } = useSession();
@@ -58,6 +105,8 @@ export default function AdminDashboard() {
     leatherMachine: { ballTypeSelectionEnabled: false, leatherBallExtraCharge: 100, machineBallExtraCharge: 0 },
     tennisMachine: { pitchTypeSelectionEnabled: false, astroPitchPrice: 600, turfPitchPrice: 700 },
     numberOfOperators: 1,
+    pricingConfig: DEFAULT_PRICING,
+    timeSlabConfig: DEFAULT_TIME_SLABS,
   });
   const [machineLoading, setMachineLoading] = useState(true);
   const [savingMachine, setSavingMachine] = useState(false);
@@ -99,7 +148,11 @@ export default function AdminDashboard() {
         const response = await fetch('/api/admin/machine-config');
         if (response.ok) {
           const data = await response.json();
-          setMachineConfig(data);
+          setMachineConfig({
+            ...data,
+            pricingConfig: data.pricingConfig || DEFAULT_PRICING,
+            timeSlabConfig: data.timeSlabConfig || DEFAULT_TIME_SLABS,
+          });
         }
       } catch (error) {
         console.error('Failed to fetch machine config:', error);
@@ -157,6 +210,28 @@ export default function AdminDashboard() {
     }
   };
 
+  const updatePricing = (path: string[], value: number) => {
+    setMachineConfig(prev => {
+      const newPricing = JSON.parse(JSON.stringify(prev.pricingConfig));
+      let obj: any = newPricing;
+      for (let i = 0; i < path.length - 1; i++) {
+        obj = obj[path[i]];
+      }
+      obj[path[path.length - 1]] = value;
+      return { ...prev, pricingConfig: newPricing };
+    });
+  };
+
+  const updateTimeSlab = (slab: 'morning' | 'evening', field: 'start' | 'end', value: string) => {
+    setMachineConfig(prev => ({
+      ...prev,
+      timeSlabConfig: {
+        ...prev.timeSlabConfig,
+        [slab]: { ...prev.timeSlabConfig[slab], [field]: value },
+      },
+    }));
+  };
+
   const statCards = [
     { label: 'Total Bookings', value: stats?.totalBookings ?? 0, icon: CalendarCheck, color: 'text-primary', bg: 'bg-accent/10' },
     { label: 'Today', value: stats?.todayBookings ?? 0, icon: CalendarDays, color: 'text-orange-600', bg: 'bg-orange-500/10' },
@@ -167,6 +242,23 @@ export default function AdminDashboard() {
   ];
 
   const inputClass = "w-full bg-white/[0.04] border border-white/[0.1] text-white placeholder:text-slate-500 rounded-lg px-3 py-2.5 text-sm outline-none focus:border-accent focus:ring-1 focus:ring-accent/20";
+  const priceInputClass = "w-full bg-white/[0.04] border border-white/[0.1] text-white placeholder:text-slate-500 rounded-lg pl-9 pr-3 py-2 text-sm outline-none focus:border-accent focus:ring-1 focus:ring-accent/20";
+
+  const PriceField = ({ label, value, onChange }: { label: string; value: number; onChange: (v: number) => void }) => (
+    <div>
+      <label className="block text-[10px] font-medium text-slate-400 mb-1">{label}</label>
+      <div className="relative">
+        <IndianRupee className="absolute left-3 top-1/2 -translate-y-1/2 w-3 h-3 text-slate-500" />
+        <input
+          type="number"
+          value={value}
+          onChange={e => onChange(Number(e.target.value))}
+          min="0"
+          className={priceInputClass}
+        />
+      </div>
+    </div>
+  );
 
   return (
     <div>
@@ -258,43 +350,6 @@ export default function AdminDashboard() {
                   }`} />
                 </button>
               </div>
-
-              {machineConfig.leatherMachine.ballTypeSelectionEnabled && (
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-3 border-t border-white/[0.06]">
-                  <div>
-                    <label className="block text-[11px] font-medium text-slate-400 mb-1">Leather Ball Extra Charge</label>
-                    <div className="relative">
-                      <IndianRupee className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
-                      <input
-                        type="number"
-                        value={machineConfig.leatherMachine.leatherBallExtraCharge}
-                        onChange={e => setMachineConfig(prev => ({
-                          ...prev,
-                          leatherMachine: { ...prev.leatherMachine, leatherBallExtraCharge: Number(e.target.value) },
-                        }))}
-                        min="0"
-                        className="w-full bg-white/[0.04] border border-white/[0.1] text-white placeholder:text-slate-500 rounded-lg pl-9 pr-3 py-2.5 text-sm outline-none focus:border-accent focus:ring-1 focus:ring-accent/20"
-                      />
-                    </div>
-                  </div>
-                  <div>
-                    <label className="block text-[11px] font-medium text-slate-400 mb-1">Machine Ball Extra Charge</label>
-                    <div className="relative">
-                      <IndianRupee className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
-                      <input
-                        type="number"
-                        value={machineConfig.leatherMachine.machineBallExtraCharge}
-                        onChange={e => setMachineConfig(prev => ({
-                          ...prev,
-                          leatherMachine: { ...prev.leatherMachine, machineBallExtraCharge: Number(e.target.value) },
-                        }))}
-                        min="0"
-                        className="w-full bg-white/[0.04] border border-white/[0.1] text-white placeholder:text-slate-500 rounded-lg pl-9 pr-3 py-2.5 text-sm outline-none focus:border-accent focus:ring-1 focus:ring-accent/20"
-                      />
-                    </div>
-                  </div>
-                </div>
-              )}
             </div>
 
             {/* Tennis Ball Machine */}
@@ -303,7 +358,7 @@ export default function AdminDashboard() {
               <div className="flex items-center justify-between mb-3">
                 <div>
                   <p className="text-sm font-medium text-slate-300">Enable Pitch Type Selection</p>
-                  <p className="text-xs text-slate-400">Users choose between Astro and Turf pitch types</p>
+                  <p className="text-xs text-slate-400">Users choose between Astro Turf and Cement Wicket</p>
                 </div>
                 <button
                   onClick={() => setMachineConfig(prev => ({
@@ -319,43 +374,6 @@ export default function AdminDashboard() {
                   }`} />
                 </button>
               </div>
-
-              {machineConfig.tennisMachine.pitchTypeSelectionEnabled && (
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-3 border-t border-white/[0.06]">
-                  <div>
-                    <label className="block text-[11px] font-medium text-slate-400 mb-1">Astro Pitch Price</label>
-                    <div className="relative">
-                      <IndianRupee className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
-                      <input
-                        type="number"
-                        value={machineConfig.tennisMachine.astroPitchPrice}
-                        onChange={e => setMachineConfig(prev => ({
-                          ...prev,
-                          tennisMachine: { ...prev.tennisMachine, astroPitchPrice: Number(e.target.value) },
-                        }))}
-                        min="0"
-                        className="w-full bg-white/[0.04] border border-white/[0.1] text-white placeholder:text-slate-500 rounded-lg pl-9 pr-3 py-2.5 text-sm outline-none focus:border-accent focus:ring-1 focus:ring-accent/20"
-                      />
-                    </div>
-                  </div>
-                  <div>
-                    <label className="block text-[11px] font-medium text-slate-400 mb-1">Turf Pitch Price</label>
-                    <div className="relative">
-                      <IndianRupee className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
-                      <input
-                        type="number"
-                        value={machineConfig.tennisMachine.turfPitchPrice}
-                        onChange={e => setMachineConfig(prev => ({
-                          ...prev,
-                          tennisMachine: { ...prev.tennisMachine, turfPitchPrice: Number(e.target.value) },
-                        }))}
-                        min="0"
-                        className="w-full bg-white/[0.04] border border-white/[0.1] text-white placeholder:text-slate-500 rounded-lg pl-9 pr-3 py-2.5 text-sm outline-none focus:border-accent focus:ring-1 focus:ring-accent/20"
-                      />
-                    </div>
-                  </div>
-                </div>
-              )}
             </div>
 
             {/* Operator Configuration */}
@@ -375,13 +393,111 @@ export default function AdminDashboard() {
                   className="w-32 bg-white/[0.04] border border-white/[0.1] text-white placeholder:text-slate-500 rounded-lg px-3 py-2.5 text-sm outline-none focus:border-accent focus:ring-1 focus:ring-accent/20"
                 />
               </div>
-              <div className="bg-blue-500/10 border border-blue-500/20 rounded-lg px-3 py-2">
-                <p className="text-xs text-blue-300">
-                  With {machineConfig.numberOfOperators} operator{machineConfig.numberOfOperators > 1 ? 's' : ''},
-                  up to {machineConfig.numberOfOperators} machine{machineConfig.numberOfOperators > 1 ? 's' : ''} can
-                  be operated simultaneously per time slot. Leather machine always requires an operator.
-                  Tennis machine can be self-operated when no operator is available.
-                </p>
+            </div>
+
+            {/* Time Slab Configuration */}
+            <div className="pt-4 border-t border-white/[0.06]">
+              <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">Slot Timing Configuration</h3>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="bg-white/[0.02] rounded-lg p-3 border border-white/[0.06]">
+                  <p className="text-xs font-semibold text-slate-300 mb-2">Morning Slab</p>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="block text-[10px] font-medium text-slate-400 mb-1">Start</label>
+                      <input
+                        type="time"
+                        value={machineConfig.timeSlabConfig.morning.start}
+                        onChange={e => updateTimeSlab('morning', 'start', e.target.value)}
+                        step="1800"
+                        className={inputClass}
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-medium text-slate-400 mb-1">End</label>
+                      <input
+                        type="time"
+                        value={machineConfig.timeSlabConfig.morning.end}
+                        onChange={e => updateTimeSlab('morning', 'end', e.target.value)}
+                        step="1800"
+                        className={inputClass}
+                      />
+                    </div>
+                  </div>
+                </div>
+                <div className="bg-white/[0.02] rounded-lg p-3 border border-white/[0.06]">
+                  <p className="text-xs font-semibold text-slate-300 mb-2">Evening Slab</p>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="block text-[10px] font-medium text-slate-400 mb-1">Start</label>
+                      <input
+                        type="time"
+                        value={machineConfig.timeSlabConfig.evening.start}
+                        onChange={e => updateTimeSlab('evening', 'start', e.target.value)}
+                        step="1800"
+                        className={inputClass}
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-medium text-slate-400 mb-1">End</label>
+                      <input
+                        type="time"
+                        value={machineConfig.timeSlabConfig.evening.end}
+                        onChange={e => updateTimeSlab('evening', 'end', e.target.value)}
+                        step="1800"
+                        className={inputClass}
+                      />
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Pricing Configuration */}
+            <div className="pt-4 border-t border-white/[0.06]">
+              <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">Slot Pricing Configuration</h3>
+
+              {/* Leather Ball Machine - Leather Balls */}
+              <div className="bg-white/[0.02] rounded-lg p-3 border border-white/[0.06] mb-3">
+                <p className="text-xs font-semibold text-slate-300 mb-2">Leather Ball Machine &mdash; Leather Balls</p>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                  <PriceField label="Morning / Slot" value={machineConfig.pricingConfig.leatherMachine.leather.morning.single} onChange={v => updatePricing(['leatherMachine', 'leather', 'morning', 'single'], v)} />
+                  <PriceField label="Morning / 2 Consec." value={machineConfig.pricingConfig.leatherMachine.leather.morning.consecutive} onChange={v => updatePricing(['leatherMachine', 'leather', 'morning', 'consecutive'], v)} />
+                  <PriceField label="Evening / Slot" value={machineConfig.pricingConfig.leatherMachine.leather.evening.single} onChange={v => updatePricing(['leatherMachine', 'leather', 'evening', 'single'], v)} />
+                  <PriceField label="Evening / 2 Consec." value={machineConfig.pricingConfig.leatherMachine.leather.evening.consecutive} onChange={v => updatePricing(['leatherMachine', 'leather', 'evening', 'consecutive'], v)} />
+                </div>
+              </div>
+
+              {/* Leather Ball Machine - Machine Balls */}
+              <div className="bg-white/[0.02] rounded-lg p-3 border border-white/[0.06] mb-3">
+                <p className="text-xs font-semibold text-slate-300 mb-2">Leather Ball Machine &mdash; Machine Balls</p>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                  <PriceField label="Morning / Slot" value={machineConfig.pricingConfig.leatherMachine.machine.morning.single} onChange={v => updatePricing(['leatherMachine', 'machine', 'morning', 'single'], v)} />
+                  <PriceField label="Morning / 2 Consec." value={machineConfig.pricingConfig.leatherMachine.machine.morning.consecutive} onChange={v => updatePricing(['leatherMachine', 'machine', 'morning', 'consecutive'], v)} />
+                  <PriceField label="Evening / Slot" value={machineConfig.pricingConfig.leatherMachine.machine.evening.single} onChange={v => updatePricing(['leatherMachine', 'machine', 'evening', 'single'], v)} />
+                  <PriceField label="Evening / 2 Consec." value={machineConfig.pricingConfig.leatherMachine.machine.evening.consecutive} onChange={v => updatePricing(['leatherMachine', 'machine', 'evening', 'consecutive'], v)} />
+                </div>
+              </div>
+
+              {/* Tennis Ball Machine */}
+              <div className="bg-white/[0.02] rounded-lg p-3 border border-white/[0.06] mb-3">
+                <p className="text-xs font-semibold text-slate-300 mb-2">Tennis Ball Machine</p>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                  <PriceField label="Morning / Slot" value={machineConfig.pricingConfig.tennisMachine.morning.single} onChange={v => updatePricing(['tennisMachine', 'morning', 'single'], v)} />
+                  <PriceField label="Morning / 2 Consec." value={machineConfig.pricingConfig.tennisMachine.morning.consecutive} onChange={v => updatePricing(['tennisMachine', 'morning', 'consecutive'], v)} />
+                  <PriceField label="Evening / Slot" value={machineConfig.pricingConfig.tennisMachine.evening.single} onChange={v => updatePricing(['tennisMachine', 'evening', 'single'], v)} />
+                  <PriceField label="Evening / 2 Consec." value={machineConfig.pricingConfig.tennisMachine.evening.consecutive} onChange={v => updatePricing(['tennisMachine', 'evening', 'consecutive'], v)} />
+                </div>
+              </div>
+
+              {/* Cement Wicket */}
+              <div className="bg-white/[0.02] rounded-lg p-3 border border-white/[0.06]">
+                <p className="text-xs font-semibold text-slate-300 mb-2">Cement Wicket</p>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                  <PriceField label="Morning / Slot" value={machineConfig.pricingConfig.cementWicket.morning.single} onChange={v => updatePricing(['cementWicket', 'morning', 'single'], v)} />
+                  <PriceField label="Morning / 2 Consec." value={machineConfig.pricingConfig.cementWicket.morning.consecutive} onChange={v => updatePricing(['cementWicket', 'morning', 'consecutive'], v)} />
+                  <PriceField label="Evening / Slot" value={machineConfig.pricingConfig.cementWicket.evening.single} onChange={v => updatePricing(['cementWicket', 'evening', 'single'], v)} />
+                  <PriceField label="Evening / 2 Consec." value={machineConfig.pricingConfig.cementWicket.evening.consecutive} onChange={v => updatePricing(['cementWicket', 'evening', 'consecutive'], v)} />
+                </div>
               </div>
             </div>
 

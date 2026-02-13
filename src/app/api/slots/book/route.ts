@@ -4,8 +4,8 @@ import { Prisma, type BallType, type PitchType, type OperationMode } from '@pris
 import { isAfter, isValid } from 'date-fns';
 import { getAuthenticatedUser } from '@/lib/auth';
 import { getRelevantBallTypes, isValidBallType, MACHINE_A_BALLS } from '@/lib/constants';
-import { getDiscountConfig, calculatePricing, SlotWithPrice } from '@/lib/discount';
 import { dateStringToUTC } from '@/lib/time';
+import { getPricingConfig, getTimeSlabConfig, calculateNewPricing } from '@/lib/pricing';
 
 async function getMachineConfig() {
   const policies = await prisma.policy.findMany({
@@ -111,7 +111,6 @@ async function getBookingColumnSupport(): Promise<BookingColumnSupport> {
       extraCharge: columnSet.has('extraCharge'),
     };
   } catch {
-    // If schema introspection fails, use base-booking fields only.
     return {
       operationMode: false,
       price: false,
@@ -144,6 +143,10 @@ export async function POST(req: NextRequest) {
 
     const machineConfig = await getMachineConfig();
     const bookingColumns = await getBookingColumnSupport();
+    const [pricingConfig, timeSlabConfig] = await Promise.all([
+      getPricingConfig(),
+      getTimeSlabConfig(),
+    ]);
 
     // Validate all slots first
     const validatedSlots: Array<{
@@ -154,7 +157,6 @@ export async function POST(req: NextRequest) {
       pitchType: PitchType | null;
       operationMode: OperationMode;
       playerName: string;
-      extraCharge: number;
     }> = [];
 
     for (const slotData of slotsToBook) {
@@ -184,7 +186,6 @@ export async function POST(req: NextRequest) {
       // Determine operation mode
       let resolvedOperationMode: OperationMode = 'WITH_OPERATOR';
       if (MACHINE_A_BALLS.includes(ballType as BallType)) {
-        // Leather machine always requires operator
         resolvedOperationMode = 'WITH_OPERATOR';
       } else if (operationMode && isValidOperationMode(operationMode)) {
         resolvedOperationMode = operationMode as OperationMode;
@@ -215,16 +216,6 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: 'Cannot book in the past' }, { status: 400 });
       }
 
-      // Calculate extra charge based on ball type / pitch type
-      let extraCharge = 0;
-      if (MACHINE_A_BALLS.includes(ballType as BallType) && machineConfig.ballTypeSelectionEnabled) {
-        if (ballType === 'LEATHER') {
-          extraCharge = machineConfig.leatherBallExtraCharge;
-        } else if (ballType === 'MACHINE') {
-          extraCharge = machineConfig.machineBallExtraCharge;
-        }
-      }
-
       validatedSlots.push({
         date: bookingDate,
         startTime: start,
@@ -233,54 +224,23 @@ export async function POST(req: NextRequest) {
         pitchType: validatedPitchType,
         operationMode: resolvedOperationMode,
         playerName,
-        extraCharge,
       });
     }
 
-    // Fetch discount config and slot prices
-    const discountConfig = await getDiscountConfig();
+    // Determine category for pricing
+    const firstBallType = validatedSlots[0].ballType;
+    const category: 'MACHINE' | 'TENNIS' = MACHINE_A_BALLS.includes(firstBallType) ? 'MACHINE' : 'TENNIS';
+    const pitchTypeForPricing = validatedSlots[0].pitchType;
 
-    // Lookup slot prices from Slot table, fall back to default
-    const slotPrices: SlotWithPrice[] = [];
-    for (const slot of validatedSlots) {
-      let dbSlotPrice: number | null = null;
-      try {
-        const dbSlot = await prisma.slot.findFirst({
-          where: {
-            date: slot.date,
-            startTime: slot.startTime,
-            isActive: true,
-          },
-          select: { price: true },
-        });
-        dbSlotPrice = dbSlot?.price ?? null;
-      } catch {
-        // Slot table may not exist yet
-      }
-
-      let basePrice = dbSlotPrice ?? discountConfig.defaultSlotPrice;
-
-      // For Tennis Machine with pitch type pricing
-      if (slot.ballType === 'TENNIS' && slot.pitchType && machineConfig.pitchTypeSelectionEnabled) {
-        if (slot.pitchType === 'ASTRO') {
-          basePrice = machineConfig.astroPitchPrice;
-        } else if (slot.pitchType === 'TURF') {
-          basePrice = machineConfig.turfPitchPrice;
-        }
-      }
-
-      // Add extra charge for ball type
-      const totalPrice = basePrice + slot.extraCharge;
-
-      slotPrices.push({
-        startTime: slot.startTime,
-        endTime: slot.endTime,
-        price: totalPrice,
-      });
-    }
-
-    // Calculate pricing with discount
-    const pricing = calculatePricing(slotPrices, discountConfig);
+    // Calculate pricing using the new model
+    const pricing = calculateNewPricing(
+      validatedSlots.map(s => ({ startTime: s.startTime, endTime: s.endTime })),
+      category,
+      firstBallType,
+      pitchTypeForPricing,
+      timeSlabConfig,
+      pricingConfig
+    );
 
     // Book all slots in transaction
     const results: Array<{ id: string; status: string }> = [];
@@ -302,9 +262,6 @@ export async function POST(req: NextRequest) {
             const relevantBallTypes = getRelevantBallTypes(slot.ballType);
             const isTennisMachine = slot.ballType === 'TENNIS';
 
-            // Machine-level conflict: check if this specific machine is already booked
-            // For Tennis: Astro and Turf are separate machines, so filter by pitchType
-            // For Leather: LEATHER and MACHINE share one machine, so check both
             const conflictWhere: any = {
               date: slot.date,
               startTime: slot.startTime,
@@ -324,8 +281,7 @@ export async function POST(req: NextRequest) {
               throw new BookingConflictError(`Slot at ${slotTime} is already booked`);
             }
 
-            // Operator constraint check: count how many operators are already consumed
-            // for this time slot across ALL machines
+            // Operator constraint check
             if (requiresOperator) {
               const operatorWhere: Prisma.BookingWhereInput = bookingColumns.operationMode
                 ? {
@@ -333,14 +289,11 @@ export async function POST(req: NextRequest) {
                     startTime: slot.startTime,
                     status: 'BOOKED',
                     OR: [
-                      // Leather/Machine ball types always consume an operator
                       { ballType: { in: MACHINE_A_BALLS } },
-                      // Tennis with operator consumes an operator
                       { ballType: 'TENNIS', operationMode: 'WITH_OPERATOR' },
                     ],
                   }
                 : {
-                    // Legacy schema without operationMode: treat all booked slots as operator-consuming.
                     date: slot.date,
                     startTime: slot.startTime,
                     status: 'BOOKED',
@@ -359,7 +312,7 @@ export async function POST(req: NextRequest) {
               }
             }
 
-            // Check for existing booking with same ball type + pitch type (for upsert)
+            // Check for existing booking with same ball type + pitch type
             const upsertWhere: any = {
               date: slot.date,
               startTime: slot.startTime,
@@ -396,7 +349,7 @@ export async function POST(req: NextRequest) {
               ...(bookingColumns.price ? { price: priceInfo.price } : {}),
               ...(bookingColumns.originalPrice ? { originalPrice: priceInfo.originalPrice } : {}),
               ...(bookingColumns.discountAmount ? { discountAmount: priceInfo.discountAmount || null } : {}),
-              ...(bookingColumns.discountType ? { discountType: priceInfo.discountType || null } : {}),
+              ...(bookingColumns.discountType ? { discountType: priceInfo.discountAmount > 0 ? 'FIXED' : null } : {}),
               ...(bookingColumns.operationMode ? { operationMode: slot.operationMode } : {}),
             };
 
@@ -405,17 +358,13 @@ export async function POST(req: NextRequest) {
               ...(bookingColumns.price ? { price: priceInfo.price } : {}),
               ...(bookingColumns.originalPrice ? { originalPrice: priceInfo.originalPrice } : {}),
               ...(bookingColumns.discountAmount ? { discountAmount: priceInfo.discountAmount || null } : {}),
-              ...(bookingColumns.discountType ? { discountType: priceInfo.discountType || null } : {}),
+              ...(bookingColumns.discountType ? { discountType: priceInfo.discountAmount > 0 ? 'FIXED' : null } : {}),
               ...(bookingColumns.operationMode ? { operationMode: slot.operationMode } : {}),
             };
 
             if (slot.pitchType !== null && bookingColumns.pitchType) {
               fullBookingData.pitchType = slot.pitchType;
               fullUpdateData.pitchType = slot.pitchType;
-            }
-            if (slot.extraCharge && bookingColumns.extraCharge) {
-              fullBookingData.extraCharge = slot.extraCharge;
-              fullUpdateData.extraCharge = slot.extraCharge;
             }
 
             try {

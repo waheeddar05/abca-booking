@@ -1,9 +1,10 @@
 import { formatInTimeZone } from 'date-fns-tz';
 import { addMinutes, isAfter, isBefore, subMonths, startOfMonth, endOfMonth, format } from 'date-fns';
+import type { TimeSlabConfig } from '@/lib/pricing';
 
 export const TIMEZONE = 'Asia/Kolkata';
 
-// Default values if not in DB
+// Default values if not in DB (kept for backwards compat)
 export const DEFAULT_START_HOUR = 7;
 export const DEFAULT_END_HOUR = 22;
 export const DEFAULT_SLOT_DURATION = 30;
@@ -57,6 +58,45 @@ export function getServerTime() {
   return getISTTime();
 }
 
+/**
+ * Generate slots for a single time window specified by time strings (e.g., "07:00", "22:30").
+ */
+function generateSlotsForWindow(dateStr: string, startTime: string, endTime: string, duration: number): { startTime: Date; endTime: Date }[] {
+  const slots: { startTime: Date; endTime: Date }[] = [];
+  const startStr = `${dateStr}T${startTime}:00+05:30`;
+  const endStr = `${dateStr}T${endTime}:00+05:30`;
+  const start = new Date(startStr);
+  const end = new Date(endStr);
+
+  let current = start;
+  while (isBefore(current, end)) {
+    const next = addMinutes(current, duration);
+    slots.push({
+      startTime: new Date(current),
+      endTime: new Date(next),
+    });
+    current = next;
+  }
+  return slots;
+}
+
+/**
+ * Generate slots for a date using dual time windows (morning + evening).
+ */
+export function generateSlotsForDateDualWindow(
+  date: Date,
+  timeSlabs: TimeSlabConfig,
+  duration: number = DEFAULT_SLOT_DURATION
+): { startTime: Date; endTime: Date }[] {
+  const dateStr = formatInTimeZone(date, 'UTC', 'yyyy-MM-dd');
+  const morningSlots = generateSlotsForWindow(dateStr, timeSlabs.morning.start, timeSlabs.morning.end, duration);
+  const eveningSlots = generateSlotsForWindow(dateStr, timeSlabs.evening.start, timeSlabs.evening.end, duration);
+  return [...morningSlots, ...eveningSlots];
+}
+
+/**
+ * Original single-window slot generation (kept for backwards compatibility).
+ */
 export function generateSlotsForDate(date: Date, config?: { startHour?: number; endHour?: number; duration?: number }) {
   const startHour = config?.startHour ?? DEFAULT_START_HOUR;
   const endHour = config?.endHour ?? DEFAULT_END_HOUR;
