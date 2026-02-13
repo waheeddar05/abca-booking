@@ -42,7 +42,7 @@ export default function SlotsPage() {
   useEffect(() => {
     fetchSlots();
     setSelectedSlots([]);
-  }, [selectedDate, ballType]);
+  }, [selectedDate, ballType, pitchType]);
 
   // When switching to Tennis and some selected slots don't have operator available,
   // auto-switch to SELF_OPERATE if currently WITH_OPERATOR
@@ -60,7 +60,11 @@ export default function SlotsPage() {
     setError('');
     try {
       const dateStr = format(selectedDate, 'yyyy-MM-dd');
-      const res = await fetch(`/api/slots/available?date=${dateStr}&ballType=${ballType}`);
+      let url = `/api/slots/available?date=${dateStr}&ballType=${ballType}`;
+      if (category === 'TENNIS' && machineConfig?.tennisMachine.pitchTypeSelectionEnabled && pitchType) {
+        url += `&pitchType=${pitchType}`;
+      }
+      const res = await fetch(url);
       if (!res.ok) throw new Error('Failed to fetch slots');
       const data = await res.json();
       setSlots(data);

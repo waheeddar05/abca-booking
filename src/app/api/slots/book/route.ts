@@ -264,14 +264,23 @@ export async function POST(req: NextRequest) {
         try {
           result = await prisma.$transaction(async (tx) => {
             const relevantBallTypes = getRelevantBallTypes(slot.ballType);
+            const isTennisMachine = slot.ballType === 'TENNIS';
+
+            // Machine-level conflict: check if this specific machine is already booked
+            // For Tennis: Astro and Turf are separate machines, so filter by pitchType
+            // For Leather: LEATHER and MACHINE share one machine, so check both
+            const conflictWhere: any = {
+              date: slot.date,
+              startTime: slot.startTime,
+              ballType: { in: relevantBallTypes },
+              status: 'BOOKED',
+            };
+            if (isTennisMachine && slot.pitchType) {
+              conflictWhere.pitchType = slot.pitchType;
+            }
 
             const existingBooked = await tx.booking.findFirst({
-              where: {
-                date: slot.date,
-                startTime: slot.startTime,
-                ballType: { in: relevantBallTypes },
-                status: 'BOOKED',
-              },
+              where: conflictWhere,
               select: { id: true },
             });
 
@@ -319,12 +328,18 @@ export async function POST(req: NextRequest) {
               }
             }
 
+            // Check for existing booking with same ball type + pitch type (for upsert)
+            const upsertWhere: any = {
+              date: slot.date,
+              startTime: slot.startTime,
+              ballType: slot.ballType,
+            };
+            if (isTennisMachine && slot.pitchType) {
+              upsertWhere.pitchType = slot.pitchType;
+            }
+
             const existingSameBallType = await tx.booking.findFirst({
-              where: {
-                date: slot.date,
-                startTime: slot.startTime,
-                ballType: slot.ballType,
-              },
+              where: upsertWhere,
               select: { id: true },
             });
 
