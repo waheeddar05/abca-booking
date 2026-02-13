@@ -115,21 +115,26 @@ export default function SlotsPage() {
     const sorted = [...selectedSlots].sort((a, b) =>
       new Date(a.startTime).getTime() - new Date(b.startTime).getTime()
     );
-    // Use the time slab of the first slot
-    const slab = sorted[0]?.timeSlab as 'morning' | 'evening' || 'morning';
 
-    let consecutivePriceFor2: number;
-    if (category === 'MACHINE') {
-      const subType = ballType === 'LEATHER' ? 'leather' : 'machine';
-      consecutivePriceFor2 = pc.leatherMachine[subType as 'leather' | 'machine'][slab].consecutive;
-    } else if (pitchType === 'TURF') {
-      consecutivePriceFor2 = pc.cementWicket[slab].consecutive;
-    } else {
-      consecutivePriceFor2 = pc.tennisMachine[slab].consecutive;
+    let totalConsecutivePrice = 0;
+    for (const slot of sorted) {
+      const slab = (slot.timeSlab as 'morning' | 'evening') || 'morning';
+
+      let consecutivePriceFor2: number;
+      if (category === 'MACHINE') {
+        const subType = ballType === 'LEATHER' ? 'leather' : 'machine';
+        consecutivePriceFor2 = pc.leatherMachine[subType as 'leather' | 'machine'][slab].consecutive;
+      } else if (pitchType === 'TURF') {
+        consecutivePriceFor2 = pc.cementWicket[slab].consecutive;
+      } else {
+        consecutivePriceFor2 = pc.tennisMachine[slab].consecutive;
+      }
+
+      const perSlotConsecutive = consecutivePriceFor2 / 2;
+      totalConsecutivePrice += perSlotConsecutive;
     }
 
-    const perSlotConsecutive = consecutivePriceFor2 / 2;
-    return perSlotConsecutive * selectedSlots.length;
+    return totalConsecutivePrice;
   };
 
   const getTotalPrice = (): number => {

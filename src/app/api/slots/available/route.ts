@@ -131,20 +131,6 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    // Fetch slot prices from admin-created slots
-    let adminSlots: { startTime: Date; price: number }[] = [];
-    try {
-      adminSlots = await prisma.slot.findMany({
-        where: {
-          date: dateUTC,
-          isActive: true,
-        },
-        select: { startTime: true, price: true },
-      });
-    } catch {
-      // Slot table may not exist yet
-    }
-
     const availableSlots = slots.map(slot => {
       const timeKey = slot.startTime.getTime();
 
@@ -155,13 +141,9 @@ export async function GET(req: NextRequest) {
       const operatorsUsed = operatorUsageMap.get(timeKey) || 0;
       const operatorAvailable = operatorsUsed < numberOfOperators;
 
-      // Calculate price using new pricing model
+      // Calculate price using pricing config (per-machine/ball-type/time-slab)
       const timeSlab = getTimeSlab(slot.startTime, timeSlabConfig);
-      const slotPrice = getSlotPrice(category, ballType, validatedPitchType, timeSlab, pricingConfig);
-
-      // If admin has set a custom price for this specific slot, use that
-      const adminSlot = adminSlots.find(s => s.startTime.getTime() === timeKey);
-      const finalPrice = adminSlot?.price ?? slotPrice;
+      const finalPrice = getSlotPrice(category, ballType, validatedPitchType, timeSlab, pricingConfig);
 
       // Determine slot status
       let status: string;
