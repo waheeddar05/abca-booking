@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { getToken } from "next-auth/jwt";
 import { headers, cookies } from "next/headers";
 import { verifyToken } from "@/lib/jwt";
+import Image from "next/image";
 import { Calendar, Zap, Clock, ChevronRight, Star, Instagram, Phone } from "lucide-react";
 
 export default async function Home() {
@@ -84,28 +85,13 @@ export default async function Home() {
             {/* Leather Ball Machine - Hero Card */}
             <div className="group rounded-2xl overflow-hidden border border-white/[0.08] bg-white/[0.03] hover:border-accent/30 transition-all hover:shadow-xl hover:shadow-accent/5">
               <div className="relative w-full aspect-square bg-gradient-to-br from-red-950/50 via-[#1a2235] to-[#132240] flex items-center justify-center overflow-hidden">
-                {/* Large machine SVG */}
-                <svg viewBox="0 0 200 200" className="w-4/5 h-4/5 drop-shadow-2xl group-hover:scale-105 transition-transform duration-500" xmlns="http://www.w3.org/2000/svg">
-                  <rect x="50" y="30" width="100" height="110" rx="14" fill="#1e3a5f" stroke="#d4a843" strokeWidth="2"/>
-                  <path d="M75 30 L75 10 Q75 3 82 3 L118 3 Q125 3 125 10 L125 30" fill="#1e3a5f" stroke="#d4a843" strokeWidth="2"/>
-                  <circle cx="100" cy="18" r="11" fill="#0a1628" stroke="#d4a843" strokeWidth="1.5"/>
-                  <circle cx="100" cy="18" r="7" fill="#dc2626"/>
-                  <path d="M97 13 Q100 18 97 23" stroke="#fff" strokeWidth="0.8" fill="none" opacity="0.5"/>
-                  <path d="M103 13 Q100 18 103 23" stroke="#fff" strokeWidth="0.8" fill="none" opacity="0.5"/>
-                  <rect x="65" y="52" width="70" height="34" rx="7" fill="#0a1628" stroke="#d4a843" strokeWidth="1.5"/>
-                  <circle cx="80" cy="69" r="5" fill="#22c55e"/>
-                  <circle cx="100" cy="69" r="5" fill="#d4a843"/>
-                  <circle cx="120" cy="69" r="5" fill="#ef4444"/>
-                  <rect x="72" y="96" width="56" height="12" rx="6" fill="#0a1628" stroke="#d4a843" strokeWidth="1"/>
-                  <rect x="76" y="99" width="22" height="6" rx="3" fill="#d4a843" opacity="0.7"/>
-                  <line x1="65" y1="140" x2="55" y2="168" stroke="#d4a843" strokeWidth="3.5" strokeLinecap="round"/>
-                  <line x1="135" y1="140" x2="145" y2="168" stroke="#d4a843" strokeWidth="3.5" strokeLinecap="round"/>
-                  <circle cx="55" cy="175" r="12" fill="#0a1628" stroke="#d4a843" strokeWidth="2"/>
-                  <circle cx="55" cy="175" r="4" fill="#1e3a5f"/>
-                  <circle cx="145" cy="175" r="12" fill="#0a1628" stroke="#d4a843" strokeWidth="2"/>
-                  <circle cx="145" cy="175" r="4" fill="#1e3a5f"/>
-                  <line x1="30" y1="187" x2="170" y2="187" stroke="#d4a843" strokeWidth="0.5" opacity="0.3"/>
-                </svg>
+                <Image
+                  src="/images/leather-ball-machine.svg"
+                  alt="Leather Ball Bowling Machine"
+                  width={200}
+                  height={200}
+                  className="w-4/5 h-4/5 drop-shadow-2xl group-hover:scale-105 transition-transform duration-500"
+                />
                 {/* Glow */}
                 <div className="absolute bottom-0 left-0 right-0 h-1/3 bg-gradient-to-t from-red-500/10 to-transparent"></div>
               </div>
@@ -121,28 +107,13 @@ export default async function Home() {
             {/* Tennis Ball Machine - Hero Card */}
             <div className="group rounded-2xl overflow-hidden border border-white/[0.08] bg-white/[0.03] hover:border-green-500/30 transition-all hover:shadow-xl hover:shadow-green-500/5">
               <div className="relative w-full aspect-square bg-gradient-to-br from-green-950/50 via-[#1a2235] to-[#132240] flex items-center justify-center overflow-hidden">
-                {/* Large machine SVG */}
-                <svg viewBox="0 0 200 200" className="w-4/5 h-4/5 drop-shadow-2xl group-hover:scale-105 transition-transform duration-500" xmlns="http://www.w3.org/2000/svg">
-                  <rect x="50" y="30" width="100" height="110" rx="14" fill="#1e3a5f" stroke="#22c55e" strokeWidth="2"/>
-                  <path d="M75 30 L75 10 Q75 3 82 3 L118 3 Q125 3 125 10 L125 30" fill="#1e3a5f" stroke="#22c55e" strokeWidth="2"/>
-                  <circle cx="100" cy="18" r="11" fill="#0a1628" stroke="#22c55e" strokeWidth="1.5"/>
-                  <circle cx="100" cy="18" r="7" fill="#22c55e"/>
-                  <path d="M97 13 Q100 18 97 23" stroke="#fff" strokeWidth="0.8" fill="none" opacity="0.5"/>
-                  <path d="M103 13 Q100 18 103 23" stroke="#fff" strokeWidth="0.8" fill="none" opacity="0.5"/>
-                  <rect x="65" y="52" width="70" height="34" rx="7" fill="#0a1628" stroke="#22c55e" strokeWidth="1.5"/>
-                  <circle cx="80" cy="69" r="5" fill="#22c55e"/>
-                  <circle cx="100" cy="69" r="5" fill="#d4a843"/>
-                  <circle cx="120" cy="69" r="5" fill="#ef4444"/>
-                  <rect x="72" y="96" width="56" height="12" rx="6" fill="#0a1628" stroke="#22c55e" strokeWidth="1"/>
-                  <rect x="76" y="99" width="30" height="6" rx="3" fill="#22c55e" opacity="0.7"/>
-                  <line x1="65" y1="140" x2="55" y2="168" stroke="#22c55e" strokeWidth="3.5" strokeLinecap="round"/>
-                  <line x1="135" y1="140" x2="145" y2="168" stroke="#22c55e" strokeWidth="3.5" strokeLinecap="round"/>
-                  <circle cx="55" cy="175" r="12" fill="#0a1628" stroke="#22c55e" strokeWidth="2"/>
-                  <circle cx="55" cy="175" r="4" fill="#1e3a5f"/>
-                  <circle cx="145" cy="175" r="12" fill="#0a1628" stroke="#22c55e" strokeWidth="2"/>
-                  <circle cx="145" cy="175" r="4" fill="#1e3a5f"/>
-                  <line x1="30" y1="187" x2="170" y2="187" stroke="#22c55e" strokeWidth="0.5" opacity="0.3"/>
-                </svg>
+                <Image
+                  src="/images/tennis-ball-machine.svg"
+                  alt="Tennis Ball Bowling Machine"
+                  width={200}
+                  height={200}
+                  className="w-4/5 h-4/5 drop-shadow-2xl group-hover:scale-105 transition-transform duration-500"
+                />
                 {/* Glow */}
                 <div className="absolute bottom-0 left-0 right-0 h-1/3 bg-gradient-to-t from-green-500/10 to-transparent"></div>
               </div>

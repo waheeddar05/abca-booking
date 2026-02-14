@@ -44,19 +44,13 @@ export default function Navbar() {
         <div className="flex justify-between h-14 md:h-16 items-center">
           {/* Logo */}
           <Link href={session ? '/slots' : '/'} className="flex items-center gap-2 group">
-            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" className="w-8 h-8 rounded-lg flex-shrink-0" aria-label="Ankeet Bawane Cricket Academy Logo">
-              <rect width="120" height="120" rx="24" fill="#1e3a5f"/>
-              <rect x="4" y="4" width="112" height="112" rx="20" fill="#0a1628" stroke="#d4a843" strokeWidth="2"/>
-              <circle cx="60" cy="60" r="34" stroke="#d4a843" strokeWidth="2.5" fill="none"/>
-              <path d="M38 38 Q60 60 38 82" stroke="#d4a843" strokeWidth="1.5" fill="none"/>
-              <path d="M82 38 Q60 60 82 82" stroke="#d4a843" strokeWidth="1.5" fill="none"/>
-              <path d="M40 75 L50 45 L60 75 M44 66 L56 66" stroke="#d4a843" strokeWidth="3" fill="none" strokeLinecap="round" strokeLinejoin="round"/>
-              <path d="M65 75 L65 45 L76 45 Q82 45 82 51 Q82 57 76 57 L65 57 L76 57 Q83 57 83 64 Q83 75 76 75 Z" stroke="#d4a843" strokeWidth="2.5" fill="none" strokeLinecap="round" strokeLinejoin="round"/>
-              <line x1="48" y1="85" x2="48" y2="95" stroke="#8899aa" strokeWidth="1.5" strokeLinecap="round"/>
-              <line x1="54" y1="85" x2="54" y2="95" stroke="#8899aa" strokeWidth="1.5" strokeLinecap="round"/>
-              <line x1="60" y1="85" x2="60" y2="95" stroke="#8899aa" strokeWidth="1.5" strokeLinecap="round"/>
-              <line x1="45" y1="85" x2="63" y2="85" stroke="#8899aa" strokeWidth="1" strokeLinecap="round"/>
-            </svg>
+            <Image
+              src="/images/logo.svg"
+              alt="Ankeet Bawane Cricket Academy Logo"
+              width={32}
+              height={32}
+              className="w-8 h-8 rounded-lg flex-shrink-0"
+            />
             <span className="text-sm md:text-base font-bold tracking-tight text-white hidden sm:inline">
               Ankeet Bawane Cricket Academy
             </span>
