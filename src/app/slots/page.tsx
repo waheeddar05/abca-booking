@@ -2,7 +2,6 @@
 
 import { useState, useEffect } from 'react';
 import { format, addDays, parseISO } from 'date-fns';
-import Image from 'next/image';
 import { Calendar, Check, Loader2, IndianRupee, AlertTriangle } from 'lucide-react';
 import type { PricingConfig, TimeSlabConfig } from '@/lib/pricing';
 
@@ -262,7 +261,8 @@ export default function SlotsPage() {
               }`}
             >
               <div className="flex items-center gap-2 mb-2">
-                <Image
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
                   src="/images/leather-ball-machine.svg"
                   alt="Leather Ball Bowling Machine"
                   width={40}
@@ -311,7 +311,8 @@ export default function SlotsPage() {
               }`}
             >
               <div className="flex items-center gap-2 mb-2">
-                <Image
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
                   src="/images/tennis-ball-machine.svg"
                   alt="Tennis Ball Bowling Machine"
                   width={40}

@@ -44,7 +44,8 @@ export default function Navbar() {
         <div className="flex justify-between h-14 md:h-16 items-center">
           {/* Logo */}
           <Link href={session ? '/slots' : '/'} className="flex items-center gap-2 group">
-            <Image
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
               src="/images/logo.svg"
               alt="Ankeet Bawane Cricket Academy Logo"
               width={32}
