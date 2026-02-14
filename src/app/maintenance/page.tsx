@@ -71,7 +71,7 @@ export default function MaintenancePage() {
           </button>
         </div>
 
-        <p className="text-slate-600 text-xs mt-4">ABCA Cricket</p>
+        <p className="text-slate-600 text-xs mt-4">Ankeet Bawane Cricket Academy</p>
       </div>
     </div>
   );

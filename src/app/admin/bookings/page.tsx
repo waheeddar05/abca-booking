@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { format } from 'date-fns';
-import { Search, Filter, CheckCircle, XCircle, RotateCcw, Calendar, Loader2, Download, ChevronLeft, ChevronRight, ArrowUpDown, IndianRupee } from 'lucide-react';
+import { Search, Filter, XCircle, RotateCcw, Calendar, Loader2, Download, ChevronLeft, ChevronRight, ArrowUpDown, IndianRupee, Copy, Pencil, X, Check } from 'lucide-react';
 
 type Category = 'all' | 'today' | 'upcoming' | 'previous' | 'lastMonth';
 
@@ -36,6 +36,9 @@ export default function AdminBookings() {
     to: '',
   });
   const [showDateRange, setShowDateRange] = useState(false);
+  const [editingPriceId, setEditingPriceId] = useState<string | null>(null);
+  const [editPriceValue, setEditPriceValue] = useState('');
+  const [actionLoading, setActionLoading] = useState<string | null>(null);
 
   const fetchBookings = useCallback(async () => {
     setLoading(true);
@@ -114,6 +117,57 @@ export default function AdminBookings() {
     }
   };
 
+  const updatePrice = async (bookingId: string) => {
+    const price = parseFloat(editPriceValue);
+    if (isNaN(price) || price < 0) {
+      alert('Please enter a valid price');
+      return;
+    }
+    setActionLoading(bookingId);
+    try {
+      const res = await fetch('/api/admin/bookings', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ bookingId, price }),
+      });
+      if (res.ok) {
+        setEditingPriceId(null);
+        setEditPriceValue('');
+        fetchBookings();
+      } else {
+        const data = await res.json();
+        alert(data.error || 'Price update failed');
+      }
+    } catch {
+      alert('Failed to update price');
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const copyToNextSlot = async (bookingId: string) => {
+    if (!confirm('Copy this booking to the next consecutive slot?')) return;
+    setActionLoading(bookingId);
+    try {
+      const res = await fetch('/api/admin/bookings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ bookingId, action: 'copy_next_slot' }),
+      });
+      if (res.ok) {
+        alert('Booking copied to next slot successfully');
+        fetchBookings();
+      } else {
+        const data = await res.json();
+        alert(data.error || 'Copy failed');
+      }
+    } catch {
+      alert('Failed to copy booking');
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
   const handleExport = () => {
     const params = new URLSearchParams();
     if (category !== 'all') params.set('category', category);
@@ -145,6 +199,11 @@ export default function AdminBookings() {
     { key: 'previous', label: 'Previous' },
     { key: 'lastMonth', label: 'Last Month' },
   ];
+
+  const startEditPrice = (booking: any) => {
+    setEditingPriceId(booking.id);
+    setEditPriceValue(booking.price != null ? String(booking.price) : '');
+  };
 
   return (
     <div>
@@ -185,14 +244,10 @@ export default function AdminBookings() {
       </div>
 
       {/* Summary Cards */}
-      <div className="grid grid-cols-3 gap-2 mb-5">
+      <div className="grid grid-cols-2 gap-2 mb-5">
         <div className="bg-green-500/10 rounded-xl p-3 text-center">
           <div className="text-lg font-bold text-green-400">{summary.booked}</div>
           <div className="text-[10px] font-medium text-green-400 uppercase tracking-wider">Booked</div>
-        </div>
-        <div className="bg-blue-500/10 rounded-xl p-3 text-center">
-          <div className="text-lg font-bold text-blue-400">{summary.done}</div>
-          <div className="text-[10px] font-medium text-blue-400 uppercase tracking-wider">Done</div>
         </div>
         <div className="bg-white/[0.04] rounded-xl p-3 text-center">
           <div className="text-lg font-bold text-slate-400">{summary.cancelled}</div>
@@ -226,7 +281,6 @@ export default function AdminBookings() {
               <option value="">All</option>
               <option value="BOOKED">Booked</option>
               <option value="CANCELLED">Cancelled</option>
-              <option value="DONE">Done</option>
             </select>
           </div>
           <div>
@@ -331,6 +385,8 @@ export default function AdminBookings() {
           <div className="md:hidden space-y-3">
             {bookings.map((booking) => {
               const status = statusConfig[booking.status] || statusConfig.BOOKED;
+              const isEditing = editingPriceId === booking.id;
+              const isActionLoading = actionLoading === booking.id;
               return (
                 <div key={booking.id} className="bg-white/[0.04] backdrop-blur-sm rounded-xl border border-white/[0.08] p-4">
                   <div className="flex items-center justify-between mb-3">
@@ -361,25 +417,44 @@ export default function AdminBookings() {
                         {booking.operationMode === 'SELF_OPERATE' ? 'Self' : 'Operator'}
                       </span>
                     )}
-                    {booking.price != null && (
-                      <div className="flex items-center gap-0.5 text-xs text-slate-300">
+                    {/* Price display / edit */}
+                    {isEditing ? (
+                      <div className="flex items-center gap-1">
+                        <span className="text-xs text-slate-400">₹</span>
+                        <input
+                          type="number"
+                          value={editPriceValue}
+                          onChange={e => setEditPriceValue(e.target.value)}
+                          className="w-20 bg-white/[0.06] border border-accent/30 text-white rounded px-2 py-0.5 text-xs outline-none"
+                          autoFocus
+                        />
+                        <button onClick={() => updatePrice(booking.id)} disabled={isActionLoading} className="p-0.5 text-green-400 hover:bg-green-500/10 rounded cursor-pointer">
+                          <Check className="w-3.5 h-3.5" />
+                        </button>
+                        <button onClick={() => { setEditingPriceId(null); setEditPriceValue(''); }} className="p-0.5 text-slate-400 hover:bg-white/[0.06] rounded cursor-pointer">
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    ) : booking.price != null ? (
+                      <button onClick={() => startEditPrice(booking)} className="flex items-center gap-0.5 text-xs text-slate-300 hover:text-accent transition-colors cursor-pointer">
                         <IndianRupee className="w-3 h-3" />
                         {booking.price}
-                        {booking.discountAmount > 0 && (
-                          <span className="text-green-400 ml-1">(-{booking.discountAmount})</span>
-                        )}
-                      </div>
+                        <Pencil className="w-2.5 h-2.5 ml-0.5 opacity-50" />
+                      </button>
+                    ) : (
+                      <button onClick={() => startEditPrice(booking)} className="text-xs text-slate-500 hover:text-accent cursor-pointer">Set price</button>
                     )}
                   </div>
-                  <div className="flex gap-2 pt-3 border-t border-white/[0.04]">
+                  <div className="flex flex-wrap gap-2 pt-3 border-t border-white/[0.04]">
                     {booking.status === 'BOOKED' && (
                       <>
                         <button
-                          onClick={() => updateStatus(booking.id, 'DONE')}
-                          className="flex-1 flex items-center justify-center gap-1.5 py-2 text-xs font-medium text-green-400 bg-green-500/10 rounded-lg hover:bg-green-500/20 transition-colors cursor-pointer"
+                          onClick={() => copyToNextSlot(booking.id)}
+                          disabled={isActionLoading}
+                          className="flex-1 flex items-center justify-center gap-1.5 py-2 text-xs font-medium text-accent bg-accent/10 rounded-lg hover:bg-accent/20 transition-colors cursor-pointer disabled:opacity-50"
                         >
-                          <CheckCircle className="w-3.5 h-3.5" />
-                          Done
+                          <Copy className="w-3.5 h-3.5" />
+                          Copy Next
                         </button>
                         <button
                           onClick={() => updateStatus(booking.id, 'CANCELLED')}
@@ -390,7 +465,7 @@ export default function AdminBookings() {
                         </button>
                       </>
                     )}
-                    {booking.status !== 'BOOKED' && (
+                    {booking.status === 'CANCELLED' && (
                       <button
                         onClick={() => updateStatus(booking.id, 'BOOKED')}
                         className="flex-1 flex items-center justify-center gap-1.5 py-2 text-xs font-medium text-slate-400 bg-white/[0.04] rounded-lg hover:bg-white/[0.08] transition-colors cursor-pointer"
@@ -422,6 +497,8 @@ export default function AdminBookings() {
               <tbody className="divide-y divide-white/[0.04]">
                 {bookings.map((booking) => {
                   const status = statusConfig[booking.status] || statusConfig.BOOKED;
+                  const isEditing = editingPriceId === booking.id;
+                  const isActionLoading = actionLoading === booking.id;
                   return (
                     <tr key={booking.id} className="hover:bg-white/[0.04] transition-colors">
                       <td className="px-5 py-3.5">
@@ -450,17 +527,36 @@ export default function AdminBookings() {
                         </div>
                       </td>
                       <td className="px-5 py-3.5">
-                        {booking.price != null ? (
-                          <div className="text-sm text-white">
+                        {isEditing ? (
+                          <div className="flex items-center gap-1">
+                            <span className="text-xs text-slate-400">₹</span>
+                            <input
+                              type="number"
+                              value={editPriceValue}
+                              onChange={e => setEditPriceValue(e.target.value)}
+                              className="w-20 bg-white/[0.06] border border-accent/30 text-white rounded px-2 py-1 text-sm outline-none"
+                              autoFocus
+                              onKeyDown={e => { if (e.key === 'Enter') updatePrice(booking.id); if (e.key === 'Escape') { setEditingPriceId(null); setEditPriceValue(''); } }}
+                            />
+                            <button onClick={() => updatePrice(booking.id)} disabled={isActionLoading} className="p-1 text-green-400 hover:bg-green-500/10 rounded cursor-pointer">
+                              <Check className="w-3.5 h-3.5" />
+                            </button>
+                            <button onClick={() => { setEditingPriceId(null); setEditPriceValue(''); }} className="p-1 text-slate-400 hover:bg-white/[0.06] rounded cursor-pointer">
+                              <X className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        ) : booking.price != null ? (
+                          <button onClick={() => startEditPrice(booking)} className="text-sm text-white hover:text-accent transition-colors cursor-pointer group">
                             <span className="flex items-center gap-0.5">
                               <IndianRupee className="w-3 h-3" />{booking.price}
+                              <Pencil className="w-3 h-3 ml-1 opacity-0 group-hover:opacity-50" />
                             </span>
                             {booking.discountAmount > 0 && (
                               <div className="text-[10px] text-green-400">-{booking.discountAmount} discount</div>
                             )}
-                          </div>
+                          </button>
                         ) : (
-                          <span className="text-xs text-gray-300">-</span>
+                          <button onClick={() => startEditPrice(booking)} className="text-xs text-slate-500 hover:text-accent cursor-pointer">Set price</button>
                         )}
                       </td>
                       <td className="px-5 py-3.5">
@@ -474,10 +570,13 @@ export default function AdminBookings() {
                           {booking.status === 'BOOKED' && (
                             <>
                               <button
-                                onClick={() => updateStatus(booking.id, 'DONE')}
-                                className="px-2.5 py-1.5 text-xs font-medium text-green-400 hover:bg-green-500/10 rounded-lg transition-colors cursor-pointer"
+                                onClick={() => copyToNextSlot(booking.id)}
+                                disabled={isActionLoading}
+                                className="px-2.5 py-1.5 text-xs font-medium text-accent hover:bg-accent/10 rounded-lg transition-colors cursor-pointer disabled:opacity-50"
+                                title="Copy to next consecutive slot"
                               >
-                                Done
+                                <Copy className="w-3.5 h-3.5 inline mr-1" />
+                                Copy Next
                               </button>
                               <button
                                 onClick={() => updateStatus(booking.id, 'CANCELLED')}
@@ -487,7 +586,7 @@ export default function AdminBookings() {
                               </button>
                             </>
                           )}
-                          {booking.status !== 'BOOKED' && (
+                          {booking.status === 'CANCELLED' && (
                             <button
                               onClick={() => updateStatus(booking.id, 'BOOKED')}
                               className="px-2.5 py-1.5 text-xs font-medium text-slate-400 hover:bg-white/[0.06] rounded-lg transition-colors cursor-pointer"

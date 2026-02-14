@@ -3,7 +3,7 @@ import { redirect } from "next/navigation";
 import { getToken } from "next-auth/jwt";
 import { headers, cookies } from "next/headers";
 import { verifyToken } from "@/lib/jwt";
-import { Calendar, Zap, Clock, ChevronRight, Star } from "lucide-react";
+import { Calendar, Zap, Clock, ChevronRight, Star, Instagram, Phone } from "lucide-react";
 
 export default async function Home() {
   const cookieStore = await cookies();
@@ -91,10 +91,35 @@ export default async function Home() {
       </section>
 
       {/* Footer */}
-      <footer className="relative z-10 py-5 px-4 border-t border-white/[0.06] text-center">
-        <div className="max-w-2xl mx-auto flex flex-col md:flex-row justify-between items-center gap-2">
-          <span className="text-[11px] text-slate-600">&copy; {new Date().getFullYear()} ABCA Cricket. All rights reserved.</span>
-          <span className="text-[11px] text-slate-600">Made by Waheed</span>
+      <footer className="relative z-10 py-6 px-4 border-t border-white/[0.06]">
+        <div className="max-w-2xl mx-auto space-y-4">
+          {/* Contact & Social */}
+          <div className="flex flex-col md:flex-row items-center justify-center gap-4 text-xs text-slate-400">
+            <div className="flex items-center gap-4">
+              <a href="tel:7058683664" className="flex items-center gap-1.5 hover:text-accent transition-colors">
+                <Phone className="w-3.5 h-3.5" />
+                Pratyush: 7058683664
+              </a>
+              <a href="tel:7774077995" className="flex items-center gap-1.5 hover:text-accent transition-colors">
+                <Phone className="w-3.5 h-3.5" />
+                Rahul: 7774077995
+              </a>
+            </div>
+            <a
+              href="https://www.instagram.com/ankeetbawanecricketacademy?igsh=MWFvd2p0MzlrOWQ1Mg%3D%3D"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center gap-1.5 hover:text-accent transition-colors"
+            >
+              <Instagram className="w-3.5 h-3.5" />
+              @ankeetbawanecricketacademy
+            </a>
+          </div>
+          {/* Copyright */}
+          <div className="flex flex-col md:flex-row justify-between items-center gap-2 text-center">
+            <span className="text-[11px] text-slate-600">&copy; {new Date().getFullYear()} Ankeet Bawane Cricket Academy. All rights reserved.</span>
+            <span className="text-[11px] text-slate-600">Made by Waheed</span>
+          </div>
         </div>
       </footer>
     </div>

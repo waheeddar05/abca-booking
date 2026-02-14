@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" fill="none">
+  <rect width="120" height="120" rx="24" fill="#1e3a5f"/>
+  <rect x="4" y="4" width="112" height="112" rx="20" fill="#0a1628" stroke="#d4a843" stroke-width="2"/>
+  <!-- Cricket ball seam -->
+  <circle cx="60" cy="60" r="32" stroke="#d4a843" stroke-width="2.5" fill="none"/>
+  <path d="M38 40 Q60 60 38 80" stroke="#d4a843" stroke-width="1.5" fill="none"/>
+  <path d="M82 40 Q60 60 82 80" stroke="#d4a843" stroke-width="1.5" fill="none"/>
+  <!-- AB initials -->
+  <text x="60" y="56" text-anchor="middle" font-family="Arial, sans-serif" font-weight="bold" font-size="20" fill="#d4a843">AB</text>
+  <text x="60" y="72" text-anchor="middle" font-family="Arial, sans-serif" font-weight="600" font-size="8" fill="#8899aa" letter-spacing="1">CRICKET</text>
+  <text x="60" y="82" text-anchor="middle" font-family="Arial, sans-serif" font-weight="600" font-size="7" fill="#8899aa" letter-spacing="0.5">ACADEMY</text>
+</svg>

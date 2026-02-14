@@ -1,46 +1,12 @@
 'use client';
 
 import { useState } from 'react';
-import { useRouter } from 'next/navigation';
 import { signIn } from 'next-auth/react';
-import { Star, ArrowRight } from 'lucide-react';
+import { Star } from 'lucide-react';
 
 export default function LoginPage() {
-  const [mobileNumber, setMobileNumber] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const [successMessage, setSuccessMessage] = useState('');
-  const router = useRouter();
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setLoading(true);
-    setError('');
-    setSuccessMessage('');
-
-    try {
-      const res = await fetch('/api/auth/otp/request', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ mobileNumber }),
-      });
-
-      const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data.error || 'Failed to send OTP');
-      }
-
-      setSuccessMessage(data.debugMessage || 'OTP sent successfully!');
-      localStorage.setItem('temp_mobile', mobileNumber);
-      setTimeout(() => {
-        router.push('/otp');
-      }, 2000);
-    } catch (err: any) {
-      setError(err.message);
-    } finally {
-      setLoading(false);
-    }
-  };
 
   return (
     <div className="flex flex-col min-h-screen bg-[#0a1628]">
@@ -53,7 +19,7 @@ export default function LoginPage() {
         <div className="text-center mb-8">
           <div className="inline-flex items-center gap-2 px-3 py-1.5 mb-4 rounded-full bg-accent/10 border border-accent/20">
             <Star className="w-3.5 h-3.5 text-accent" />
-            <span className="text-xs font-semibold text-accent tracking-wide uppercase">ABCA Cricket</span>
+            <span className="text-xs font-semibold text-accent tracking-wide uppercase">Ankeet Bawane Cricket Academy</span>
           </div>
           <h1 className="text-2xl md:text-3xl font-bold text-white mb-2">
             Welcome Back
@@ -75,67 +41,26 @@ export default function LoginPage() {
               </div>
             )}
 
-            {successMessage && (
-              <div className="flex items-center gap-2 p-3 bg-green-500/10 border border-green-500/20 text-green-400 rounded-xl text-sm">
-                <svg className="w-4 h-4 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
-                  <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
-                </svg>
-                {successMessage}
-              </div>
-            )}
-
             {/* Google Sign In */}
             <button
-              onClick={() => signIn('google', { callbackUrl: '/slots' })}
+              onClick={async () => {
+                setLoading(true);
+                setError('');
+                try {
+                  await signIn('google', { callbackUrl: '/slots' });
+                } catch {
+                  setError('Failed to sign in. Please try again.');
+                  setLoading(false);
+                }
+              }}
               disabled={loading}
               className="w-full flex items-center justify-center gap-3 py-3 px-4 border border-white/[0.1] rounded-xl hover:bg-white/[0.06] font-medium text-white transition-all active:scale-[0.98] disabled:opacity-50 cursor-pointer"
             >
               <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" alt="Google" className="w-5 h-5" />
-              <span className="text-sm">Continue with Google</span>
+              <span className="text-sm">{loading ? 'Signing in...' : 'Continue with Google'}</span>
             </button>
 
-            {/* Divider */}
-            <div className="relative">
-              <div className="absolute inset-0 flex items-center">
-                <div className="w-full border-t border-white/[0.08]"></div>
-              </div>
-              <div className="relative flex justify-center text-xs">
-                <span className="px-3 bg-[#0f1d2f] text-slate-500">or use mobile number</span>
-              </div>
-            </div>
-
-            {/* Mobile Number Form */}
-            <form onSubmit={handleSubmit} className="space-y-4">
-              <div>
-                <label htmlFor="mobile" className="block text-xs font-medium text-slate-400 mb-1.5">
-                  Mobile Number
-                </label>
-                <input
-                  id="mobile"
-                  type="tel"
-                  required
-                  value={mobileNumber}
-                  onChange={(e) => setMobileNumber(e.target.value)}
-                  className="w-full px-4 py-3 bg-white/[0.04] border border-white/[0.1] rounded-xl text-sm text-white focus:ring-2 focus:ring-accent/20 focus:border-accent outline-none transition-all placeholder:text-slate-500"
-                  placeholder="Enter your mobile number"
-                  disabled={loading}
-                />
-              </div>
-              <button
-                type="submit"
-                disabled={loading}
-                className="w-full flex items-center justify-center gap-2 py-3 bg-accent hover:bg-accent-light text-primary rounded-xl font-semibold text-sm transition-all active:scale-[0.98] disabled:opacity-50 cursor-pointer"
-              >
-                {loading ? (
-                  <span>Sending OTP...</span>
-                ) : (
-                  <>
-                    <span>Send OTP</span>
-                    <ArrowRight className="w-4 h-4" />
-                  </>
-                )}
-              </button>
-            </form>
+            {/* Mobile login temporarily disabled */}
           </div>
 
           <p className="text-center mt-6 text-xs text-slate-500 italic">

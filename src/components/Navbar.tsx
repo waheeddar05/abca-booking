@@ -44,11 +44,18 @@ export default function Navbar() {
         <div className="flex justify-between h-14 md:h-16 items-center">
           {/* Logo */}
           <Link href={session ? '/slots' : '/'} className="flex items-center gap-2 group">
-            <div className="w-8 h-8 rounded-lg flex items-center justify-center font-bold text-sm bg-accent text-primary">
-              AC
-            </div>
-            <span className="text-lg font-bold tracking-tight text-white">
-              ABCA Cricket
+            <Image
+              src="/images/logo.svg"
+              alt="Ankeet Bawane Cricket Academy Logo"
+              width={32}
+              height={32}
+              className="w-8 h-8 rounded-lg"
+            />
+            <span className="text-sm md:text-base font-bold tracking-tight text-white hidden sm:inline">
+              Ankeet Bawane Cricket Academy
+            </span>
+            <span className="text-sm font-bold tracking-tight text-white sm:hidden">
+              ABCA
             </span>
           </Link>
 

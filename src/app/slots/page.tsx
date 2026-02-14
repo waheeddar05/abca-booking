@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { format, addDays, parseISO } from 'date-fns';
+import Image from 'next/image';
 import { Calendar, Check, Loader2, IndianRupee, AlertTriangle } from 'lucide-react';
 import type { PricingConfig, TimeSlabConfig } from '@/lib/pricing';
 
@@ -166,7 +167,7 @@ export default function SlotsPage() {
 
     let confirmMessage = `Book ${selectedSlots.length} slot(s) for ₹${total.toLocaleString()}?`;
     if (selfOperateSlots > 0) {
-      confirmMessage += `\n\n⚠️ WARNING: ${selfOperateSlots} slot(s) will be Self Operate (no operator provided). You must operate the machine yourself.`;
+      confirmMessage += `\n\n⚠️ WARNING: ${selfOperateSlots} slot(s) will be Self Operate (no machine operator provided). You must operate the machine yourself.`;
     }
 
     const confirmBooking = window.confirm(confirmMessage);
@@ -260,6 +261,15 @@ export default function SlotsPage() {
                   : 'bg-white/[0.04] text-slate-300 border border-white/[0.08] hover:border-accent/30'
               }`}
             >
+              <div className="flex items-center gap-2 mb-2">
+                <Image
+                  src="/images/leather-ball-machine.svg"
+                  alt="Leather Ball Bowling Machine"
+                  width={40}
+                  height={40}
+                  className="w-10 h-10 rounded-lg"
+                />
+              </div>
               <div className="flex items-center gap-2">
                 <span className="w-2 h-2 rounded-full bg-red-500"></span>
                 <span className="text-sm font-semibold">Leather Ball Machine</span>
@@ -300,6 +310,15 @@ export default function SlotsPage() {
                   : 'bg-white/[0.04] text-slate-300 border border-white/[0.08] hover:border-accent/30'
               }`}
             >
+              <div className="flex items-center gap-2 mb-2">
+                <Image
+                  src="/images/tennis-ball-machine.svg"
+                  alt="Tennis Ball Bowling Machine"
+                  width={40}
+                  height={40}
+                  className="w-10 h-10 rounded-lg"
+                />
+              </div>
               <div className="flex items-center gap-2">
                 <span className="w-2 h-2 rounded-full bg-green-500"></span>
                 <span className="text-sm font-semibold">Tennis Ball Machine</span>
@@ -369,7 +388,7 @@ export default function SlotsPage() {
           <div>
             <p className="text-sm font-bold text-red-400">Self Operate Mode</p>
             <p className="text-xs text-red-300 mt-0.5">
-              No operator will be provided. You must operate the bowling machine yourself. Please ensure you are familiar with machine operation before booking.
+              No machine operator will be provided. You must operate the bowling machine yourself. Please ensure you are familiar with machine operation before booking.
             </p>
           </div>
         </div>
@@ -484,7 +503,7 @@ export default function SlotsPage() {
                       !slot.operatorAvailable && category === 'TENNIS' ? 'text-amber-400' :
                       'text-green-400'
                     }`}>
-                      {isOperatorUnavailable ? 'No Operator' :
+                      {isOperatorUnavailable ? 'No Machine Operator' :
                        isBooked ? 'Booked' :
                        isSelected ? 'Selected' :
                        !slot.operatorAvailable && category === 'TENNIS' ? 'Self Operate' :
@@ -512,7 +531,7 @@ export default function SlotsPage() {
           <div>
             <p className="text-sm font-bold text-red-400">Self Operate Warning</p>
             <p className="text-xs text-red-300 mt-0.5">
-              Operator not available for some selected slots. Those slots will be booked as Self Operate &mdash; you must operate the machine yourself.
+              Machine operator not available for some selected slots. Those slots will be booked as Self Operate &mdash; you must operate the machine yourself.
             </p>
           </div>
         </div>
@@ -523,8 +542,8 @@ export default function SlotsPage() {
         <div className="mt-4 px-3 py-2.5 bg-amber-500/10 border border-amber-500/20 rounded-lg flex items-start gap-2">
           <AlertTriangle className="w-4 h-4 text-amber-400 mt-0.5 flex-shrink-0" />
           <p className="text-xs text-amber-400">
-            Some slots show &ldquo;No Operator&rdquo; because the operator is busy with another machine at that time.
-            Leather machine always requires an operator.
+            Some slots show &ldquo;No Machine Operator&rdquo; because the machine operator is busy with another machine at that time.
+            Leather machine always requires a machine operator.
           </p>
         </div>
       )}

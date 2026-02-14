@@ -2,7 +2,10 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+import { useSession } from 'next-auth/react';
 import { LayoutDashboard, CalendarCheck, Users, Settings, Clock, Wrench } from 'lucide-react';
+
+const SUPER_ADMIN_EMAIL = 'waheeddar8@gmail.com';
 
 export default function AdminLayout({
   children,
@@ -10,6 +13,8 @@ export default function AdminLayout({
   children: React.ReactNode;
 }) {
   const pathname = usePathname();
+  const { data: session } = useSession();
+  const isSuperAdmin = session?.user?.email === SUPER_ADMIN_EMAIL;
 
   const links = [
     { href: '/admin', label: 'Dashboard', icon: LayoutDashboard },
@@ -17,7 +22,7 @@ export default function AdminLayout({
     { href: '/admin/slots', label: 'Slots', icon: Clock },
     { href: '/admin/users', label: 'Users', icon: Users },
     { href: '/admin/policies', label: 'Policies', icon: Settings },
-    { href: '/admin/maintenance', label: 'Maintenance', icon: Wrench },
+    ...(isSuperAdmin ? [{ href: '/admin/maintenance', label: 'Maintenance', icon: Wrench }] : []),
   ];
 
   const isActive = (href: string) =>

@@ -152,26 +152,146 @@ export async function PATCH(req: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 403 });
     }
 
-    const { bookingId, status } = await req.json();
+    const body = await req.json();
+    const { bookingId, status, price } = body;
 
-    if (!bookingId || !status) {
-      return NextResponse.json({ error: 'Booking ID and status are required' }, { status: 400 });
+    if (!bookingId) {
+      return NextResponse.json({ error: 'Booking ID is required' }, { status: 400 });
     }
 
-    if (!['BOOKED', 'CANCELLED', 'DONE'].includes(status)) {
-      return NextResponse.json({ error: 'Invalid status' }, { status: 400 });
+    const data: any = {};
+
+    // Handle status update
+    if (status) {
+      if (!['BOOKED', 'CANCELLED'].includes(status)) {
+        return NextResponse.json({ error: 'Invalid status. Use BOOKED or CANCELLED.' }, { status: 400 });
+      }
+      data.status = status;
     }
 
-    // update only touches 'status' column, safe regardless of migration state
+    // Handle price update
+    if (price !== undefined && price !== null) {
+      const numPrice = Number(price);
+      if (isNaN(numPrice) || numPrice < 0) {
+        return NextResponse.json({ error: 'Invalid price value' }, { status: 400 });
+      }
+      data.price = numPrice;
+    }
+
+    if (Object.keys(data).length === 0) {
+      return NextResponse.json({ error: 'No fields to update' }, { status: 400 });
+    }
+
     const booking = await prisma.booking.update({
       where: { id: bookingId },
-      data: { status },
-      select: { id: true, status: true },
+      data,
+      select: { id: true, status: true, price: true },
     });
 
     return NextResponse.json(booking);
   } catch (error: any) {
     console.error('Admin booking update error:', error);
+    return NextResponse.json({ error: error?.message || 'Internal server error' }, { status: 500 });
+  }
+}
+
+// POST: Copy booking to next consecutive slot
+export async function POST(req: NextRequest) {
+  try {
+    const session = await requireAdmin(req);
+    if (!session) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 403 });
+    }
+
+    const { bookingId, action } = await req.json();
+
+    if (!bookingId || !action) {
+      return NextResponse.json({ error: 'Booking ID and action are required' }, { status: 400 });
+    }
+
+    if (action === 'copy_next_slot') {
+      // Find the source booking
+      const sourceBooking = await prisma.booking.findUnique({
+        where: { id: bookingId },
+      });
+
+      if (!sourceBooking) {
+        return NextResponse.json({ error: 'Booking not found' }, { status: 404 });
+      }
+
+      // Calculate next slot time (30 min after current endTime)
+      const nextStartTime = new Date(sourceBooking.endTime);
+      const nextEndTime = new Date(nextStartTime.getTime() + 30 * 60 * 1000);
+
+      // Check if slot is already booked
+      const existing = await prisma.booking.findFirst({
+        where: {
+          date: sourceBooking.date,
+          startTime: nextStartTime,
+          ballType: sourceBooking.ballType,
+          pitchType: sourceBooking.pitchType,
+          status: 'BOOKED',
+        },
+      });
+
+      if (existing) {
+        return NextResponse.json({ error: 'Next slot is already booked' }, { status: 409 });
+      }
+
+      // Apply consecutive pricing if available
+      let newPrice = sourceBooking.price;
+      try {
+        const { getPricingConfig, getTimeSlabConfig, calculateNewPricing } = await import('@/lib/pricing');
+        const [pricingConfig, timeSlabConfig] = await Promise.all([
+          getPricingConfig(),
+          getTimeSlabConfig(),
+        ]);
+
+        const isMachineA = ['LEATHER', 'MACHINE'].includes(sourceBooking.ballType);
+        const category: 'MACHINE' | 'TENNIS' = isMachineA ? 'MACHINE' : 'TENNIS';
+
+        // Calculate consecutive pricing for 2 slots
+        const pricing = calculateNewPricing(
+          [
+            { startTime: sourceBooking.startTime, endTime: sourceBooking.endTime },
+            { startTime: nextStartTime, endTime: nextEndTime },
+          ],
+          category,
+          sourceBooking.ballType as any,
+          sourceBooking.pitchType as any,
+          timeSlabConfig,
+          pricingConfig
+        );
+
+        if (pricing[1]) {
+          newPrice = pricing[1].price;
+        }
+      } catch {
+        // fallback: keep same price
+      }
+
+      const newBooking = await prisma.booking.create({
+        data: {
+          userId: sourceBooking.userId,
+          date: sourceBooking.date,
+          startTime: nextStartTime,
+          endTime: nextEndTime,
+          status: 'BOOKED',
+          ballType: sourceBooking.ballType,
+          pitchType: sourceBooking.pitchType,
+          playerName: sourceBooking.playerName,
+          operationMode: sourceBooking.operationMode,
+          price: newPrice,
+          originalPrice: sourceBooking.originalPrice,
+        },
+      });
+
+      return NextResponse.json(newBooking);
+    }
+
+    return NextResponse.json({ error: 'Unknown action' }, { status: 400 });
+  } catch (error: any) {
+    console.error('Admin booking action error:', error);
     return NextResponse.json({ error: error?.message || 'Internal server error' }, { status: 500 });
   }
 }

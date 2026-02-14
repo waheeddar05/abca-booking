@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" fill="none">
+  <rect width="200" height="200" rx="16" fill="#0f1d2f"/>
+  <rect x="2" y="2" width="196" height="196" rx="14" fill="#132240" stroke="#d4a843" stroke-width="1" stroke-opacity="0.3"/>
+  <!-- Machine body -->
+  <rect x="70" y="50" width="60" height="80" rx="8" fill="#1e3a5f" stroke="#d4a843" stroke-width="1.5"/>
+  <!-- Delivery tube -->
+  <rect x="85" y="35" width="30" height="20" rx="4" fill="#1e3a5f" stroke="#d4a843" stroke-width="1.5"/>
+  <circle cx="100" cy="45" r="6" fill="#0a1628" stroke="#d4a843" stroke-width="1"/>
+  <!-- Ball -->
+  <circle cx="100" cy="45" r="3" fill="#dc2626"/>
+  <!-- Wheels -->
+  <circle cx="80" cy="138" r="8" fill="#0a1628" stroke="#d4a843" stroke-width="1.5"/>
+  <circle cx="120" cy="138" r="8" fill="#0a1628" stroke="#d4a843" stroke-width="1.5"/>
+  <!-- Control panel -->
+  <rect x="80" y="70" width="40" height="20" rx="3" fill="#0a1628" stroke="#d4a843" stroke-width="1"/>
+  <circle cx="90" cy="80" r="2" fill="#22c55e"/>
+  <circle cx="100" cy="80" r="2" fill="#d4a843"/>
+  <circle cx="110" cy="80" r="2" fill="#dc2626"/>
+  <!-- Label -->
+  <text x="100" y="170" text-anchor="middle" font-family="Arial, sans-serif" font-weight="bold" font-size="10" fill="#d4a843">LEATHER BALL</text>
+  <text x="100" y="182" text-anchor="middle" font-family="Arial, sans-serif" font-weight="600" font-size="9" fill="#8899aa">BOWLING MACHINE</text>
+</svg>

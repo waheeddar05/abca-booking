@@ -15,8 +15,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "ABCA Cricket - Book Practice Sessions",
-  description: "Book professional cricket practice sessions with advanced bowling machines at ABCA Cricket.",
+  title: "Ankeet Bawane Cricket Academy - Book Practice Sessions",
+  description: "Book professional cricket practice sessions with advanced bowling machines at Ankeet Bawane Cricket Academy.",
 };
 
 export const viewport: Viewport = {
