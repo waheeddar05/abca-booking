@@ -45,7 +45,7 @@ export default function Navbar() {
           {/* Logo */}
           <Link href={session ? '/slots' : '/'} className="flex items-center gap-2 group">
             <Image
-              src="/images/logo.svg"
+              src="/images/logo.jpeg"
               alt="Ankeet Bawane Cricket Academy Logo"
               width={32}
               height={32}
