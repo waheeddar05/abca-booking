@@ -86,7 +86,7 @@ export default async function Home() {
             <div className="group rounded-2xl overflow-hidden border border-white/[0.08] bg-white/[0.03] hover:border-accent/30 transition-all hover:shadow-xl hover:shadow-accent/5">
               <div className="relative w-full aspect-square bg-gradient-to-br from-red-950/50 via-[#1a2235] to-[#132240] flex items-center justify-center overflow-hidden">
                 <Image
-                  src="/images/leather-ball-machine.svg"
+                  src="/images/leather-ball-machine.jpg"
                   alt="Leather Ball Bowling Machine"
                   width={200}
                   height={200}
@@ -108,7 +108,7 @@ export default async function Home() {
             <div className="group rounded-2xl overflow-hidden border border-white/[0.08] bg-white/[0.03] hover:border-green-500/30 transition-all hover:shadow-xl hover:shadow-green-500/5">
               <div className="relative w-full aspect-square bg-gradient-to-br from-green-950/50 via-[#1a2235] to-[#132240] flex items-center justify-center overflow-hidden">
                 <Image
-                  src="/images/tennis-ball-machine.svg"
+                  src="/images/tennis-ball-machine.jpg"
                   alt="Tennis Ball Bowling Machine"
                   width={200}
                   height={200}
