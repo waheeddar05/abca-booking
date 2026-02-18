@@ -84,13 +84,12 @@ export default async function Home() {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             {/* Leather Ball Machine - Hero Card */}
             <div className="group rounded-2xl overflow-hidden border border-white/[0.08] bg-white/[0.03] hover:border-accent/30 transition-all hover:shadow-xl hover:shadow-accent/5">
-              <div className="relative w-full aspect-square bg-gradient-to-br from-red-950/50 via-[#1a2235] to-[#132240] flex items-center justify-center overflow-hidden">
+              <div className="relative w-full aspect-square bg-gradient-to-br from-red-950/50 via-[#1a2235] to-[#132240] overflow-hidden">
                 <Image
                   src="/images/leathermachine.jpeg"
                   alt="Leather Ball Bowling Machine"
-                  width={200}
-                  height={200}
-                  className="w-4/5 h-4/5 drop-shadow-2xl group-hover:scale-105 transition-transform duration-500"
+                  fill
+                  className="object-contain p-[10%] drop-shadow-2xl group-hover:scale-105 transition-transform duration-500"
                 />
                 {/* Glow */}
                 <div className="absolute bottom-0 left-0 right-0 h-1/3 bg-gradient-to-t from-red-500/10 to-transparent"></div>
@@ -106,13 +105,12 @@ export default async function Home() {
 
             {/* Tennis Ball Machine - Hero Card */}
             <div className="group rounded-2xl overflow-hidden border border-white/[0.08] bg-white/[0.03] hover:border-green-500/30 transition-all hover:shadow-xl hover:shadow-green-500/5">
-              <div className="relative w-full aspect-square bg-gradient-to-br from-green-950/50 via-[#1a2235] to-[#132240] flex items-center justify-center overflow-hidden">
+              <div className="relative w-full aspect-square bg-gradient-to-br from-green-950/50 via-[#1a2235] to-[#132240] overflow-hidden">
                 <Image
                   src="/images/tennismachine.jpeg"
                   alt="Tennis Ball Bowling Machine"
-                  width={200}
-                  height={200}
-                  className="w-4/5 h-4/5 drop-shadow-2xl group-hover:scale-105 transition-transform duration-500"
+                  fill
+                  className="object-contain p-[10%] drop-shadow-2xl group-hover:scale-105 transition-transform duration-500"
                 />
                 {/* Glow */}
                 <div className="absolute bottom-0 left-0 right-0 h-1/3 bg-gradient-to-t from-green-500/10 to-transparent"></div>

@@ -1,8 +1,11 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import { format, addDays, parseISO } from 'date-fns';
-import { Calendar, Check, Loader2, IndianRupee, AlertTriangle, Phone } from 'lucide-react';
+import { useState, useEffect, useMemo } from 'react';
+import { useSession } from 'next-auth/react';
+import { useSearchParams } from 'next/navigation';
+import { format, addDays, parseISO, isBefore, startOfDay } from 'date-fns';
+import { Calendar, Check, Loader2, IndianRupee, AlertTriangle, Phone, Package, ChevronDown, UserCircle } from 'lucide-react';
+import Image from 'next/image';
 import type { PricingConfig, TimeSlabConfig } from '@/lib/pricing';
 
 interface MachineConfig {
@@ -34,18 +37,92 @@ export default function SlotsPage() {
   const [error, setError] = useState('');
   const [bookingLoading, setBookingLoading] = useState(false);
   const [machineConfig, setMachineConfig] = useState<MachineConfig | null>(null);
+  const [userPackages, setUserPackages] = useState<any[]>([]);
+  const [selectedPackageId, setSelectedPackageId] = useState<string>('');
+  const [packageValidation, setPackageValidation] = useState<any>(null);
+  const [isValidatingPackage, setIsValidatingPackage] = useState(false);
+
+  const { data: session } = useSession();
+  const searchParams = useSearchParams();
+  const userId = searchParams.get('userId');
+  const userName = searchParams.get('userName');
+  const isAdmin = session?.user?.role === 'ADMIN';
+
+  const isBookingForOther = useMemo(() => isAdmin && userId, [isAdmin, userId]);
 
   useEffect(() => {
     fetch('/api/machine-config')
       .then(r => r.json())
       .then(setMachineConfig)
       .catch(() => {});
-  }, []);
+    
+    if (session) {
+      fetch('/api/packages/my')
+        .then(r => r.json())
+        .then(data => setUserPackages(Array.isArray(data) ? data : []))
+        .catch(() => {});
+    }
+  }, [session]);
 
   useEffect(() => {
     fetchSlots();
     setSelectedSlots([]);
   }, [selectedDate, ballType, pitchType]);
+
+  useEffect(() => {
+    validateSelectedPackage();
+  }, [selectedSlots, selectedPackageId]);
+
+  useEffect(() => {
+    if (userPackages.length > 0 && selectedSlots.length > 0 && !selectedPackageId) {
+      // Find a compatible package automatically
+      const compatiblePackage = userPackages.find(up => {
+        // Machine type compatibility check
+        const isLeatherMachine = ['LEATHER', 'MACHINE'].includes(ballType);
+        const pkgMachineType = up.machineType; // Note: MyPackage from API uses machineType
+        
+        const machineCompatible = (pkgMachineType === 'LEATHER' && isLeatherMachine) || 
+                                (pkgMachineType === 'TENNIS' && !isLeatherMachine);
+        
+        return up.status === 'ACTIVE' && 
+               up.remainingSessions >= selectedSlots.length &&
+               machineCompatible;
+      });
+
+      if (compatiblePackage) {
+        setSelectedPackageId(compatiblePackage.id);
+      }
+    }
+  }, [userPackages, selectedSlots, selectedPackageId, ballType]);
+
+  const validateSelectedPackage = async () => {
+    if (!selectedPackageId || selectedSlots.length === 0) {
+      setPackageValidation(null);
+      return;
+    }
+
+    setIsValidatingPackage(true);
+    try {
+      const firstSlot = selectedSlots[0];
+      const res = await fetch('/api/packages/validate-booking', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userPackageId: selectedPackageId,
+          ballType,
+          pitchType: category === 'TENNIS' ? pitchType : null,
+          startTime: firstSlot.startTime,
+          numberOfSlots: selectedSlots.length,
+        }),
+      });
+      const data = await res.json();
+      setPackageValidation(data);
+    } catch (e) {
+      console.error('Package validation failed', e);
+    } finally {
+      setIsValidatingPackage(false);
+    }
+  };
 
   useEffect(() => {
     if (category === 'TENNIS') {
@@ -62,7 +139,10 @@ export default function SlotsPage() {
     try {
       const dateStr = format(selectedDate, 'yyyy-MM-dd');
       let url = `/api/slots/available?date=${dateStr}&ballType=${ballType}`;
-      if (category === 'TENNIS' && machineConfig?.tennisMachine.pitchTypeSelectionEnabled && pitchType) {
+      const leatherPitchEnabled = category === 'MACHINE' && machineConfig?.leatherMachine.pitchTypeSelectionEnabled;
+      const tennisPitchEnabled = category === 'TENNIS' && machineConfig?.tennisMachine.pitchTypeSelectionEnabled;
+    
+      if ((leatherPitchEnabled || tennisPitchEnabled) && pitchType) {
         url += `&pitchType=${pitchType}`;
       }
       const res = await fetch(url);
@@ -159,12 +239,22 @@ export default function SlotsPage() {
   const handleBook = async () => {
     if (selectedSlots.length === 0) return;
 
-    const total = getTotalPrice();
+    if (selectedPackageId && packageValidation && !packageValidation.valid) {
+      alert(packageValidation.error || 'Selected package is not valid for this booking');
+      return;
+    }
+
+    const total = selectedPackageId && packageValidation ? (packageValidation.extraCharge || 0) : getTotalPrice();
     const selfOperateSlots = category === 'TENNIS'
       ? selectedSlots.filter(s => getSlotOperationMode(s) === 'SELF_OPERATE').length
       : 0;
 
-    let confirmMessage = `Book ${selectedSlots.length} slot(s) for ₹${total.toLocaleString()}?`;
+    let confirmMessage = isBookingForOther
+      ? `Book ${selectedSlots.length} slot(s) for ${userName}?`
+      : (selectedPackageId 
+          ? `Book ${selectedSlots.length} slot(s) using package? ${total > 0 ? `Extra charge: ₹${total}` : ''}`
+          : `Book ${selectedSlots.length} slot(s) for ₹${total.toLocaleString()}?`);
+    
     if (selfOperateSlots > 0) {
       confirmMessage += `\n\n⚠️ WARNING: ${selfOperateSlots} slot(s) will be Self Operate (no machine operator provided). You must operate the machine yourself.`;
     }
@@ -183,7 +273,10 @@ export default function SlotsPage() {
           endTime: slot.endTime,
           ballType: ballType,
           operationMode: getSlotOperationMode(slot),
-          ...(category === 'TENNIS' && machineConfig?.tennisMachine.pitchTypeSelectionEnabled
+          userPackageId: selectedPackageId || undefined,
+          userId: isBookingForOther ? userId : undefined,
+          playerName: isBookingForOther ? userName : undefined,
+          ...( ( (category === 'TENNIS' && machineConfig?.tennisMachine.pitchTypeSelectionEnabled) || (category === 'MACHINE' && machineConfig?.leatherMachine.pitchTypeSelectionEnabled) )
             ? { pitchType }
             : {}),
         }))),
@@ -196,7 +289,14 @@ export default function SlotsPage() {
 
       alert('Booking successful!');
       setSelectedSlots([]);
+      setSelectedPackageId('');
       fetchSlots();
+      
+      // Refresh packages
+      fetch('/api/packages/my')
+        .then(r => r.json())
+        .then(data => setUserPackages(Array.isArray(data) ? data : []))
+        .catch(() => {});
     } catch (err: any) {
       alert(err.message);
     } finally {
@@ -236,6 +336,15 @@ export default function SlotsPage() {
       <div className="fixed inset-0 -z-10 bg-[radial-gradient(ellipse_at_top,rgba(212,168,67,0.05),transparent_60%)]"></div>
 
       {/* Page Header */}
+      {isBookingForOther && (
+        <div className="mb-6 px-4 py-3 bg-accent/10 border border-accent/20 rounded-xl flex items-center gap-3">
+          <UserCircle className="w-5 h-5 text-accent" />
+          <div>
+            <p className="text-[10px] font-bold text-accent uppercase tracking-wider">Admin Mode</p>
+            <p className="text-sm font-medium text-white">Booking for: <span className="text-accent">{userName}</span></p>
+          </div>
+        </div>
+      )}
       <div className="flex items-center gap-3 mb-6">
         <div className="w-10 h-10 rounded-xl bg-accent/10 flex items-center justify-center">
           <Calendar className="w-5 h-5 text-accent" />
@@ -261,40 +370,15 @@ export default function SlotsPage() {
               }`}
             >
               {/* Machine Image Area */}
-              <div className={`relative w-full aspect-[4/3] flex items-center justify-center overflow-hidden ${
+              <div className={`relative w-full aspect-[4/3] overflow-hidden ${
                 category === 'MACHINE' ? 'bg-gradient-to-br from-red-900/40 via-red-800/20 to-[#132240]' : 'bg-gradient-to-br from-[#1a2a44] to-[#132240]'
               }`}>
-                {/* Large bowling machine illustration */}
-                <svg viewBox="0 0 200 180" className="w-full h-full p-4 drop-shadow-lg" xmlns="http://www.w3.org/2000/svg">
-                  {/* Machine body */}
-                  <rect x="55" y="25" width="90" height="100" rx="12" fill="#1e3a5f" stroke={category === 'MACHINE' ? '#d4a843' : '#3b5578'} strokeWidth="2"/>
-                  {/* Delivery chute */}
-                  <path d="M80 25 L80 8 Q80 2 86 2 L114 2 Q120 2 120 8 L120 25" fill="#1e3a5f" stroke={category === 'MACHINE' ? '#d4a843' : '#3b5578'} strokeWidth="2"/>
-                  {/* Opening */}
-                  <circle cx="100" cy="14" r="9" fill="#0a1628" stroke={category === 'MACHINE' ? '#d4a843' : '#3b5578'} strokeWidth="1.5"/>
-                  {/* Red leather ball */}
-                  <circle cx="100" cy="14" r="6" fill="#dc2626"/>
-                  <path d="M97 10 Q100 14 97 18" stroke="#fff" strokeWidth="0.8" fill="none" opacity="0.5"/>
-                  <path d="M103 10 Q100 14 103 18" stroke="#fff" strokeWidth="0.8" fill="none" opacity="0.5"/>
-                  {/* Control panel */}
-                  <rect x="68" y="45" width="64" height="30" rx="6" fill="#0a1628" stroke={category === 'MACHINE' ? '#d4a843' : '#3b5578'} strokeWidth="1.5"/>
-                  <circle cx="82" cy="60" r="4" fill="#22c55e"/>
-                  <circle cx="100" cy="60" r="4" fill="#d4a843"/>
-                  <circle cx="118" cy="60" r="4" fill="#ef4444"/>
-                  {/* Speed dial */}
-                  <rect x="75" y="85" width="50" height="10" rx="5" fill="#0a1628" stroke={category === 'MACHINE' ? '#d4a843' : '#3b5578'} strokeWidth="1"/>
-                  <rect x="78" y="88" width="20" height="4" rx="2" fill={category === 'MACHINE' ? '#d4a843' : '#3b5578'} opacity="0.7"/>
-                  {/* Legs */}
-                  <line x1="70" y1="125" x2="62" y2="150" stroke={category === 'MACHINE' ? '#d4a843' : '#3b5578'} strokeWidth="3" strokeLinecap="round"/>
-                  <line x1="130" y1="125" x2="138" y2="150" stroke={category === 'MACHINE' ? '#d4a843' : '#3b5578'} strokeWidth="3" strokeLinecap="round"/>
-                  {/* Wheels */}
-                  <circle cx="62" cy="156" r="10" fill="#0a1628" stroke={category === 'MACHINE' ? '#d4a843' : '#3b5578'} strokeWidth="2"/>
-                  <circle cx="62" cy="156" r="3.5" fill="#1e3a5f"/>
-                  <circle cx="138" cy="156" r="10" fill="#0a1628" stroke={category === 'MACHINE' ? '#d4a843' : '#3b5578'} strokeWidth="2"/>
-                  <circle cx="138" cy="156" r="3.5" fill="#1e3a5f"/>
-                  {/* Ground */}
-                  <line x1="40" y1="166" x2="160" y2="166" stroke={category === 'MACHINE' ? '#d4a843' : '#3b5578'} strokeWidth="0.5" opacity="0.4"/>
-                </svg>
+                <Image
+                  src="/images/leathermachine.jpeg"
+                  alt="Leather Ball Bowling Machine"
+                  fill
+                  className="object-contain p-3"
+                />
                 {/* Glow effect when selected */}
                 {category === 'MACHINE' && (
                   <div className="absolute inset-0 bg-gradient-to-t from-accent/10 to-transparent pointer-events-none"></div>
@@ -320,7 +404,30 @@ export default function SlotsPage() {
                       onClick={() => { setBallType(type.value); setSelectedSlots([]); }}
                       className={`flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
                         ballType === type.value
-                          ? 'bg-accent/15 text-accent border border-accent/30'
+                          ? 'bg-accent text-primary shadow-sm'
+                          : 'bg-white/[0.04] text-slate-400 border border-white/[0.08] hover:border-accent/20'
+                      }`}
+                    >
+                      <span className={`w-1.5 h-1.5 rounded-full ${type.color}`}></span>
+                      {type.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Pitch Type - shown below Leather Ball Machine card if enabled */}
+            {category === 'MACHINE' && machineConfig?.leatherMachine.pitchTypeSelectionEnabled && (
+              <div className="mt-2">
+                <label className="block text-[10px] font-medium text-slate-500 mb-1 uppercase tracking-wider">Pitch Type</label>
+                <div className="flex gap-2">
+                  {pitchTypes.map((type) => (
+                    <button
+                      key={type.value}
+                      onClick={() => { setPitchType(type.value); setSelectedSlots([]); }}
+                      className={`flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+                        pitchType === type.value
+                          ? 'bg-accent text-primary shadow-sm'
                           : 'bg-white/[0.04] text-slate-400 border border-white/[0.08] hover:border-accent/20'
                       }`}
                     >
@@ -344,40 +451,15 @@ export default function SlotsPage() {
               }`}
             >
               {/* Machine Image Area */}
-              <div className={`relative w-full aspect-[4/3] flex items-center justify-center overflow-hidden ${
+              <div className={`relative w-full aspect-[4/3] overflow-hidden ${
                 category === 'TENNIS' ? 'bg-gradient-to-br from-green-900/40 via-green-800/20 to-[#132240]' : 'bg-gradient-to-br from-[#1a2a44] to-[#132240]'
               }`}>
-                {/* Large bowling machine illustration */}
-                <svg viewBox="0 0 200 180" className="w-full h-full p-4 drop-shadow-lg" xmlns="http://www.w3.org/2000/svg">
-                  {/* Machine body */}
-                  <rect x="55" y="25" width="90" height="100" rx="12" fill="#1e3a5f" stroke={category === 'TENNIS' ? '#22c55e' : '#3b5578'} strokeWidth="2"/>
-                  {/* Delivery chute */}
-                  <path d="M80 25 L80 8 Q80 2 86 2 L114 2 Q120 2 120 8 L120 25" fill="#1e3a5f" stroke={category === 'TENNIS' ? '#22c55e' : '#3b5578'} strokeWidth="2"/>
-                  {/* Opening */}
-                  <circle cx="100" cy="14" r="9" fill="#0a1628" stroke={category === 'TENNIS' ? '#22c55e' : '#3b5578'} strokeWidth="1.5"/>
-                  {/* Green tennis ball */}
-                  <circle cx="100" cy="14" r="6" fill="#22c55e"/>
-                  <path d="M97 10 Q100 14 97 18" stroke="#fff" strokeWidth="0.8" fill="none" opacity="0.5"/>
-                  <path d="M103 10 Q100 14 103 18" stroke="#fff" strokeWidth="0.8" fill="none" opacity="0.5"/>
-                  {/* Control panel */}
-                  <rect x="68" y="45" width="64" height="30" rx="6" fill="#0a1628" stroke={category === 'TENNIS' ? '#22c55e' : '#3b5578'} strokeWidth="1.5"/>
-                  <circle cx="82" cy="60" r="4" fill="#22c55e"/>
-                  <circle cx="100" cy="60" r="4" fill="#d4a843"/>
-                  <circle cx="118" cy="60" r="4" fill="#ef4444"/>
-                  {/* Speed dial */}
-                  <rect x="75" y="85" width="50" height="10" rx="5" fill="#0a1628" stroke={category === 'TENNIS' ? '#22c55e' : '#3b5578'} strokeWidth="1"/>
-                  <rect x="78" y="88" width="28" height="4" rx="2" fill={category === 'TENNIS' ? '#22c55e' : '#3b5578'} opacity="0.7"/>
-                  {/* Legs */}
-                  <line x1="70" y1="125" x2="62" y2="150" stroke={category === 'TENNIS' ? '#22c55e' : '#3b5578'} strokeWidth="3" strokeLinecap="round"/>
-                  <line x1="130" y1="125" x2="138" y2="150" stroke={category === 'TENNIS' ? '#22c55e' : '#3b5578'} strokeWidth="3" strokeLinecap="round"/>
-                  {/* Wheels */}
-                  <circle cx="62" cy="156" r="10" fill="#0a1628" stroke={category === 'TENNIS' ? '#22c55e' : '#3b5578'} strokeWidth="2"/>
-                  <circle cx="62" cy="156" r="3.5" fill="#1e3a5f"/>
-                  <circle cx="138" cy="156" r="10" fill="#0a1628" stroke={category === 'TENNIS' ? '#22c55e' : '#3b5578'} strokeWidth="2"/>
-                  <circle cx="138" cy="156" r="3.5" fill="#1e3a5f"/>
-                  {/* Ground */}
-                  <line x1="40" y1="166" x2="160" y2="166" stroke={category === 'TENNIS' ? '#22c55e' : '#3b5578'} strokeWidth="0.5" opacity="0.4"/>
-                </svg>
+                <Image
+                  src="/images/tennismachine.jpeg"
+                  alt="Tennis Ball Bowling Machine"
+                  fill
+                  className="object-contain p-3"
+                />
                 {/* Glow effect when selected */}
                 {category === 'TENNIS' && (
                   <div className="absolute inset-0 bg-gradient-to-t from-green-500/10 to-transparent pointer-events-none"></div>
@@ -403,7 +485,7 @@ export default function SlotsPage() {
                       onClick={() => { setPitchType(type.value); setSelectedSlots([]); }}
                       className={`flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
                         pitchType === type.value
-                          ? 'bg-accent/15 text-accent border border-accent/30'
+                          ? 'bg-accent text-primary shadow-sm'
                           : 'bg-white/[0.04] text-slate-400 border border-white/[0.08] hover:border-accent/20'
                       }`}
                     >
@@ -423,7 +505,7 @@ export default function SlotsPage() {
                     onClick={() => { setOperationMode('WITH_OPERATOR'); setSelectedSlots([]); }}
                     className={`flex-1 flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
                       operationMode === 'WITH_OPERATOR'
-                        ? 'bg-accent/15 text-accent border border-accent/30'
+                        ? 'bg-accent text-primary shadow-sm'
                         : 'bg-white/[0.04] text-slate-400 border border-white/[0.08] hover:border-accent/20'
                     }`}
                   >
@@ -434,7 +516,7 @@ export default function SlotsPage() {
                     onClick={() => { setOperationMode('SELF_OPERATE'); setSelectedSlots([]); }}
                     className={`flex-1 flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
                       operationMode === 'SELF_OPERATE'
-                        ? 'bg-accent/15 text-accent border border-accent/30'
+                        ? 'bg-accent text-primary shadow-sm'
                         : 'bg-white/[0.04] text-slate-400 border border-white/[0.08] hover:border-accent/20'
                     }`}
                   >
@@ -493,7 +575,7 @@ export default function SlotsPage() {
       </div>
 
       {/* Slots Grid */}
-      <div>
+      <div className="mb-6">
         <label className="block text-xs font-medium text-slate-400 mb-2 uppercase tracking-wider">
           Available Slots
         </label>
@@ -580,7 +662,7 @@ export default function SlotsPage() {
                       <span className={`text-[10px] font-medium ${
                         isSelected ? 'text-primary/70' : 'text-slate-400'
                       }`}>
-                        ₹{displayPrice}
+                        {selectedPackageId && packageValidation && packageValidation.valid ? 'Package' : `₹${displayPrice}`}
                       </span>
                     )}
                   </div>
@@ -615,6 +697,65 @@ export default function SlotsPage() {
         </div>
       )}
 
+      {/* Package Selection */}
+      {session && userPackages.length > 0 && (
+        <div className="mb-8">
+          <label className="block text-xs font-medium text-slate-400 mb-2 uppercase tracking-wider">Use a Package</label>
+          <div className="relative">
+            <select
+              value={selectedPackageId}
+              onChange={(e) => setSelectedPackageId(e.target.value)}
+              className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl px-4 py-3 text-sm text-white outline-none focus:border-accent appearance-none transition-all"
+            >
+              <option value="" className="bg-[#0f1d2f]">Don't use a package (Direct Payment)</option>
+              {userPackages.map((up) => (
+                <option key={up.id} value={up.id} className="bg-[#0f1d2f]">
+                  {up.packageName} ({up.remainingSessions} sessions left)
+                </option>
+              ))}
+            </select>
+            <div className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400">
+              <ChevronDown className="w-4 h-4" />
+            </div>
+          </div>
+          
+          {selectedPackageId && (
+            <div className="mt-3 p-3 rounded-xl bg-accent/5 border border-accent/20">
+              <div className="flex items-center gap-2 mb-1">
+                <Package className="w-4 h-4 text-accent" />
+                <span className="text-xs font-bold text-accent">Package Selected</span>
+              </div>
+              {isValidatingPackage ? (
+                <div className="flex items-center gap-2 text-[10px] text-slate-400">
+                  <Loader2 className="w-3 h-3 animate-spin" />
+                  Validating package rules...
+                </div>
+              ) : packageValidation ? (
+                packageValidation.valid ? (
+                  <div className="space-y-1">
+                    <p className="text-[11px] text-green-400 flex items-center gap-1">
+                      <Check className="w-3 h-3" />
+                      Valid for this booking. 1 session per slot will be deducted.
+                    </p>
+                    {packageValidation.extraCharge > 0 && (
+                      <div className="mt-2 pt-2 border-t border-white/5">
+                        <p className="text-[11px] font-bold text-amber-400">Extra Charge: ₹{packageValidation.extraCharge}</p>
+                        <p className="text-[10px] text-slate-400">{packageValidation.extraChargeType === 'BALL_TYPE' ? 'Leather ball upgrade' : packageValidation.extraChargeType === 'WICKET_TYPE' ? 'Cement wicket upgrade' : 'Evening timing upgrade'}</p>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <p className="text-[11px] text-red-400 flex items-center gap-1">
+                    <AlertTriangle className="w-3 h-3" />
+                    {packageValidation.error}
+                  </p>
+                )
+              ) : null}
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Contact + Quote */}
       <div className="mt-8 pt-5 border-t border-white/[0.06] pb-4">
         <p className="text-center text-xs text-slate-500 italic mb-3">&ldquo;Champions Aren&apos;t Born. They&apos;re Built &mdash; Ball by Ball.&rdquo;</p>
@@ -637,19 +778,32 @@ export default function SlotsPage() {
             <div>
               <p className="text-sm font-bold text-white">{selectedSlots.length} slot{selectedSlots.length > 1 ? 's' : ''} selected</p>
               <p className="text-[11px] text-slate-400">
-                {format(selectedDate, 'EEE, MMM d')} &middot; {ballType === 'TENNIS' ? `Tennis Machine${machineConfig?.tennisMachine.pitchTypeSelectionEnabled ? ` (${pitchType === 'TURF' ? 'Cement Wicket' : pitchType})` : ''}` : ballType === 'LEATHER' ? 'Leather Machine (Leather)' : 'Leather Machine (Machine)'}
+                {format(selectedDate, 'EEE, MMM d')} &middot; {ballType === 'TENNIS' ? `Tennis Machine${machineConfig?.tennisMachine.pitchTypeSelectionEnabled ? ` (${pitchType === 'TURF' ? 'Cement Wicket' : pitchType})` : ''}` : `Leather Machine (${ballType === 'LEATHER' ? 'Leather' : 'Machine'})${machineConfig?.leatherMachine.pitchTypeSelectionEnabled ? ` (${pitchType === 'TURF' ? 'Cement Wicket' : pitchType})` : ''}`}
                 {category === 'TENNIS' && (
                   <span> &middot; {hasSelectedSlotsWithoutOperator ? 'Mixed modes' : operationMode === 'WITH_OPERATOR' ? 'With Operator' : 'Self Operate'}</span>
                 )}
               </p>
               <div className="flex items-center gap-1 mt-0.5">
                 <IndianRupee className="w-3 h-3 text-accent" />
-                <span className="text-sm font-bold text-accent">{getTotalPrice().toLocaleString()}</span>
-                {hasSavings && (
-                  <span className="text-[10px] text-slate-500 line-through ml-1">₹{originalTotal.toLocaleString()}</span>
-                )}
-                {hasSavings && (
-                  <span className="text-[10px] text-green-400 ml-1">Save ₹{(originalTotal - getTotalPrice()).toLocaleString()}</span>
+                {selectedPackageId && packageValidation ? (
+                  <>
+                    <span className="text-sm font-bold text-accent">
+                      {packageValidation.extraCharge > 0 ? `Extra: ₹${packageValidation.extraCharge}` : 'Included in Package'}
+                    </span>
+                    {packageValidation.extraCharge > 0 && (
+                      <span className="text-[10px] text-slate-500 line-through ml-1">₹{getTotalPrice().toLocaleString()}</span>
+                    )}
+                  </>
+                ) : (
+                  <>
+                    <span className="text-sm font-bold text-accent">{getTotalPrice().toLocaleString()}</span>
+                    {hasSavings && (
+                      <span className="text-[10px] text-slate-500 line-through ml-1">₹{originalTotal.toLocaleString()}</span>
+                    )}
+                    {hasSavings && (
+                      <span className="text-[10px] text-green-400 ml-1">Save ₹{(originalTotal - getTotalPrice()).toLocaleString()}</span>
+                    )}
+                  </>
                 )}
               </div>
             </div>
