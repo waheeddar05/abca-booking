@@ -3,7 +3,6 @@ import { redirect } from "next/navigation";
 import { getToken } from "next-auth/jwt";
 import { headers, cookies } from "next/headers";
 import { verifyToken } from "@/lib/jwt";
-import Image from "next/image";
 import { Calendar, Zap, Clock, ChevronRight, Star, Instagram, Phone } from "lucide-react";
 
 export default async function Home() {
@@ -85,11 +84,11 @@ export default async function Home() {
             {/* Leather Ball Machine - Hero Card */}
             <div className="group rounded-2xl overflow-hidden border border-white/[0.08] bg-white/[0.03] hover:border-accent/30 transition-all hover:shadow-xl hover:shadow-accent/5">
               <div className="relative w-full aspect-square bg-gradient-to-br from-red-950/50 via-[#1a2235] to-[#132240] overflow-hidden">
-                <Image
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
                   src="/images/leathermachine.jpeg"
                   alt="Leather Ball Bowling Machine"
-                  fill
-                  className="object-contain p-[10%] drop-shadow-2xl group-hover:scale-105 transition-transform duration-500"
+                  className="w-full h-full object-contain p-[10%] drop-shadow-2xl group-hover:scale-105 transition-transform duration-500"
                 />
                 {/* Glow */}
                 <div className="absolute bottom-0 left-0 right-0 h-1/3 bg-gradient-to-t from-red-500/10 to-transparent"></div>
@@ -106,11 +105,11 @@ export default async function Home() {
             {/* Tennis Ball Machine - Hero Card */}
             <div className="group rounded-2xl overflow-hidden border border-white/[0.08] bg-white/[0.03] hover:border-green-500/30 transition-all hover:shadow-xl hover:shadow-green-500/5">
               <div className="relative w-full aspect-square bg-gradient-to-br from-green-950/50 via-[#1a2235] to-[#132240] overflow-hidden">
-                <Image
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
                   src="/images/tennismachine.jpeg"
                   alt="Tennis Ball Bowling Machine"
-                  fill
-                  className="object-contain p-[10%] drop-shadow-2xl group-hover:scale-105 transition-transform duration-500"
+                  className="w-full h-full object-contain p-[10%] drop-shadow-2xl group-hover:scale-105 transition-transform duration-500"
                 />
                 {/* Glow */}
                 <div className="absolute bottom-0 left-0 right-0 h-1/3 bg-gradient-to-t from-green-500/10 to-transparent"></div>

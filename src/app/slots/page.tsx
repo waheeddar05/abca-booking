@@ -5,7 +5,6 @@ import { useSession } from 'next-auth/react';
 import { useSearchParams } from 'next/navigation';
 import { format, addDays, parseISO, isBefore, startOfDay } from 'date-fns';
 import { Calendar, Check, Loader2, IndianRupee, AlertTriangle, Phone, Package, ChevronDown, UserCircle } from 'lucide-react';
-import Image from 'next/image';
 import type { PricingConfig, TimeSlabConfig } from '@/lib/pricing';
 
 interface MachineConfig {
@@ -373,11 +372,11 @@ export default function SlotsPage() {
               <div className={`relative w-full aspect-[4/3] overflow-hidden ${
                 category === 'MACHINE' ? 'bg-gradient-to-br from-red-900/40 via-red-800/20 to-[#132240]' : 'bg-gradient-to-br from-[#1a2a44] to-[#132240]'
               }`}>
-                <Image
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
                   src="/images/leathermachine.jpeg"
                   alt="Leather Ball Bowling Machine"
-                  fill
-                  className="object-contain p-3"
+                  className="w-full h-full object-contain p-3"
                 />
                 {/* Glow effect when selected */}
                 {category === 'MACHINE' && (
@@ -454,11 +453,11 @@ export default function SlotsPage() {
               <div className={`relative w-full aspect-[4/3] overflow-hidden ${
                 category === 'TENNIS' ? 'bg-gradient-to-br from-green-900/40 via-green-800/20 to-[#132240]' : 'bg-gradient-to-br from-[#1a2a44] to-[#132240]'
               }`}>
-                <Image
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
                   src="/images/tennismachine.jpeg"
                   alt="Tennis Ball Bowling Machine"
-                  fill
-                  className="object-contain p-3"
+                  className="w-full h-full object-contain p-3"
                 />
                 {/* Glow effect when selected */}
                 {category === 'TENNIS' && (
