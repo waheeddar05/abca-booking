@@ -3,7 +3,8 @@
 import { useState, useEffect } from 'react';
 import Image from 'next/image';
 import { useSession } from 'next-auth/react';
-import { UserPlus, Trash2, Loader2, Search, Shield, ShieldOff, Users, ChevronDown, ChevronUp, CalendarCheck, Mail, Phone, Clock, X } from 'lucide-react';
+import { UserPlus, Trash2, Loader2, Search, Shield, ShieldOff, Users, ChevronDown, ChevronUp, CalendarCheck, Mail, Phone, Clock, X, XCircle, Check, CalendarPlus } from 'lucide-react';
+import Link from 'next/link';
 
 interface UserData {
   id: string;
@@ -13,6 +14,7 @@ interface UserData {
   image: string | null;
   authProvider: string;
   role: string;
+  isBlacklisted: boolean;
   createdAt: string;
   _count: { bookings: number };
 }
@@ -101,6 +103,28 @@ export default function AdminUsers() {
     }
   };
 
+  const handleToggleBlacklist = async (user: UserData) => {
+    const newStatus = !user.isBlacklisted;
+    if (!confirm(`Are you sure you want to ${newStatus ? 'block' : 'unblock'} ${user.name || user.email}?`)) return;
+    setMessage({ text: '', type: '' });
+    try {
+      const res = await fetch('/api/admin/users/blacklist', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId: user.id, isBlacklisted: newStatus }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setMessage({ text: data.message, type: 'success' });
+        fetchUsers();
+      } else {
+        setMessage({ text: data.error || 'Failed to update user', type: 'error' });
+      }
+    } catch (error) {
+      setMessage({ text: 'Internal server error', type: 'error' });
+    }
+  };
+
   const handleDeleteUser = async (user: UserData) => {
     if (!confirm(`Are you sure you want to delete ${user.name || user.email}? This will also delete all their bookings. This action cannot be undone.`)) return;
     setMessage({ text: '', type: '' });
@@ -147,7 +171,6 @@ export default function AdminUsers() {
         </button>
       </div>
 
-      {/* Stats */}
       <div className="grid grid-cols-3 gap-2 mb-5">
         <button
           onClick={() => setRoleFilter('')}
@@ -178,7 +201,6 @@ export default function AdminUsers() {
         </button>
       </div>
 
-      {/* Message */}
       {message.text && (
         <div className={`mb-4 px-4 py-3 rounded-xl text-sm font-medium ${
           message.type === 'success' ? 'bg-green-500/10 text-green-400' : 'bg-red-500/10 text-red-400'
@@ -187,7 +209,6 @@ export default function AdminUsers() {
         </div>
       )}
 
-      {/* Add User Form */}
       {showAddForm && (
         <div className="bg-white/[0.04] backdrop-blur-sm rounded-xl border border-white/[0.08] p-5 mb-5">
           <h2 className="text-sm font-semibold text-white mb-3">Add New User</h2>
@@ -243,7 +264,6 @@ export default function AdminUsers() {
         </div>
       )}
 
-      {/* Search */}
       <div className="mb-4">
         <div className="relative">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
@@ -257,7 +277,6 @@ export default function AdminUsers() {
         </div>
       </div>
 
-      {/* User List */}
       {loading ? (
         <div className="flex items-center justify-center py-16 text-slate-400">
           <Loader2 className="w-5 h-5 animate-spin mr-2" />
@@ -278,12 +297,10 @@ export default function AdminUsers() {
 
             return (
               <div key={user.id} className="bg-white/[0.04] backdrop-blur-sm rounded-xl border border-white/[0.08] overflow-hidden">
-                {/* Main row */}
                 <button
                   onClick={() => setExpandedUser(isExpanded ? null : user.id)}
                   className="w-full flex items-center gap-3 p-4 text-left cursor-pointer hover:bg-white/[0.04] transition-colors"
                 >
-                  {/* Avatar */}
                   {user.image ? (
                     <Image
                       src={user.image}
@@ -299,10 +316,14 @@ export default function AdminUsers() {
                     </div>
                   )}
 
-                  {/* Info */}
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2">
                       <p className="text-sm font-medium text-white truncate">{user.name || 'Unnamed'}</p>
+                      {user.isBlacklisted && (
+                        <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider bg-red-500/10 text-red-400">
+                          Blocked
+                        </span>
+                      )}
                       <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider ${
                         user.role === 'ADMIN' ? 'bg-blue-500/10 text-blue-400' : 'bg-white/[0.04] text-slate-400'
                       }`}>
@@ -312,13 +333,11 @@ export default function AdminUsers() {
                     <p className="text-xs text-slate-400 truncate">{user.email}</p>
                   </div>
 
-                  {/* Booking count */}
                   <div className="text-right flex-shrink-0 mr-1">
                     <div className="text-sm font-bold text-white">{user._count.bookings}</div>
                     <div className="text-[10px] text-slate-500">bookings</div>
                   </div>
 
-                  {/* Expand icon */}
                   {isExpanded ? (
                     <ChevronUp className="w-4 h-4 text-slate-500 flex-shrink-0" />
                   ) : (
@@ -326,7 +345,6 @@ export default function AdminUsers() {
                   )}
                 </button>
 
-                {/* Expanded details */}
                 {isExpanded && (
                   <div className="px-4 pb-4 border-t border-white/[0.06]">
                     <div className="grid grid-cols-2 gap-3 pt-3 mb-4">
@@ -351,40 +369,70 @@ export default function AdminUsers() {
                       Auth: {user.authProvider} &middot; ID: {user.id.slice(0, 8)}...
                     </div>
 
-                    {/* Actions */}
                     {user.email !== 'waheeddar8@gmail.com' && (
-                      <div className="flex gap-2">
-                        {isSuperAdmin && (
-                          <button
-                            onClick={() => handleToggleRole(user)}
-                            className={`flex-1 flex items-center justify-center gap-1.5 py-2 text-xs font-medium rounded-lg transition-colors cursor-pointer ${
-                              user.role === 'ADMIN'
-                                ? 'text-orange-400 bg-orange-500/10 hover:bg-orange-500/20'
-                                : 'text-blue-400 bg-blue-500/10 hover:bg-blue-500/20'
-                            }`}
+                      <div className="flex flex-col gap-2">
+                        <div className="flex gap-2">
+                          <Link
+                            href={`/slots?userId=${user.id}&userName=${encodeURIComponent(user.name || user.email || '')}`}
+                            className="flex-1 flex items-center justify-center gap-1.5 py-2 text-xs font-medium text-accent bg-accent/10 rounded-lg hover:bg-accent/20 transition-colors cursor-pointer"
                           >
-                            {user.role === 'ADMIN' ? (
-                              <>
-                                <ShieldOff className="w-3.5 h-3.5" />
-                                Demote to User
-                              </>
-                            ) : (
-                              <>
-                                <Shield className="w-3.5 h-3.5" />
-                                Promote to Admin
-                              </>
-                            )}
-                          </button>
-                        )}
-                        {isSuperAdmin && (
-                          <button
-                            onClick={() => handleDeleteUser(user)}
-                            className="flex items-center justify-center gap-1.5 px-4 py-2 text-xs font-medium text-red-400 bg-red-500/10 rounded-lg hover:bg-red-500/20 transition-colors cursor-pointer"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                            Delete
-                          </button>
-                        )}
+                            <CalendarPlus className="w-3.5 h-3.5" />
+                            Book for User
+                          </Link>
+                        </div>
+                        <div className="flex gap-2">
+                          {isSuperAdmin && (
+                            <>
+                              <button
+                                onClick={() => handleToggleRole(user)}
+                                className={`flex-1 flex items-center justify-center gap-1.5 py-2 text-xs font-medium rounded-lg transition-colors cursor-pointer ${
+                                  user.role === 'ADMIN'
+                                    ? 'text-orange-400 bg-orange-500/10 hover:bg-orange-500/20'
+                                    : 'text-blue-400 bg-blue-500/10 hover:bg-blue-500/20'
+                                }`}
+                              >
+                                {user.role === 'ADMIN' ? (
+                                  <>
+                                    <ShieldOff className="w-3.5 h-3.5" />
+                                    Demote to User
+                                  </>
+                                ) : (
+                                  <>
+                                    <Shield className="w-3.5 h-3.5" />
+                                    Promote to Admin
+                                  </>
+                                )}
+                              </button>
+                              <button
+                                onClick={() => handleToggleBlacklist(user)}
+                                className={`flex-1 flex items-center justify-center gap-1.5 py-2 text-xs font-medium rounded-lg transition-colors cursor-pointer ${
+                                  user.isBlacklisted
+                                    ? 'text-green-400 bg-green-500/10 hover:bg-green-500/20'
+                                    : 'text-red-400 bg-red-500/10 hover:bg-red-500/20'
+                                }`}
+                              >
+                                {user.isBlacklisted ? (
+                                  <>
+                                    <Check className="w-3.5 h-3.5" />
+                                    Unblock
+                                  </>
+                                ) : (
+                                  <>
+                                    <XCircle className="w-3.5 h-3.5" />
+                                    Block
+                                  </>
+                                )}
+                              </button>
+                              <button
+                                onClick={() => handleDeleteUser(user)}
+                                className="flex items-center justify-center gap-1.5 px-4 py-2 text-xs font-medium text-red-400 bg-red-500/10 rounded-lg hover:bg-red-500/20 transition-colors cursor-pointer"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                                Delete
+                              </button>
+                            </>
+                          )}
+                        </div>
                       </div>
                     )}
                     {user.email === 'waheeddar8@gmail.com' && (

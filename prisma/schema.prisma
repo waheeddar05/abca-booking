@@ -16,8 +16,11 @@ model User {
   authProvider AuthProvider
   createdAt    DateTime     @default(now())
   role         UserRole     @default(USER)
+  isBlacklisted Boolean      @default(false)
   bookings     Booking[]
   otps         Otp[]
+  userPackages UserPackage[]
+  notifications Notification[]
 }
 
 model Policy {
@@ -65,10 +68,27 @@ model Booking {
   discountType   DiscountType?
   extraCharge    Float?
   operationMode  OperationMode @default(WITH_OPERATOR)
+  createdBy      String?       // User ID or Name
+  cancelledBy    String?       // User ID or Name
+  cancellationReason String?
   createdAt      DateTime      @default(now())
   user           User?         @relation(fields: [userId], references: [id])
+  packageBooking PackageBooking?
 
   @@unique([date, startTime, ballType, pitchType])
+}
+
+model BlockedSlot {
+  id              String      @id @default(cuid())
+  startDate       DateTime    @db.Date
+  endDate         DateTime    @db.Date
+  startTime       DateTime?   // Optional: if null, blocks full day
+  endTime         DateTime?   // Optional
+  machineType     BallType?   // Optional: if null, blocks all machines
+  pitchType       PitchType?  // Optional: if null, blocks all pitches
+  reason          String?
+  blockedBy       String      // Admin user id
+  createdAt       DateTime    @default(now())
 }
 
 enum UserRole {
@@ -106,4 +126,106 @@ enum DiscountType {
 enum OperationMode {
   WITH_OPERATOR
   SELF_OPERATE
+}
+
+// ─── Package System ───
+
+enum MachineType {
+  LEATHER
+  TENNIS
+}
+
+enum PackageBallType {
+  MACHINE
+  LEATHER
+  BOTH
+}
+
+enum PackageWicketType {
+  CEMENT
+  ASTRO
+  BOTH
+}
+
+enum TimingType {
+  DAY
+  EVENING
+  BOTH
+}
+
+enum UserPackageStatus {
+  ACTIVE
+  EXPIRED
+  CANCELLED
+}
+
+model Package {
+  id              String            @id @default(cuid())
+  name            String
+  machineType     MachineType
+  ballType        PackageBallType?
+  wicketType      PackageWicketType?
+  timingType      TimingType
+  totalSessions   Int
+  validityDays    Int               @default(30)
+  price           Float
+  extraChargeRules Json?            // { ballTypeUpgrade: 100, wicketTypeUpgrade: 50, timingUpgrade: 125 }
+  isActive        Boolean           @default(true)
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+  userPackages    UserPackage[]
+}
+
+model UserPackage {
+  id              String            @id @default(cuid())
+  userId          String
+  packageId       String
+  totalSessions   Int
+  usedSessions    Int               @default(0)
+  activationDate  DateTime          @default(now())
+  expiryDate      DateTime
+  status          UserPackageStatus @default(ACTIVE)
+  amountPaid      Float
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+
+  user            User              @relation(fields: [userId], references: [id])
+  package         Package           @relation(fields: [packageId], references: [id])
+  packageBookings PackageBooking[]
+  auditLogs       PackageAuditLog[]
+}
+
+model PackageBooking {
+  id              String       @id @default(cuid())
+  userPackageId   String
+  bookingId       String       @unique
+  sessionsUsed    Int          @default(1)
+  extraCharge     Float        @default(0)
+  extraChargeType String?      // 'BALL_TYPE' | 'WICKET_TYPE' | 'TIMING'
+  createdAt       DateTime     @default(now())
+
+  userPackage     UserPackage  @relation(fields: [userPackageId], references: [id])
+  booking         Booking      @relation(fields: [bookingId], references: [id])
+}
+
+model PackageAuditLog {
+  id              String       @id @default(cuid())
+  userPackageId   String
+  action          String       // e.g. 'EXTEND_EXPIRY', 'ADD_SESSIONS', 'REDUCE_SESSIONS', 'CANCEL', etc.
+  details         Json?
+  performedBy     String       // admin user id
+  createdAt       DateTime     @default(now())
+
+  userPackage     UserPackage  @relation(fields: [userPackageId], references: [id])
+}
+
+model Notification {
+  id        String   @id @default(cuid())
+  userId    String
+  title     String
+  message   String
+  type      String   @default("INFO")
+  isRead    Boolean  @default(false)
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id])
 }

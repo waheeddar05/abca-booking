@@ -200,10 +200,14 @@ export function calculateNewPricing(
   const sorted = [...slots].sort((a, b) => a.startTime.getTime() - b.startTime.getTime());
 
   // Check if consecutive
-  const isConsecutive = sorted.length >= 2 && sorted.every((slot, i) => {
-    if (i === 0) return true;
-    return sorted[i - 1].endTime.getTime() === slot.startTime.getTime();
-  });
+  let isConsecutive = false;
+  if (sorted.length >= 2) {
+    isConsecutive = sorted.every((slot, i) => {
+      if (i === 0) return true;
+      // Check if previous slot's end time matches current slot's start time
+      return Math.abs(sorted[i - 1].endTime.getTime() - slot.startTime.getTime()) < 1000;
+    });
+  }
 
   return sorted.map(slot => {
     const slab = getTimeSlab(slot.startTime, timeSlabs);

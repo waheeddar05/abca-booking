@@ -55,6 +55,9 @@ export async function GET(req: NextRequest) {
       pitchType: b.pitchType ?? null,
       extraCharge: b.extraCharge ?? null,
       operationMode: b.operationMode ?? 'WITH_OPERATOR',
+      createdBy: b.createdBy ?? null,
+      cancelledBy: b.cancelledBy ?? null,
+      cancellationReason: b.cancellationReason ?? null,
     }));
 
     return NextResponse.json(mappedBookings);

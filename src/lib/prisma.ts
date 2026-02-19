@@ -129,6 +129,7 @@ async function checkDatabaseConnection() {
 }
 
 // Execute check but don't block main thread in dev (Next.js hot reloading might trigger this often)
-if (process.env.NODE_ENV === 'production' || (typeof window === 'undefined' && !globalForPrisma.prisma)) {
+const IS_VERCEL_BUILD = process.env.VERCEL === '1' && process.env.NEXT_PHASE === 'phase-production-build';
+if ((process.env.NODE_ENV === 'production' || (typeof window === 'undefined' && !globalForPrisma.prisma)) && !IS_VERCEL_BUILD) {
   checkDatabaseConnection();
 }

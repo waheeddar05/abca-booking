@@ -17,7 +17,8 @@ export async function middleware(req: NextRequest) {
     pathname.startsWith("/api/auth") ||
     pathname.startsWith("/api/maintenance") ||
     pathname.startsWith("/_next") ||
-    pathname === "/favicon.ico";
+    pathname === "/favicon.ico" ||
+    pathname.startsWith("/images/");
 
   console.log(`Middleware: ${pathname}, isPublic: ${isPublicPath}, cookies: ${req.cookies.get("token")?.value ? 'exists' : 'none'}`);
 
@@ -119,7 +120,8 @@ export const config = {
      * - _next/static (static files)
      * - _next/image (image optimization files)
      * - favicon.ico (favicon file)
+     * - images (public images)
      */
-    "/((?!api/auth|api/maintenance|login|otp|maintenance|_next/static|_next/image|favicon.ico).*)",
+    "/((?!api/auth|api/maintenance|login|otp|maintenance|_next/static|_next/image|favicon.ico|images).*)",
   ],
 };

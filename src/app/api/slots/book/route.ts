@@ -6,6 +6,7 @@ import { getAuthenticatedUser } from '@/lib/auth';
 import { getRelevantBallTypes, isValidBallType, MACHINE_A_BALLS } from '@/lib/constants';
 import { dateStringToUTC } from '@/lib/time';
 import { getPricingConfig, getTimeSlabConfig, calculateNewPricing } from '@/lib/pricing';
+import { validatePackageBooking } from '@/lib/packages';
 
 async function getMachineConfig() {
   const policies = await prisma.policy.findMany({
@@ -131,11 +132,31 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const userId = user.id;
-    const userName = user.name;
-
     const body = await req.json();
     const slotsToBook = Array.isArray(body) ? body : [body];
+
+    if (slotsToBook.length === 0) {
+      return NextResponse.json({ error: 'No slots provided' }, { status: 400 });
+    }
+
+    const isAdmin = user.role === 'ADMIN';
+    const createdBy = user.name || user.id;
+    const userId = (isAdmin && slotsToBook[0]?.userId) || user.id;
+
+    // Fetch the target user info
+    const targetUser = await prisma.user.findUnique({ where: { id: userId } });
+    if (!targetUser) {
+      return NextResponse.json({ error: 'User not found' }, { status: 404 });
+    }
+
+    if (targetUser.isBlacklisted) {
+      return NextResponse.json({ error: 'Your account is blocked. Please contact admin.' }, { status: 403 });
+    }
+
+    let userName = targetUser.name;
+
+    // Check if this is a package-based booking
+    const userPackageId = slotsToBook[0]?.userPackageId as string | undefined;
 
     if (slotsToBook.length === 0) {
       return NextResponse.json({ error: 'No slots provided' }, { status: 400 });
@@ -212,7 +233,7 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: 'End time must be after start time' }, { status: 400 });
       }
 
-      if (!isAfter(start, new Date())) {
+      if (!isAdmin && !isAfter(start, new Date())) {
         return NextResponse.json({ error: 'Cannot book in the past' }, { status: 400 });
       }
 
@@ -241,6 +262,25 @@ export async function POST(req: NextRequest) {
       timeSlabConfig,
       pricingConfig
     );
+
+    // If package booking, validate the package first
+    let packageValidation: { valid: boolean; extraCharge?: number; extraChargeType?: string } | null = null;
+    if (userPackageId) {
+      const firstSlot = validatedSlots[0];
+      packageValidation = await validatePackageBooking(
+        userPackageId,
+        userId!,
+        firstSlot.ballType,
+        firstSlot.pitchType,
+        firstSlot.startTime,
+        validatedSlots.length,
+        timeSlabConfig
+      );
+
+      if (!packageValidation.valid) {
+        return NextResponse.json({ error: (packageValidation as any).error || 'Package validation failed' }, { status: 400 });
+      }
+    }
 
     // Book all slots in transaction
     const results: Array<{ id: string; status: string }> = [];
@@ -346,6 +386,7 @@ export async function POST(req: NextRequest) {
 
             const fullBookingData: Prisma.BookingUncheckedCreateInput = {
               ...baseBookingData,
+              createdBy,
               ...(bookingColumns.price ? { price: priceInfo.price } : {}),
               ...(bookingColumns.originalPrice ? { originalPrice: priceInfo.originalPrice } : {}),
               ...(bookingColumns.discountAmount ? { discountAmount: priceInfo.discountAmount || null } : {}),
@@ -355,6 +396,7 @@ export async function POST(req: NextRequest) {
 
             const fullUpdateData: Prisma.BookingUncheckedUpdateInput = {
               ...baseUpdateData,
+              createdBy,
               ...(bookingColumns.price ? { price: priceInfo.price } : {}),
               ...(bookingColumns.originalPrice ? { originalPrice: priceInfo.originalPrice } : {}),
               ...(bookingColumns.discountAmount ? { discountAmount: priceInfo.discountAmount || null } : {}),
@@ -414,6 +456,29 @@ export async function POST(req: NextRequest) {
       }
 
       results.push(result);
+    }
+
+    // If package booking, deduct sessions and create PackageBooking records
+    if (userPackageId && packageValidation) {
+      const extraChargePerSlot = (packageValidation.extraCharge || 0) / validatedSlots.length;
+      for (const result of results) {
+        await prisma.packageBooking.create({
+          data: {
+            userPackageId,
+            bookingId: result.id,
+            sessionsUsed: 1,
+            extraCharge: extraChargePerSlot,
+            extraChargeType: packageValidation.extraChargeType || null,
+          },
+        });
+      }
+
+      await prisma.userPackage.update({
+        where: { id: userPackageId },
+        data: {
+          usedSessions: { increment: validatedSlots.length },
+        },
+      });
     }
 
     return NextResponse.json(Array.isArray(body) ? results : results[0]);

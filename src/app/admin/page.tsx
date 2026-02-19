@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useSession } from 'next-auth/react';
-import { CalendarCheck, Activity, UserPlus, CalendarDays, Settings, Clock, IndianRupee, TrendingUp, Percent, Save, Loader2, Zap, Wrench } from 'lucide-react';
+import { CalendarCheck, Activity, UserPlus, CalendarDays, Settings, Clock, IndianRupee, TrendingUp, Percent, Save, Loader2, Zap, Wrench, CalendarPlus } from 'lucide-react';
 
 interface Stats {
   totalBookings: number;
@@ -47,6 +47,7 @@ interface TimeSlabConfig {
 interface MachineConfig {
   leatherMachine: {
     ballTypeSelectionEnabled: boolean;
+    pitchTypeSelectionEnabled: boolean;
     leatherBallExtraCharge: number;
     machineBallExtraCharge: number;
   };
@@ -102,7 +103,7 @@ export default function AdminDashboard() {
   const [discountMessage, setDiscountMessage] = useState({ text: '', type: '' });
 
   const [machineConfig, setMachineConfig] = useState<MachineConfig>({
-    leatherMachine: { ballTypeSelectionEnabled: false, leatherBallExtraCharge: 100, machineBallExtraCharge: 0 },
+    leatherMachine: { ballTypeSelectionEnabled: false, pitchTypeSelectionEnabled: false, leatherBallExtraCharge: 100, machineBallExtraCharge: 0 },
     tennisMachine: { pitchTypeSelectionEnabled: false, astroPitchPrice: 600, turfPitchPrice: 700 },
     numberOfOperators: 1,
     pricingConfig: DEFAULT_PRICING,
@@ -233,12 +234,12 @@ export default function AdminDashboard() {
   };
 
   const statCards = [
-    { label: 'Total Bookings', value: stats?.totalBookings ?? 0, icon: CalendarCheck, color: 'text-primary', bg: 'bg-accent/10' },
-    { label: 'Today', value: stats?.todayBookings ?? 0, icon: CalendarDays, color: 'text-orange-600', bg: 'bg-orange-500/10' },
-    { label: 'Upcoming', value: stats?.upcomingBookings ?? 0, icon: TrendingUp, color: 'text-blue-600', bg: 'bg-blue-500/10' },
-    { label: 'Total Slots', value: stats?.totalSlots ?? 0, icon: Clock, color: 'text-purple-600', bg: 'bg-purple-500/10' },
-    { label: 'Revenue', value: stats?.totalRevenue ? `₹${stats.totalRevenue.toLocaleString()}` : '₹0', icon: IndianRupee, color: 'text-green-600', bg: 'bg-green-500/10', isText: true },
-    { label: 'System Status', value: stats?.systemStatus ?? 'Healthy', icon: Activity, color: 'text-green-600', bg: 'bg-green-500/10', isText: true },
+    { label: 'Total Bookings', value: stats?.totalBookings ?? 0, icon: CalendarCheck, color: 'text-primary', bg: 'bg-accent/10', href: '/admin/bookings' },
+    { label: 'Today', value: stats?.todayBookings ?? 0, icon: CalendarDays, color: 'text-orange-600', bg: 'bg-orange-500/10', href: '/admin/bookings?category=today' },
+    { label: 'Upcoming', value: stats?.upcomingBookings ?? 0, icon: TrendingUp, color: 'text-blue-600', bg: 'bg-blue-500/10', href: '/admin/bookings?category=upcoming' },
+    { label: 'Total Slots', value: stats?.totalSlots ?? 0, icon: Clock, color: 'text-purple-600', bg: 'bg-purple-500/10', href: '/admin/slots' },
+    { label: 'Revenue', value: stats?.totalRevenue ? `₹${stats.totalRevenue.toLocaleString()}` : '₹0', icon: IndianRupee, color: 'text-green-600', bg: 'bg-green-500/10', isText: true, href: '/admin/bookings' },
+    { label: 'System Status', value: stats?.systemStatus ?? 'Healthy', icon: Activity, color: 'text-green-600', bg: 'bg-green-500/10', isText: true, href: '/admin/policies' },
   ];
 
   const inputClass = "w-full bg-white/[0.04] border border-white/[0.1] text-white placeholder:text-slate-500 rounded-lg px-3 py-2.5 text-sm outline-none focus:border-accent focus:ring-1 focus:ring-accent/20";
@@ -265,11 +266,35 @@ export default function AdminDashboard() {
       <h1 className="text-xl font-bold text-white mb-5">Dashboard</h1>
 
       {/* Stats Grid */}
+      {stats?.totalBookings === 0 && (
+        <div className="bg-accent/10 border border-accent/20 rounded-xl p-4 mb-6 flex flex-col sm:flex-row items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-full bg-accent flex items-center justify-center">
+              <CalendarPlus className="w-5 h-5 text-primary" />
+            </div>
+            <div>
+              <p className="text-sm font-semibold text-white">No bookings yet!</p>
+              <p className="text-xs text-slate-400">Start by booking your first slot to see statistics.</p>
+            </div>
+          </div>
+          <Link
+            href="/slots"
+            className="inline-flex items-center gap-2 px-4 py-2 bg-accent hover:bg-accent-light text-primary rounded-lg text-sm font-medium transition-colors"
+          >
+            Book Your First Slot
+          </Link>
+        </div>
+      )}
+
       <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mb-6">
         {statCards.map((card) => (
-          <div key={card.label} className="bg-white/[0.04] backdrop-blur-sm rounded-xl border border-white/[0.08] p-4">
+          <Link
+            key={card.label}
+            href={card.href}
+            className="bg-white/[0.04] backdrop-blur-sm rounded-xl border border-white/[0.08] p-4 hover:bg-white/[0.08] transition-colors group"
+          >
             <div className="flex items-center gap-3">
-              <div className={`w-10 h-10 rounded-xl ${card.bg} flex items-center justify-center`}>
+              <div className={`w-10 h-10 rounded-xl ${card.bg} flex items-center justify-center group-hover:scale-110 transition-transform`}>
                 <card.icon className={`w-5 h-5 ${card.color}`} />
               </div>
               <div>
@@ -279,7 +304,7 @@ export default function AdminDashboard() {
                 </p>
               </div>
             </div>
-          </div>
+          </Link>
         ))}
       </div>
 
@@ -347,6 +372,26 @@ export default function AdminDashboard() {
                 >
                   <span className={`absolute top-1 w-5 h-5 rounded-full bg-white shadow transition-transform ${
                     machineConfig.leatherMachine.ballTypeSelectionEnabled ? 'left-6' : 'left-1'
+                  }`} />
+                </button>
+              </div>
+
+              <div className="flex items-center justify-between mb-3">
+                <div>
+                  <p className="text-sm font-medium text-slate-300">Enable Pitch Type Selection</p>
+                  <p className="text-xs text-slate-400">Users choose between Astro Turf and Cement Wicket</p>
+                </div>
+                <button
+                  onClick={() => setMachineConfig(prev => ({
+                    ...prev,
+                    leatherMachine: { ...prev.leatherMachine, pitchTypeSelectionEnabled: !prev.leatherMachine.pitchTypeSelectionEnabled },
+                  }))}
+                  className={`relative w-12 h-7 rounded-full transition-colors cursor-pointer ${
+                    machineConfig.leatherMachine.pitchTypeSelectionEnabled ? 'bg-primary' : 'bg-white/[0.1]'
+                  }`}
+                >
+                  <span className={`absolute top-1 w-5 h-5 rounded-full bg-white shadow transition-transform ${
+                    machineConfig.leatherMachine.pitchTypeSelectionEnabled ? 'left-6' : 'left-1'
                   }`} />
                 </button>
               </div>

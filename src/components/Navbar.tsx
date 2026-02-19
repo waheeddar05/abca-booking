@@ -5,7 +5,7 @@ import Image from 'next/image';
 import { useSession, signOut } from 'next-auth/react';
 import { usePathname } from 'next/navigation';
 import { useState, useEffect } from 'react';
-import { Menu, X, Calendar, ClipboardList, Shield, LogOut, LogIn } from 'lucide-react';
+import { Menu, X, Calendar, ClipboardList, Shield, LogOut, LogIn, Package, Bell } from 'lucide-react';
 
 export default function Navbar() {
   const { data: session } = useSession();
@@ -27,6 +27,8 @@ export default function Navbar() {
   const navLinks = [
     { href: '/slots', label: 'Book Slots', icon: Calendar, show: !!session },
     { href: '/bookings', label: 'My Bookings', icon: ClipboardList, show: !!session },
+    { href: '/packages', label: 'Packages', icon: Package, show: !!session },
+    { href: '/notifications', label: 'Notifications', icon: Bell, show: !!session },
     { href: '/admin', label: 'Admin', icon: Shield, show: (session?.user as any)?.role === 'ADMIN' },
   ].filter(link => link.show);
 
@@ -45,10 +47,11 @@ export default function Navbar() {
           {/* Logo */}
           <Link href={session ? '/slots' : '/'} className="flex items-center gap-2 group">
             <Image
-              src="/images/logo.jpeg"
+              src="/images/logo-v2.jpeg"
               alt="Ankeet Bawane Cricket Academy Logo"
               width={32}
               height={32}
+              priority
               className="w-8 h-8 rounded-lg flex-shrink-0"
             />
             <span className="text-sm md:text-base font-bold tracking-tight text-white hidden sm:inline">

@@ -6,6 +6,7 @@ import type { PricingConfig, TimeSlabConfig } from '@/lib/pricing';
 
 const MACHINE_CONFIG_KEYS = [
   'BALL_TYPE_SELECTION_ENABLED',
+  'LEATHER_PITCH_TYPE_SELECTION_ENABLED',
   'LEATHER_BALL_EXTRA_CHARGE',
   'MACHINE_BALL_EXTRA_CHARGE',
   'PITCH_TYPE_SELECTION_ENABLED',
@@ -49,6 +50,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({
       leatherMachine: {
         ballTypeSelectionEnabled: config['BALL_TYPE_SELECTION_ENABLED'] === 'true',
+        pitchTypeSelectionEnabled: config['LEATHER_PITCH_TYPE_SELECTION_ENABLED'] === 'true',
         leatherBallExtraCharge: parseFloat(config['LEATHER_BALL_EXTRA_CHARGE'] || '100'),
         machineBallExtraCharge: parseFloat(config['MACHINE_BALL_EXTRA_CHARGE'] || '0'),
       },
@@ -82,6 +84,9 @@ export async function POST(req: NextRequest) {
     if (leatherMachine) {
       if (leatherMachine.ballTypeSelectionEnabled !== undefined) {
         updates.push({ key: 'BALL_TYPE_SELECTION_ENABLED', value: String(leatherMachine.ballTypeSelectionEnabled) });
+      }
+      if (leatherMachine.pitchTypeSelectionEnabled !== undefined) {
+        updates.push({ key: 'LEATHER_PITCH_TYPE_SELECTION_ENABLED', value: String(leatherMachine.pitchTypeSelectionEnabled) });
       }
       if (leatherMachine.leatherBallExtraCharge !== undefined) {
         updates.push({ key: 'LEATHER_BALL_EXTRA_CHARGE', value: String(leatherMachine.leatherBallExtraCharge) });

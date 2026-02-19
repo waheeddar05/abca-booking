@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, Suspense } from 'react';
 import { useSession } from 'next-auth/react';
 import { useSearchParams } from 'next/navigation';
 import { format, addDays, parseISO, isBefore, startOfDay } from 'date-fns';
@@ -12,6 +12,7 @@ interface MachineConfig {
     ballTypeSelectionEnabled: boolean;
     leatherBallExtraCharge: number;
     machineBallExtraCharge: number;
+    pitchTypeSelectionEnabled: boolean;
   };
   tennisMachine: {
     pitchTypeSelectionEnabled: boolean;
@@ -25,6 +26,14 @@ interface MachineConfig {
 }
 
 export default function SlotsPage() {
+  return (
+    <Suspense fallback={<div className="flex items-center justify-center min-h-screen"><Loader2 className="w-8 h-8 animate-spin text-blue-600" /></div>}>
+      <SlotsContent />
+    </Suspense>
+  );
+}
+
+function SlotsContent() {
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [category, setCategory] = useState<'TENNIS' | 'MACHINE'>('MACHINE');
   const [ballType, setBallType] = useState('LEATHER');

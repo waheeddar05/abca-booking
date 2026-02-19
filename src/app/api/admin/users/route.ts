@@ -48,6 +48,7 @@ export async function GET(req: NextRequest) {
         image: true,
         authProvider: true,
         role: true,
+        isBlacklisted: true,
         createdAt: true,
         _count: {
           select: { bookings: true },

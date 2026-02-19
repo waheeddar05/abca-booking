@@ -42,8 +42,26 @@ export async function POST(req: NextRequest) {
 
     await prisma.booking.update({
       where: { id: bookingId },
-      data: { status: 'CANCELLED' },
+      data: { 
+        status: 'CANCELLED',
+        cancelledBy: user.name || user.id,
+        cancellationReason: user.role === 'ADMIN' ? `Cancelled by Admin (${user.name || user.id})` : `Cancelled by User (${user.name || user.id})`,
+      },
     });
+
+    // Restore package session if this was a package booking
+    const packageBooking = await prisma.packageBooking.findUnique({
+      where: { bookingId },
+    });
+
+    if (packageBooking) {
+      await prisma.userPackage.update({
+        where: { id: packageBooking.userPackageId },
+        data: {
+          usedSessions: { decrement: packageBooking.sessionsUsed },
+        },
+      });
+    }
 
     return NextResponse.json({ message: 'Booking cancelled' });
   } catch (error) {

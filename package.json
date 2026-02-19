@@ -7,7 +7,7 @@
     "build": "TZ=Asia/Kolkata next build",
     "start": "TZ=Asia/Kolkata next start",
     "lint": "eslint",
-    "postinstall": "TZ=Asia/Kolkata prisma generate && TZ=Asia/Kolkata prisma migrate deploy",
+    "postinstall": "prisma generate",
     "db:check": "TZ=Asia/Kolkata npx tsx scripts/check-migrations.ts",
     "db:migrate": "TZ=Asia/Kolkata prisma migrate deploy"
   },

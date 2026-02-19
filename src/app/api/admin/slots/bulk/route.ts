@@ -21,6 +21,13 @@ export async function POST(req: NextRequest) {
     const from = parseISO(fromDate);
     const to = parseISO(toDateStr);
 
+    const now = new Date();
+    const today = startOfDay(now);
+
+    if (from < today) {
+      return NextResponse.json({ error: 'Bulk slot creation should not allow past dates.' }, { status: 400 });
+    }
+
     if (from > to) {
       return NextResponse.json({ error: 'fromDate must be before or equal to toDate' }, { status: 400 });
     }

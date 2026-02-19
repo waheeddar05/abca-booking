@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { requireAdmin } from '@/lib/adminAuth';
+import { getAuthenticatedUser } from '@/lib/auth';
 import { getISTTodayUTC, getISTLastMonthRange, dateStringToUTC } from '@/lib/time';
 
 const SAFE_BOOKING_SELECT = {
@@ -13,6 +14,7 @@ const SAFE_BOOKING_SELECT = {
   ballType: true,
   playerName: true,
   createdAt: true,
+  createdBy: true,
   user: { select: { name: true, email: true, mobileNumber: true } },
 } as const;
 
@@ -96,7 +98,9 @@ export async function GET(req: NextRequest) {
       [bookings, total] = await Promise.all([
         prisma.booking.findMany({
           where,
-          include: { user: { select: { name: true, email: true, mobileNumber: true } } },
+          include: { 
+            user: { select: { name: true, email: true, mobileNumber: true } }
+          },
           orderBy,
           skip,
           take: limit,
@@ -210,6 +214,9 @@ export async function POST(req: NextRequest) {
     }
 
     if (action === 'copy_next_slot') {
+      const authUser = await getAuthenticatedUser(req);
+      const createdBy = authUser?.name || authUser?.id || 'Admin';
+
       // Find the source booking
       const sourceBooking = await prisma.booking.findUnique({
         where: { id: bookingId },
@@ -240,6 +247,7 @@ export async function POST(req: NextRequest) {
 
       // Apply consecutive pricing if available
       let newPrice = sourceBooking.price;
+      let updatedSourcePrice = sourceBooking.price;
       try {
         const { getPricingConfig, getTimeSlabConfig, calculateNewPricing } = await import('@/lib/pricing');
         const [pricingConfig, timeSlabConfig] = await Promise.all([
@@ -265,26 +273,35 @@ export async function POST(req: NextRequest) {
 
         if (pricing[1]) {
           newPrice = pricing[1].price;
+          updatedSourcePrice = pricing[0].price;
         }
       } catch {
         // fallback: keep same price
       }
 
-      const newBooking = await prisma.booking.create({
-        data: {
-          userId: sourceBooking.userId,
-          date: sourceBooking.date,
-          startTime: nextStartTime,
-          endTime: nextEndTime,
-          status: 'BOOKED',
-          ballType: sourceBooking.ballType,
-          pitchType: sourceBooking.pitchType,
-          playerName: sourceBooking.playerName,
-          operationMode: sourceBooking.operationMode,
-          price: newPrice,
-          originalPrice: sourceBooking.originalPrice,
-        },
-      });
+      // Start transaction to create new booking and update source booking price
+      const [newBooking] = await prisma.$transaction([
+        prisma.booking.create({
+          data: {
+            userId: sourceBooking.userId,
+            date: sourceBooking.date,
+            startTime: nextStartTime,
+            endTime: nextEndTime,
+            status: 'BOOKED',
+            ballType: sourceBooking.ballType,
+            pitchType: sourceBooking.pitchType,
+            playerName: sourceBooking.playerName,
+            operationMode: sourceBooking.operationMode,
+            createdBy: createdBy,
+            price: newPrice,
+            originalPrice: sourceBooking.originalPrice,
+          },
+        }),
+        prisma.booking.update({
+          where: { id: sourceBooking.id },
+          data: { price: updatedSourcePrice }
+        })
+      ]);
 
       return NextResponse.json(newBooking);
     }
