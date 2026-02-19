@@ -1,9 +1,40 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { getAuthenticatedUser } from '@/lib/auth';
-import { dateStringToUTC, getISTTime } from '@/lib/time';
-import { isBefore, isAfter, areIntervalsOverlapping } from 'date-fns';
+import { dateStringToUTC } from '@/lib/time';
 
+// GET /api/admin/slots/block - List blocked slots
+export async function GET(req: NextRequest) {
+  try {
+    const admin = await getAuthenticatedUser(req);
+    if (!admin || admin.role !== 'ADMIN') {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    const { searchParams } = new URL(req.url);
+    const includeExpired = searchParams.get('includeExpired') === 'true';
+
+    const where: any = {};
+    if (!includeExpired) {
+      // Only show blocks whose endDate is today or in the future
+      const today = new Date();
+      today.setUTCHours(0, 0, 0, 0);
+      where.endDate = { gte: today };
+    }
+
+    const blockedSlots = await prisma.blockedSlot.findMany({
+      where,
+      orderBy: { startDate: 'desc' },
+    });
+
+    return NextResponse.json(blockedSlots);
+  } catch (error) {
+    console.error('Get blocked slots error:', error);
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+  }
+}
+
+// POST /api/admin/slots/block - Block slots
 export async function POST(req: NextRequest) {
   try {
     const admin = await getAuthenticatedUser(req);
@@ -86,10 +117,10 @@ export async function POST(req: NextRequest) {
 
       // Robust time range overlap check using minutes from midnight
       const getMinutes = (d: Date) => d.getUTCHours() * 60 + d.getUTCMinutes();
-      
+
       const blockStartMin = getMinutes(startT);
       const blockEndMin = getMinutes(endT);
-      
+
       const bookingStartMin = getMinutes(new Date(booking.startTime));
       const bookingEndMin = getMinutes(new Date(booking.endTime));
 
@@ -100,10 +131,9 @@ export async function POST(req: NextRequest) {
     if (bookingsToCancel.length > 0) {
       const displayReason = `Cancelled by Admin - ${reason || 'Maintenance'}`;
       const cancelledByName = `Admin (${admin.name || admin.id})`;
-      const createdBy = admin.name || admin.id;
-      
+
       await prisma.$transaction([
-        ...bookingsToCancel.map(booking => 
+        ...bookingsToCancel.map(booking =>
           prisma.booking.update({
             where: { id: booking.id },
             data: {
@@ -147,6 +177,35 @@ export async function POST(req: NextRequest) {
 
   } catch (error) {
     console.error('Block slots error:', error);
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+  }
+}
+
+// DELETE /api/admin/slots/block?id=xxx - Remove a blocked slot
+export async function DELETE(req: NextRequest) {
+  try {
+    const admin = await getAuthenticatedUser(req);
+    if (!admin || admin.role !== 'ADMIN') {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    const { searchParams } = new URL(req.url);
+    const id = searchParams.get('id');
+
+    if (!id) {
+      return NextResponse.json({ error: 'Blocked slot id is required' }, { status: 400 });
+    }
+
+    const blockedSlot = await prisma.blockedSlot.findUnique({ where: { id } });
+    if (!blockedSlot) {
+      return NextResponse.json({ error: 'Blocked slot not found' }, { status: 404 });
+    }
+
+    await prisma.blockedSlot.delete({ where: { id } });
+
+    return NextResponse.json({ message: 'Block removed successfully' });
+  } catch (error) {
+    console.error('Delete blocked slot error:', error);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }

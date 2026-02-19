@@ -63,14 +63,41 @@ function SlotsContent() {
       .then(r => r.json())
       .then(setMachineConfig)
       .catch(() => {});
-    
+
     if (session) {
-      fetch('/api/packages/my')
+      // When admin is booking for another user, fetch that user's packages
+      const packagesUrl = isBookingForOther
+        ? `/api/admin/packages/user-packages?userId=${userId}&status=ACTIVE`
+        : '/api/packages/my';
+
+      fetch(packagesUrl)
         .then(r => r.json())
-        .then(data => setUserPackages(Array.isArray(data) ? data : []))
+        .then(data => {
+          const packages = Array.isArray(data) ? data : [];
+          // Normalize admin API response to match /api/packages/my format
+          if (isBookingForOther) {
+            setUserPackages(packages.map((up: any) => ({
+              id: up.id,
+              packageName: up.package?.name || up.packageName,
+              machineType: up.package?.machineType || up.machineType,
+              ballType: up.package?.ballType || up.ballType,
+              wicketType: up.package?.wicketType || up.wicketType,
+              timingType: up.package?.timingType || up.timingType,
+              totalSessions: up.totalSessions,
+              usedSessions: up.usedSessions,
+              remainingSessions: up.totalSessions - up.usedSessions,
+              activationDate: up.activationDate,
+              expiryDate: up.expiryDate,
+              status: up.status,
+              amountPaid: up.amountPaid,
+            })));
+          } else {
+            setUserPackages(packages);
+          }
+        })
         .catch(() => {});
     }
-  }, [session]);
+  }, [session, isBookingForOther, userId]);
 
   useEffect(() => {
     fetchSlots();
@@ -121,6 +148,7 @@ function SlotsContent() {
           pitchType: category === 'TENNIS' ? pitchType : null,
           startTime: firstSlot.startTime,
           numberOfSlots: selectedSlots.length,
+          ...(isBookingForOther ? { userId } : {}),
         }),
       });
       const data = await res.json();
@@ -299,11 +327,35 @@ function SlotsContent() {
       setSelectedSlots([]);
       setSelectedPackageId('');
       fetchSlots();
-      
+
       // Refresh packages
-      fetch('/api/packages/my')
+      const packagesUrl = isBookingForOther
+        ? `/api/admin/packages/user-packages?userId=${userId}&status=ACTIVE`
+        : '/api/packages/my';
+      fetch(packagesUrl)
         .then(r => r.json())
-        .then(data => setUserPackages(Array.isArray(data) ? data : []))
+        .then(data => {
+          const packages = Array.isArray(data) ? data : [];
+          if (isBookingForOther) {
+            setUserPackages(packages.map((up: any) => ({
+              id: up.id,
+              packageName: up.package?.name || up.packageName,
+              machineType: up.package?.machineType || up.machineType,
+              ballType: up.package?.ballType || up.ballType,
+              wicketType: up.package?.wicketType || up.wicketType,
+              timingType: up.package?.timingType || up.timingType,
+              totalSessions: up.totalSessions,
+              usedSessions: up.usedSessions,
+              remainingSessions: up.totalSessions - up.usedSessions,
+              activationDate: up.activationDate,
+              expiryDate: up.expiryDate,
+              status: up.status,
+              amountPaid: up.amountPaid,
+            })));
+          } else {
+            setUserPackages(packages);
+          }
+        })
         .catch(() => {});
     } catch (err: any) {
       alert(err.message);

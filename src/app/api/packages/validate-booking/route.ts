@@ -12,15 +12,18 @@ export async function POST(req: NextRequest) {
     }
 
     const body = await req.json();
-    const { userPackageId, ballType, pitchType, startTime, numberOfSlots = 1 } = body;
+    const { userPackageId, ballType, pitchType, startTime, numberOfSlots = 1, userId: targetUserId } = body;
 
     if (!userPackageId || !ballType || !startTime) {
       return NextResponse.json({ error: 'userPackageId, ballType, and startTime are required' }, { status: 400 });
     }
 
+    // Allow admins to validate packages for other users
+    const validationUserId = (user.role === 'ADMIN' && targetUserId) ? targetUserId : user.id;
+
     const result = await validatePackageBooking(
       userPackageId,
-      user.id,
+      validationUserId,
       ballType as BallType,
       (pitchType as PitchType) || null,
       new Date(startTime),

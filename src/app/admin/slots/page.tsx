@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { format, addDays, startOfWeek, endOfWeek, startOfMonth, endOfMonth, isSameDay, parseISO, isBefore, startOfDay } from 'date-fns';
-import { Calendar, List, Plus, Loader2, ChevronLeft, ChevronRight, Pencil, Trash2, ToggleLeft, ToggleRight, Clock, IndianRupee, Save, X } from 'lucide-react';
+import { Calendar, List, Loader2, ChevronLeft, ChevronRight, Pencil, Trash2, ToggleLeft, ToggleRight, Clock, IndianRupee, Save, X, ShieldBan, Ban, AlertTriangle } from 'lucide-react';
 
 interface Slot {
   id: string;
@@ -19,6 +19,19 @@ interface Slot {
   }>;
 }
 
+interface BlockedSlot {
+  id: string;
+  startDate: string;
+  endDate: string;
+  startTime: string | null;
+  endTime: string | null;
+  machineType: string | null;
+  pitchType: string | null;
+  reason: string | null;
+  blockedBy: string;
+  createdAt: string;
+}
+
 type ViewMode = 'calendar' | 'list';
 
 export default function SlotManagement() {
@@ -27,30 +40,25 @@ export default function SlotManagement() {
   const [viewMode, setViewMode] = useState<ViewMode>('calendar');
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
-  const [showBulkCreate, setShowBulkCreate] = useState(false);
-  const [showSingleCreate, setShowSingleCreate] = useState(false);
   const [editingSlot, setEditingSlot] = useState<string | null>(null);
   const [editPrice, setEditPrice] = useState('');
   const [message, setMessage] = useState({ text: '', type: '' });
 
-  // Bulk create form
-  const [bulkForm, setBulkForm] = useState({
-    fromDate: format(new Date(), 'yyyy-MM-dd'),
-    toDate: format(addDays(new Date(), 6), 'yyyy-MM-dd'),
-    price: '600',
-    duration: '',
+  // Block Slots
+  const [showBlockForm, setShowBlockForm] = useState(false);
+  const [blockedSlots, setBlockedSlots] = useState<BlockedSlot[]>([]);
+  const [blockedLoading, setBlockedLoading] = useState(false);
+  const [blockForm, setBlockForm] = useState({
+    startDate: format(new Date(), 'yyyy-MM-dd'),
+    endDate: format(new Date(), 'yyyy-MM-dd'),
+    startTime: '',
+    endTime: '',
+    blockType: 'all' as 'all' | 'machine' | 'pitch',
+    machineType: '' as '' | 'LEATHER' | 'TENNIS',
+    pitchType: '' as '' | 'ASTRO' | 'TURF',
+    reason: '',
   });
-
-  // Single create form
-  const [singleForm, setSingleForm] = useState({
-    date: format(new Date(), 'yyyy-MM-dd'),
-    startTime: '07:00',
-    endTime: '07:30',
-    price: '600',
-  });
-
-  const [bulkLoading, setBulkLoading] = useState(false);
-  const [singleLoading, setSingleLoading] = useState(false);
+  const [blockLoading, setBlockLoading] = useState(false);
 
   const fetchSlots = useCallback(async () => {
     setLoading(true);
@@ -69,73 +77,100 @@ export default function SlotManagement() {
     }
   }, [currentMonth]);
 
+  const fetchBlockedSlots = useCallback(async () => {
+    setBlockedLoading(true);
+    try {
+      const res = await fetch('/api/admin/slots/block');
+      if (res.ok) {
+        const data = await res.json();
+        setBlockedSlots(data);
+      }
+    } catch (error) {
+      console.error('Failed to fetch blocked slots', error);
+    } finally {
+      setBlockedLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     fetchSlots();
   }, [fetchSlots]);
 
-  const handleBulkCreate = async (e: React.FormEvent) => {
+  useEffect(() => {
+    fetchBlockedSlots();
+  }, [fetchBlockedSlots]);
+
+  const handleBlockSlots = async (e: React.FormEvent) => {
     e.preventDefault();
-    setBulkLoading(true);
+    setBlockLoading(true);
     setMessage({ text: '', type: '' });
+
     try {
       const body: any = {
-        fromDate: bulkForm.fromDate,
-        toDate: bulkForm.toDate,
-        price: parseFloat(bulkForm.price),
+        startDate: blockForm.startDate,
+        endDate: blockForm.endDate,
+        reason: blockForm.reason || null,
       };
-      if (bulkForm.duration) body.duration = parseInt(bulkForm.duration);
 
-      const res = await fetch('/api/admin/slots/bulk', {
+      if (blockForm.startTime && blockForm.endTime) {
+        body.startTime = blockForm.startTime;
+        body.endTime = blockForm.endTime;
+      }
+
+      if (blockForm.blockType === 'machine' && blockForm.machineType) {
+        body.machineType = blockForm.machineType;
+      } else if (blockForm.blockType === 'pitch' && blockForm.pitchType) {
+        body.pitchType = blockForm.pitchType;
+      }
+
+      const res = await fetch('/api/admin/slots/block', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
       });
       const data = await res.json();
       if (res.ok) {
-        setMessage({ text: `${data.created} slots created, ${data.skipped} skipped`, type: 'success' });
-        setShowBulkCreate(false);
+        const parts = ['Slots blocked successfully'];
+        if (data.cancelledBookingsCount > 0) {
+          parts.push(`${data.cancelledBookingsCount} conflicting booking(s) cancelled`);
+        }
+        setMessage({ text: parts.join('. '), type: 'success' });
+        setShowBlockForm(false);
+        setBlockForm({
+          startDate: format(new Date(), 'yyyy-MM-dd'),
+          endDate: format(new Date(), 'yyyy-MM-dd'),
+          startTime: '',
+          endTime: '',
+          blockType: 'all',
+          machineType: '',
+          pitchType: '',
+          reason: '',
+        });
+        fetchBlockedSlots();
         fetchSlots();
       } else {
-        setMessage({ text: data.error || 'Failed to create slots', type: 'error' });
+        setMessage({ text: data.error || 'Failed to block slots', type: 'error' });
       }
     } catch (error) {
-      setMessage({ text: 'Failed to create slots', type: 'error' });
+      setMessage({ text: 'Failed to block slots', type: 'error' });
     } finally {
-      setBulkLoading(false);
+      setBlockLoading(false);
     }
   };
 
-  const handleSingleCreate = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setSingleLoading(true);
-    setMessage({ text: '', type: '' });
+  const handleUnblock = async (id: string) => {
+    if (!confirm('Remove this block? This will not restore any previously cancelled bookings.')) return;
     try {
-      const dateStr = singleForm.date;
-      const startISO = new Date(`${dateStr}T${singleForm.startTime}:00+05:30`).toISOString();
-      const endISO = new Date(`${dateStr}T${singleForm.endTime}:00+05:30`).toISOString();
-
-      const res = await fetch('/api/admin/slots', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          date: dateStr,
-          startTime: startISO,
-          endTime: endISO,
-          price: parseFloat(singleForm.price),
-        }),
-      });
-      const data = await res.json();
+      const res = await fetch(`/api/admin/slots/block?id=${id}`, { method: 'DELETE' });
       if (res.ok) {
-        setMessage({ text: 'Slot created successfully', type: 'success' });
-        setShowSingleCreate(false);
-        fetchSlots();
+        setMessage({ text: 'Block removed successfully', type: 'success' });
+        fetchBlockedSlots();
       } else {
-        setMessage({ text: data.error || 'Failed to create slot', type: 'error' });
+        const data = await res.json();
+        setMessage({ text: data.error || 'Failed to remove block', type: 'error' });
       }
-    } catch (error) {
-      setMessage({ text: 'Failed to create slot', type: 'error' });
-    } finally {
-      setSingleLoading(false);
+    } catch {
+      setMessage({ text: 'Failed to remove block', type: 'error' });
     }
   };
 
@@ -199,6 +234,28 @@ export default function SlotManagement() {
     });
   };
 
+  const formatBlockTime = (iso: string | null) => {
+    if (!iso) return null;
+    const d = new Date(iso);
+    const h = d.getUTCHours().toString().padStart(2, '0');
+    const m = d.getUTCMinutes().toString().padStart(2, '0');
+    return `${h}:${m}`;
+  };
+
+  const getMachineLabel = (type: string | null) => {
+    if (!type) return 'All Machines';
+    if (type === 'LEATHER' || type === 'MACHINE') return 'Leather Ball Machine';
+    if (type === 'TENNIS') return 'Tennis Ball Machine';
+    return type;
+  };
+
+  const getPitchLabel = (type: string | null) => {
+    if (!type) return 'All Pitches';
+    if (type === 'ASTRO') return 'Astro Turf';
+    if (type === 'TURF') return 'Cement Wicket';
+    return type;
+  };
+
   // Calendar rendering
   const monthStart = startOfMonth(currentMonth);
   const weekStart = startOfWeek(monthStart, { weekStartsOn: 1 });
@@ -227,7 +284,7 @@ export default function SlotManagement() {
           </div>
           <div>
             <h1 className="text-xl font-bold text-white">Slot Management</h1>
-            <p className="text-xs text-slate-400">Create and manage booking slots</p>
+            <p className="text-xs text-slate-400">Manage booking slots & block sessions</p>
           </div>
         </div>
         <div className="flex gap-2">
@@ -244,18 +301,11 @@ export default function SlotManagement() {
       {/* Action Buttons */}
       <div className="flex flex-wrap gap-2 mb-5">
         <button
-          onClick={() => { setShowBulkCreate(!showBulkCreate); setShowSingleCreate(false); }}
-          className="inline-flex items-center gap-2 px-4 py-2.5 bg-accent text-primary rounded-lg text-sm font-medium hover:bg-accent-light transition-colors cursor-pointer"
+          onClick={() => setShowBlockForm(!showBlockForm)}
+          className="inline-flex items-center gap-2 px-4 py-2.5 bg-red-500/15 text-red-400 border border-red-500/20 rounded-lg text-sm font-medium hover:bg-red-500/25 transition-colors cursor-pointer"
         >
-          <Plus className="w-4 h-4" />
-          Bulk Create Slots
-        </button>
-        <button
-          onClick={() => { setShowSingleCreate(!showSingleCreate); setShowBulkCreate(false); }}
-          className="inline-flex items-center gap-2 px-4 py-2.5 bg-white/[0.06] text-slate-300 rounded-lg text-sm font-medium hover:bg-white/[0.1] transition-colors cursor-pointer"
-        >
-          <Plus className="w-4 h-4" />
-          Create Single Slot
+          <ShieldBan className="w-4 h-4" />
+          Block Slots
         </button>
       </div>
 
@@ -266,71 +316,197 @@ export default function SlotManagement() {
         </div>
       )}
 
-      {/* Bulk Create Form */}
-      {showBulkCreate && (
-        <div className="bg-white/[0.04] backdrop-blur-sm rounded-xl border border-white/[0.08] p-5 mb-5">
-          <h2 className="text-sm font-semibold text-white mb-3">Bulk Create Slots</h2>
-          <form onSubmit={handleBulkCreate} className="space-y-3">
+      {/* Block Slots Form */}
+      {showBlockForm && (
+        <div className="bg-white/[0.04] backdrop-blur-sm rounded-xl border border-red-500/20 p-5 mb-5">
+          <div className="flex items-center gap-2 mb-4">
+            <ShieldBan className="w-4 h-4 text-red-400" />
+            <h2 className="text-sm font-semibold text-white">Block Slots</h2>
+          </div>
+          <div className="mb-3 px-3 py-2.5 bg-amber-500/10 border border-amber-500/20 rounded-lg flex items-start gap-2">
+            <AlertTriangle className="w-4 h-4 text-amber-400 mt-0.5 flex-shrink-0" />
+            <p className="text-[11px] text-amber-400">
+              Blocking slots will automatically cancel any existing bookings in the selected range. Affected users will be notified.
+            </p>
+          </div>
+          <form onSubmit={handleBlockSlots} className="space-y-4">
+            {/* Date Range */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
                 <label className="block text-[11px] font-medium text-slate-400 mb-1">From Date</label>
                 <input
                   type="date"
-                  value={bulkForm.fromDate}
-                  onChange={e => setBulkForm({ ...bulkForm, fromDate: e.target.value })}
+                  value={blockForm.startDate}
+                  onChange={e => setBlockForm({ ...blockForm, startDate: e.target.value })}
                   required
-                  className="w-full bg-white/[0.04] border border-white/[0.1] rounded-lg px-3 py-2.5 text-sm text-white outline-none focus:border-accent focus:ring-1 focus:ring-accent/20 placeholder:text-slate-500"
+                  className="w-full bg-white/[0.04] border border-white/[0.1] rounded-lg px-3 py-2.5 text-sm text-white outline-none focus:border-red-400 focus:ring-1 focus:ring-red-400/20 placeholder:text-slate-500"
                 />
               </div>
               <div>
                 <label className="block text-[11px] font-medium text-slate-400 mb-1">To Date</label>
                 <input
                   type="date"
-                  value={bulkForm.toDate}
-                  onChange={e => setBulkForm({ ...bulkForm, toDate: e.target.value })}
+                  value={blockForm.endDate}
+                  onChange={e => setBlockForm({ ...blockForm, endDate: e.target.value })}
                   required
-                  className="w-full bg-white/[0.04] border border-white/[0.1] rounded-lg px-3 py-2.5 text-sm text-white outline-none focus:border-accent focus:ring-1 focus:ring-accent/20 placeholder:text-slate-500"
+                  className="w-full bg-white/[0.04] border border-white/[0.1] rounded-lg px-3 py-2.5 text-sm text-white outline-none focus:border-red-400 focus:ring-1 focus:ring-red-400/20 placeholder:text-slate-500"
                 />
               </div>
             </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div>
-                <label className="block text-[11px] font-medium text-slate-400 mb-1">Price per Slot</label>
+
+            {/* Time Range (Optional) */}
+            <div>
+              <label className="block text-[11px] font-medium text-slate-400 mb-1">Time Range (Optional - leave empty to block full day)</label>
+              <div className="grid grid-cols-2 gap-3">
                 <input
-                  type="number"
-                  value={bulkForm.price}
-                  onChange={e => setBulkForm({ ...bulkForm, price: e.target.value })}
-                  min="0"
-                  step="1"
-                  className="w-full bg-white/[0.04] border border-white/[0.1] rounded-lg px-3 py-2.5 text-sm text-white outline-none focus:border-accent focus:ring-1 focus:ring-accent/20 placeholder:text-slate-500"
+                  type="time"
+                  value={blockForm.startTime}
+                  onChange={e => setBlockForm({ ...blockForm, startTime: e.target.value })}
+                  placeholder="Start time"
+                  className="w-full bg-white/[0.04] border border-white/[0.1] rounded-lg px-3 py-2.5 text-sm text-white outline-none focus:border-red-400 focus:ring-1 focus:ring-red-400/20 placeholder:text-slate-500"
                 />
-              </div>
-              <div>
-                <label className="block text-[11px] font-medium text-slate-400 mb-1">Duration (opt)</label>
                 <input
-                  type="number"
-                  value={bulkForm.duration}
-                  onChange={e => setBulkForm({ ...bulkForm, duration: e.target.value })}
-                  min="15"
-                  step="15"
-                  placeholder="e.g. 30"
-                  className="w-full bg-white/[0.04] border border-white/[0.1] rounded-lg px-3 py-2.5 text-sm text-white outline-none focus:border-accent focus:ring-1 focus:ring-accent/20 placeholder:text-slate-500"
+                  type="time"
+                  value={blockForm.endTime}
+                  onChange={e => setBlockForm({ ...blockForm, endTime: e.target.value })}
+                  placeholder="End time"
+                  className="w-full bg-white/[0.04] border border-white/[0.1] rounded-lg px-3 py-2.5 text-sm text-white outline-none focus:border-red-400 focus:ring-1 focus:ring-red-400/20 placeholder:text-slate-500"
                 />
               </div>
             </div>
-            <p className="text-[10px] text-slate-500">Slot times are configured in Dashboard &gt; Machine Configuration &gt; Slot Timing Configuration</p>
+
+            {/* Block Type */}
+            <div>
+              <label className="block text-[11px] font-medium text-slate-400 mb-2">Block Type</label>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => setBlockForm({ ...blockForm, blockType: 'all', machineType: '', pitchType: '' })}
+                  className={`px-3 py-2 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+                    blockForm.blockType === 'all'
+                      ? 'bg-red-500/20 text-red-400 border border-red-500/30'
+                      : 'bg-white/[0.04] text-slate-400 border border-white/[0.08] hover:border-red-500/20'
+                  }`}
+                >
+                  <Ban className="w-3.5 h-3.5 inline mr-1.5" />
+                  Block All Slots
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setBlockForm({ ...blockForm, blockType: 'machine', pitchType: '', machineType: 'LEATHER' })}
+                  className={`px-3 py-2 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+                    blockForm.blockType === 'machine'
+                      ? 'bg-red-500/20 text-red-400 border border-red-500/30'
+                      : 'bg-white/[0.04] text-slate-400 border border-white/[0.08] hover:border-red-500/20'
+                  }`}
+                >
+                  By Machine Type
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setBlockForm({ ...blockForm, blockType: 'pitch', machineType: '', pitchType: 'ASTRO' })}
+                  className={`px-3 py-2 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+                    blockForm.blockType === 'pitch'
+                      ? 'bg-red-500/20 text-red-400 border border-red-500/30'
+                      : 'bg-white/[0.04] text-slate-400 border border-white/[0.08] hover:border-red-500/20'
+                  }`}
+                >
+                  By Pitch Type
+                </button>
+              </div>
+            </div>
+
+            {/* Machine Type Selection */}
+            {blockForm.blockType === 'machine' && (
+              <div>
+                <label className="block text-[11px] font-medium text-slate-400 mb-2">Machine Type</label>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setBlockForm({ ...blockForm, machineType: 'LEATHER' })}
+                    className={`flex-1 flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+                      blockForm.machineType === 'LEATHER'
+                        ? 'bg-red-500/20 text-red-400 border border-red-500/30'
+                        : 'bg-white/[0.04] text-slate-400 border border-white/[0.08] hover:border-red-500/20'
+                    }`}
+                  >
+                    <span className="w-2 h-2 rounded-full bg-red-500"></span>
+                    Leather Ball Machine
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setBlockForm({ ...blockForm, machineType: 'TENNIS' })}
+                    className={`flex-1 flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+                      blockForm.machineType === 'TENNIS'
+                        ? 'bg-red-500/20 text-red-400 border border-red-500/30'
+                        : 'bg-white/[0.04] text-slate-400 border border-white/[0.08] hover:border-red-500/20'
+                    }`}
+                  >
+                    <span className="w-2 h-2 rounded-full bg-green-500"></span>
+                    Tennis Ball Machine
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Pitch Type Selection */}
+            {blockForm.blockType === 'pitch' && (
+              <div>
+                <label className="block text-[11px] font-medium text-slate-400 mb-2">Pitch Type</label>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setBlockForm({ ...blockForm, pitchType: 'ASTRO' })}
+                    className={`flex-1 flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+                      blockForm.pitchType === 'ASTRO'
+                        ? 'bg-red-500/20 text-red-400 border border-red-500/30'
+                        : 'bg-white/[0.04] text-slate-400 border border-white/[0.08] hover:border-red-500/20'
+                    }`}
+                  >
+                    <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
+                    Astro Turf
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setBlockForm({ ...blockForm, pitchType: 'TURF' })}
+                    className={`flex-1 flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+                      blockForm.pitchType === 'TURF'
+                        ? 'bg-red-500/20 text-red-400 border border-red-500/30'
+                        : 'bg-white/[0.04] text-slate-400 border border-white/[0.08] hover:border-red-500/20'
+                    }`}
+                  >
+                    <span className="w-2 h-2 rounded-full bg-amber-500"></span>
+                    Cement Wicket
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Reason */}
+            <div>
+              <label className="block text-[11px] font-medium text-slate-400 mb-1">Reason (Optional)</label>
+              <input
+                type="text"
+                value={blockForm.reason}
+                onChange={e => setBlockForm({ ...blockForm, reason: e.target.value })}
+                placeholder="e.g., Pitch maintenance, Machine repair..."
+                className="w-full bg-white/[0.04] border border-white/[0.1] rounded-lg px-3 py-2.5 text-sm text-white outline-none focus:border-red-400 focus:ring-1 focus:ring-red-400/20 placeholder:text-slate-500"
+              />
+            </div>
+
+            {/* Submit */}
             <div className="flex gap-2">
               <button
                 type="submit"
-                disabled={bulkLoading}
-                className="inline-flex items-center gap-2 bg-accent hover:bg-accent-light text-primary px-5 py-2.5 rounded-lg text-sm font-medium transition-colors cursor-pointer disabled:opacity-50"
+                disabled={blockLoading}
+                className="inline-flex items-center gap-2 bg-red-500/20 hover:bg-red-500/30 text-red-400 border border-red-500/30 px-5 py-2.5 rounded-lg text-sm font-medium transition-colors cursor-pointer disabled:opacity-50"
               >
-                {bulkLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
-                Create Slots
+                {blockLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <ShieldBan className="w-4 h-4" />}
+                Block Slots
               </button>
               <button
                 type="button"
-                onClick={() => setShowBulkCreate(false)}
+                onClick={() => setShowBlockForm(false)}
                 className="px-4 py-2.5 bg-white/[0.06] text-slate-300 rounded-lg text-sm font-medium hover:bg-white/[0.1] transition-colors cursor-pointer"
               >
                 Cancel
@@ -340,74 +516,76 @@ export default function SlotManagement() {
         </div>
       )}
 
-      {/* Single Create Form */}
-      {showSingleCreate && (
-        <div className="bg-white/[0.04] backdrop-blur-sm rounded-xl border border-white/[0.08] p-5 mb-5">
-          <h2 className="text-sm font-semibold text-white mb-3">Create Single Slot</h2>
-          <form onSubmit={handleSingleCreate} className="space-y-3">
-            <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
-              <div>
-                <label className="block text-[11px] font-medium text-slate-400 mb-1">Date</label>
-                <input
-                  type="date"
-                  value={singleForm.date}
-                  onChange={e => setSingleForm({ ...singleForm, date: e.target.value })}
-                  required
-                  className="w-full bg-white/[0.04] border border-white/[0.1] rounded-lg px-3 py-2.5 text-sm text-white outline-none focus:border-accent focus:ring-1 focus:ring-accent/20 placeholder:text-slate-500"
-                />
-              </div>
-              <div>
-                <label className="block text-[11px] font-medium text-slate-400 mb-1">Start Time</label>
-                <input
-                  type="time"
-                  value={singleForm.startTime}
-                  onChange={e => setSingleForm({ ...singleForm, startTime: e.target.value })}
-                  step="1800"
-                  required
-                  className="w-full bg-white/[0.04] border border-white/[0.1] rounded-lg px-3 py-2.5 text-sm text-white outline-none focus:border-accent focus:ring-1 focus:ring-accent/20 placeholder:text-slate-500"
-                />
-              </div>
-              <div>
-                <label className="block text-[11px] font-medium text-slate-400 mb-1">End Time</label>
-                <input
-                  type="time"
-                  value={singleForm.endTime}
-                  onChange={e => setSingleForm({ ...singleForm, endTime: e.target.value })}
-                  step="1800"
-                  required
-                  className="w-full bg-white/[0.04] border border-white/[0.1] rounded-lg px-3 py-2.5 text-sm text-white outline-none focus:border-accent focus:ring-1 focus:ring-accent/20 placeholder:text-slate-500"
-                />
-              </div>
-              <div>
-                <label className="block text-[11px] font-medium text-slate-400 mb-1">Price</label>
-                <input
-                  type="number"
-                  value={singleForm.price}
-                  onChange={e => setSingleForm({ ...singleForm, price: e.target.value })}
-                  min="0"
-                  step="1"
-                  className="w-full bg-white/[0.04] border border-white/[0.1] rounded-lg px-3 py-2.5 text-sm text-white outline-none focus:border-accent focus:ring-1 focus:ring-accent/20 placeholder:text-slate-500"
-                />
-              </div>
-            </div>
-            <div className="flex gap-2">
-              <button
-                type="submit"
-                disabled={singleLoading}
-                className="inline-flex items-center gap-2 bg-accent hover:bg-accent-light text-primary px-5 py-2.5 rounded-lg text-sm font-medium transition-colors cursor-pointer disabled:opacity-50"
+      {/* Active Blocked Slots */}
+      {blockedSlots.length > 0 && (
+        <div className="mb-5">
+          <div className="flex items-center gap-2 mb-3">
+            <Ban className="w-4 h-4 text-red-400" />
+            <h3 className="text-sm font-semibold text-white">Active Blocks</h3>
+            <span className="text-[10px] text-slate-500 bg-white/[0.04] px-2 py-0.5 rounded-full">{blockedSlots.length}</span>
+          </div>
+          <div className="space-y-2">
+            {blockedSlots.map(block => (
+              <div
+                key={block.id}
+                className="bg-red-500/[0.06] border border-red-500/15 rounded-xl p-3.5 flex items-start justify-between gap-3"
               >
-                {singleLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
-                Create Slot
-              </button>
-              <button
-                type="button"
-                onClick={() => setShowSingleCreate(false)}
-                className="px-4 py-2.5 bg-white/[0.06] text-slate-300 rounded-lg text-sm font-medium hover:bg-white/[0.1] transition-colors cursor-pointer"
-              >
-                Cancel
-              </button>
-            </div>
-          </form>
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-center gap-2 mb-1">
+                    <span className="text-xs font-semibold text-white">
+                      {format(parseISO(block.startDate), 'MMM d, yyyy')}
+                      {block.startDate !== block.endDate && ` - ${format(parseISO(block.endDate), 'MMM d, yyyy')}`}
+                    </span>
+                    {block.startTime && block.endTime && (
+                      <span className="text-[10px] text-slate-400 bg-white/[0.04] px-1.5 py-0.5 rounded">
+                        {formatBlockTime(block.startTime)} - {formatBlockTime(block.endTime)}
+                      </span>
+                    )}
+                    {!block.startTime && (
+                      <span className="text-[10px] text-red-400 bg-red-500/10 px-1.5 py-0.5 rounded font-medium">
+                        Full Day
+                      </span>
+                    )}
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    {block.machineType ? (
+                      <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded ${
+                        block.machineType === 'TENNIS'
+                          ? 'bg-green-500/10 text-green-400'
+                          : 'bg-red-500/10 text-red-400'
+                      }`}>
+                        {getMachineLabel(block.machineType)}
+                      </span>
+                    ) : block.pitchType ? (
+                      <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded ${
+                        block.pitchType === 'ASTRO'
+                          ? 'bg-emerald-500/10 text-emerald-400'
+                          : 'bg-amber-500/10 text-amber-400'
+                      }`}>
+                        {getPitchLabel(block.pitchType)}
+                      </span>
+                    ) : (
+                      <span className="text-[10px] font-medium text-red-400 bg-red-500/10 px-1.5 py-0.5 rounded">
+                        All Slots
+                      </span>
+                    )}
+                    {block.reason && (
+                      <span className="text-[10px] text-slate-400 truncate">
+                        {block.reason}
+                      </span>
+                    )}
+                  </div>
+                </div>
+                <button
+                  onClick={() => handleUnblock(block.id)}
+                  className="flex-shrink-0 p-2 text-slate-500 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-colors cursor-pointer"
+                  title="Remove block"
+                >
+                  <Trash2 className="w-4 h-4" />
+                </button>
+              </div>
+            ))}
+          </div>
         </div>
       )}
 
@@ -512,7 +690,6 @@ export default function SlotManagement() {
                     <p className="text-sm text-slate-400">
                       {viewMode === 'calendar' ? 'No slots for this date' : 'No slots found for this month'}
                     </p>
-                    <p className="text-xs text-slate-500 mt-1">Use Bulk Create to add slots</p>
                   </div>
                 );
               }
