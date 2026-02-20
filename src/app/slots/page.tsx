@@ -7,7 +7,19 @@ import { format, addDays, parseISO, isBefore, startOfDay } from 'date-fns';
 import { Calendar, Check, Loader2, IndianRupee, AlertTriangle, Phone, Package, ChevronDown, UserCircle } from 'lucide-react';
 import type { PricingConfig, TimeSlabConfig } from '@/lib/pricing';
 
+type MachineId = 'GRAVITY' | 'YANTRA' | 'LEVERAGE_INDOOR' | 'LEVERAGE_OUTDOOR';
+
+interface MachineInfo {
+  id: MachineId;
+  name: string;
+  shortName: string;
+  ballType: string;
+  category: 'LEATHER' | 'TENNIS';
+  enabledPitchTypes: string[];
+}
+
 interface MachineConfig {
+  machines?: MachineInfo[];
   leatherMachine: {
     ballTypeSelectionEnabled: boolean;
     leatherBallExtraCharge: number;
@@ -25,6 +37,75 @@ interface MachineConfig {
   timeSlabConfig: TimeSlabConfig;
 }
 
+const MACHINE_CARDS: Array<{
+  id: MachineId;
+  label: string;
+  shortLabel: string;
+  category: 'LEATHER' | 'TENNIS';
+  image: string;
+  dotColor: string;
+  dotColorSelected: string;
+  gradientActive: string;
+  gradientInactive: string;
+  glowColor: string;
+}> = [
+  {
+    id: 'GRAVITY',
+    label: 'Gravity',
+    shortLabel: 'Leather',
+    category: 'LEATHER',
+    image: '/images/leathermachine.jpeg',
+    dotColor: 'bg-red-500',
+    dotColorSelected: 'bg-red-600',
+    gradientActive: 'bg-gradient-to-br from-red-900/40 via-red-800/20 to-[#132240]',
+    gradientInactive: 'bg-gradient-to-br from-[#1a2a44] to-[#132240]',
+    glowColor: 'from-accent/10',
+  },
+  {
+    id: 'YANTRA',
+    label: 'Yantra',
+    shortLabel: 'Leather',
+    category: 'LEATHER',
+    image: '/images/leathermachine.jpeg',
+    dotColor: 'bg-orange-500',
+    dotColorSelected: 'bg-orange-600',
+    gradientActive: 'bg-gradient-to-br from-orange-900/40 via-orange-800/20 to-[#132240]',
+    gradientInactive: 'bg-gradient-to-br from-[#1a2a44] to-[#132240]',
+    glowColor: 'from-accent/10',
+  },
+  {
+    id: 'LEVERAGE_INDOOR',
+    label: 'Tennis Indoor',
+    shortLabel: 'Tennis',
+    category: 'TENNIS',
+    image: '/images/tennismachine.jpeg',
+    dotColor: 'bg-green-500',
+    dotColorSelected: 'bg-green-700',
+    gradientActive: 'bg-gradient-to-br from-green-900/40 via-green-800/20 to-[#132240]',
+    gradientInactive: 'bg-gradient-to-br from-[#1a2a44] to-[#132240]',
+    glowColor: 'from-green-500/10',
+  },
+  {
+    id: 'LEVERAGE_OUTDOOR',
+    label: 'Tennis Outdoor',
+    shortLabel: 'Tennis',
+    category: 'TENNIS',
+    image: '/images/tennismachine.jpeg',
+    dotColor: 'bg-teal-500',
+    dotColorSelected: 'bg-teal-700',
+    gradientActive: 'bg-gradient-to-br from-teal-900/40 via-teal-800/20 to-[#132240]',
+    gradientInactive: 'bg-gradient-to-br from-[#1a2a44] to-[#132240]',
+    glowColor: 'from-teal-500/10',
+  },
+];
+
+const PITCH_TYPE_LABELS: Record<string, { label: string; color: string }> = {
+  ASTRO: { label: 'Astro Turf', color: 'bg-emerald-500' },
+  CEMENT: { label: 'Cement', color: 'bg-amber-500' },
+  NATURAL: { label: 'Natural Turf', color: 'bg-lime-500' },
+  TURF: { label: 'Cement Wicket', color: 'bg-amber-500' },
+};
+
 export default function SlotsPage() {
   return (
     <Suspense fallback={<div className="flex items-center justify-center min-h-screen"><Loader2 className="w-8 h-8 animate-spin text-blue-600" /></div>}>
@@ -35,7 +116,7 @@ export default function SlotsPage() {
 
 function SlotsContent() {
   const [selectedDate, setSelectedDate] = useState(new Date());
-  const [category, setCategory] = useState<'TENNIS' | 'MACHINE'>('MACHINE');
+  const [selectedMachineId, setSelectedMachineId] = useState<MachineId>('GRAVITY');
   const [ballType, setBallType] = useState('LEATHER');
   const [pitchType, setPitchType] = useState<string>('ASTRO');
   const [operationMode, setOperationMode] = useState<'WITH_OPERATOR' | 'SELF_OPERATE'>('WITH_OPERATOR');
@@ -58,6 +139,16 @@ function SlotsContent() {
 
   const isBookingForOther = useMemo(() => isAdmin && userId, [isAdmin, userId]);
 
+  // Derive category from selected machine
+  const selectedCard = MACHINE_CARDS.find(m => m.id === selectedMachineId)!;
+  const category = selectedCard.category === 'LEATHER' ? 'MACHINE' : 'TENNIS';
+  const isLeatherMachine = selectedCard.category === 'LEATHER';
+
+  // Get enabled pitch types from machine config API response
+  const selectedMachineInfo = machineConfig?.machines?.find(m => m.id === selectedMachineId);
+  const enabledPitchTypes = selectedMachineInfo?.enabledPitchTypes || [];
+  const showPitchSelection = enabledPitchTypes.length > 1;
+
   useEffect(() => {
     fetch('/api/machine-config')
       .then(r => r.json())
@@ -65,7 +156,6 @@ function SlotsContent() {
       .catch(() => {});
 
     if (session) {
-      // When admin is booking for another user, fetch that user's packages
       const packagesUrl = isBookingForOther
         ? `/api/admin/packages/user-packages?userId=${userId}&status=ACTIVE`
         : '/api/packages/my';
@@ -74,7 +164,6 @@ function SlotsContent() {
         .then(r => r.json())
         .then(data => {
           const packages = Array.isArray(data) ? data : [];
-          // Normalize admin API response to match /api/packages/my format
           if (isBookingForOther) {
             setUserPackages(packages.map((up: any) => ({
               id: up.id,
@@ -102,7 +191,7 @@ function SlotsContent() {
   useEffect(() => {
     fetchSlots();
     setSelectedSlots([]);
-  }, [selectedDate, ballType, pitchType]);
+  }, [selectedDate, selectedMachineId, ballType, pitchType]);
 
   useEffect(() => {
     validateSelectedPackage();
@@ -110,16 +199,12 @@ function SlotsContent() {
 
   useEffect(() => {
     if (userPackages.length > 0 && selectedSlots.length > 0 && !selectedPackageId) {
-      // Find a compatible package automatically
       const compatiblePackage = userPackages.find(up => {
-        // Machine type compatibility check
-        const isLeatherMachine = ['LEATHER', 'MACHINE'].includes(ballType);
-        const pkgMachineType = up.machineType; // Note: MyPackage from API uses machineType
-        
-        const machineCompatible = (pkgMachineType === 'LEATHER' && isLeatherMachine) || 
+        const pkgMachineType = up.machineType;
+        const machineCompatible = (pkgMachineType === 'LEATHER' && isLeatherMachine) ||
                                 (pkgMachineType === 'TENNIS' && !isLeatherMachine);
-        
-        return up.status === 'ACTIVE' && 
+
+        return up.status === 'ACTIVE' &&
                up.remainingSessions >= selectedSlots.length &&
                machineCompatible;
       });
@@ -128,7 +213,7 @@ function SlotsContent() {
         setSelectedPackageId(compatiblePackage.id);
       }
     }
-  }, [userPackages, selectedSlots, selectedPackageId, ballType]);
+  }, [userPackages, selectedSlots, selectedPackageId, isLeatherMachine]);
 
   const validateSelectedPackage = async () => {
     if (!selectedPackageId || selectedSlots.length === 0) {
@@ -145,7 +230,7 @@ function SlotsContent() {
         body: JSON.stringify({
           userPackageId: selectedPackageId,
           ballType,
-          pitchType: category === 'TENNIS' ? pitchType : null,
+          pitchType: showPitchSelection ? pitchType : null,
           startTime: firstSlot.startTime,
           numberOfSlots: selectedSlots.length,
           ...(isBookingForOther ? { userId } : {}),
@@ -161,24 +246,21 @@ function SlotsContent() {
   };
 
   useEffect(() => {
-    if (category === 'TENNIS') {
+    if (!isLeatherMachine) {
       const hasNoOperatorSlots = selectedSlots.some(s => !s.operatorAvailable);
       if (hasNoOperatorSlots && operationMode === 'WITH_OPERATOR') {
         setOperationMode('SELF_OPERATE');
       }
     }
-  }, [selectedSlots, category]);
+  }, [selectedSlots, isLeatherMachine]);
 
   const fetchSlots = async () => {
     setLoading(true);
     setError('');
     try {
       const dateStr = format(selectedDate, 'yyyy-MM-dd');
-      let url = `/api/slots/available?date=${dateStr}&ballType=${ballType}`;
-      const leatherPitchEnabled = category === 'MACHINE' && machineConfig?.leatherMachine.pitchTypeSelectionEnabled;
-      const tennisPitchEnabled = category === 'TENNIS' && machineConfig?.tennisMachine.pitchTypeSelectionEnabled;
-    
-      if ((leatherPitchEnabled || tennisPitchEnabled) && pitchType) {
+      let url = `/api/slots/available?date=${dateStr}&machineId=${selectedMachineId}&ballType=${ballType}`;
+      if (pitchType) {
         url += `&pitchType=${pitchType}`;
       }
       const res = await fetch(url);
@@ -206,7 +288,6 @@ function SlotsContent() {
   };
 
   const getSlotDisplayPrice = (slot: any): number => {
-    // Use the price from the API (already calculated server-side with new pricing model)
     return slot.price ?? machineConfig?.defaultSlotPrice ?? 600;
   };
 
@@ -237,10 +318,10 @@ function SlotsContent() {
       const slab = (slot.timeSlab as 'morning' | 'evening') || 'morning';
 
       let consecutivePriceFor2: number;
-      if (category === 'MACHINE') {
+      if (isLeatherMachine) {
         const subType = ballType === 'LEATHER' ? 'leather' : 'machine';
         consecutivePriceFor2 = pc.leatherMachine[subType as 'leather' | 'machine'][slab].consecutive;
-      } else if (pitchType === 'TURF') {
+      } else if (pitchType === 'TURF' || pitchType === 'CEMENT') {
         consecutivePriceFor2 = pc.cementWicket[slab].consecutive;
       } else {
         consecutivePriceFor2 = pc.tennisMachine[slab].consecutive;
@@ -263,11 +344,11 @@ function SlotsContent() {
     return selectedSlots.reduce((sum, slot) => sum + getSlotDisplayPrice(slot), 0);
   };
 
-  const hasSelectedSlotsWithoutOperator = category === 'TENNIS' &&
+  const hasSelectedSlotsWithoutOperator = !isLeatherMachine &&
     selectedSlots.some(s => !s.operatorAvailable);
 
   const getSlotOperationMode = (slot: any): 'WITH_OPERATOR' | 'SELF_OPERATE' => {
-    if (category === 'MACHINE') return 'WITH_OPERATOR';
+    if (isLeatherMachine) return 'WITH_OPERATOR';
     if (!slot.operatorAvailable) return 'SELF_OPERATE';
     return operationMode;
   };
@@ -281,16 +362,16 @@ function SlotsContent() {
     }
 
     const total = selectedPackageId && packageValidation ? (packageValidation.extraCharge || 0) : getTotalPrice();
-    const selfOperateSlots = category === 'TENNIS'
+    const selfOperateSlots = !isLeatherMachine
       ? selectedSlots.filter(s => getSlotOperationMode(s) === 'SELF_OPERATE').length
       : 0;
 
     let confirmMessage = isBookingForOther
       ? `Book ${selectedSlots.length} slot(s) for ${userName}?`
-      : (selectedPackageId 
+      : (selectedPackageId
           ? `Book ${selectedSlots.length} slot(s) using package? ${total > 0 ? `Extra charge: ₹${total}` : ''}`
           : `Book ${selectedSlots.length} slot(s) for ₹${total.toLocaleString()}?`);
-    
+
     if (selfOperateSlots > 0) {
       confirmMessage += `\n\n⚠️ WARNING: ${selfOperateSlots} slot(s) will be Self Operate (no machine operator provided). You must operate the machine yourself.`;
     }
@@ -308,13 +389,12 @@ function SlotsContent() {
           startTime: slot.startTime,
           endTime: slot.endTime,
           ballType: ballType,
+          machineId: selectedMachineId,
           operationMode: getSlotOperationMode(slot),
           userPackageId: selectedPackageId || undefined,
           userId: isBookingForOther ? userId : undefined,
           playerName: isBookingForOther ? userName : undefined,
-          ...( ( (category === 'TENNIS' && machineConfig?.tennisMachine.pitchTypeSelectionEnabled) || (category === 'MACHINE' && machineConfig?.leatherMachine.pitchTypeSelectionEnabled) )
-            ? { pitchType }
-            : {}),
+          ...(pitchType ? { pitchType } : {}),
         }))),
       });
 
@@ -369,25 +449,46 @@ function SlotsContent() {
     { value: 'MACHINE', label: 'Machine Ball', color: 'bg-green-500' },
   ];
 
-  const pitchTypes = [
-    { value: 'ASTRO', label: 'Astro Turf', color: 'bg-emerald-500' },
-    { value: 'TURF', label: 'Cement Wicket', color: 'bg-amber-500' },
-  ];
-
-  const handleCategoryChange = (cat: 'TENNIS' | 'MACHINE') => {
-    setCategory(cat);
+  const handleMachineSelect = (machineId: MachineId) => {
+    const card = MACHINE_CARDS.find(m => m.id === machineId)!;
+    setSelectedMachineId(machineId);
     setSelectedSlots([]);
-    if (cat === 'TENNIS') {
-      setBallType('TENNIS');
+    setSelectedPackageId('');
+
+    if (card.category === 'LEATHER') {
+      setBallType('LEATHER');
       setOperationMode('WITH_OPERATOR');
     } else {
-      setBallType('LEATHER');
+      setBallType('TENNIS');
+      setOperationMode('WITH_OPERATOR');
+    }
+
+    // Set default pitch type from machine config
+    const info = machineConfig?.machines?.find(m => m.id === machineId);
+    if (info && info.enabledPitchTypes.length > 0) {
+      setPitchType(info.enabledPitchTypes[0]);
+    } else {
+      setPitchType('ASTRO');
     }
   };
 
   const consecutiveTotal = getConsecutiveTotal();
   const originalTotal = getOriginalTotal();
   const hasSavings = consecutiveTotal !== null && consecutiveTotal < originalTotal;
+
+  // Machine label for bottom bar
+  const getMachineLabel = () => {
+    const card = MACHINE_CARDS.find(m => m.id === selectedMachineId)!;
+    let label = card.label;
+    if (isLeatherMachine && machineConfig?.leatherMachine.ballTypeSelectionEnabled) {
+      label += ` (${ballType === 'LEATHER' ? 'Leather' : 'Machine'})`;
+    }
+    if (showPitchSelection) {
+      const pt = PITCH_TYPE_LABELS[pitchType];
+      label += ` - ${pt?.label || pitchType}`;
+    }
+    return label;
+  };
 
   return (
     <div className="max-w-2xl mx-auto px-4 py-5 pb-28">
@@ -411,187 +512,139 @@ function SlotsContent() {
         </div>
         <div>
           <h1 className="text-xl font-bold text-white">Book a Slot</h1>
-          <p className="text-xs text-slate-400">Select date, type & time</p>
+          <p className="text-xs text-slate-400">Select date, machine & time</p>
         </div>
       </div>
 
-      {/* Bowling Machine Panel */}
+      {/* Machine Selection - 4 Cards */}
       <div className="mb-5">
         <label className="block text-xs font-medium text-slate-400 mb-3 uppercase tracking-wider">Choose Your Machine</label>
         <div className="grid grid-cols-2 gap-3">
-          {/* Leather Ball Machine Card */}
-          <div>
-            <button
-              onClick={() => handleCategoryChange('MACHINE')}
-              className={`w-full rounded-2xl transition-all cursor-pointer text-left overflow-hidden ${
-                category === 'MACHINE'
-                  ? 'ring-2 ring-accent shadow-lg shadow-accent/20'
-                  : 'border border-white/[0.08] hover:border-accent/40'
-              }`}
-            >
-              {/* Machine Image Area */}
-              <div className={`relative w-full aspect-[4/3] overflow-hidden ${
-                category === 'MACHINE' ? 'bg-gradient-to-br from-red-900/40 via-red-800/20 to-[#132240]' : 'bg-gradient-to-br from-[#1a2a44] to-[#132240]'
-              }`}>
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
-                  src="/images/leathermachine.jpeg"
-                  alt="Leather Ball Bowling Machine"
-                  className="w-full h-full object-contain p-3"
-                />
-                {/* Glow effect when selected */}
-                {category === 'MACHINE' && (
-                  <div className="absolute inset-0 bg-gradient-to-t from-accent/10 to-transparent pointer-events-none"></div>
-                )}
-              </div>
-              {/* Label */}
-              <div className={`px-3 py-3 ${category === 'MACHINE' ? 'bg-accent' : 'bg-white/[0.04]'}`}>
-                <div className="flex items-center gap-2">
-                  <span className={`w-2.5 h-2.5 rounded-full ${category === 'MACHINE' ? 'bg-red-600' : 'bg-red-500'}`}></span>
-                  <span className={`text-sm font-bold ${category === 'MACHINE' ? 'text-primary' : 'text-white'}`}>Leather Ball Machine</span>
+          {MACHINE_CARDS.map((card) => {
+            const isSelected = selectedMachineId === card.id;
+            return (
+              <button
+                key={card.id}
+                onClick={() => handleMachineSelect(card.id)}
+                className={`w-full rounded-2xl transition-all cursor-pointer text-left overflow-hidden ${
+                  isSelected
+                    ? 'ring-2 ring-accent shadow-lg shadow-accent/20'
+                    : 'border border-white/[0.08] hover:border-accent/40'
+                }`}
+              >
+                {/* Machine Image Area */}
+                <div className={`relative w-full aspect-[4/3] overflow-hidden ${
+                  isSelected ? card.gradientActive : card.gradientInactive
+                }`}>
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={card.image}
+                    alt={card.label}
+                    className="w-full h-full object-contain p-3"
+                  />
+                  {isSelected && (
+                    <div className={`absolute inset-0 bg-gradient-to-t ${card.glowColor} to-transparent pointer-events-none`}></div>
+                  )}
                 </div>
-              </div>
-            </button>
-
-            {/* Ball Type - shown below Leather Ball Machine card */}
-            {category === 'MACHINE' && (
-              <div className="mt-2">
-                <label className="block text-[10px] font-medium text-slate-500 mb-1 uppercase tracking-wider">Ball Type</label>
-                <div className="flex gap-2">
-                  {machineSubTypes.map((type) => (
-                    <button
-                      key={type.value}
-                      onClick={() => { setBallType(type.value); setSelectedSlots([]); }}
-                      className={`flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
-                        ballType === type.value
-                          ? 'bg-accent text-primary shadow-sm'
-                          : 'bg-white/[0.04] text-slate-400 border border-white/[0.08] hover:border-accent/20'
-                      }`}
-                    >
-                      <span className={`w-1.5 h-1.5 rounded-full ${type.color}`}></span>
-                      {type.label}
-                    </button>
-                  ))}
+                {/* Label */}
+                <div className={`px-3 py-2.5 ${isSelected ? 'bg-accent' : 'bg-white/[0.04]'}`}>
+                  <div className="flex items-center gap-2">
+                    <span className={`w-2.5 h-2.5 rounded-full ${isSelected ? card.dotColorSelected : card.dotColor}`}></span>
+                    <span className={`text-xs font-bold ${isSelected ? 'text-primary' : 'text-white'}`}>{card.label}</span>
+                  </div>
+                  <p className={`text-[10px] ml-[18px] ${isSelected ? 'text-primary/60' : 'text-slate-500'}`}>{card.shortLabel}</p>
                 </div>
-              </div>
-            )}
-
-            {/* Pitch Type - shown below Leather Ball Machine card if enabled */}
-            {category === 'MACHINE' && machineConfig?.leatherMachine.pitchTypeSelectionEnabled && (
-              <div className="mt-2">
-                <label className="block text-[10px] font-medium text-slate-500 mb-1 uppercase tracking-wider">Pitch Type</label>
-                <div className="flex gap-2">
-                  {pitchTypes.map((type) => (
-                    <button
-                      key={type.value}
-                      onClick={() => { setPitchType(type.value); setSelectedSlots([]); }}
-                      className={`flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
-                        pitchType === type.value
-                          ? 'bg-accent text-primary shadow-sm'
-                          : 'bg-white/[0.04] text-slate-400 border border-white/[0.08] hover:border-accent/20'
-                      }`}
-                    >
-                      <span className={`w-1.5 h-1.5 rounded-full ${type.color}`}></span>
-                      {type.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
-          </div>
-
-          {/* Tennis Ball Machine Card */}
-          <div>
-            <button
-              onClick={() => handleCategoryChange('TENNIS')}
-              className={`w-full rounded-2xl transition-all cursor-pointer text-left overflow-hidden ${
-                category === 'TENNIS'
-                  ? 'ring-2 ring-accent shadow-lg shadow-accent/20'
-                  : 'border border-white/[0.08] hover:border-accent/40'
-              }`}
-            >
-              {/* Machine Image Area */}
-              <div className={`relative w-full aspect-[4/3] overflow-hidden ${
-                category === 'TENNIS' ? 'bg-gradient-to-br from-green-900/40 via-green-800/20 to-[#132240]' : 'bg-gradient-to-br from-[#1a2a44] to-[#132240]'
-              }`}>
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
-                  src="/images/tennismachine.jpeg"
-                  alt="Tennis Ball Bowling Machine"
-                  className="w-full h-full object-contain p-3"
-                />
-                {/* Glow effect when selected */}
-                {category === 'TENNIS' && (
-                  <div className="absolute inset-0 bg-gradient-to-t from-green-500/10 to-transparent pointer-events-none"></div>
-                )}
-              </div>
-              {/* Label */}
-              <div className={`px-3 py-3 ${category === 'TENNIS' ? 'bg-accent' : 'bg-white/[0.04]'}`}>
-                <div className="flex items-center gap-2">
-                  <span className={`w-2.5 h-2.5 rounded-full ${category === 'TENNIS' ? 'bg-green-700' : 'bg-green-500'}`}></span>
-                  <span className={`text-sm font-bold ${category === 'TENNIS' ? 'text-primary' : 'text-white'}`}>Tennis Ball Machine</span>
-                </div>
-              </div>
-            </button>
-
-            {/* Pitch Type - shown below Tennis Ball Machine card */}
-            {category === 'TENNIS' && machineConfig?.tennisMachine.pitchTypeSelectionEnabled && (
-              <div className="mt-2">
-                <label className="block text-[10px] font-medium text-slate-500 mb-1 uppercase tracking-wider">Pitch Type</label>
-                <div className="flex gap-2">
-                  {pitchTypes.map((type) => (
-                    <button
-                      key={type.value}
-                      onClick={() => { setPitchType(type.value); setSelectedSlots([]); }}
-                      className={`flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
-                        pitchType === type.value
-                          ? 'bg-accent text-primary shadow-sm'
-                          : 'bg-white/[0.04] text-slate-400 border border-white/[0.08] hover:border-accent/20'
-                      }`}
-                    >
-                      <span className={`w-1.5 h-1.5 rounded-full ${type.color}`}></span>
-                      {type.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {category === 'TENNIS' && (
-              <div className="mt-2">
-                <label className="block text-[10px] font-medium text-slate-500 mb-1 uppercase tracking-wider">Operation Mode</label>
-                <div className="flex gap-2">
-                  <button
-                    onClick={() => { setOperationMode('WITH_OPERATOR'); setSelectedSlots([]); }}
-                    className={`flex-1 flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
-                      operationMode === 'WITH_OPERATOR'
-                        ? 'bg-accent text-primary shadow-sm'
-                        : 'bg-white/[0.04] text-slate-400 border border-white/[0.08] hover:border-accent/20'
-                    }`}
-                  >
-                    <span className="w-1.5 h-1.5 rounded-full bg-blue-500"></span>
-                    With Operator
-                  </button>
-                  <button
-                    onClick={() => { setOperationMode('SELF_OPERATE'); setSelectedSlots([]); }}
-                    className={`flex-1 flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
-                      operationMode === 'SELF_OPERATE'
-                        ? 'bg-accent text-primary shadow-sm'
-                        : 'bg-white/[0.04] text-slate-400 border border-white/[0.08] hover:border-accent/20'
-                    }`}
-                  >
-                    <span className="w-1.5 h-1.5 rounded-full bg-orange-500"></span>
-                    Self Operate
-                  </button>
-                </div>
-              </div>
-            )}
-          </div>
+              </button>
+            );
+          })}
         </div>
       </div>
 
+      {/* Options below machine grid */}
+      <div className="mb-5 space-y-3">
+        {/* Ball Type - for leather machines when enabled */}
+        {isLeatherMachine && machineConfig?.leatherMachine.ballTypeSelectionEnabled && (
+          <div>
+            <label className="block text-[10px] font-medium text-slate-500 mb-1 uppercase tracking-wider">Ball Type</label>
+            <div className="flex gap-2">
+              {machineSubTypes.map((type) => (
+                <button
+                  key={type.value}
+                  onClick={() => { setBallType(type.value); setSelectedSlots([]); }}
+                  className={`flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+                    ballType === type.value
+                      ? 'bg-accent text-primary shadow-sm'
+                      : 'bg-white/[0.04] text-slate-400 border border-white/[0.08] hover:border-accent/20'
+                  }`}
+                >
+                  <span className={`w-1.5 h-1.5 rounded-full ${type.color}`}></span>
+                  {type.label}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Pitch Type - shown when machine has multiple enabled pitch types */}
+        {showPitchSelection && (
+          <div>
+            <label className="block text-[10px] font-medium text-slate-500 mb-1 uppercase tracking-wider">Pitch Type</label>
+            <div className="flex gap-2">
+              {enabledPitchTypes.map((pt) => {
+                const info = PITCH_TYPE_LABELS[pt] || { label: pt, color: 'bg-slate-500' };
+                return (
+                  <button
+                    key={pt}
+                    onClick={() => { setPitchType(pt); setSelectedSlots([]); }}
+                    className={`flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+                      pitchType === pt
+                        ? 'bg-accent text-primary shadow-sm'
+                        : 'bg-white/[0.04] text-slate-400 border border-white/[0.08] hover:border-accent/20'
+                    }`}
+                  >
+                    <span className={`w-1.5 h-1.5 rounded-full ${info.color}`}></span>
+                    {info.label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* Operation Mode - for tennis machines */}
+        {!isLeatherMachine && (
+          <div>
+            <label className="block text-[10px] font-medium text-slate-500 mb-1 uppercase tracking-wider">Operation Mode</label>
+            <div className="flex gap-2">
+              <button
+                onClick={() => { setOperationMode('WITH_OPERATOR'); setSelectedSlots([]); }}
+                className={`flex-1 flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+                  operationMode === 'WITH_OPERATOR'
+                    ? 'bg-accent text-primary shadow-sm'
+                    : 'bg-white/[0.04] text-slate-400 border border-white/[0.08] hover:border-accent/20'
+                }`}
+              >
+                <span className="w-1.5 h-1.5 rounded-full bg-blue-500"></span>
+                With Operator
+              </button>
+              <button
+                onClick={() => { setOperationMode('SELF_OPERATE'); setSelectedSlots([]); }}
+                className={`flex-1 flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+                  operationMode === 'SELF_OPERATE'
+                    ? 'bg-accent text-primary shadow-sm'
+                    : 'bg-white/[0.04] text-slate-400 border border-white/[0.08] hover:border-accent/20'
+                }`}
+              >
+                <span className="w-1.5 h-1.5 rounded-full bg-orange-500"></span>
+                Self Operate
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+
       {/* Self Operate Warning */}
-      {operationMode === 'SELF_OPERATE' && category === 'TENNIS' && (
+      {operationMode === 'SELF_OPERATE' && !isLeatherMachine && (
         <div className="mb-4 px-3 py-3 bg-red-500/15 border-2 border-red-500/40 rounded-lg flex items-start gap-2">
           <AlertTriangle className="w-5 h-5 text-red-400 mt-0.5 flex-shrink-0" />
           <div>
@@ -666,7 +719,7 @@ function SlotsContent() {
               const isDisabled = isBooked || isOperatorUnavailable || bookingLoading;
               const displayPrice = getSlotDisplayPrice(slot);
 
-              const showOperatorWarning = category === 'TENNIS' &&
+              const showOperatorWarning = !isLeatherMachine &&
                 !isBooked && !isOperatorUnavailable &&
                 !slot.operatorAvailable &&
                 operationMode === 'WITH_OPERATOR';
@@ -691,7 +744,7 @@ function SlotsContent() {
                       <Check className="w-4 h-4" />
                     </div>
                   )}
-                  {(showOperatorWarning || (!isBooked && !isOperatorUnavailable && !slot.operatorAvailable && category === 'TENNIS')) && !isSelected && (
+                  {(showOperatorWarning || (!isBooked && !isOperatorUnavailable && !slot.operatorAvailable && !isLeatherMachine)) && !isSelected && (
                     <div className="absolute top-2 right-2">
                       <AlertTriangle className="w-3.5 h-3.5 text-amber-500" />
                     </div>
@@ -709,13 +762,13 @@ function SlotsContent() {
                       isOperatorUnavailable ? 'text-amber-400' :
                       isBooked ? 'text-red-400' :
                       isSelected ? 'text-primary/80' :
-                      !slot.operatorAvailable && category === 'TENNIS' ? 'text-amber-400' :
+                      !slot.operatorAvailable && !isLeatherMachine ? 'text-amber-400' :
                       'text-green-400'
                     }`}>
                       {isOperatorUnavailable ? 'No Machine Operator' :
                        isBooked ? 'Booked' :
                        isSelected ? 'Selected' :
-                       !slot.operatorAvailable && category === 'TENNIS' ? 'Self Operate' :
+                       !slot.operatorAvailable && !isLeatherMachine ? 'Self Operate' :
                        'Open'}
                     </span>
                     {!isBooked && !isOperatorUnavailable && (
@@ -734,7 +787,7 @@ function SlotsContent() {
       </div>
 
       {/* Operator warning for Tennis self-operate slots */}
-      {category === 'TENNIS' && hasSelectedSlotsWithoutOperator && (
+      {!isLeatherMachine && hasSelectedSlotsWithoutOperator && (
         <div className="mt-4 px-3 py-3 bg-red-500/15 border-2 border-red-500/40 rounded-lg flex items-start gap-2">
           <AlertTriangle className="w-5 h-5 text-red-400 mt-0.5 flex-shrink-0" />
           <div>
@@ -747,7 +800,7 @@ function SlotsContent() {
       )}
 
       {/* Operator unavailable warning for Leather Machine */}
-      {category === 'MACHINE' && slots.some(s => s.status === 'OperatorUnavailable') && (
+      {isLeatherMachine && slots.some(s => s.status === 'OperatorUnavailable') && (
         <div className="mt-4 px-3 py-2.5 bg-amber-500/10 border border-amber-500/20 rounded-lg flex items-start gap-2">
           <AlertTriangle className="w-4 h-4 text-amber-400 mt-0.5 flex-shrink-0" />
           <p className="text-xs text-amber-400">
@@ -767,7 +820,7 @@ function SlotsContent() {
               onChange={(e) => setSelectedPackageId(e.target.value)}
               className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl px-4 py-3 text-sm text-white outline-none focus:border-accent appearance-none transition-all"
             >
-              <option value="" className="bg-[#0f1d2f]">Don't use a package (Direct Payment)</option>
+              <option value="" className="bg-[#0f1d2f]">Don&apos;t use a package (Direct Payment)</option>
               {userPackages.map((up) => (
                 <option key={up.id} value={up.id} className="bg-[#0f1d2f]">
                   {up.packageName} ({up.remainingSessions} sessions left)
@@ -778,7 +831,7 @@ function SlotsContent() {
               <ChevronDown className="w-4 h-4" />
             </div>
           </div>
-          
+
           {selectedPackageId && (
             <div className="mt-3 p-3 rounded-xl bg-accent/5 border border-accent/20">
               <div className="flex items-center gap-2 mb-1">
@@ -838,8 +891,8 @@ function SlotsContent() {
             <div>
               <p className="text-sm font-bold text-white">{selectedSlots.length} slot{selectedSlots.length > 1 ? 's' : ''} selected</p>
               <p className="text-[11px] text-slate-400">
-                {format(selectedDate, 'EEE, MMM d')} &middot; {ballType === 'TENNIS' ? `Tennis Machine${machineConfig?.tennisMachine.pitchTypeSelectionEnabled ? ` (${pitchType === 'TURF' ? 'Cement Wicket' : pitchType})` : ''}` : `Leather Machine (${ballType === 'LEATHER' ? 'Leather' : 'Machine'})${machineConfig?.leatherMachine.pitchTypeSelectionEnabled ? ` (${pitchType === 'TURF' ? 'Cement Wicket' : pitchType})` : ''}`}
-                {category === 'TENNIS' && (
+                {format(selectedDate, 'EEE, MMM d')} &middot; {getMachineLabel()}
+                {!isLeatherMachine && (
                   <span> &middot; {hasSelectedSlotsWithoutOperator ? 'Mixed modes' : operationMode === 'WITH_OPERATOR' ? 'With Operator' : 'Self Operate'}</span>
                 )}
               </p>
