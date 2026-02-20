@@ -2,6 +2,8 @@ import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { DEFAULT_PRICING_CONFIG, DEFAULT_TIME_SLABS } from '@/lib/pricing';
 import type { PricingConfig, TimeSlabConfig } from '@/lib/pricing';
+import { DEFAULT_MACHINE_PITCH_CONFIG, MACHINES, ALL_MACHINE_IDS } from '@/lib/constants';
+import type { MachinePitchConfig } from '@/lib/constants';
 
 const MACHINE_CONFIG_KEYS = [
   'BALL_TYPE_SELECTION_ENABLED',
@@ -15,6 +17,7 @@ const MACHINE_CONFIG_KEYS = [
   'NUMBER_OF_OPERATORS',
   'PRICING_CONFIG',
   'TIME_SLAB_CONFIG',
+  'MACHINE_PITCH_CONFIG',
 ];
 
 export async function GET() {
@@ -42,7 +45,32 @@ export async function GET() {
       } catch { /* use default */ }
     }
 
+    let machinePitchConfig: MachinePitchConfig = DEFAULT_MACHINE_PITCH_CONFIG;
+    if (config['MACHINE_PITCH_CONFIG']) {
+      try {
+        machinePitchConfig = JSON.parse(config['MACHINE_PITCH_CONFIG']);
+      } catch { /* use default */ }
+    }
+
+    // Build per-machine info for the frontend
+    const machines = ALL_MACHINE_IDS.map(id => {
+      const def = MACHINES[id];
+      return {
+        id: def.id,
+        name: def.name,
+        shortName: def.shortName,
+        ballType: def.ballType,
+        category: def.category,
+        enabledPitchTypes: machinePitchConfig[id] || def.defaultPitchTypes,
+      };
+    });
+
     return NextResponse.json({
+      // New machine-centric config
+      machines,
+      machinePitchConfig,
+
+      // Legacy fields (kept for backward compatibility)
       leatherMachine: {
         ballTypeSelectionEnabled: config['BALL_TYPE_SELECTION_ENABLED'] === 'true',
         pitchTypeSelectionEnabled: config['LEATHER_PITCH_TYPE_SELECTION_ENABLED'] === 'true',
