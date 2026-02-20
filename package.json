@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "TZ=Asia/Kolkata next dev",
-    "build": "prisma migrate deploy && TZ=Asia/Kolkata next build",
+    "build": "prisma migrate resolve --rolled-back 20260220000000_add_missing_user_and_booking_columns 2>/dev/null; prisma migrate deploy && TZ=Asia/Kolkata next build",
     "start": "TZ=Asia/Kolkata next start",
     "lint": "eslint",
     "postinstall": "prisma generate",

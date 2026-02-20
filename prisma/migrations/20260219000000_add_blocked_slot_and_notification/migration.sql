@@ -1,5 +1,5 @@
 -- CreateTable
-CREATE TABLE "BlockedSlot" (
+CREATE TABLE IF NOT EXISTS "BlockedSlot" (
     "id" TEXT NOT NULL,
     "startDate" DATE NOT NULL,
     "endDate" DATE NOT NULL,
@@ -14,7 +14,7 @@ CREATE TABLE "BlockedSlot" (
 );
 
 -- CreateTable
-CREATE TABLE "Notification" (
+CREATE TABLE IF NOT EXISTS "Notification" (
     "id" TEXT NOT NULL,
     "userId" TEXT NOT NULL,
     "title" TEXT NOT NULL,
@@ -26,4 +26,7 @@ CREATE TABLE "Notification" (
 );
 
 -- AddForeignKey
-ALTER TABLE "Notification" ADD CONSTRAINT "Notification_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+DO $$ BEGIN
+    ALTER TABLE "Notification" ADD CONSTRAINT "Notification_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
