@@ -42,6 +42,7 @@ const MACHINE_CARDS: Array<{
   label: string;
   shortLabel: string;
   category: 'LEATHER' | 'TENNIS';
+  image: string;
   dotColor: string;
   activeRing: string;
   activeBg: string;
@@ -51,6 +52,7 @@ const MACHINE_CARDS: Array<{
     label: 'Gravity',
     shortLabel: 'Leather',
     category: 'LEATHER',
+    image: '/images/leathermachine.jpeg',
     dotColor: 'bg-red-500',
     activeRing: 'ring-red-500/50',
     activeBg: 'bg-red-500/10',
@@ -60,6 +62,7 @@ const MACHINE_CARDS: Array<{
     label: 'Yantra',
     shortLabel: 'Leather',
     category: 'LEATHER',
+    image: '/images/leathermachine.jpeg',
     dotColor: 'bg-orange-500',
     activeRing: 'ring-orange-500/50',
     activeBg: 'bg-orange-500/10',
@@ -69,6 +72,7 @@ const MACHINE_CARDS: Array<{
     label: 'Tennis Indoor',
     shortLabel: 'Tennis',
     category: 'TENNIS',
+    image: '/images/tennismachine.jpeg',
     dotColor: 'bg-green-500',
     activeRing: 'ring-green-500/50',
     activeBg: 'bg-green-500/10',
@@ -78,6 +82,7 @@ const MACHINE_CARDS: Array<{
     label: 'Tennis Outdoor',
     shortLabel: 'Tennis',
     category: 'TENNIS',
+    image: '/images/tennismachine.jpeg',
     dotColor: 'bg-teal-500',
     activeRing: 'ring-teal-500/50',
     activeBg: 'bg-teal-500/10',
@@ -504,27 +509,35 @@ function SlotsContent() {
         </div>
       </div>
 
-      {/* Machine Selection - Compact Inline */}
+      {/* Machine Selection - 2x2 Compact with Images */}
       <div className="mb-4">
         <label className="block text-[10px] font-medium text-slate-500 mb-2 uppercase tracking-wider">Machine</label>
-        <div className="flex gap-2">
+        <div className="grid grid-cols-2 gap-2">
           {MACHINE_CARDS.map((card) => {
             const isSelected = selectedMachineId === card.id;
             return (
               <button
                 key={card.id}
                 onClick={() => handleMachineSelect(card.id)}
-                className={`flex-1 py-2.5 px-2 rounded-xl transition-all cursor-pointer ${
+                className={`flex items-center gap-2.5 px-2.5 py-2 rounded-xl transition-all cursor-pointer text-left ${
                   isSelected
                     ? `${card.activeBg} ring-2 ${card.activeRing} shadow-sm`
                     : 'bg-white/[0.04] border border-white/[0.08] hover:border-accent/30'
                 }`}
               >
-                <div className="flex items-center justify-center gap-1.5">
-                  <span className={`w-2 h-2 rounded-full flex-shrink-0 ${card.dotColor}`} />
-                  <span className={`text-[11px] font-bold leading-tight ${isSelected ? 'text-white' : 'text-slate-300'}`}>{card.label}</span>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={card.image}
+                  alt={card.label}
+                  className="w-9 h-9 rounded-lg object-cover flex-shrink-0"
+                />
+                <div className="min-w-0">
+                  <div className="flex items-center gap-1.5">
+                    <span className={`w-2 h-2 rounded-full flex-shrink-0 ${card.dotColor}`} />
+                    <span className={`text-[11px] font-bold truncate ${isSelected ? 'text-white' : 'text-slate-300'}`}>{card.label}</span>
+                  </div>
+                  <p className={`text-[9px] ml-3.5 ${isSelected ? 'text-slate-400' : 'text-slate-600'}`}>{card.shortLabel}</p>
                 </div>
-                <p className={`text-[9px] text-center mt-0.5 ${isSelected ? 'text-slate-400' : 'text-slate-600'}`}>{card.shortLabel}</p>
               </button>
             );
           })}
