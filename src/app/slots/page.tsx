@@ -42,60 +42,45 @@ const MACHINE_CARDS: Array<{
   label: string;
   shortLabel: string;
   category: 'LEATHER' | 'TENNIS';
-  image: string;
   dotColor: string;
-  dotColorSelected: string;
-  gradientActive: string;
-  gradientInactive: string;
-  glowColor: string;
+  activeRing: string;
+  activeBg: string;
 }> = [
   {
     id: 'GRAVITY',
     label: 'Gravity',
     shortLabel: 'Leather',
     category: 'LEATHER',
-    image: '/images/leathermachine.jpeg',
     dotColor: 'bg-red-500',
-    dotColorSelected: 'bg-red-600',
-    gradientActive: 'bg-gradient-to-br from-red-900/40 via-red-800/20 to-[#132240]',
-    gradientInactive: 'bg-gradient-to-br from-[#1a2a44] to-[#132240]',
-    glowColor: 'from-accent/10',
+    activeRing: 'ring-red-500/50',
+    activeBg: 'bg-red-500/10',
   },
   {
     id: 'YANTRA',
     label: 'Yantra',
     shortLabel: 'Leather',
     category: 'LEATHER',
-    image: '/images/leathermachine.jpeg',
     dotColor: 'bg-orange-500',
-    dotColorSelected: 'bg-orange-600',
-    gradientActive: 'bg-gradient-to-br from-orange-900/40 via-orange-800/20 to-[#132240]',
-    gradientInactive: 'bg-gradient-to-br from-[#1a2a44] to-[#132240]',
-    glowColor: 'from-accent/10',
+    activeRing: 'ring-orange-500/50',
+    activeBg: 'bg-orange-500/10',
   },
   {
     id: 'LEVERAGE_INDOOR',
     label: 'Tennis Indoor',
     shortLabel: 'Tennis',
     category: 'TENNIS',
-    image: '/images/tennismachine.jpeg',
     dotColor: 'bg-green-500',
-    dotColorSelected: 'bg-green-700',
-    gradientActive: 'bg-gradient-to-br from-green-900/40 via-green-800/20 to-[#132240]',
-    gradientInactive: 'bg-gradient-to-br from-[#1a2a44] to-[#132240]',
-    glowColor: 'from-green-500/10',
+    activeRing: 'ring-green-500/50',
+    activeBg: 'bg-green-500/10',
   },
   {
     id: 'LEVERAGE_OUTDOOR',
     label: 'Tennis Outdoor',
     shortLabel: 'Tennis',
     category: 'TENNIS',
-    image: '/images/tennismachine.jpeg',
     dotColor: 'bg-teal-500',
-    dotColorSelected: 'bg-teal-700',
-    gradientActive: 'bg-gradient-to-br from-teal-900/40 via-teal-800/20 to-[#132240]',
-    gradientInactive: 'bg-gradient-to-br from-[#1a2a44] to-[#132240]',
-    glowColor: 'from-teal-500/10',
+    activeRing: 'ring-teal-500/50',
+    activeBg: 'bg-teal-500/10',
   },
 ];
 
@@ -509,62 +494,45 @@ function SlotsContent() {
           </div>
         </div>
       )}
-      <div className="flex items-center gap-3 mb-6">
-        <div className="w-10 h-10 rounded-xl bg-accent/10 flex items-center justify-center">
-          <Calendar className="w-5 h-5 text-accent" />
+      <div className="flex items-center gap-3 mb-5">
+        <div className="w-9 h-9 rounded-lg bg-accent/10 flex items-center justify-center">
+          <Calendar className="w-4 h-4 text-accent" />
         </div>
         <div>
-          <h1 className="text-xl font-bold text-white">Book a Slot</h1>
-          <p className="text-xs text-slate-400">Select date, machine & time</p>
+          <h1 className="text-lg font-bold text-white">Book a Slot</h1>
+          <p className="text-[11px] text-slate-400">Select date, machine & time</p>
         </div>
       </div>
 
-      {/* Machine Selection - 4 Cards */}
-      <div className="mb-5">
-        <label className="block text-xs font-medium text-slate-400 mb-3 uppercase tracking-wider">Choose Your Machine</label>
-        <div className="grid grid-cols-2 gap-3">
+      {/* Machine Selection - Compact Inline */}
+      <div className="mb-4">
+        <label className="block text-[10px] font-medium text-slate-500 mb-2 uppercase tracking-wider">Machine</label>
+        <div className="flex gap-2">
           {MACHINE_CARDS.map((card) => {
             const isSelected = selectedMachineId === card.id;
             return (
               <button
                 key={card.id}
                 onClick={() => handleMachineSelect(card.id)}
-                className={`w-full rounded-2xl transition-all cursor-pointer text-left overflow-hidden ${
+                className={`flex-1 py-2.5 px-2 rounded-xl transition-all cursor-pointer ${
                   isSelected
-                    ? 'ring-2 ring-accent shadow-lg shadow-accent/20'
-                    : 'border border-white/[0.08] hover:border-accent/40'
+                    ? `${card.activeBg} ring-2 ${card.activeRing} shadow-sm`
+                    : 'bg-white/[0.04] border border-white/[0.08] hover:border-accent/30'
                 }`}
               >
-                {/* Machine Image Area */}
-                <div className={`relative w-full aspect-[4/3] overflow-hidden ${
-                  isSelected ? card.gradientActive : card.gradientInactive
-                }`}>
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img
-                    src={card.image}
-                    alt={card.label}
-                    className="w-full h-full object-contain p-3"
-                  />
-                  {isSelected && (
-                    <div className={`absolute inset-0 bg-gradient-to-t ${card.glowColor} to-transparent pointer-events-none`}></div>
-                  )}
+                <div className="flex items-center justify-center gap-1.5">
+                  <span className={`w-2 h-2 rounded-full flex-shrink-0 ${card.dotColor}`} />
+                  <span className={`text-[11px] font-bold leading-tight ${isSelected ? 'text-white' : 'text-slate-300'}`}>{card.label}</span>
                 </div>
-                {/* Label */}
-                <div className={`px-3 py-2.5 ${isSelected ? 'bg-accent' : 'bg-white/[0.04]'}`}>
-                  <div className="flex items-center gap-2">
-                    <span className={`w-2.5 h-2.5 rounded-full ${isSelected ? card.dotColorSelected : card.dotColor}`}></span>
-                    <span className={`text-xs font-bold ${isSelected ? 'text-primary' : 'text-white'}`}>{card.label}</span>
-                  </div>
-                  <p className={`text-[10px] ml-[18px] ${isSelected ? 'text-primary/60' : 'text-slate-500'}`}>{card.shortLabel}</p>
-                </div>
+                <p className={`text-[9px] text-center mt-0.5 ${isSelected ? 'text-slate-400' : 'text-slate-600'}`}>{card.shortLabel}</p>
               </button>
             );
           })}
         </div>
       </div>
 
-      {/* Options below machine grid */}
-      <div className="mb-5 space-y-3">
+      {/* Options */}
+      <div className="mb-4 space-y-2.5">
         {/* Ball Type - for leather machines when enabled */}
         {isLeatherMachine && machineConfig?.leatherMachine.ballTypeSelectionEnabled && (
           <div>
@@ -659,9 +627,9 @@ function SlotsContent() {
         </div>
       )}
 
-      {/* Date Selector - Horizontal scroll */}
-      <div className="mb-6">
-        <label className="block text-xs font-medium text-slate-400 mb-2 uppercase tracking-wider">Select Date</label>
+      {/* Date Selector */}
+      <div className="mb-5">
+        <label className="block text-[10px] font-medium text-slate-500 mb-2 uppercase tracking-wider">Date</label>
         <div className="flex gap-2 overflow-x-auto pb-2 -mx-4 px-4 scrollbar-hide">
           {[0, 1, 2, 3, 4, 5, 6].map((days) => {
             const date = addDays(new Date(), days);
@@ -691,8 +659,8 @@ function SlotsContent() {
       </div>
 
       {/* Slots Grid */}
-      <div className="mb-6">
-        <label className="block text-xs font-medium text-slate-400 mb-2 uppercase tracking-wider">
+      <div className="mb-5">
+        <label className="block text-[10px] font-medium text-slate-500 mb-2 uppercase tracking-wider">
           Available Slots
         </label>
 
