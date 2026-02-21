@@ -139,11 +139,9 @@ export async function GET(req: NextRequest) {
     };
 
     if (machineId) {
-      // New: filter by specific machine
+      // Filter by specific machine only (not pitch type) - a booked slot on a machine
+      // should block that entire time slot for that machine regardless of pitch type
       occupancyWhere.machineId = machineId;
-      if (validatedPitchType) {
-        occupancyWhere.pitchType = validatedPitchType;
-      }
     } else {
       // Legacy: filter by ball type group
       occupancyWhere.ballType = { in: relevantBallTypes };

@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import Image from 'next/image';
 import { useSession } from 'next-auth/react';
-import { UserPlus, Trash2, Loader2, Search, Shield, ShieldOff, Users, ChevronDown, ChevronUp, CalendarCheck, Mail, Phone, Clock, X, XCircle, Check, CalendarPlus } from 'lucide-react';
+import { UserPlus, Trash2, Loader2, Search, Shield, ShieldOff, Users, ChevronDown, ChevronUp, CalendarCheck, Mail, Phone, Clock, X, XCircle, Check, CalendarPlus, History } from 'lucide-react';
 import Link from 'next/link';
 
 interface UserData {
@@ -32,7 +32,62 @@ export default function AdminUsers() {
   const [expandedUser, setExpandedUser] = useState<string | null>(null);
   const [showAddForm, setShowAddForm] = useState(false);
 
+  // Booking history modal state
+  const [historyUser, setHistoryUser] = useState<UserData | null>(null);
+  const [historyBookings, setHistoryBookings] = useState<any[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [cancellingId, setCancellingId] = useState<string | null>(null);
+
   const isSuperAdmin = session?.user?.email === 'waheeddar8@gmail.com';
+
+  const fetchBookingHistory = async (user: UserData) => {
+    setHistoryUser(user);
+    setHistoryLoading(true);
+    try {
+      const res = await fetch(`/api/admin/bookings?userId=${user.id}&limit=100&sortOrder=desc`);
+      if (res.ok) {
+        const data = await res.json();
+        setHistoryBookings(data.bookings || []);
+      }
+    } catch (e) {
+      console.error('Failed to fetch booking history', e);
+    } finally {
+      setHistoryLoading(false);
+    }
+  };
+
+  const handleCancelBooking = async (bookingId: string) => {
+    if (!confirm('Are you sure you want to cancel this booking?')) return;
+    setCancellingId(bookingId);
+    try {
+      const res = await fetch('/api/slots/cancel', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ bookingId }),
+      });
+      if (res.ok) {
+        setMessage({ text: 'Booking cancelled successfully', type: 'success' });
+        // Refresh history
+        if (historyUser) fetchBookingHistory(historyUser);
+        fetchUsers();
+      } else {
+        const data = await res.json();
+        setMessage({ text: data.error || 'Failed to cancel booking', type: 'error' });
+      }
+    } catch {
+      setMessage({ text: 'Failed to cancel booking', type: 'error' });
+    } finally {
+      setCancellingId(null);
+    }
+  };
+
+  const formatBookingTime = (iso: string) => {
+    return new Date(iso).toLocaleTimeString('en-IN', {
+      timeZone: 'Asia/Kolkata',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+  };
 
   const fetchUsers = async () => {
     setLoading(true);
@@ -379,6 +434,13 @@ export default function AdminUsers() {
                             <CalendarPlus className="w-3.5 h-3.5" />
                             Book for User
                           </Link>
+                          <button
+                            onClick={() => fetchBookingHistory(user)}
+                            className="flex-1 flex items-center justify-center gap-1.5 py-2 text-xs font-medium text-blue-400 bg-blue-500/10 rounded-lg hover:bg-blue-500/20 transition-colors cursor-pointer"
+                          >
+                            <History className="w-3.5 h-3.5" />
+                            Check History
+                          </button>
                         </div>
                         <div className="flex gap-2">
                           {isSuperAdmin && (
@@ -443,6 +505,134 @@ export default function AdminUsers() {
               </div>
             );
           })}
+        </div>
+      )}
+
+      {/* Booking History Modal */}
+      {historyUser && (
+        <div
+          className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+          onClick={() => setHistoryUser(null)}
+        >
+          <div
+            className="bg-[#0f1d2f] border border-white/[0.12] rounded-2xl w-full max-w-lg max-h-[80vh] flex flex-col shadow-2xl"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between p-5 border-b border-white/[0.08]">
+              <div>
+                <h2 className="text-base font-bold text-white">Booking History</h2>
+                <p className="text-xs text-slate-400 mt-0.5">{historyUser.name || historyUser.email}</p>
+              </div>
+              <button
+                onClick={() => setHistoryUser(null)}
+                className="p-2 text-slate-400 hover:text-white hover:bg-white/[0.06] rounded-lg transition-colors cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-5">
+              {historyLoading ? (
+                <div className="flex items-center justify-center py-12 text-slate-400">
+                  <Loader2 className="w-5 h-5 animate-spin mr-2" />
+                  <span className="text-sm">Loading bookings...</span>
+                </div>
+              ) : historyBookings.length === 0 ? (
+                <div className="text-center py-12">
+                  <CalendarCheck className="w-8 h-8 text-slate-600 mx-auto mb-3" />
+                  <p className="text-sm text-slate-500">No bookings found</p>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {historyBookings.map((booking: any) => {
+                    const isBooked = booking.status === 'BOOKED';
+                    const isCancelled = booking.status === 'CANCELLED';
+                    const isDone = booking.status === 'DONE';
+                    const hasPackage = !!booking.packageBooking;
+
+                    return (
+                      <div
+                        key={booking.id}
+                        className={`rounded-xl border p-3.5 ${
+                          isCancelled
+                            ? 'bg-white/[0.02] border-white/[0.04] opacity-70'
+                            : 'bg-white/[0.04] border-white/[0.08]'
+                        }`}
+                      >
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-2 mb-1">
+                              <span className="text-xs font-semibold text-white">
+                                {new Date(booking.date).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', day: '2-digit', month: 'short', year: 'numeric' })}
+                              </span>
+                              <span className="text-[10px] text-slate-400">
+                                {formatBookingTime(booking.startTime)} - {formatBookingTime(booking.endTime)}
+                              </span>
+                              <span className={`text-[9px] px-1.5 py-0.5 rounded-full font-bold uppercase ${
+                                isBooked ? 'bg-green-500/15 text-green-400' :
+                                isDone ? 'bg-blue-500/15 text-blue-400' :
+                                'bg-red-500/15 text-red-400'
+                              }`}>
+                                {booking.status}
+                              </span>
+                            </div>
+                            <div className="flex flex-wrap items-center gap-2 text-[10px] text-slate-400">
+                              {booking.machineId && (
+                                <span className="bg-white/[0.06] px-1.5 py-0.5 rounded">
+                                  {booking.machineId === 'GRAVITY' ? 'Gravity' :
+                                   booking.machineId === 'YANTRA' ? 'Yantra' :
+                                   booking.machineId === 'LEVERAGE_INDOOR' ? 'Tennis Indoor' :
+                                   booking.machineId === 'LEVERAGE_OUTDOOR' ? 'Tennis Outdoor' :
+                                   booking.machineId}
+                                </span>
+                              )}
+                              {booking.ballType && (
+                                <span className="bg-white/[0.06] px-1.5 py-0.5 rounded">
+                                  {booking.ballType === 'LEATHER' ? 'Leather Ball' : booking.ballType === 'MACHINE' ? 'Machine Ball' : 'Tennis'}
+                                </span>
+                              )}
+                              {hasPackage && (
+                                <span className="bg-accent/10 text-accent px-1.5 py-0.5 rounded font-medium">
+                                  Package
+                                </span>
+                              )}
+                              {booking.price !== null && booking.price !== undefined && (
+                                <span className="text-accent font-medium">₹{booking.price}</span>
+                              )}
+                            </div>
+                            {isCancelled && booking.cancelledBy && (
+                              <div className="mt-1.5 text-[10px] text-red-400 flex items-center gap-1">
+                                <XCircle className="w-3 h-3" />
+                                Cancelled By: <span className="font-medium">{booking.cancelledBy}</span>
+                              </div>
+                            )}
+                            {isCancelled && booking.cancellationReason && (
+                              <div className="text-[10px] text-slate-500 mt-0.5">
+                                Reason: {booking.cancellationReason}
+                              </div>
+                            )}
+                          </div>
+                          {isBooked && (
+                            <button
+                              onClick={() => handleCancelBooking(booking.id)}
+                              disabled={cancellingId === booking.id}
+                              className="flex-shrink-0 px-2.5 py-1.5 text-[10px] font-medium text-red-400 bg-red-500/10 rounded-lg hover:bg-red-500/20 transition-colors cursor-pointer disabled:opacity-50"
+                            >
+                              {cancellingId === booking.id ? (
+                                <Loader2 className="w-3 h-3 animate-spin" />
+                              ) : (
+                                'Cancel'
+                              )}
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          </div>
         </div>
       )}
     </div>

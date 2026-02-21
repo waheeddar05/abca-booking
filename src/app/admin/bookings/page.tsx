@@ -3,8 +3,9 @@
 import { useState, useEffect, useCallback, Suspense } from 'react';
 import { format } from 'date-fns';
 import { useSearchParams } from 'next/navigation';
-import { Search, Filter, XCircle, RotateCcw, Calendar, Loader2, Download, ChevronLeft, ChevronRight, ArrowUpDown, IndianRupee, Copy, Pencil, X, Check, CalendarPlus } from 'lucide-react';
+import { Search, Filter, XCircle, RotateCcw, Calendar, Loader2, Download, ChevronLeft, ChevronRight, ArrowUpDown, IndianRupee, Copy, Pencil, X, Check, CalendarPlus, UserPlus } from 'lucide-react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 
 type Category = 'all' | 'today' | 'upcoming' | 'previous' | 'lastMonth';
 
@@ -24,6 +25,7 @@ interface Summary {
 
 function AdminBookingsContent() {
   const searchParams = useSearchParams();
+  const router = useRouter();
   const [bookings, setBookings] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [category, setCategory] = useState<Category>((searchParams.get('category') as Category) || 'all');
@@ -42,6 +44,10 @@ function AdminBookingsContent() {
   const [editingPriceId, setEditingPriceId] = useState<string | null>(null);
   const [editPriceValue, setEditPriceValue] = useState('');
   const [actionLoading, setActionLoading] = useState<string | null>(null);
+  const [showBookOnBehalf, setShowBookOnBehalf] = useState(false);
+  const [behalfSearch, setBehalfSearch] = useState('');
+  const [behalfResults, setBehalfResults] = useState<any[]>([]);
+  const [behalfLoading, setBehalfLoading] = useState(false);
 
   const fetchBookings = useCallback(async () => {
     setLoading(true);
@@ -190,6 +196,37 @@ function AdminBookingsContent() {
     window.open(`/api/admin/bookings/export?${params.toString()}`, '_blank');
   };
 
+  const searchUsersForBehalf = async (query: string) => {
+    if (!query || query.length < 2) {
+      setBehalfResults([]);
+      return;
+    }
+    setBehalfLoading(true);
+    try {
+      const res = await fetch(`/api/admin/users?search=${encodeURIComponent(query)}`);
+      if (res.ok) {
+        const data = await res.json();
+        setBehalfResults(Array.isArray(data) ? data.slice(0, 10) : []);
+      }
+    } catch {
+      setBehalfResults([]);
+    } finally {
+      setBehalfLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      if (behalfSearch) searchUsersForBehalf(behalfSearch);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [behalfSearch]);
+
+  const selectUserForBehalf = (user: any) => {
+    const name = user.name || user.playerName || user.email || user.mobileNumber || 'User';
+    router.push(`/slots?userId=${user.id}&userName=${encodeURIComponent(name)}`);
+  };
+
   const statusConfig: Record<string, { label: string; bg: string; text: string; dot: string }> = {
     BOOKED: { label: 'Booked', bg: 'bg-green-500/10', text: 'text-green-400', dot: 'bg-green-500' },
     DONE: { label: 'Done', bg: 'bg-blue-500/10', text: 'text-blue-400', dot: 'bg-blue-500' },
@@ -236,6 +273,13 @@ function AdminBookingsContent() {
             New Booking
           </Link>
           <button
+            onClick={() => setShowBookOnBehalf(true)}
+            className="flex-1 sm:flex-none inline-flex items-center justify-center gap-2 px-3 py-2 bg-white/[0.06] text-slate-300 rounded-lg text-xs font-medium hover:bg-white/[0.1] transition-colors cursor-pointer whitespace-nowrap border border-white/[0.08]"
+          >
+            <UserPlus className="w-3.5 h-3.5" />
+            Book on Behalf
+          </button>
+          <button
             onClick={handleExport}
             className="flex-1 sm:flex-none inline-flex items-center justify-center gap-2 px-3 py-2 bg-white/[0.06] text-slate-300 rounded-lg text-xs font-medium hover:bg-white/[0.1] transition-colors cursor-pointer whitespace-nowrap"
           >
@@ -243,6 +287,74 @@ function AdminBookingsContent() {
             Export CSV
           </button>
         </div>
+
+        {/* Book on Behalf Modal */}
+        {showBookOnBehalf && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4" onClick={() => setShowBookOnBehalf(false)}>
+            <div className="bg-[#1a1a2e] rounded-2xl border border-white/[0.1] w-full max-w-md p-5 shadow-2xl" onClick={e => e.stopPropagation()}>
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-2">
+                  <UserPlus className="w-5 h-5 text-accent" />
+                  <h3 className="text-sm font-bold text-white">Book on Behalf of User</h3>
+                </div>
+                <button onClick={() => setShowBookOnBehalf(false)} className="p-1 text-slate-400 hover:text-white transition-colors cursor-pointer">
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+              <div className="relative mb-3">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                <input
+                  type="text"
+                  placeholder="Search by name, email or mobile..."
+                  value={behalfSearch}
+                  onChange={e => setBehalfSearch(e.target.value)}
+                  className="w-full bg-white/[0.06] border border-white/[0.15] text-white placeholder:text-slate-500 rounded-lg pl-9 pr-3 py-2.5 text-sm outline-none focus:border-accent focus:ring-1 focus:ring-accent/20"
+                  autoFocus
+                />
+              </div>
+              <div className="max-h-64 overflow-y-auto space-y-1">
+                {behalfLoading ? (
+                  <div className="flex items-center justify-center py-6 text-slate-400">
+                    <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                    <span className="text-xs">Searching...</span>
+                  </div>
+                ) : behalfResults.length > 0 ? (
+                  behalfResults.map(user => (
+                    <button
+                      key={user.id}
+                      onClick={() => selectUserForBehalf(user)}
+                      className="w-full text-left px-3 py-2.5 rounded-lg hover:bg-white/[0.06] transition-colors cursor-pointer"
+                    >
+                      <div className="text-sm font-medium text-white">{user.name || user.email || user.mobileNumber}</div>
+                      <div className="text-[10px] text-slate-400 mt-0.5">
+                        {user.email && <span>{user.email}</span>}
+                        {user.email && user.mobileNumber && <span className="mx-1">·</span>}
+                        {user.mobileNumber && <span>{user.mobileNumber}</span>}
+                      </div>
+                    </button>
+                  ))
+                ) : behalfSearch.length >= 2 ? (
+                  <div className="text-center py-6">
+                    <p className="text-xs text-slate-400">No users found</p>
+                    <button
+                      onClick={() => {
+                        const name = prompt('Enter player name for the booking:');
+                        if (name) {
+                          router.push(`/slots?userName=${encodeURIComponent(name)}`);
+                        }
+                      }}
+                      className="mt-2 text-xs text-accent hover:underline cursor-pointer"
+                    >
+                      Book with custom name instead
+                    </button>
+                  </div>
+                ) : (
+                  <p className="text-center text-xs text-slate-500 py-6">Type at least 2 characters to search</p>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Category Tabs */}
@@ -413,49 +525,42 @@ function AdminBookingsContent() {
       ) : (
         <>
           {/* Mobile Cards */}
-          <div className="md:hidden space-y-3">
+          <div className="md:hidden space-y-2.5">
             {bookings.map((booking) => {
               const status = statusConfig[booking.status] || statusConfig.BOOKED;
               const isEditing = editingPriceId === booking.id;
               const isActionLoading = actionLoading === booking.id;
               return (
-                <div key={booking.id} className="bg-white/[0.04] backdrop-blur-sm rounded-xl border border-white/[0.08] p-4">
-                  <div className="flex items-center justify-between mb-3">
-                    <div>
-                      <div className="font-semibold text-sm text-white">{booking.playerName}</div>
-                      <div className="text-[10px] text-slate-400 mt-0.5">
-                        {booking.createdBy ? `Created by: ${booking.createdBy}` : booking.user?.email || booking.user?.mobileNumber}
+                <div key={booking.id} className="bg-white/[0.04] backdrop-blur-sm rounded-xl border border-white/[0.08] p-3.5">
+                  {/* Row 1: Name + Status */}
+                  <div className="flex items-start justify-between gap-2 mb-2">
+                    <div className="min-w-0 flex-1">
+                      <div className="font-semibold text-sm text-white truncate">{booking.playerName}</div>
+                      <div className="text-[10px] text-slate-400 mt-0.5 truncate">
+                        {booking.createdBy ? `By: ${booking.createdBy}` : booking.user?.email || booking.user?.mobileNumber}
                       </div>
                       {booking.status === 'CANCELLED' && booking.cancelledBy && (
-                        <div className="text-[10px] text-red-400/80 mt-0.5 italic">
-                          {booking.cancellationReason || `Cancelled by: ${booking.cancelledBy}`}
+                        <div className="text-[10px] text-red-400/80 mt-0.5 italic truncate">
+                          Cancelled by: {booking.cancelledBy}
                         </div>
                       )}
                     </div>
-                    <div className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-semibold ${status.bg} ${status.text}`}>
+                    <div className={`flex-shrink-0 inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold ${status.bg} ${status.text}`}>
                       <span className={`w-1.5 h-1.5 rounded-full ${status.dot}`}></span>
                       {status.label}
                     </div>
                   </div>
-                  <div className="text-xs text-slate-400 mb-1">
-                    {format(new Date(booking.date), 'MMM d, yyyy')}
-                  </div>
-                  <div className="text-sm text-white mb-1">
-                    {new Date(booking.startTime).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit' })}
-                    {' - '}
-                    {new Date(booking.endTime).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit' })}
-                  </div>
-                  <div className="flex items-center gap-3 mb-3">
-                    <div className="flex items-center gap-1.5">
-                      <span className={`w-2 h-2 rounded-full ${ballTypeConfig[booking.ballType] || 'bg-gray-400'}`}></span>
-                      <span className="text-xs text-slate-400">{booking.ballType}</span>
-                    </div>
-                    {booking.operationMode && (
-                      <span className={`text-xs px-1.5 py-0.5 rounded ${booking.operationMode === 'SELF_OPERATE' ? 'bg-orange-500/10 text-orange-400' : 'bg-blue-500/10 text-blue-400'}`}>
-                        {booking.operationMode === 'SELF_OPERATE' ? 'Self' : 'Operator'}
+
+                  {/* Row 2: Date + Time + Price */}
+                  <div className="flex items-center justify-between mb-2">
+                    <div>
+                      <span className="text-xs text-slate-400">{format(new Date(booking.date), 'MMM d')}</span>
+                      <span className="text-xs text-white ml-1.5">
+                        {new Date(booking.startTime).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit' })}
+                        {' - '}
+                        {new Date(booking.endTime).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit' })}
                       </span>
-                    )}
-                    {/* Price display / edit */}
+                    </div>
                     {isEditing ? (
                       <div className="flex items-center gap-1">
                         <span className="text-xs text-slate-400">₹</span>
@@ -463,42 +568,70 @@ function AdminBookingsContent() {
                           type="number"
                           value={editPriceValue}
                           onChange={e => setEditPriceValue(e.target.value)}
-                          className="w-20 bg-white/[0.06] border border-accent/30 text-white rounded px-2 py-0.5 text-xs outline-none"
+                          className="w-16 bg-white/[0.06] border border-accent/30 text-white rounded px-1.5 py-0.5 text-xs outline-none"
                           autoFocus
                         />
                         <button onClick={() => updatePrice(booking.id)} disabled={isActionLoading} className="p-0.5 text-green-400 hover:bg-green-500/10 rounded cursor-pointer">
-                          <Check className="w-3.5 h-3.5" />
+                          <Check className="w-3 h-3" />
                         </button>
                         <button onClick={() => { setEditingPriceId(null); setEditPriceValue(''); }} className="p-0.5 text-slate-400 hover:bg-white/[0.06] rounded cursor-pointer">
-                          <X className="w-3.5 h-3.5" />
+                          <X className="w-3 h-3" />
                         </button>
                       </div>
                     ) : booking.price != null ? (
-                      <button onClick={() => startEditPrice(booking)} className="flex items-center gap-0.5 text-xs text-slate-300 hover:text-accent transition-colors cursor-pointer">
+                      <button onClick={() => startEditPrice(booking)} className="flex items-center gap-0.5 text-xs font-medium text-white hover:text-accent transition-colors cursor-pointer">
                         <IndianRupee className="w-3 h-3" />
                         {booking.price}
-                        <Pencil className="w-2.5 h-2.5 ml-0.5 opacity-50" />
+                        <Pencil className="w-2.5 h-2.5 ml-0.5 opacity-40" />
                       </button>
                     ) : (
-                      <button onClick={() => startEditPrice(booking)} className="text-xs text-slate-500 hover:text-accent cursor-pointer">Set price</button>
+                      <button onClick={() => startEditPrice(booking)} className="text-[10px] text-slate-500 hover:text-accent cursor-pointer">Set price</button>
                     )}
                   </div>
-                  <div className="flex flex-wrap gap-2 pt-3 border-t border-white/[0.04]">
+
+                  {/* Row 3: Tags */}
+                  <div className="flex flex-wrap items-center gap-1.5 mb-2.5">
+                    <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${
+                      booking.ballType === 'LEATHER' ? 'bg-red-500/10 text-red-400' :
+                      booking.ballType === 'TENNIS' ? 'bg-green-500/10 text-green-400' :
+                      'bg-blue-500/10 text-blue-400'
+                    }`}>
+                      {booking.ballType}
+                    </span>
+                    {booking.machineId && (
+                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-white/[0.04] text-slate-400 font-medium">
+                        {booking.machineId === 'GRAVITY' ? 'Gravity' : booking.machineId === 'YANTRA' ? 'Yantra' : booking.machineId === 'LEVERAGE_INDOOR' ? 'Indoor' : 'Outdoor'}
+                      </span>
+                    )}
+                    {booking.pitchType && (
+                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-white/[0.04] text-slate-400 font-medium">
+                        {booking.pitchType === 'ASTRO' ? 'Astro' : booking.pitchType === 'CEMENT' ? 'Cement' : 'Natural'}
+                      </span>
+                    )}
+                    {booking.operationMode && (
+                      <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${booking.operationMode === 'SELF_OPERATE' ? 'bg-orange-500/10 text-orange-400' : 'bg-blue-500/10 text-blue-400'}`}>
+                        {booking.operationMode === 'SELF_OPERATE' ? 'Self' : 'Operator'}
+                      </span>
+                    )}
+                  </div>
+
+                  {/* Row 4: Actions */}
+                  <div className="flex gap-2 pt-2.5 border-t border-white/[0.04]">
                     {booking.status === 'BOOKED' && (
                       <>
                         <button
                           onClick={() => copyToNextSlot(booking.id)}
                           disabled={isActionLoading}
-                          className="flex-1 flex items-center justify-center gap-1.5 py-2 text-xs font-medium text-accent bg-accent/10 rounded-lg hover:bg-accent/20 transition-colors cursor-pointer disabled:opacity-50"
+                          className="flex-1 flex items-center justify-center gap-1.5 py-1.5 text-[11px] font-medium text-accent bg-accent/10 rounded-lg hover:bg-accent/20 transition-colors cursor-pointer disabled:opacity-50"
                         >
-                          <Copy className="w-3.5 h-3.5" />
+                          <Copy className="w-3 h-3" />
                           Copy Next
                         </button>
                         <button
                           onClick={() => updateStatus(booking.id, 'CANCELLED')}
-                          className="flex-1 flex items-center justify-center gap-1.5 py-2 text-xs font-medium text-red-400 bg-red-500/10 rounded-lg hover:bg-red-500/20 transition-colors cursor-pointer"
+                          className="flex-1 flex items-center justify-center gap-1.5 py-1.5 text-[11px] font-medium text-red-400 bg-red-500/10 rounded-lg hover:bg-red-500/20 transition-colors cursor-pointer"
                         >
-                          <XCircle className="w-3.5 h-3.5" />
+                          <XCircle className="w-3 h-3" />
                           Cancel
                         </button>
                       </>
@@ -506,9 +639,9 @@ function AdminBookingsContent() {
                     {booking.status === 'CANCELLED' && (
                       <button
                         onClick={() => updateStatus(booking.id, 'BOOKED')}
-                        className="flex-1 flex items-center justify-center gap-1.5 py-2 text-xs font-medium text-slate-400 bg-white/[0.04] rounded-lg hover:bg-white/[0.08] transition-colors cursor-pointer"
+                        className="flex-1 flex items-center justify-center gap-1.5 py-1.5 text-[11px] font-medium text-slate-400 bg-white/[0.04] rounded-lg hover:bg-white/[0.08] transition-colors cursor-pointer"
                       >
-                        <RotateCcw className="w-3.5 h-3.5" />
+                        <RotateCcw className="w-3 h-3" />
                         Restore
                       </button>
                     )}

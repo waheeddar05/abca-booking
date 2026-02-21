@@ -36,7 +36,7 @@ export function OptionsPanel({
       {/* Ball Type */}
       {isLeatherMachine && machineConfig?.leatherMachine.ballTypeSelectionEnabled && (
         <div>
-          <label className="block text-[10px] font-medium text-slate-500 mb-1 uppercase tracking-wider">
+          <label className="block text-xs font-bold text-white mb-1 uppercase tracking-wider">
             Ball Type
           </label>
           <div className="flex gap-2">
@@ -45,7 +45,6 @@ export function OptionsPanel({
                 key={type.value}
                 isActive={ballType === type.value}
                 onClick={() => onBallTypeChange(type.value)}
-                dotColor={type.color}
                 label={type.label}
               />
             ))}
@@ -56,7 +55,7 @@ export function OptionsPanel({
       {/* Pitch Type (multiple options) */}
       {showPitchSelection && (
         <div>
-          <label className="block text-[10px] font-medium text-slate-500 mb-1 uppercase tracking-wider">
+          <label className="block text-xs font-bold text-white mb-1 uppercase tracking-wider">
             Pitch Type
           </label>
           <div className="flex gap-2">
@@ -67,7 +66,6 @@ export function OptionsPanel({
                   key={pt}
                   isActive={pitchType === pt}
                   onClick={() => onPitchTypeChange(pt)}
-                  dotColor={info.color}
                   label={info.label}
                 />
               );
@@ -79,13 +77,12 @@ export function OptionsPanel({
       {/* Pitch Type (single, auto-selected) */}
       {showPitchIndicator && (
         <div>
-          <label className="block text-[10px] font-medium text-slate-500 mb-1 uppercase tracking-wider">
+          <label className="block text-xs font-bold text-white mb-1 uppercase tracking-wider">
             Pitch Type
           </label>
           <div className="flex gap-2">
             <div className="flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-xs font-semibold bg-accent/15 text-accent border border-accent/20">
               <Check className="w-3.5 h-3.5" />
-              <span className={`w-1.5 h-1.5 rounded-full ${(PITCH_TYPE_LABELS[enabledPitchTypes[0]] || { color: 'bg-slate-500' }).color}`} />
               {(PITCH_TYPE_LABELS[enabledPitchTypes[0]] || { label: enabledPitchTypes[0] }).label}
               <span className="text-[10px] text-slate-500 font-normal ml-1">(Auto-selected)</span>
             </div>
@@ -96,20 +93,18 @@ export function OptionsPanel({
       {/* Operation Mode */}
       {!isLeatherMachine && (
         <div>
-          <label className="block text-[10px] font-medium text-slate-500 mb-1 uppercase tracking-wider">
+          <label className="block text-xs font-bold text-white mb-1 uppercase tracking-wider">
             Operation Mode
           </label>
           <div className="flex gap-2">
             <ToggleButton
               isActive={operationMode === 'WITH_OPERATOR'}
               onClick={() => onOperationModeChange('WITH_OPERATOR')}
-              dotColor="bg-blue-500"
               label="With Operator"
             />
             <ToggleButton
               isActive={operationMode === 'SELF_OPERATE'}
               onClick={() => onOperationModeChange('SELF_OPERATE')}
-              dotColor="bg-orange-500"
               label="Self Operate"
             />
           </div>
@@ -133,16 +128,14 @@ export function OptionsPanel({
   );
 }
 
-// ─── Shared Toggle Button ────────────────────────────────
+// ─── Shared Toggle Button (no dots, yellow/accent selection) ─────
 function ToggleButton({
   isActive,
   onClick,
-  dotColor,
   label,
 }: {
   isActive: boolean;
   onClick: () => void;
-  dotColor: string;
   label: string;
 }) {
   return (
@@ -154,7 +147,6 @@ function ToggleButton({
           : 'bg-white/[0.04] text-slate-400 border border-white/[0.08] hover:border-accent/20'
       }`}
     >
-      <span className={`w-1.5 h-1.5 rounded-full ${dotColor}`} />
       {label}
     </button>
   );

@@ -15,6 +15,7 @@ export interface PricingConfig {
   leather: PitchPricing;
   yantra: PitchPricing;
   machine: PitchPricing;
+  yantra_machine: PitchPricing;
   tennis: PitchPricing;
 }
 
@@ -64,6 +65,20 @@ export const DEFAULT_PRICING_CONFIG: PricingConfig = {
     NATURAL: {
       morning: { single: 500, consecutive: 800 },
       evening: { single: 600, consecutive: 1000 },
+    },
+  },
+  yantra_machine: {
+    ASTRO: {
+      morning: { single: 600, consecutive: 1000 },
+      evening: { single: 700, consecutive: 1200 },
+    },
+    CEMENT: {
+      morning: { single: 600, consecutive: 1000 },
+      evening: { single: 700, consecutive: 1200 },
+    },
+    NATURAL: {
+      morning: { single: 600, consecutive: 1000 },
+      evening: { single: 700, consecutive: 1200 },
     },
   },
   tennis: {
@@ -138,8 +153,10 @@ function resolvePricingTier(
   machineId?: string | null
 ): keyof PricingConfig {
   if (category === 'TENNIS') return 'tennis';
-  // Yantra has its own premium pricing tier
-  if (machineId === 'YANTRA') return 'yantra';
+  // Yantra has its own premium pricing tiers
+  if (machineId === 'YANTRA') {
+    return ballType === 'LEATHER' ? 'yantra' : 'yantra_machine';
+  }
   return ballType === 'LEATHER' ? 'leather' : 'machine';
 }
 
@@ -225,8 +242,12 @@ export function normalizePricingConfig(config: any): PricingConfig {
     if (!config.yantra) {
       config.yantra = JSON.parse(JSON.stringify(config.leather));
     }
+    // Auto-populate yantra_machine from machine if missing (backward compat)
+    if (!config.yantra_machine) {
+      config.yantra_machine = JSON.parse(JSON.stringify(config.machine || DEFAULT_PRICING_CONFIG.yantra_machine));
+    }
     // Ensure all pitch types exist for each category
-    const categories = ['leather', 'yantra', 'machine', 'tennis'] as const;
+    const categories = ['leather', 'yantra', 'machine', 'yantra_machine', 'tennis'] as const;
     const pitches = ['ASTRO', 'CEMENT', 'NATURAL'] as const;
     const slabs = ['morning', 'evening'] as const;
 

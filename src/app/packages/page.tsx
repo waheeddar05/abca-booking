@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useMemo } from 'react';
 import { useSession } from 'next-auth/react';
-import { Package, Loader2, ShoppingCart, Check, Clock, X, Filter, ChevronRight } from 'lucide-react';
+import { Package, Loader2, ShoppingCart, Clock, X, ChevronRight } from 'lucide-react';
 import Link from 'next/link';
 import { differenceInDays, startOfDay } from 'date-fns';
 
@@ -42,19 +42,19 @@ interface MyPackage {
 }
 
 const labelMap: Record<string, string> = {
-  LEATHER: 'Leather', TENNIS: 'Tennis', MACHINE: 'Machine Ball',
+  LEATHER: 'Leather Ball', TENNIS: 'Tennis', MACHINE: 'Machine Ball',
   BOTH: 'Both', CEMENT: 'Cement', ASTRO: 'Astro',
   DAY: 'Day (7:00 AM – 5:00 PM)', EVENING: 'Evening/Night (7:00 PM – 10:30 PM)',
 };
 
-const MACHINE_LABELS: Record<string, string> = {
-  GRAVITY: 'Gravity (Leather)',
-  YANTRA: 'Yantra (Premium Leather)',
-  LEVERAGE_INDOOR: 'Leverage High Speed Tennis (Indoor)',
-  LEVERAGE_OUTDOOR: 'Leverage High Speed Tennis (Outdoor)',
-};
+type MachineFilter = 'all' | 'GRAVITY' | 'YANTRA' | 'LEVERAGE_INDOOR' | 'LEVERAGE_OUTDOOR';
 
-type MachineFilter = 'all' | 'leather' | 'tennis';
+const MACHINE_CARDS = [
+  { id: 'GRAVITY' as MachineFilter, label: 'Gravity', shortLabel: 'Leather', category: 'LEATHER', image: '/images/leathermachine.jpeg' },
+  { id: 'YANTRA' as MachineFilter, label: 'Yantra', shortLabel: 'Premium Leather', category: 'LEATHER', image: '/images/yantra-machine.jpeg' },
+  { id: 'LEVERAGE_INDOOR' as MachineFilter, label: 'Leverage Tennis', shortLabel: 'Indoor', category: 'TENNIS', image: '/images/tennismachine.jpeg' },
+  { id: 'LEVERAGE_OUTDOOR' as MachineFilter, label: 'Leverage Tennis', shortLabel: 'Outdoor', category: 'TENNIS', image: '/images/tennismachine.jpeg' },
+];
 
 export default function PackagesPage() {
   const { data: session } = useSession();
@@ -65,6 +65,7 @@ export default function PackagesPage() {
   const [purchasing, setPurchasing] = useState<string | null>(null);
   const [message, setMessage] = useState({ text: '', type: '' });
   const [machineFilter, setMachineFilter] = useState<MachineFilter>('all');
+  const [timingFilter, setTimingFilter] = useState<'DAY' | 'EVENING' | ''>('');
   const [selectedPackage, setSelectedPackage] = useState<PackageInfo | null>(null);
 
   const fetchPackages = async () => {
@@ -133,15 +134,20 @@ export default function PackagesPage() {
     }
   };
 
-  // Filtered and grouped browse packages
+  // Filtered packages based on machine card + timing selection
   const filteredPackages = useMemo(() => {
-    return packages.filter(pkg => {
-      if (machineFilter === 'all') return true;
-      if (machineFilter === 'leather') return pkg.machineType === 'LEATHER';
-      if (machineFilter === 'tennis') return pkg.machineType === 'TENNIS';
-      return true;
-    });
-  }, [packages, machineFilter]);
+    let filtered = packages;
+    if (machineFilter !== 'all') {
+      const card = MACHINE_CARDS.find(c => c.id === machineFilter);
+      if (card) {
+        filtered = filtered.filter(pkg => pkg.machineType === card.category);
+      }
+    }
+    if (timingFilter) {
+      filtered = filtered.filter(pkg => pkg.timingType === timingFilter);
+    }
+    return filtered;
+  }, [packages, machineFilter, timingFilter]);
 
   const leatherPackages = filteredPackages.filter(p => p.machineType === 'LEATHER');
   const tennisPackages = filteredPackages.filter(p => p.machineType === 'TENNIS');
@@ -272,28 +278,75 @@ export default function PackagesPage() {
         {/* BROWSE PACKAGES TAB */}
         {tab === 'browse' && (
           <div>
-            {/* Machine Filter */}
-            <div className="flex items-center gap-2 mb-5">
-              <Filter className="w-4 h-4 text-slate-400" />
-              <span className="text-[11px] font-medium text-slate-500 uppercase tracking-wider mr-1">Filter:</span>
-              {([
-                { key: 'all' as MachineFilter, label: 'All Machines' },
-                { key: 'leather' as MachineFilter, label: 'Leather Machines' },
-                { key: 'tennis' as MachineFilter, label: 'Tennis Machines' },
-              ]).map(f => (
-                <button
-                  key={f.key}
-                  onClick={() => setMachineFilter(f.key)}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
-                    machineFilter === f.key
-                      ? 'bg-accent/15 text-accent border border-accent/30'
-                      : 'bg-white/[0.04] text-slate-400 border border-white/[0.08] hover:border-accent/20'
-                  }`}
-                >
-                  {f.label}
-                </button>
-              ))}
+            {/* Machine Selection - 4 boxes like /slots page */}
+            <div className="mb-5">
+              <label className="block text-xs font-bold text-white mb-2 uppercase tracking-wider">
+                Select Machine
+              </label>
+              <div className="grid grid-cols-2 gap-2">
+                {MACHINE_CARDS.map((card) => {
+                  const isSelected = machineFilter === card.id;
+                  return (
+                    <button
+                      key={card.id}
+                      onClick={() => { setMachineFilter(isSelected ? 'all' : card.id); setTimingFilter(''); }}
+                      className={`flex items-center gap-2.5 px-2.5 py-2 rounded-xl transition-all cursor-pointer text-left ${
+                        isSelected
+                          ? 'bg-accent/15 ring-2 ring-accent/50 shadow-sm'
+                          : 'bg-white/[0.04] border border-white/[0.08] hover:border-accent/30'
+                      }`}
+                    >
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        src={card.image}
+                        alt={card.label}
+                        className="w-9 h-9 rounded-lg object-cover flex-shrink-0"
+                      />
+                      <div className="min-w-0">
+                        <span className={`text-[11px] font-bold truncate block ${isSelected ? 'text-accent' : 'text-slate-300'}`}>
+                          {card.label}
+                        </span>
+                        <p className={`text-[9px] ${isSelected ? 'text-accent/70' : 'text-slate-600'}`}>
+                          {card.shortLabel}
+                        </p>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
             </div>
+
+            {/* Day / Evening Selector - shown when a machine is selected */}
+            {machineFilter !== 'all' && (
+              <div className="mb-5">
+                <label className="block text-[10px] font-bold text-slate-400 mb-2 uppercase tracking-wider">
+                  Timing
+                </label>
+                <div className="flex gap-2">
+                  {([
+                    { key: 'DAY' as const, label: 'Day', sub: '7:00 AM – 5:00 PM' },
+                    { key: 'EVENING' as const, label: 'Evening', sub: '7:00 PM – 10:30 PM' },
+                  ]).map(t => (
+                    <button
+                      key={t.key}
+                      onClick={() => setTimingFilter(timingFilter === t.key ? '' : t.key)}
+                      className={`flex-1 px-3 py-2.5 rounded-xl text-center transition-all cursor-pointer ${
+                        timingFilter === t.key
+                          ? 'bg-accent/15 ring-2 ring-accent/50 shadow-sm'
+                          : 'bg-white/[0.04] border border-white/[0.08] hover:border-accent/30'
+                      }`}
+                    >
+                      <span className={`text-xs font-bold block ${timingFilter === t.key ? 'text-accent' : 'text-slate-300'}`}>
+                        {t.label}
+                      </span>
+                      <span className={`text-[9px] ${timingFilter === t.key ? 'text-accent/70' : 'text-slate-600'}`}>
+                        {t.sub}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
 
             {loading ? (
               <div className="flex items-center justify-center py-12 text-slate-400">
@@ -308,11 +361,11 @@ export default function PackagesPage() {
             ) : (
               <div className="space-y-6">
                 {/* Leather Machines Section */}
-                {(machineFilter === 'all' || machineFilter === 'leather') && leatherPackages.length > 0 && (
+                {(machineFilter === 'all' || MACHINE_CARDS.find(c => c.id === machineFilter)?.category === 'LEATHER') && leatherPackages.length > 0 && (
                   <div>
                     <div className="flex items-center gap-2 mb-3">
                       <span className="w-2.5 h-2.5 rounded-full bg-red-500"></span>
-                      <h3 className="text-sm font-bold text-white">Leather Machines</h3>
+                      <h3 className="text-sm font-bold text-white">Leather Ball Machines</h3>
                       <span className="text-[10px] text-slate-500 bg-white/[0.04] px-2 py-0.5 rounded-full">{leatherPackages.length}</span>
                     </div>
                     <div className="bg-white/[0.03] rounded-xl border border-white/[0.06] overflow-hidden">
@@ -379,7 +432,7 @@ export default function PackagesPage() {
                 )}
 
                 {/* Tennis Machines Section */}
-                {(machineFilter === 'all' || machineFilter === 'tennis') && tennisPackages.length > 0 && (
+                {(machineFilter === 'all' || MACHINE_CARDS.find(c => c.id === machineFilter)?.category === 'TENNIS') && tennisPackages.length > 0 && (
                   <div>
                     <div className="flex items-center gap-2 mb-3">
                       <span className="w-2.5 h-2.5 rounded-full bg-green-500"></span>
@@ -467,7 +520,7 @@ export default function PackagesPage() {
                     ? 'bg-red-500/15 text-red-400'
                     : 'bg-green-500/15 text-green-400'
                 }`}>
-                  {selectedPackage.machineType === 'LEATHER' ? 'Leather Machine' : 'Tennis Machine'}
+                  {selectedPackage.machineType === 'LEATHER' ? 'Leather Ball Machine' : 'Tennis Machine'}
                 </span>
               </div>
               <button
@@ -481,7 +534,7 @@ export default function PackagesPage() {
             <div className="space-y-4">
               {/* Details Grid */}
               <div className="grid grid-cols-2 gap-3">
-                <DetailItem label="Machine" value={selectedPackage.machineType === 'LEATHER' ? 'Leather' : 'Tennis'} />
+                <DetailItem label="Machine" value={selectedPackage.machineType === 'LEATHER' ? 'Leather Ball' : 'Tennis'} />
                 {selectedPackage.machineType === 'LEATHER' && (
                   <DetailItem label="Ball Type" value={labelMap[selectedPackage.ballType] || selectedPackage.ballType} />
                 )}

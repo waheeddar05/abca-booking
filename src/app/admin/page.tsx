@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useSession } from 'next-auth/react';
-import { CalendarCheck, Activity, UserPlus, CalendarDays, Settings, Clock, IndianRupee, TrendingUp, Percent, Save, Loader2, Zap, Wrench, CalendarPlus, Check } from 'lucide-react';
+import { CalendarCheck, Activity, UserPlus, CalendarDays, Settings, Clock, IndianRupee, TrendingUp, Save, Loader2, Zap, Wrench, CalendarPlus, Check } from 'lucide-react';
 
 interface Stats {
   totalBookings: number;
@@ -11,18 +11,9 @@ interface Stats {
   todayBookings: number;
   upcomingBookings: number;
   lastMonthBookings: number;
-  totalSlots: number;
   totalRevenue: number;
   totalDiscount: number;
   systemStatus: string;
-}
-
-interface DiscountConfig {
-  enabled: boolean;
-  minSlots: number;
-  discountType: string;
-  discountValue: number;
-  defaultSlotPrice: number;
 }
 
 interface SlabPricing {
@@ -40,6 +31,7 @@ interface PricingConfig {
   leather: PitchPricing;
   yantra: PitchPricing;
   machine: PitchPricing;
+  yantra_machine: PitchPricing;
   tennis: PitchPricing;
 }
 
@@ -124,6 +116,20 @@ const DEFAULT_PRICING: PricingConfig = {
       evening: { single: 600, consecutive: 1000 },
     },
   },
+  yantra_machine: {
+    ASTRO: {
+      morning: { single: 600, consecutive: 1000 },
+      evening: { single: 700, consecutive: 1200 },
+    },
+    CEMENT: {
+      morning: { single: 600, consecutive: 1000 },
+      evening: { single: 700, consecutive: 1200 },
+    },
+    NATURAL: {
+      morning: { single: 600, consecutive: 1000 },
+      evening: { single: 700, consecutive: 1200 },
+    },
+  },
   tennis: {
     ASTRO: {
       morning: { single: 500, consecutive: 800 },
@@ -172,17 +178,6 @@ export default function AdminDashboard() {
   const { data: session } = useSession();
   const [stats, setStats] = useState<Stats | null>(null);
   const [loading, setLoading] = useState(true);
-  const [discountConfig, setDiscountConfig] = useState<DiscountConfig>({
-    enabled: false,
-    minSlots: 2,
-    discountType: 'PERCENTAGE',
-    discountValue: 0,
-    defaultSlotPrice: 600,
-  });
-  const [discountLoading, setDiscountLoading] = useState(true);
-  const [savingDiscount, setSavingDiscount] = useState(false);
-  const [discountMessage, setDiscountMessage] = useState({ text: '', type: '' });
-
   const [machineConfig, setMachineConfig] = useState<MachineConfig>({
     leatherMachine: { ballTypeSelectionEnabled: false, pitchTypeSelectionEnabled: false, leatherBallExtraCharge: 100, machineBallExtraCharge: 0 },
     tennisMachine: { pitchTypeSelectionEnabled: false, astroPitchPrice: 600, turfPitchPrice: 700 },
@@ -212,29 +207,18 @@ export default function AdminDashboard() {
       }
     }
 
-    async function fetchDiscountConfig() {
-      try {
-        const response = await fetch('/api/admin/discount-config');
-        if (response.ok) {
-          const data = await response.json();
-          setDiscountConfig(data);
-        }
-      } catch (error) {
-        console.error('Failed to fetch discount config:', error);
-      } finally {
-        setDiscountLoading(false);
-      }
-    }
-
     async function fetchMachineConfig() {
       try {
         const response = await fetch('/api/admin/machine-config');
         if (response.ok) {
           const data = await response.json();
           const pc = data.pricingConfig || DEFAULT_PRICING;
-          // Ensure yantra tier exists (backward compat with old configs)
+          // Ensure yantra tiers exist (backward compat with old configs)
           if (!pc.yantra) {
             pc.yantra = JSON.parse(JSON.stringify(pc.leather || DEFAULT_PRICING.leather));
+          }
+          if (!pc.yantra_machine) {
+            pc.yantra_machine = JSON.parse(JSON.stringify(pc.machine || DEFAULT_PRICING.yantra_machine));
           }
           setMachineConfig({
             ...data,
@@ -251,31 +235,9 @@ export default function AdminDashboard() {
     }
 
     fetchStats();
-    fetchDiscountConfig();
     fetchMachineConfig();
   }, []);
 
-  const handleSaveDiscount = async () => {
-    setSavingDiscount(true);
-    setDiscountMessage({ text: '', type: '' });
-    try {
-      const res = await fetch('/api/admin/discount-config', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(discountConfig),
-      });
-      if (res.ok) {
-        setDiscountMessage({ text: 'Discount configuration saved', type: 'success' });
-      } else {
-        const data = await res.json();
-        setDiscountMessage({ text: data.error || 'Failed to save', type: 'error' });
-      }
-    } catch {
-      setDiscountMessage({ text: 'Failed to save configuration', type: 'error' });
-    } finally {
-      setSavingDiscount(false);
-    }
-  };
 
   const handleSaveMachine = async () => {
     setSavingMachine(true);
@@ -340,7 +302,6 @@ export default function AdminDashboard() {
     { label: 'Total Bookings', value: stats?.totalBookings ?? 0, icon: CalendarCheck, color: 'text-primary', bg: 'bg-accent/10', href: '/admin/bookings' },
     { label: 'Today', value: stats?.todayBookings ?? 0, icon: CalendarDays, color: 'text-orange-600', bg: 'bg-orange-500/10', href: '/admin/bookings?category=today' },
     { label: 'Upcoming', value: stats?.upcomingBookings ?? 0, icon: TrendingUp, color: 'text-blue-600', bg: 'bg-blue-500/10', href: '/admin/bookings?category=upcoming' },
-    { label: 'Total Slots', value: stats?.totalSlots ?? 0, icon: Clock, color: 'text-purple-600', bg: 'bg-purple-500/10', href: '/admin/slots' },
     { label: 'Revenue', value: stats?.totalRevenue ? `₹${stats.totalRevenue.toLocaleString()}` : '₹0', icon: IndianRupee, color: 'text-green-600', bg: 'bg-green-500/10', isText: true, href: '/admin/bookings' },
     { label: 'System Status', value: stats?.systemStatus ?? 'Healthy', icon: Activity, color: 'text-green-600', bg: 'bg-green-500/10', isText: true, href: '/admin/policies' },
   ];
@@ -644,12 +605,13 @@ export default function AdminDashboard() {
             <div className="pt-4 border-t border-white/[0.06]">
               <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">Slot Pricing Configuration</h3>
 
-              {(['leather', 'yantra', 'machine', 'tennis'] as const).map(category => (
+              {(['leather', 'yantra', 'machine', 'yantra_machine', 'tennis'] as const).map(category => (
                 <div key={category} className="mb-6">
                   <h4 className="text-[11px] font-bold text-accent uppercase tracking-widest mb-3 px-1">
                     {category === 'leather' ? 'Gravity (Leather) - Leather Balls' :
                      category === 'yantra' ? 'Yantra (Premium Leather) - Leather Balls' :
                      category === 'machine' ? 'Gravity (Leather) - Machine Balls' :
+                     category === 'yantra_machine' ? 'Yantra (Premium Leather) - Machine Balls' :
                      'Tennis Ball Machine'}
                   </h4>
                   
@@ -710,90 +672,6 @@ export default function AdminDashboard() {
         )}
       </div>
 
-      {/* Discount Configuration */}
-      <div className="bg-white/[0.04] backdrop-blur-sm rounded-xl border border-white/[0.08] p-5">
-        <div className="flex items-center gap-2 mb-4">
-          <Percent className="w-5 h-5 text-primary" />
-          <h2 className="text-sm font-semibold text-white">Consecutive Slot Discount</h2>
-        </div>
-
-        {discountLoading ? (
-          <div className="flex items-center justify-center py-8 text-slate-400">
-            <Loader2 className="w-5 h-5 animate-spin mr-2" />
-            <span className="text-sm">Loading configuration...</span>
-          </div>
-        ) : (
-          <div className="space-y-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-slate-300">Enable Consecutive Discount</p>
-                <p className="text-xs text-slate-400">Apply discount when users book consecutive slots</p>
-              </div>
-              <button
-                onClick={() => setDiscountConfig(prev => ({ ...prev, enabled: !prev.enabled }))}
-                className={`relative w-12 h-7 rounded-full transition-colors cursor-pointer ${
-                  discountConfig.enabled ? 'bg-primary' : 'bg-white/[0.1]'
-                }`}
-              >
-                <span className={`absolute top-1 w-5 h-5 rounded-full bg-white shadow transition-transform ${
-                  discountConfig.enabled ? 'left-6' : 'left-1'
-                }`} />
-              </button>
-            </div>
-
-            {discountConfig.enabled && (
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-3 border-t border-white/[0.06]">
-                <div>
-                  <label className="block text-[11px] font-medium text-slate-400 mb-1">Default Slot Price</label>
-                  <div className="relative">
-                    <IndianRupee className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
-                    <input type="number" value={discountConfig.defaultSlotPrice} onChange={e => setDiscountConfig(prev => ({ ...prev, defaultSlotPrice: Number(e.target.value) }))} min="0" className="w-full bg-white/[0.04] border border-white/[0.1] text-white placeholder:text-slate-500 rounded-lg pl-9 pr-3 py-2.5 text-sm outline-none focus:border-accent focus:ring-1 focus:ring-accent/20" />
-                  </div>
-                </div>
-                <div>
-                  <label className="block text-[11px] font-medium text-slate-400 mb-1">Min Consecutive Slots</label>
-                  <input type="number" value={discountConfig.minSlots} onChange={e => setDiscountConfig(prev => ({ ...prev, minSlots: Number(e.target.value) }))} min="2" className={inputClass} />
-                </div>
-                <div>
-                  <label className="block text-[11px] font-medium text-slate-400 mb-1">Discount Type</label>
-                  <select value={discountConfig.discountType} onChange={e => setDiscountConfig(prev => ({ ...prev, discountType: e.target.value }))} className={`${inputClass} cursor-pointer`}>
-                    <option value="PERCENTAGE">Percentage (%)</option>
-                    <option value="FIXED">Fixed Amount (₹)</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-[11px] font-medium text-slate-400 mb-1">Discount Value {discountConfig.discountType === 'PERCENTAGE' ? '(%)' : '(₹)'}</label>
-                  <input type="number" value={discountConfig.discountValue} onChange={e => setDiscountConfig(prev => ({ ...prev, discountValue: Number(e.target.value) }))} min="0" max={discountConfig.discountType === 'PERCENTAGE' ? 100 : undefined} className={inputClass} />
-                </div>
-              </div>
-            )}
-
-            {!discountConfig.enabled && (
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-3 border-t border-white/[0.06]">
-                <div>
-                  <label className="block text-[11px] font-medium text-slate-400 mb-1">Default Slot Price</label>
-                  <div className="relative">
-                    <IndianRupee className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
-                    <input type="number" value={discountConfig.defaultSlotPrice} onChange={e => setDiscountConfig(prev => ({ ...prev, defaultSlotPrice: Number(e.target.value) }))} min="0" className="w-full bg-white/[0.04] border border-white/[0.1] text-white placeholder:text-slate-500 rounded-lg pl-9 pr-3 py-2.5 text-sm outline-none focus:border-accent focus:ring-1 focus:ring-accent/20" />
-                  </div>
-                </div>
-              </div>
-            )}
-
-            <div className="flex items-center gap-3 pt-3">
-              <button onClick={handleSaveDiscount} disabled={savingDiscount} className="inline-flex items-center gap-2 bg-accent hover:bg-accent-light text-primary px-5 py-2.5 rounded-lg text-sm font-medium transition-colors cursor-pointer disabled:opacity-50">
-                {savingDiscount ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-                Save Discount Config
-              </button>
-              {discountMessage.text && (
-                <span className={`text-sm ${discountMessage.type === 'success' ? 'text-green-400' : 'text-red-400'}`}>
-                  {discountMessage.text}
-                </span>
-              )}
-            </div>
-          </div>
-        )}
-      </div>
     </div>
   );
 }

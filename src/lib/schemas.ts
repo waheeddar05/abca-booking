@@ -24,7 +24,7 @@ export const SlotSchema = z.object({
 });
 
 export const AvailableSlotSchema = SlotSchema.extend({
-  status: z.enum(['Available', 'Booked', 'OperatorUnavailable']),
+  status: z.enum(['Available', 'Booked', 'OperatorUnavailable', 'Blocked']),
 });
 
 // ─── Booking Request ─────────────────────────────────────
@@ -104,6 +104,7 @@ export const PricingConfigSchema = z.object({
   leather: PitchPricingSchema,
   yantra: PitchPricingSchema,
   machine: PitchPricingSchema,
+  yantra_machine: PitchPricingSchema,
   tennis: PitchPricingSchema,
 });
 

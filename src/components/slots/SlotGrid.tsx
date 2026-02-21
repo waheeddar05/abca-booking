@@ -57,7 +57,7 @@ export function SlotGrid({
               slot={slot}
               isSelected={selectedSlots.some(s => s.startTime === slot.startTime)}
               isLeatherMachine={isLeatherMachine}
-              isDisabled={slot.status === 'Booked' || slot.status === 'OperatorUnavailable' || bookingLoading}
+              isDisabled={slot.status === 'Booked' || slot.status === 'OperatorUnavailable' || slot.status === 'Blocked' || bookingLoading}
               selectedPackageId={selectedPackageId}
               packageValidation={packageValidation}
               displayPrice={getSlotDisplayPrice(slot)}

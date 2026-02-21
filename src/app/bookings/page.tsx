@@ -18,6 +18,7 @@ interface Booking {
   discountAmount: number | null;
   extraCharge: number | null;
   operationMode: 'WITH_OPERATOR' | 'SELF_OPERATE';
+  cancelledBy: string | null;
 }
 
 export default function BookingsPage() {
@@ -142,9 +143,14 @@ export default function BookingsPage() {
               <div key={booking.id} className="bg-white/[0.04] backdrop-blur-sm rounded-xl border border-white/[0.08] p-4 transition-all hover:bg-white/[0.06]">
                 {/* Top Row: Status + Cancel */}
                 <div className="flex items-center justify-between mb-3">
-                  <div className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold ${status.bg} ${status.text}`}>
-                    <span className={`w-1.5 h-1.5 rounded-full ${status.dot}`}></span>
-                    {status.label}
+                  <div className="flex items-center gap-2">
+                    <div className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold ${status.bg} ${status.text}`}>
+                      <span className={`w-1.5 h-1.5 rounded-full ${status.dot}`}></span>
+                      {status.label}
+                    </div>
+                    {booking.status === 'CANCELLED' && booking.cancelledBy && (
+                      <span className="text-[10px] text-red-400/70 italic">by {booking.cancelledBy}</span>
+                    )}
                   </div>
                   {canCancel && (
                     <button

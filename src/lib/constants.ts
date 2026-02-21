@@ -33,7 +33,7 @@ export const MACHINES: Record<MachineId, MachineDefinition> = {
   },
   LEVERAGE_INDOOR: {
     id: 'LEVERAGE_INDOOR',
-    name: 'Leverage High Speed Tennis (Indoor)',
+    name: 'Leverage Tennis (Indoor)',
     shortName: 'Tennis Indoor',
     ballType: 'TENNIS',
     category: 'TENNIS',
@@ -42,7 +42,7 @@ export const MACHINES: Record<MachineId, MachineDefinition> = {
   },
   LEVERAGE_OUTDOOR: {
     id: 'LEVERAGE_OUTDOOR',
-    name: 'Leverage High Speed Tennis (Outdoor)',
+    name: 'Leverage Tennis (Outdoor)',
     shortName: 'Tennis Outdoor',
     ballType: 'TENNIS',
     category: 'TENNIS',
