@@ -1,8 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { requireAdmin } from '@/lib/adminAuth';
-import { DEFAULT_PRICING_CONFIG, DEFAULT_TIME_SLABS } from '@/lib/pricing';
+import { DEFAULT_PRICING_CONFIG, DEFAULT_TIME_SLABS, normalizePricingConfig } from '@/lib/pricing';
 import type { PricingConfig, TimeSlabConfig } from '@/lib/pricing';
+import { DEFAULT_MACHINE_PITCH_CONFIG, ALL_MACHINE_IDS, MACHINES } from '@/lib/constants';
+import type { MachinePitchConfig } from '@/lib/constants';
 
 const MACHINE_CONFIG_KEYS = [
   'BALL_TYPE_SELECTION_ENABLED',
@@ -15,6 +17,7 @@ const MACHINE_CONFIG_KEYS = [
   'NUMBER_OF_OPERATORS',
   'PRICING_CONFIG',
   'TIME_SLAB_CONFIG',
+  'MACHINE_PITCH_CONFIG',
 ];
 
 export async function GET(req: NextRequest) {
@@ -36,7 +39,7 @@ export async function GET(req: NextRequest) {
     let pricingConfig: PricingConfig = DEFAULT_PRICING_CONFIG;
     if (config['PRICING_CONFIG']) {
       try {
-        pricingConfig = JSON.parse(config['PRICING_CONFIG']);
+        pricingConfig = normalizePricingConfig(JSON.parse(config['PRICING_CONFIG']));
       } catch { /* use default */ }
     }
 
@@ -47,7 +50,32 @@ export async function GET(req: NextRequest) {
       } catch { /* use default */ }
     }
 
+    let machinePitchConfig: MachinePitchConfig = DEFAULT_MACHINE_PITCH_CONFIG;
+    if (config['MACHINE_PITCH_CONFIG']) {
+      try {
+        machinePitchConfig = JSON.parse(config['MACHINE_PITCH_CONFIG']);
+      } catch { /* use default */ }
+    }
+
+    // Build per-machine info
+    const machines = ALL_MACHINE_IDS.map(id => {
+      const def = MACHINES[id];
+      return {
+        id: def.id,
+        name: def.name,
+        shortName: def.shortName,
+        ballType: def.ballType,
+        category: def.category,
+        enabledPitchTypes: machinePitchConfig[id] || def.defaultPitchTypes,
+        allPitchTypes: def.allPitchTypes,
+      };
+    });
+
     return NextResponse.json({
+      machines,
+      machinePitchConfig,
+
+      // Legacy fields
       leatherMachine: {
         ballTypeSelectionEnabled: config['BALL_TYPE_SELECTION_ENABLED'] === 'true',
         pitchTypeSelectionEnabled: config['LEATHER_PITCH_TYPE_SELECTION_ENABLED'] === 'true',
@@ -77,10 +105,18 @@ export async function POST(req: NextRequest) {
     }
 
     const body = await req.json();
-    const { leatherMachine, tennisMachine, numberOfOperators, pricingConfig, timeSlabConfig } = body;
+    const {
+      leatherMachine,
+      tennisMachine,
+      numberOfOperators,
+      pricingConfig,
+      timeSlabConfig,
+      machinePitchConfig,
+    } = body;
 
     const updates: Array<{ key: string; value: string }> = [];
 
+    // Legacy leather machine config
     if (leatherMachine) {
       if (leatherMachine.ballTypeSelectionEnabled !== undefined) {
         updates.push({ key: 'BALL_TYPE_SELECTION_ENABLED', value: String(leatherMachine.ballTypeSelectionEnabled) });
@@ -96,6 +132,7 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    // Legacy tennis machine config
     if (tennisMachine) {
       if (tennisMachine.pitchTypeSelectionEnabled !== undefined) {
         updates.push({ key: 'PITCH_TYPE_SELECTION_ENABLED', value: String(tennisMachine.pitchTypeSelectionEnabled) });
@@ -119,6 +156,22 @@ export async function POST(req: NextRequest) {
 
     if (timeSlabConfig !== undefined) {
       updates.push({ key: 'TIME_SLAB_CONFIG', value: JSON.stringify(timeSlabConfig) });
+    }
+
+    // New: Machine-Pitch compatibility config
+    if (machinePitchConfig !== undefined) {
+      // Validate the config structure
+      for (const machineId of ALL_MACHINE_IDS) {
+        if (machinePitchConfig[machineId] !== undefined) {
+          if (!Array.isArray(machinePitchConfig[machineId])) {
+            return NextResponse.json(
+              { error: `Invalid pitch types for machine ${machineId}` },
+              { status: 400 }
+            );
+          }
+        }
+      }
+      updates.push({ key: 'MACHINE_PITCH_CONFIG', value: JSON.stringify(machinePitchConfig) });
     }
 
     for (const { key, value } of updates) {

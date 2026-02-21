@@ -125,7 +125,7 @@ export function generateSlotsForDate(date: Date, config?: { startHour?: number; 
 }
 
 export function filterPastSlots(slots: { startTime: Date; endTime: Date }[]) {
-  const now = new Date();
+  const now = getISTTime();
   return slots.filter(slot => isAfter(slot.startTime, now));
 }
 

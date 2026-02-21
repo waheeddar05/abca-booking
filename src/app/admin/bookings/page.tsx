@@ -275,27 +275,32 @@ function AdminBookingsContent() {
       </div>
 
       {/* Filters */}
-      <div className="bg-white/[0.04] backdrop-blur-sm rounded-xl border border-white/[0.08] p-4 mb-5">
-        <div className="flex items-center justify-between mb-3">
+      <div className="bg-white/[0.06] backdrop-blur-sm rounded-xl border border-white/[0.12] p-5 mb-5">
+        <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-2">
-            <Filter className="w-4 h-4 text-slate-400" />
-            <span className="text-xs font-medium text-slate-400 uppercase tracking-wider">Filters</span>
+            <Filter className="w-4 h-4 text-accent" />
+            <span className="text-sm font-semibold text-white uppercase tracking-wider">Filters</span>
           </div>
           <button
             onClick={() => setShowDateRange(!showDateRange)}
-            className="text-xs text-primary font-medium cursor-pointer hover:underline"
+            className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold cursor-pointer transition-all ${
+              showDateRange
+                ? 'bg-accent/15 text-accent border border-accent/30'
+                : 'bg-white/[0.06] text-slate-300 border border-white/[0.12] hover:border-accent/30 hover:text-accent'
+            }`}
           >
-            {showDateRange ? 'Hide date range' : 'Date range filter'}
+            <Calendar className="w-3.5 h-3.5" />
+            {showDateRange ? 'Hide Date Range' : 'Date Range Filter'}
           </button>
         </div>
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           <div>
-            <label className="block text-[11px] font-medium text-slate-400 mb-1">Status</label>
+            <label className="block text-[11px] font-semibold text-slate-300 mb-1.5">Status</label>
             <select
               name="status"
               value={filters.status}
               onChange={handleFilterChange}
-              className="w-full bg-white/[0.04] border border-white/[0.1] text-white rounded-lg px-3 py-2 text-sm outline-none focus:border-primary focus:ring-1 focus:ring-primary/20 cursor-pointer"
+              className="w-full bg-white/[0.06] border border-white/[0.15] text-white rounded-lg px-3 py-2.5 text-sm outline-none focus:border-accent focus:ring-1 focus:ring-accent/20 cursor-pointer"
             >
               <option value="">All</option>
               <option value="BOOKED">Booked</option>
@@ -303,21 +308,21 @@ function AdminBookingsContent() {
             </select>
           </div>
           <div>
-            <label className="block text-[11px] font-medium text-slate-400 mb-1">Customer</label>
+            <label className="block text-[11px] font-semibold text-slate-300 mb-1.5">Customer</label>
             <div className="relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-300" />
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
               <input
                 type="text"
                 name="customer"
                 placeholder="Search name or email..."
                 value={filters.customer}
                 onChange={handleFilterChange}
-                className="w-full bg-white/[0.04] border border-white/[0.1] text-white placeholder:text-slate-500 rounded-lg pl-9 pr-3 py-2 text-sm outline-none focus:border-primary focus:ring-1 focus:ring-primary/20"
+                className="w-full bg-white/[0.06] border border-white/[0.15] text-white placeholder:text-slate-500 rounded-lg pl-9 pr-3 py-2.5 text-sm outline-none focus:border-accent focus:ring-1 focus:ring-accent/20"
               />
             </div>
           </div>
           <div>
-            <label className="block text-[11px] font-medium text-slate-400 mb-1">Single Date</label>
+            <label className="block text-[11px] font-semibold text-slate-300 mb-1.5">Single Date</label>
             <input
               type="date"
               name="date"
@@ -326,14 +331,14 @@ function AdminBookingsContent() {
                 setFilters(prev => ({ ...prev, date: e.target.value, from: '', to: '' }));
                 setPagination(prev => ({ ...prev, page: 1 }));
               }}
-              className="w-full bg-white/[0.04] border border-white/[0.1] text-white placeholder:text-slate-500 rounded-lg px-3 py-2 text-sm outline-none focus:border-primary focus:ring-1 focus:ring-primary/20"
+              className="w-full bg-white/[0.06] border border-white/[0.15] text-white placeholder:text-slate-500 rounded-lg px-3 py-2.5 text-sm outline-none focus:border-accent focus:ring-1 focus:ring-accent/20"
             />
           </div>
         </div>
         {showDateRange && (
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-3 pt-3 border-t border-white/[0.04]">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-4 pt-4 border-t border-white/[0.08]">
             <div>
-              <label className="block text-[11px] font-medium text-slate-400 mb-1">From Date</label>
+              <label className="block text-[11px] font-semibold text-slate-300 mb-1.5">From Date</label>
               <input
                 type="date"
                 name="from"
@@ -342,11 +347,11 @@ function AdminBookingsContent() {
                   setFilters(prev => ({ ...prev, from: e.target.value, date: '' }));
                   setPagination(prev => ({ ...prev, page: 1 }));
                 }}
-                className="w-full bg-white/[0.04] border border-white/[0.1] text-white placeholder:text-slate-500 rounded-lg px-3 py-2 text-sm outline-none focus:border-primary focus:ring-1 focus:ring-primary/20"
+                className="w-full bg-white/[0.06] border border-white/[0.15] text-white placeholder:text-slate-500 rounded-lg px-3 py-2.5 text-sm outline-none focus:border-accent focus:ring-1 focus:ring-accent/20"
               />
             </div>
             <div>
-              <label className="block text-[11px] font-medium text-slate-400 mb-1">To Date</label>
+              <label className="block text-[11px] font-semibold text-slate-300 mb-1.5">To Date</label>
               <input
                 type="date"
                 name="to"
@@ -355,7 +360,7 @@ function AdminBookingsContent() {
                   setFilters(prev => ({ ...prev, to: e.target.value, date: '' }));
                   setPagination(prev => ({ ...prev, page: 1 }));
                 }}
-                className="w-full bg-white/[0.04] border border-white/[0.1] text-white placeholder:text-slate-500 rounded-lg px-3 py-2 text-sm outline-none focus:border-primary focus:ring-1 focus:ring-primary/20"
+                className="w-full bg-white/[0.06] border border-white/[0.15] text-white placeholder:text-slate-500 rounded-lg px-3 py-2.5 text-sm outline-none focus:border-accent focus:ring-1 focus:ring-accent/20"
               />
             </div>
           </div>

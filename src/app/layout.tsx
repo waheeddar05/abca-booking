@@ -16,7 +16,22 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: "Ankeet Bawane Cricket Academy - Book Practice Sessions",
-  description: "Book professional cricket practice sessions with advanced bowling machines at Ankeet Bawane Cricket Academy.",
+  description: "Book professional cricket practice sessions with advanced bowling machines at Ankeet Bawane Cricket Academy. 4 pro machines, 3 pitch types, flexible 30-min slots.",
+  openGraph: {
+    title: "Ankeet Bawane Cricket Academy",
+    description: "Book professional cricket practice sessions. 4 bowling machines, 3 pitch types, morning & evening slots.",
+    type: "website",
+    siteName: "ABCA Booking",
+  },
+  twitter: {
+    card: "summary",
+    title: "Ankeet Bawane Cricket Academy",
+    description: "Book professional cricket practice sessions with advanced bowling machines.",
+  },
+  icons: {
+    icon: "/images/logo-v2.jpeg",
+    apple: "/images/logo-v2.jpeg",
+  },
 };
 
 export const viewport: Viewport = {

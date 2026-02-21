@@ -5,25 +5,17 @@ export interface SlabPricing {
   consecutive: number;
 }
 
+export interface PitchPricing {
+  ASTRO: { morning: SlabPricing; evening: SlabPricing };
+  CEMENT: { morning: SlabPricing; evening: SlabPricing };
+  NATURAL: { morning: SlabPricing; evening: SlabPricing };
+}
+
 export interface PricingConfig {
-  leatherMachine: {
-    leather: {
-      morning: SlabPricing;
-      evening: SlabPricing;
-    };
-    machine: {
-      morning: SlabPricing;
-      evening: SlabPricing;
-    };
-  };
-  tennisMachine: {
-    morning: SlabPricing;
-    evening: SlabPricing;
-  };
-  cementWicket: {
-    morning: SlabPricing;
-    evening: SlabPricing;
-  };
+  leather: PitchPricing;
+  yantra: PitchPricing;
+  machine: PitchPricing;
+  tennis: PitchPricing;
 }
 
 export interface TimeSlabConfig {
@@ -32,23 +24,61 @@ export interface TimeSlabConfig {
 }
 
 export const DEFAULT_PRICING_CONFIG: PricingConfig = {
-  leatherMachine: {
-    leather: {
+  leather: {
+    ASTRO: {
       morning: { single: 600, consecutive: 1000 },
       evening: { single: 700, consecutive: 1200 },
     },
-    machine: {
+    CEMENT: {
+      morning: { single: 600, consecutive: 1000 },
+      evening: { single: 700, consecutive: 1200 },
+    },
+    NATURAL: {
+      morning: { single: 600, consecutive: 1000 },
+      evening: { single: 700, consecutive: 1200 },
+    },
+  },
+  yantra: {
+    ASTRO: {
+      morning: { single: 700, consecutive: 1200 },
+      evening: { single: 800, consecutive: 1400 },
+    },
+    CEMENT: {
+      morning: { single: 700, consecutive: 1200 },
+      evening: { single: 800, consecutive: 1400 },
+    },
+    NATURAL: {
+      morning: { single: 700, consecutive: 1200 },
+      evening: { single: 800, consecutive: 1400 },
+    },
+  },
+  machine: {
+    ASTRO: {
+      morning: { single: 500, consecutive: 800 },
+      evening: { single: 600, consecutive: 1000 },
+    },
+    CEMENT: {
+      morning: { single: 500, consecutive: 800 },
+      evening: { single: 600, consecutive: 1000 },
+    },
+    NATURAL: {
       morning: { single: 500, consecutive: 800 },
       evening: { single: 600, consecutive: 1000 },
     },
   },
-  tennisMachine: {
-    morning: { single: 500, consecutive: 800 },
-    evening: { single: 600, consecutive: 1000 },
-  },
-  cementWicket: {
-    morning: { single: 550, consecutive: 900 },
-    evening: { single: 650, consecutive: 1100 },
+  tennis: {
+    ASTRO: {
+      morning: { single: 500, consecutive: 800 },
+      evening: { single: 600, consecutive: 1000 },
+    },
+    CEMENT: {
+      morning: { single: 550, consecutive: 900 },
+      evening: { single: 650, consecutive: 1100 },
+    },
+    NATURAL: {
+      morning: { single: 550, consecutive: 900 },
+      evening: { single: 650, consecutive: 1100 },
+    },
   },
 };
 
@@ -100,29 +130,47 @@ export function getTimeSlab(
 }
 
 /**
+ * Resolve pricing tier key from category, ballType, and machineId.
+ */
+function resolvePricingTier(
+  category: 'MACHINE' | 'TENNIS',
+  ballType: string,
+  machineId?: string | null
+): keyof PricingConfig {
+  if (category === 'TENNIS') return 'tennis';
+  // Yantra has its own premium pricing tier
+  if (machineId === 'YANTRA') return 'yantra';
+  return ballType === 'LEATHER' ? 'leather' : 'machine';
+}
+
+/**
  * Get the single-slot price for a given configuration.
  * @param category - 'MACHINE' (leather machine) or 'TENNIS' (tennis machine)
  * @param ballType - 'LEATHER', 'MACHINE', or 'TENNIS'
  * @param pitchType - 'ASTRO' or 'TURF' (null for leather machine)
  * @param timeSlab - 'morning' or 'evening'
  * @param pricingConfig - the pricing config
+ * @param machineId - optional machine ID for machine-specific pricing (e.g. YANTRA)
  */
 export function getSlotPrice(
   category: 'MACHINE' | 'TENNIS',
   ballType: string,
   pitchType: string | null,
   timeSlab: 'morning' | 'evening',
-  pricingConfig: PricingConfig
+  pricingConfig: PricingConfig,
+  machineId?: string | null
 ): number {
-  if (category === 'MACHINE') {
-    const subType = ballType === 'LEATHER' ? 'leather' : 'machine';
-    return pricingConfig.leatherMachine[subType][timeSlab].single;
+  const pType = (pitchType as any) === 'TURF' ? 'CEMENT' : (pitchType || 'ASTRO');
+  const validPType = (pType === 'ASTRO' || pType === 'CEMENT' || pType === 'NATURAL') ? pType : 'ASTRO';
+
+  try {
+    const tier = resolvePricingTier(category, ballType, machineId);
+    return pricingConfig[tier][validPType][timeSlab].single;
+  } catch (e) {
+    console.error(`[Pricing] Error getting slot price for ${category}/${ballType}/${validPType}/${timeSlab}/${machineId}:`, e);
+    const tier = resolvePricingTier(category, ballType, machineId);
+    return DEFAULT_PRICING_CONFIG[tier][validPType][timeSlab].single;
   }
-  // Tennis machine
-  if (pitchType === 'TURF') {
-    return pricingConfig.cementWicket[timeSlab].single;
-  }
-  return pricingConfig.tennisMachine[timeSlab].single;
 }
 
 /**
@@ -133,16 +181,20 @@ export function getConsecutivePrice(
   ballType: string,
   pitchType: string | null,
   timeSlab: 'morning' | 'evening',
-  pricingConfig: PricingConfig
+  pricingConfig: PricingConfig,
+  machineId?: string | null
 ): number {
-  if (category === 'MACHINE') {
-    const subType = ballType === 'LEATHER' ? 'leather' : 'machine';
-    return pricingConfig.leatherMachine[subType][timeSlab].consecutive;
+  const pType = (pitchType as any) === 'TURF' ? 'CEMENT' : (pitchType || 'ASTRO');
+  const validPType = (pType === 'ASTRO' || pType === 'CEMENT' || pType === 'NATURAL') ? pType : 'ASTRO';
+
+  try {
+    const tier = resolvePricingTier(category, ballType, machineId);
+    return pricingConfig[tier][validPType][timeSlab].consecutive;
+  } catch (e) {
+    console.error(`[Pricing] Error getting consecutive price for ${category}/${ballType}/${validPType}/${timeSlab}/${machineId}:`, e);
+    const tier = resolvePricingTier(category, ballType, machineId);
+    return DEFAULT_PRICING_CONFIG[tier][validPType][timeSlab].consecutive;
   }
-  if (pitchType === 'TURF') {
-    return pricingConfig.cementWicket[timeSlab].consecutive;
-  }
-  return pricingConfig.tennisMachine[timeSlab].consecutive;
 }
 
 /**
@@ -154,12 +206,79 @@ export async function getPricingConfig(): Promise<PricingConfig> {
       where: { key: 'PRICING_CONFIG' },
     });
     if (policy?.value) {
-      return JSON.parse(policy.value) as PricingConfig;
+      const config = JSON.parse(policy.value);
+      return normalizePricingConfig(config);
     }
-  } catch {
-    // Fall back to default
+  } catch (error) {
+    console.warn('[Pricing] Error fetching/parsing config, using defaults:', error);
   }
   return DEFAULT_PRICING_CONFIG;
+}
+
+/**
+ * Normalizes old pricing config structures to the current one.
+ */
+export function normalizePricingConfig(config: any): PricingConfig {
+  // If it's already in the new format, return it
+  if (config.leather && config.machine && config.tennis) {
+    // Auto-populate yantra from leather if missing (backward compat)
+    if (!config.yantra) {
+      config.yantra = JSON.parse(JSON.stringify(config.leather));
+    }
+    // Ensure all pitch types exist for each category
+    const categories = ['leather', 'yantra', 'machine', 'tennis'] as const;
+    const pitches = ['ASTRO', 'CEMENT', 'NATURAL'] as const;
+    const slabs = ['morning', 'evening'] as const;
+
+    for (const cat of categories) {
+      if (!config[cat]) config[cat] = {};
+      for (const pitch of pitches) {
+        if (!config[cat][pitch]) {
+          config[cat][pitch] = JSON.parse(JSON.stringify(DEFAULT_PRICING_CONFIG[cat][pitch]));
+        }
+        for (const slab of slabs) {
+          if (!config[cat][pitch][slab]) {
+            config[cat][pitch][slab] = JSON.parse(JSON.stringify(DEFAULT_PRICING_CONFIG[cat][pitch][slab]));
+          }
+        }
+      }
+    }
+    return config as PricingConfig;
+  }
+
+  // Handle migration from old format
+  const normalized: any = JSON.parse(JSON.stringify(DEFAULT_PRICING_CONFIG));
+
+  try {
+    // Old leatherMachine.leather -> new leather
+    if (config.leatherMachine?.leather) {
+      for (const pitch of ['ASTRO', 'CEMENT', 'NATURAL'] as const) {
+        normalized.leather[pitch] = config.leatherMachine.leather;
+      }
+    }
+
+    // Old leatherMachine.machine -> new machine
+    if (config.leatherMachine?.machine) {
+      for (const pitch of ['ASTRO', 'CEMENT', 'NATURAL'] as const) {
+        normalized.machine[pitch] = config.leatherMachine.machine;
+      }
+    }
+
+    // Old tennisMachine -> new tennis.ASTRO
+    if (config.tennisMachine) {
+      normalized.tennis.ASTRO = config.tennisMachine;
+    }
+
+    // Old cementWicket -> new tennis.CEMENT and tennis.NATURAL
+    if (config.cementWicket) {
+      normalized.tennis.CEMENT = config.cementWicket;
+      normalized.tennis.NATURAL = config.cementWicket;
+    }
+  } catch (e) {
+    console.error('[Pricing] Failed to migrate old config:', e);
+  }
+
+  return normalized as PricingConfig;
 }
 
 /**
@@ -189,7 +308,8 @@ export function calculateNewPricing(
   ballType: string,
   pitchType: string | null,
   timeSlabs: TimeSlabConfig,
-  pricingConfig: PricingConfig
+  pricingConfig: PricingConfig,
+  machineId?: string | null
 ): Array<{
   startTime: Date;
   endTime: Date;
@@ -211,8 +331,8 @@ export function calculateNewPricing(
 
   return sorted.map(slot => {
     const slab = getTimeSlab(slot.startTime, timeSlabs);
-    const singlePrice = getSlotPrice(category, ballType, pitchType, slab, pricingConfig);
-    const consecutiveTotalFor2 = getConsecutivePrice(category, ballType, pitchType, slab, pricingConfig);
+    const singlePrice = getSlotPrice(category, ballType, pitchType, slab, pricingConfig, machineId);
+    const consecutiveTotalFor2 = getConsecutivePrice(category, ballType, pitchType, slab, pricingConfig, machineId);
     const consecutivePerSlot = consecutiveTotalFor2 / 2;
 
     const originalPrice = singlePrice;

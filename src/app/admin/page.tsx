@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useSession } from 'next-auth/react';
-import { CalendarCheck, Activity, UserPlus, CalendarDays, Settings, Clock, IndianRupee, TrendingUp, Percent, Save, Loader2, Zap, Wrench, CalendarPlus } from 'lucide-react';
+import { CalendarCheck, Activity, UserPlus, CalendarDays, Settings, Clock, IndianRupee, TrendingUp, Percent, Save, Loader2, Zap, Wrench, CalendarPlus, Check } from 'lucide-react';
 
 interface Stats {
   totalBookings: number;
@@ -30,13 +30,17 @@ interface SlabPricing {
   consecutive: number;
 }
 
+interface PitchPricing {
+  ASTRO: { morning: SlabPricing; evening: SlabPricing };
+  CEMENT: { morning: SlabPricing; evening: SlabPricing };
+  NATURAL: { morning: SlabPricing; evening: SlabPricing };
+}
+
 interface PricingConfig {
-  leatherMachine: {
-    leather: { morning: SlabPricing; evening: SlabPricing };
-    machine: { morning: SlabPricing; evening: SlabPricing };
-  };
-  tennisMachine: { morning: SlabPricing; evening: SlabPricing };
-  cementWicket: { morning: SlabPricing; evening: SlabPricing };
+  leather: PitchPricing;
+  yantra: PitchPricing;
+  machine: PitchPricing;
+  tennis: PitchPricing;
 }
 
 interface TimeSlabConfig {
@@ -44,7 +48,23 @@ interface TimeSlabConfig {
   evening: { start: string; end: string };
 }
 
+type MachineId = 'GRAVITY' | 'YANTRA' | 'LEVERAGE_INDOOR' | 'LEVERAGE_OUTDOOR';
+type PitchType = 'ASTRO' | 'CEMENT' | 'NATURAL';
+type MachinePitchConfig = Record<MachineId, PitchType[]>;
+
+interface MachineInfo {
+  id: MachineId;
+  name: string;
+  shortName: string;
+  ballType: string;
+  category: 'LEATHER' | 'TENNIS';
+  enabledPitchTypes: PitchType[];
+  allPitchTypes: PitchType[];
+}
+
 interface MachineConfig {
+  machines?: MachineInfo[];
+  machinePitchConfig?: MachinePitchConfig;
   leatherMachine: {
     ballTypeSelectionEnabled: boolean;
     pitchTypeSelectionEnabled: boolean;
@@ -62,23 +82,61 @@ interface MachineConfig {
 }
 
 const DEFAULT_PRICING: PricingConfig = {
-  leatherMachine: {
-    leather: {
+  leather: {
+    ASTRO: {
       morning: { single: 600, consecutive: 1000 },
       evening: { single: 700, consecutive: 1200 },
     },
-    machine: {
+    CEMENT: {
+      morning: { single: 600, consecutive: 1000 },
+      evening: { single: 700, consecutive: 1200 },
+    },
+    NATURAL: {
+      morning: { single: 600, consecutive: 1000 },
+      evening: { single: 700, consecutive: 1200 },
+    },
+  },
+  yantra: {
+    ASTRO: {
+      morning: { single: 700, consecutive: 1200 },
+      evening: { single: 800, consecutive: 1400 },
+    },
+    CEMENT: {
+      morning: { single: 700, consecutive: 1200 },
+      evening: { single: 800, consecutive: 1400 },
+    },
+    NATURAL: {
+      morning: { single: 700, consecutive: 1200 },
+      evening: { single: 800, consecutive: 1400 },
+    },
+  },
+  machine: {
+    ASTRO: {
+      morning: { single: 500, consecutive: 800 },
+      evening: { single: 600, consecutive: 1000 },
+    },
+    CEMENT: {
+      morning: { single: 500, consecutive: 800 },
+      evening: { single: 600, consecutive: 1000 },
+    },
+    NATURAL: {
       morning: { single: 500, consecutive: 800 },
       evening: { single: 600, consecutive: 1000 },
     },
   },
-  tennisMachine: {
-    morning: { single: 500, consecutive: 800 },
-    evening: { single: 600, consecutive: 1000 },
-  },
-  cementWicket: {
-    morning: { single: 550, consecutive: 900 },
-    evening: { single: 650, consecutive: 1100 },
+  tennis: {
+    ASTRO: {
+      morning: { single: 500, consecutive: 800 },
+      evening: { single: 600, consecutive: 1000 },
+    },
+    CEMENT: {
+      morning: { single: 550, consecutive: 900 },
+      evening: { single: 650, consecutive: 1100 },
+    },
+    NATURAL: {
+      morning: { single: 550, consecutive: 900 },
+      evening: { single: 650, consecutive: 1100 },
+    },
   },
 };
 
@@ -86,6 +144,29 @@ const DEFAULT_TIME_SLABS: TimeSlabConfig = {
   morning: { start: '07:00', end: '17:00' },
   evening: { start: '19:00', end: '22:30' },
 };
+
+const DEFAULT_MACHINE_PITCH_CONFIG: MachinePitchConfig = {
+  GRAVITY: ['ASTRO'],
+  YANTRA: ['ASTRO'],
+  LEVERAGE_INDOOR: ['ASTRO', 'CEMENT'],
+  LEVERAGE_OUTDOOR: ['ASTRO', 'CEMENT'],
+};
+
+const MACHINE_LABELS: Record<MachineId, { name: string; category: string }> = {
+  GRAVITY: { name: 'Gravity (Leather)', category: 'Leather' },
+  YANTRA: { name: 'Yantra (Premium Leather)', category: 'Leather' },
+  LEVERAGE_INDOOR: { name: 'Leverage Indoor', category: 'Tennis' },
+  LEVERAGE_OUTDOOR: { name: 'Leverage Outdoor', category: 'Tennis' },
+};
+
+const PITCH_TYPE_LABELS: Record<PitchType, string> = {
+  ASTRO: 'Astro Turf',
+  CEMENT: 'Cement',
+  NATURAL: 'Natural Turf',
+};
+
+const ALL_MACHINE_IDS: MachineId[] = ['GRAVITY', 'YANTRA', 'LEVERAGE_INDOOR', 'LEVERAGE_OUTDOOR'];
+const ALL_PITCH_TYPES: PitchType[] = ['ASTRO', 'CEMENT', 'NATURAL'];
 
 export default function AdminDashboard() {
   const { data: session } = useSession();
@@ -108,6 +189,7 @@ export default function AdminDashboard() {
     numberOfOperators: 1,
     pricingConfig: DEFAULT_PRICING,
     timeSlabConfig: DEFAULT_TIME_SLABS,
+    machinePitchConfig: DEFAULT_MACHINE_PITCH_CONFIG,
   });
   const [machineLoading, setMachineLoading] = useState(true);
   const [savingMachine, setSavingMachine] = useState(false);
@@ -149,10 +231,16 @@ export default function AdminDashboard() {
         const response = await fetch('/api/admin/machine-config');
         if (response.ok) {
           const data = await response.json();
+          const pc = data.pricingConfig || DEFAULT_PRICING;
+          // Ensure yantra tier exists (backward compat with old configs)
+          if (!pc.yantra) {
+            pc.yantra = JSON.parse(JSON.stringify(pc.leather || DEFAULT_PRICING.leather));
+          }
           setMachineConfig({
             ...data,
-            pricingConfig: data.pricingConfig || DEFAULT_PRICING,
+            pricingConfig: pc,
             timeSlabConfig: data.timeSlabConfig || DEFAULT_TIME_SLABS,
+            machinePitchConfig: data.machinePitchConfig || DEFAULT_MACHINE_PITCH_CONFIG,
           });
         }
       } catch (error) {
@@ -231,6 +319,21 @@ export default function AdminDashboard() {
         [slab]: { ...prev.timeSlabConfig[slab], [field]: value },
       },
     }));
+  };
+
+  const togglePitchType = (machineId: MachineId, pitchType: PitchType) => {
+    setMachineConfig(prev => {
+      const current = prev.machinePitchConfig || DEFAULT_MACHINE_PITCH_CONFIG;
+      const enabled = current[machineId] || [];
+      const isEnabled = enabled.includes(pitchType);
+      const updated = isEnabled
+        ? enabled.filter(p => p !== pitchType)
+        : [...enabled, pitchType];
+      return {
+        ...prev,
+        machinePitchConfig: { ...current, [machineId]: updated },
+      };
+    });
   };
 
   const statCards = [
@@ -421,6 +524,46 @@ export default function AdminDashboard() {
               </div>
             </div>
 
+            {/* Machine-Pitch Compatibility */}
+            <div className="pt-4 border-t border-white/[0.06]">
+              <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">Machine &mdash; Pitch Compatibility</h3>
+              <p className="text-xs text-slate-400 mb-3">Toggle which pitch types are available for each machine</p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {ALL_MACHINE_IDS.map(machineId => {
+                  const label = MACHINE_LABELS[machineId];
+                  const enabled = machineConfig.machinePitchConfig?.[machineId] || [];
+                  return (
+                    <div key={machineId} className="bg-white/[0.02] rounded-lg p-3 border border-white/[0.06]">
+                      <div className="flex items-center gap-2 mb-2">
+                        <span className={`w-2 h-2 rounded-full ${label.category === 'Leather' ? 'bg-red-400' : 'bg-green-400'}`} />
+                        <p className="text-xs font-semibold text-slate-300">{label.name}</p>
+                        <span className="text-[10px] text-slate-500">({label.category})</span>
+                      </div>
+                      <div className="flex gap-2">
+                        {ALL_PITCH_TYPES.map(pt => {
+                          const isOn = enabled.includes(pt);
+                          return (
+                            <button
+                              key={pt}
+                              onClick={() => togglePitchType(machineId, pt)}
+                              className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors cursor-pointer ${
+                                isOn
+                                  ? 'bg-primary/20 text-primary border border-primary/30'
+                                  : 'bg-white/[0.04] text-slate-500 border border-white/[0.08] hover:bg-white/[0.08]'
+                              }`}
+                            >
+                              {isOn && <Check className="w-3 h-3" />}
+                              {PITCH_TYPE_LABELS[pt]}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
             {/* Operator Configuration */}
             <div className="pt-4 border-t border-white/[0.06]">
               <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">Operator Configuration</h3>
@@ -501,49 +644,51 @@ export default function AdminDashboard() {
             <div className="pt-4 border-t border-white/[0.06]">
               <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">Slot Pricing Configuration</h3>
 
-              {/* Leather Ball Machine - Leather Balls */}
-              <div className="bg-white/[0.02] rounded-lg p-3 border border-white/[0.06] mb-3">
-                <p className="text-xs font-semibold text-slate-300 mb-2">Leather Ball Machine &mdash; Leather Balls</p>
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                  <PriceField label="Morning / Slot" value={machineConfig.pricingConfig.leatherMachine.leather.morning.single} onChange={v => updatePricing(['leatherMachine', 'leather', 'morning', 'single'], v)} />
-                  <PriceField label="Morning / 2 Consec." value={machineConfig.pricingConfig.leatherMachine.leather.morning.consecutive} onChange={v => updatePricing(['leatherMachine', 'leather', 'morning', 'consecutive'], v)} />
-                  <PriceField label="Evening / Slot" value={machineConfig.pricingConfig.leatherMachine.leather.evening.single} onChange={v => updatePricing(['leatherMachine', 'leather', 'evening', 'single'], v)} />
-                  <PriceField label="Evening / 2 Consec." value={machineConfig.pricingConfig.leatherMachine.leather.evening.consecutive} onChange={v => updatePricing(['leatherMachine', 'leather', 'evening', 'consecutive'], v)} />
+              {(['leather', 'yantra', 'machine', 'tennis'] as const).map(category => (
+                <div key={category} className="mb-6">
+                  <h4 className="text-[11px] font-bold text-accent uppercase tracking-widest mb-3 px-1">
+                    {category === 'leather' ? 'Gravity (Leather) - Leather Balls' :
+                     category === 'yantra' ? 'Yantra (Premium Leather) - Leather Balls' :
+                     category === 'machine' ? 'Gravity (Leather) - Machine Balls' :
+                     'Tennis Ball Machine'}
+                  </h4>
+                  
+                  {(['ASTRO', 'CEMENT', 'NATURAL'] as const).map(pitch => {
+                    const pitchPricing = machineConfig.pricingConfig?.[category]?.[pitch];
+                    if (!pitchPricing) return null;
+                    
+                    return (
+                      <div key={`${category}-${pitch}`} className="bg-white/[0.02] rounded-lg p-3 border border-white/[0.06] mb-3">
+                        <p className="text-xs font-semibold text-slate-300 mb-2">
+                          {pitch === 'ASTRO' ? 'Astro Turf' : pitch === 'CEMENT' ? 'Cement Wicket' : 'Natural Turf'}
+                        </p>
+                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                          <PriceField 
+                            label="Morning / Slot" 
+                            value={pitchPricing.morning.single} 
+                            onChange={v => updatePricing([category, pitch, 'morning', 'single'], v)} 
+                          />
+                          <PriceField 
+                            label="Morning / 2 Consec." 
+                            value={pitchPricing.morning.consecutive} 
+                            onChange={v => updatePricing([category, pitch, 'morning', 'consecutive'], v)} 
+                          />
+                          <PriceField 
+                            label="Evening / Slot" 
+                            value={pitchPricing.evening.single} 
+                            onChange={v => updatePricing([category, pitch, 'evening', 'single'], v)} 
+                          />
+                          <PriceField 
+                            label="Evening / 2 Consec." 
+                            value={pitchPricing.evening.consecutive} 
+                            onChange={v => updatePricing([category, pitch, 'evening', 'consecutive'], v)} 
+                          />
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
-              </div>
-
-              {/* Leather Ball Machine - Machine Balls */}
-              <div className="bg-white/[0.02] rounded-lg p-3 border border-white/[0.06] mb-3">
-                <p className="text-xs font-semibold text-slate-300 mb-2">Leather Ball Machine &mdash; Machine Balls</p>
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                  <PriceField label="Morning / Slot" value={machineConfig.pricingConfig.leatherMachine.machine.morning.single} onChange={v => updatePricing(['leatherMachine', 'machine', 'morning', 'single'], v)} />
-                  <PriceField label="Morning / 2 Consec." value={machineConfig.pricingConfig.leatherMachine.machine.morning.consecutive} onChange={v => updatePricing(['leatherMachine', 'machine', 'morning', 'consecutive'], v)} />
-                  <PriceField label="Evening / Slot" value={machineConfig.pricingConfig.leatherMachine.machine.evening.single} onChange={v => updatePricing(['leatherMachine', 'machine', 'evening', 'single'], v)} />
-                  <PriceField label="Evening / 2 Consec." value={machineConfig.pricingConfig.leatherMachine.machine.evening.consecutive} onChange={v => updatePricing(['leatherMachine', 'machine', 'evening', 'consecutive'], v)} />
-                </div>
-              </div>
-
-              {/* Tennis Ball Machine */}
-              <div className="bg-white/[0.02] rounded-lg p-3 border border-white/[0.06] mb-3">
-                <p className="text-xs font-semibold text-slate-300 mb-2">Tennis Ball Machine</p>
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                  <PriceField label="Morning / Slot" value={machineConfig.pricingConfig.tennisMachine.morning.single} onChange={v => updatePricing(['tennisMachine', 'morning', 'single'], v)} />
-                  <PriceField label="Morning / 2 Consec." value={machineConfig.pricingConfig.tennisMachine.morning.consecutive} onChange={v => updatePricing(['tennisMachine', 'morning', 'consecutive'], v)} />
-                  <PriceField label="Evening / Slot" value={machineConfig.pricingConfig.tennisMachine.evening.single} onChange={v => updatePricing(['tennisMachine', 'evening', 'single'], v)} />
-                  <PriceField label="Evening / 2 Consec." value={machineConfig.pricingConfig.tennisMachine.evening.consecutive} onChange={v => updatePricing(['tennisMachine', 'evening', 'consecutive'], v)} />
-                </div>
-              </div>
-
-              {/* Cement Wicket */}
-              <div className="bg-white/[0.02] rounded-lg p-3 border border-white/[0.06]">
-                <p className="text-xs font-semibold text-slate-300 mb-2">Cement Wicket</p>
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                  <PriceField label="Morning / Slot" value={machineConfig.pricingConfig.cementWicket.morning.single} onChange={v => updatePricing(['cementWicket', 'morning', 'single'], v)} />
-                  <PriceField label="Morning / 2 Consec." value={machineConfig.pricingConfig.cementWicket.morning.consecutive} onChange={v => updatePricing(['cementWicket', 'morning', 'consecutive'], v)} />
-                  <PriceField label="Evening / Slot" value={machineConfig.pricingConfig.cementWicket.evening.single} onChange={v => updatePricing(['cementWicket', 'evening', 'single'], v)} />
-                  <PriceField label="Evening / 2 Consec." value={machineConfig.pricingConfig.cementWicket.evening.consecutive} onChange={v => updatePricing(['cementWicket', 'evening', 'consecutive'], v)} />
-                </div>
-              </div>
+              ))}
             </div>
 
             <div className="flex items-center gap-3 pt-3">

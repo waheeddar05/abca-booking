@@ -1,9 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { Prisma, type BallType, type PitchType, type OperationMode } from '@prisma/client';
+import { Prisma, type BallType, type PitchType, type OperationMode, type MachineId } from '@prisma/client';
 import { isAfter, isValid } from 'date-fns';
 import { getAuthenticatedUser } from '@/lib/auth';
-import { getRelevantBallTypes, isValidBallType, MACHINE_A_BALLS } from '@/lib/constants';
+import {
+  getRelevantBallTypes, isValidBallType, MACHINE_A_BALLS,
+  isValidMachineId, getBallTypeForMachine, getMachineCategory, LEATHER_MACHINES,
+} from '@/lib/constants';
 import { dateStringToUTC } from '@/lib/time';
 import { getPricingConfig, getTimeSlabConfig, calculateNewPricing } from '@/lib/pricing';
 import { validatePackageBooking } from '@/lib/packages';
@@ -39,7 +42,7 @@ async function getMachineConfig() {
 }
 
 function isValidPitchType(val: string): val is PitchType {
-  return ['ASTRO', 'TURF'].includes(val);
+  return ['ASTRO', 'CEMENT', 'NATURAL', 'TURF'].includes(val);
 }
 
 function isValidOperationMode(val: string): val is OperationMode {
@@ -175,46 +178,69 @@ export async function POST(req: NextRequest) {
       startTime: Date;
       endTime: Date;
       ballType: BallType;
+      machineId: MachineId | null;
       pitchType: PitchType | null;
       operationMode: OperationMode;
       playerName: string;
     }> = [];
 
     for (const slotData of slotsToBook) {
-      const { date, startTime, endTime, ballType = 'TENNIS', pitchType, operationMode } = slotData as {
+      const { date, startTime, endTime, pitchType, operationMode } = slotData as {
         date: string;
         startTime: string;
         endTime: string;
         ballType?: string;
+        machineId?: string;
         pitchType?: string;
         operationMode?: string;
         playerName?: string;
       };
-      let { playerName } = slotData as { playerName?: string };
+      let { playerName, ballType: ballTypeParam = 'TENNIS', machineId: machineIdParam } = slotData as {
+        playerName?: string;
+        ballType?: string;
+        machineId?: string;
+      };
 
       if ((!playerName || playerName === 'Guest') && userName) {
         playerName = userName;
       }
 
-      if (!date || !startTime || !endTime || !playerName || !ballType) {
-        return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
+      // Determine machineId and ballType
+      let resolvedMachineId: MachineId | null = null;
+      let resolvedBallType: BallType;
+
+      if (machineIdParam && isValidMachineId(machineIdParam)) {
+        resolvedMachineId = machineIdParam as MachineId;
+        resolvedBallType = getBallTypeForMachine(resolvedMachineId);
+      } else {
+        // Legacy: use ballType directly
+        if (!isValidBallType(ballTypeParam)) {
+          return NextResponse.json({ error: 'Invalid ball type' }, { status: 400 });
+        }
+        resolvedBallType = ballTypeParam as BallType;
       }
 
-      if (!isValidBallType(ballType)) {
-        return NextResponse.json({ error: 'Invalid ball type' }, { status: 400 });
+      if (!date || !startTime || !endTime || !playerName) {
+        return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
       }
 
       // Determine operation mode
       let resolvedOperationMode: OperationMode = 'WITH_OPERATOR';
-      if (MACHINE_A_BALLS.includes(ballType as BallType)) {
+      const isLeather = resolvedMachineId
+        ? LEATHER_MACHINES.includes(resolvedMachineId)
+        : MACHINE_A_BALLS.includes(resolvedBallType);
+
+      if (isLeather) {
         resolvedOperationMode = 'WITH_OPERATOR';
       } else if (operationMode && isValidOperationMode(operationMode)) {
         resolvedOperationMode = operationMode as OperationMode;
       }
 
-      // Validate pitch type for Tennis Machine
+      // Validate pitch type
       let validatedPitchType: PitchType | null = null;
-      if (ballType === 'TENNIS' && machineConfig.pitchTypeSelectionEnabled && pitchType) {
+      if (pitchType && isValidPitchType(pitchType)) {
+        validatedPitchType = pitchType as PitchType;
+      } else if (resolvedBallType === 'TENNIS' && machineConfig.pitchTypeSelectionEnabled && pitchType) {
         if (!isValidPitchType(pitchType)) {
           return NextResponse.json({ error: 'Invalid pitch type' }, { status: 400 });
         }
@@ -241,7 +267,8 @@ export async function POST(req: NextRequest) {
         date: bookingDate,
         startTime: start,
         endTime: end,
-        ballType: ballType as BallType,
+        ballType: resolvedBallType,
+        machineId: resolvedMachineId,
         pitchType: validatedPitchType,
         operationMode: resolvedOperationMode,
         playerName,
@@ -250,17 +277,19 @@ export async function POST(req: NextRequest) {
 
     // Determine category for pricing
     const firstBallType = validatedSlots[0].ballType;
+    const firstMachineId = validatedSlots[0].machineId;
     const category: 'MACHINE' | 'TENNIS' = MACHINE_A_BALLS.includes(firstBallType) ? 'MACHINE' : 'TENNIS';
     const pitchTypeForPricing = validatedSlots[0].pitchType;
 
-    // Calculate pricing using the new model
+    // Calculate pricing using the new model (pass machineId for machine-specific tiers like Yantra)
     const pricing = calculateNewPricing(
       validatedSlots.map(s => ({ startTime: s.startTime, endTime: s.endTime })),
       category,
       firstBallType,
       pitchTypeForPricing,
       timeSlabConfig,
-      pricingConfig
+      pricingConfig,
+      firstMachineId
     );
 
     // If package booking, validate the package first
@@ -302,14 +331,22 @@ export async function POST(req: NextRequest) {
             const relevantBallTypes = getRelevantBallTypes(slot.ballType);
             const isTennisMachine = slot.ballType === 'TENNIS';
 
+            // Conflict check: use machineId if available, otherwise fall back to ballType
             const conflictWhere: any = {
               date: slot.date,
               startTime: slot.startTime,
-              ballType: { in: relevantBallTypes },
               status: 'BOOKED',
             };
-            if (isTennisMachine && slot.pitchType) {
-              conflictWhere.pitchType = slot.pitchType;
+            if (slot.machineId) {
+              conflictWhere.machineId = slot.machineId;
+              if (slot.pitchType) {
+                conflictWhere.pitchType = slot.pitchType;
+              }
+            } else {
+              conflictWhere.ballType = { in: relevantBallTypes };
+              if (isTennisMachine && slot.pitchType) {
+                conflictWhere.pitchType = slot.pitchType;
+              }
             }
 
             const existingBooked = await tx.booking.findFirst({
@@ -352,17 +389,21 @@ export async function POST(req: NextRequest) {
               }
             }
 
-            // Check for existing booking with same ball type + pitch type
+            // Check for existing booking with same machine + pitch type
             const upsertWhere: any = {
               date: slot.date,
               startTime: slot.startTime,
-              ballType: slot.ballType,
             };
-            if (isTennisMachine && slot.pitchType) {
+            if (slot.machineId) {
+              upsertWhere.machineId = slot.machineId;
+            } else {
+              upsertWhere.ballType = slot.ballType;
+            }
+            if ((slot.machineId || isTennisMachine) && slot.pitchType) {
               upsertWhere.pitchType = slot.pitchType;
             }
 
-            const existingSameBallType = await tx.booking.findFirst({
+            const existingSameConfig = await tx.booking.findFirst({
               where: upsertWhere,
               select: { id: true },
             });
@@ -387,6 +428,7 @@ export async function POST(req: NextRequest) {
             const fullBookingData: Prisma.BookingUncheckedCreateInput = {
               ...baseBookingData,
               createdBy,
+              ...(slot.machineId ? { machineId: slot.machineId } : {}),
               ...(bookingColumns.price ? { price: priceInfo.price } : {}),
               ...(bookingColumns.originalPrice ? { originalPrice: priceInfo.originalPrice } : {}),
               ...(bookingColumns.discountAmount ? { discountAmount: priceInfo.discountAmount || null } : {}),
@@ -397,6 +439,7 @@ export async function POST(req: NextRequest) {
             const fullUpdateData: Prisma.BookingUncheckedUpdateInput = {
               ...baseUpdateData,
               createdBy,
+              ...(slot.machineId ? { machineId: slot.machineId } : {}),
               ...(bookingColumns.price ? { price: priceInfo.price } : {}),
               ...(bookingColumns.originalPrice ? { originalPrice: priceInfo.originalPrice } : {}),
               ...(bookingColumns.discountAmount ? { discountAmount: priceInfo.discountAmount || null } : {}),
@@ -410,9 +453,9 @@ export async function POST(req: NextRequest) {
             }
 
             try {
-              if (existingSameBallType) {
+              if (existingSameConfig) {
                 return await tx.booking.update({
-                  where: { id: existingSameBallType.id },
+                  where: { id: existingSameConfig.id },
                   data: fullUpdateData,
                   select: { id: true, status: true },
                 });

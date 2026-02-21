@@ -1,22 +1,28 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { type BallType, type PitchType } from '@prisma/client';
+import { type BallType, type PitchType, type MachineId } from '@prisma/client';
 import { generateSlotsForDateDualWindow, filterPastSlots, getISTTodayUTC, dateStringToUTC } from '@/lib/time';
 import { isSameDay, isValid } from 'date-fns';
-import { getRelevantBallTypes, isValidBallType, MACHINE_A_BALLS } from '@/lib/constants';
+import {
+  getRelevantBallTypes, isValidBallType, MACHINE_A_BALLS,
+  isValidMachineId, getBallTypeForMachine, getMachineCategory,
+  DEFAULT_MACHINE_PITCH_CONFIG, LEATHER_MACHINES,
+} from '@/lib/constants';
+import type { MachinePitchConfig } from '@/lib/constants';
 import { getPricingConfig, getTimeSlabConfig, getSlotPrice, getTimeSlab } from '@/lib/pricing';
 import { getAuthenticatedUser } from '@/lib/auth';
 
-function isValidPitchType(val: string): val is PitchType {
-  return ['ASTRO', 'TURF'].includes(val);
+function isValidPitchTypeValue(val: string): val is PitchType {
+  return ['ASTRO', 'CEMENT', 'NATURAL', 'TURF'].includes(val);
 }
 
 export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
     const dateStr = searchParams.get('date');
-    const ballType = searchParams.get('ballType') || 'TENNIS';
+    const ballTypeParam = searchParams.get('ballType') || 'TENNIS';
     const pitchTypeParam = searchParams.get('pitchType');
+    const machineIdParam = searchParams.get('machineId');
 
     if (!dateStr) {
       return NextResponse.json({ error: 'Date is required' }, { status: 400 });
@@ -32,18 +38,30 @@ export async function GET(req: NextRequest) {
       console.error('Error authenticating user in available slots:', e);
     }
 
-    // Validate ballType and determine machine
-    if (!isValidBallType(ballType)) {
-      return NextResponse.json({ error: 'Invalid ball type' }, { status: 400 });
+    // Determine the machine and ball type
+    let machineId: MachineId | null = null;
+    let ballType: BallType;
+    let category: 'MACHINE' | 'TENNIS';
+
+    if (machineIdParam && isValidMachineId(machineIdParam)) {
+      machineId = machineIdParam as MachineId;
+      ballType = getBallTypeForMachine(machineId);
+      category = getMachineCategory(machineId) === 'LEATHER' ? 'MACHINE' : 'TENNIS';
+    } else {
+      // Legacy: use ballType param
+      if (!isValidBallType(ballTypeParam)) {
+        return NextResponse.json({ error: 'Invalid ball type' }, { status: 400 });
+      }
+      ballType = ballTypeParam as BallType;
+      const isLeatherMachine = MACHINE_A_BALLS.includes(ballType);
+      category = isLeatherMachine ? 'MACHINE' : 'TENNIS';
     }
-    const validatedBallType = ballType as BallType;
 
     let validatedPitchType: PitchType | null = null;
-    // Default pitchType for LEATHER should be ASTRO if not specified
-    if (validatedBallType === 'LEATHER' && !pitchTypeParam) {
-      validatedPitchType = 'ASTRO';
-    } else if (pitchTypeParam && isValidPitchType(pitchTypeParam)) {
+    if (pitchTypeParam && isValidPitchTypeValue(pitchTypeParam)) {
       validatedPitchType = pitchTypeParam as PitchType;
+    } else if (ballType === 'LEATHER' && !pitchTypeParam) {
+      validatedPitchType = 'ASTRO';
     }
 
     if (!isValid(dateUTC)) {
@@ -57,12 +75,9 @@ export async function GET(req: NextRequest) {
     }
 
     // Fetch policies
-    if (!prisma.policy) {
-      throw new Error('Prisma "policy" model is not defined');
-    }
     const policies = await prisma.policy.findMany({
       where: {
-        key: { in: ['SLOT_DURATION', 'DISABLED_DATES', 'NUMBER_OF_OPERATORS'] }
+        key: { in: ['SLOT_DURATION', 'DISABLED_DATES', 'NUMBER_OF_OPERATORS', 'MACHINE_PITCH_CONFIG'] }
       }
     });
 
@@ -72,6 +87,21 @@ export async function GET(req: NextRequest) {
     const disabledDates = policyMap['DISABLED_DATES'] ? policyMap['DISABLED_DATES'].split(',') : [];
     if (disabledDates.includes(dateStr)) {
       return NextResponse.json([]);
+    }
+
+    // Machine-pitch compatibility check
+    let machinePitchConfig: MachinePitchConfig = DEFAULT_MACHINE_PITCH_CONFIG;
+    if (policyMap['MACHINE_PITCH_CONFIG']) {
+      try {
+        machinePitchConfig = JSON.parse(policyMap['MACHINE_PITCH_CONFIG']);
+      } catch { /* use default */ }
+    }
+
+    if (machineId && validatedPitchType) {
+      const allowedPitches = machinePitchConfig[machineId] || [];
+      if (!allowedPitches.includes(validatedPitchType)) {
+        return NextResponse.json({ error: `Pitch type ${validatedPitchType} is not enabled for this machine` }, { status: 400 });
+      }
     }
 
     const numberOfOperators = parseInt(policyMap['NUMBER_OF_OPERATORS'] || '1', 10);
@@ -95,28 +125,33 @@ export async function GET(req: NextRequest) {
     let slots = generateSlotsForDateDualWindow(dateUTC, timeSlabConfig, duration);
 
     // If today, only future slots
-    if (!isAdmin && isSameDay(dateUTC, todayUTC)) {
+    if (isSameDay(dateUTC, todayUTC)) {
       slots = filterPastSlots(slots);
     }
 
-    const relevantBallTypes = getRelevantBallTypes(validatedBallType);
-    const isLeatherMachine = MACHINE_A_BALLS.includes(validatedBallType);
-    const isTennisMachine = !isLeatherMachine;
-    const category: 'MACHINE' | 'TENNIS' = isLeatherMachine ? 'MACHINE' : 'TENNIS';
+    const relevantBallTypes = getRelevantBallTypes(ballType);
+    const isLeatherMachine = MACHINE_A_BALLS.includes(ballType);
 
     // Get bookings on the same machine
     const occupancyWhere: any = {
       date: dateUTC,
-      ballType: { in: relevantBallTypes },
       status: 'BOOKED',
     };
-    if (isTennisMachine && validatedPitchType) {
-      occupancyWhere.pitchType = validatedPitchType;
+
+    if (machineId) {
+      // New: filter by specific machine
+      occupancyWhere.machineId = machineId;
+      if (validatedPitchType) {
+        occupancyWhere.pitchType = validatedPitchType;
+      }
+    } else {
+      // Legacy: filter by ball type group
+      occupancyWhere.ballType = { in: relevantBallTypes };
+      if (!isLeatherMachine && validatedPitchType) {
+        occupancyWhere.pitchType = validatedPitchType;
+      }
     }
 
-    if (!prisma.booking) {
-      throw new Error('Prisma "booking" model is not defined');
-    }
     const occupiedBookings = await prisma.booking.findMany({
       where: occupancyWhere,
       select: { startTime: true },
@@ -165,10 +200,20 @@ export async function GET(req: NextRequest) {
 
       // Check if slot is blocked by Admin
       const isBlocked = blockedSlots.some(block => {
-        // Match machine type
-        if (block.machineType) {
+        // New: Match by machineId if the block specifies one
+        if (block.machineId) {
+          if (machineId && (block.machineId as MachineId) !== machineId) return false;
+          if (!machineId) {
+            // Legacy request: check if block's machineId is in the relevant machine category
+            const blockIsLeather = LEATHER_MACHINES.includes(block.machineId as MachineId);
+            if (isLeatherMachine !== blockIsLeather) return false;
+          }
+        }
+
+        // Legacy: Match machine type
+        if (block.machineType && !block.machineId) {
           const relevantTypes = getRelevantBallTypes(block.machineType);
-          if (!relevantTypes.includes(validatedBallType)) return false;
+          if (!relevantTypes.includes(ballType)) return false;
         }
 
         // Match pitch type

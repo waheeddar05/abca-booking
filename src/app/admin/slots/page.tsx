@@ -26,6 +26,7 @@ interface BlockedSlot {
   startTime: string | null;
   endTime: string | null;
   machineType: string | null;
+  machineId: string | null;
   pitchType: string | null;
   reason: string | null;
   blockedBy: string;
@@ -53,9 +54,10 @@ export default function SlotManagement() {
     endDate: format(new Date(), 'yyyy-MM-dd'),
     startTime: '',
     endTime: '',
-    blockType: 'all' as 'all' | 'machine' | 'pitch',
+    blockType: 'all' as 'all' | 'machine' | 'specificMachine' | 'pitch',
     machineType: '' as '' | 'LEATHER' | 'TENNIS',
-    pitchType: '' as '' | 'ASTRO' | 'TURF',
+    machineId: '' as '' | 'GRAVITY' | 'YANTRA' | 'LEVERAGE_INDOOR' | 'LEVERAGE_OUTDOOR',
+    pitchType: '' as '' | 'ASTRO' | 'CEMENT' | 'NATURAL' | 'TURF',
     reason: '',
   });
   const [blockLoading, setBlockLoading] = useState(false);
@@ -117,7 +119,9 @@ export default function SlotManagement() {
         body.endTime = blockForm.endTime;
       }
 
-      if (blockForm.blockType === 'machine' && blockForm.machineType) {
+      if (blockForm.blockType === 'specificMachine' && blockForm.machineId) {
+        body.machineId = blockForm.machineId;
+      } else if (blockForm.blockType === 'machine' && blockForm.machineType) {
         body.machineType = blockForm.machineType;
       } else if (blockForm.blockType === 'pitch' && blockForm.pitchType) {
         body.pitchType = blockForm.pitchType;
@@ -143,6 +147,7 @@ export default function SlotManagement() {
           endTime: '',
           blockType: 'all',
           machineType: '',
+          machineId: '',
           pitchType: '',
           reason: '',
         });
@@ -249,9 +254,22 @@ export default function SlotManagement() {
     return type;
   };
 
+  const getMachineIdLabel = (id: string | null) => {
+    if (!id) return null;
+    const labels: Record<string, string> = {
+      GRAVITY: 'Gravity (Leather)',
+      YANTRA: 'Yantra (Premium Leather)',
+      LEVERAGE_INDOOR: 'Leverage High Speed Tennis (Indoor)',
+      LEVERAGE_OUTDOOR: 'Leverage High Speed Tennis (Outdoor)',
+    };
+    return labels[id] || id;
+  };
+
   const getPitchLabel = (type: string | null) => {
     if (!type) return 'All Pitches';
     if (type === 'ASTRO') return 'Astro Turf';
+    if (type === 'CEMENT') return 'Cement';
+    if (type === 'NATURAL') return 'Natural Turf';
     if (type === 'TURF') return 'Cement Wicket';
     return type;
   };
@@ -381,7 +399,7 @@ export default function SlotManagement() {
               <div className="flex flex-wrap gap-2">
                 <button
                   type="button"
-                  onClick={() => setBlockForm({ ...blockForm, blockType: 'all', machineType: '', pitchType: '' })}
+                  onClick={() => setBlockForm({ ...blockForm, blockType: 'all', machineType: '', machineId: '', pitchType: '' })}
                   className={`px-3 py-2 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
                     blockForm.blockType === 'all'
                       ? 'bg-red-500/20 text-red-400 border border-red-500/30'
@@ -393,18 +411,29 @@ export default function SlotManagement() {
                 </button>
                 <button
                   type="button"
-                  onClick={() => setBlockForm({ ...blockForm, blockType: 'machine', pitchType: '', machineType: 'LEATHER' })}
+                  onClick={() => setBlockForm({ ...blockForm, blockType: 'specificMachine', machineType: '', pitchType: '', machineId: 'GRAVITY' })}
+                  className={`px-3 py-2 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+                    blockForm.blockType === 'specificMachine'
+                      ? 'bg-red-500/20 text-red-400 border border-red-500/30'
+                      : 'bg-white/[0.04] text-slate-400 border border-white/[0.08] hover:border-red-500/20'
+                  }`}
+                >
+                  By Machine
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setBlockForm({ ...blockForm, blockType: 'machine', pitchType: '', machineId: '', machineType: 'LEATHER' })}
                   className={`px-3 py-2 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
                     blockForm.blockType === 'machine'
                       ? 'bg-red-500/20 text-red-400 border border-red-500/30'
                       : 'bg-white/[0.04] text-slate-400 border border-white/[0.08] hover:border-red-500/20'
                   }`}
                 >
-                  By Machine Type
+                  By Category
                 </button>
                 <button
                   type="button"
-                  onClick={() => setBlockForm({ ...blockForm, blockType: 'pitch', machineType: '', pitchType: 'ASTRO' })}
+                  onClick={() => setBlockForm({ ...blockForm, blockType: 'pitch', machineType: '', machineId: '', pitchType: 'ASTRO' })}
                   className={`px-3 py-2 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
                     blockForm.blockType === 'pitch'
                       ? 'bg-red-500/20 text-red-400 border border-red-500/30'
@@ -416,10 +445,40 @@ export default function SlotManagement() {
               </div>
             </div>
 
-            {/* Machine Type Selection */}
+            {/* Specific Machine Selection */}
+            {blockForm.blockType === 'specificMachine' && (
+              <div>
+                <label className="block text-[11px] font-medium text-slate-400 mb-2">Select Machine</label>
+                <div className="grid grid-cols-2 gap-2">
+                  {([
+                    { id: 'GRAVITY', label: 'Gravity', color: 'bg-red-500', sub: 'Leather' },
+                    { id: 'YANTRA', label: 'Yantra', color: 'bg-orange-500', sub: 'Premium Leather' },
+                    { id: 'LEVERAGE_INDOOR', label: 'Leverage Indoor', color: 'bg-green-500', sub: 'High Speed Tennis' },
+                    { id: 'LEVERAGE_OUTDOOR', label: 'Leverage Outdoor', color: 'bg-teal-500', sub: 'High Speed Tennis' },
+                  ] as const).map(m => (
+                    <button
+                      key={m.id}
+                      type="button"
+                      onClick={() => setBlockForm({ ...blockForm, machineId: m.id })}
+                      className={`flex items-center gap-2 px-3 py-2.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+                        blockForm.machineId === m.id
+                          ? 'bg-red-500/20 text-red-400 border border-red-500/30'
+                          : 'bg-white/[0.04] text-slate-400 border border-white/[0.08] hover:border-red-500/20'
+                      }`}
+                    >
+                      <span className={`w-2 h-2 rounded-full ${m.color}`}></span>
+                      <span>{m.label}</span>
+                      <span className="text-[10px] text-slate-500">({m.sub})</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Machine Category Selection */}
             {blockForm.blockType === 'machine' && (
               <div>
-                <label className="block text-[11px] font-medium text-slate-400 mb-2">Machine Type</label>
+                <label className="block text-[11px] font-medium text-slate-400 mb-2">Machine Category</label>
                 <div className="flex gap-2">
                   <button
                     type="button"
@@ -431,7 +490,7 @@ export default function SlotManagement() {
                     }`}
                   >
                     <span className="w-2 h-2 rounded-full bg-red-500"></span>
-                    Leather Ball Machine
+                    All Leather Machines
                   </button>
                   <button
                     type="button"
@@ -443,7 +502,7 @@ export default function SlotManagement() {
                     }`}
                   >
                     <span className="w-2 h-2 rounded-full bg-green-500"></span>
-                    Tennis Ball Machine
+                    All Tennis Machines
                   </button>
                 </div>
               </div>
@@ -453,11 +512,11 @@ export default function SlotManagement() {
             {blockForm.blockType === 'pitch' && (
               <div>
                 <label className="block text-[11px] font-medium text-slate-400 mb-2">Pitch Type</label>
-                <div className="flex gap-2">
+                <div className="grid grid-cols-3 gap-2">
                   <button
                     type="button"
                     onClick={() => setBlockForm({ ...blockForm, pitchType: 'ASTRO' })}
-                    className={`flex-1 flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+                    className={`flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
                       blockForm.pitchType === 'ASTRO'
                         ? 'bg-red-500/20 text-red-400 border border-red-500/30'
                         : 'bg-white/[0.04] text-slate-400 border border-white/[0.08] hover:border-red-500/20'
@@ -468,15 +527,27 @@ export default function SlotManagement() {
                   </button>
                   <button
                     type="button"
-                    onClick={() => setBlockForm({ ...blockForm, pitchType: 'TURF' })}
-                    className={`flex-1 flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
-                      blockForm.pitchType === 'TURF'
+                    onClick={() => setBlockForm({ ...blockForm, pitchType: 'CEMENT' })}
+                    className={`flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+                      blockForm.pitchType === 'CEMENT'
                         ? 'bg-red-500/20 text-red-400 border border-red-500/30'
                         : 'bg-white/[0.04] text-slate-400 border border-white/[0.08] hover:border-red-500/20'
                     }`}
                   >
                     <span className="w-2 h-2 rounded-full bg-amber-500"></span>
-                    Cement Wicket
+                    Cement
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setBlockForm({ ...blockForm, pitchType: 'NATURAL' })}
+                    className={`flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+                      blockForm.pitchType === 'NATURAL'
+                        ? 'bg-red-500/20 text-red-400 border border-red-500/30'
+                        : 'bg-white/[0.04] text-slate-400 border border-white/[0.08] hover:border-red-500/20'
+                    }`}
+                  >
+                    <span className="w-2 h-2 rounded-full bg-lime-500"></span>
+                    Natural Turf
                   </button>
                 </div>
               </div>
@@ -548,7 +619,11 @@ export default function SlotManagement() {
                     )}
                   </div>
                   <div className="flex flex-wrap items-center gap-2">
-                    {block.machineType ? (
+                    {block.machineId ? (
+                      <span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-400">
+                        {getMachineIdLabel(block.machineId)}
+                      </span>
+                    ) : block.machineType ? (
                       <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded ${
                         block.machineType === 'TENNIS'
                           ? 'bg-green-500/10 text-green-400'
@@ -560,6 +635,10 @@ export default function SlotManagement() {
                       <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded ${
                         block.pitchType === 'ASTRO'
                           ? 'bg-emerald-500/10 text-emerald-400'
+                          : block.pitchType === 'CEMENT'
+                          ? 'bg-amber-500/10 text-amber-400'
+                          : block.pitchType === 'NATURAL'
+                          ? 'bg-lime-500/10 text-lime-400'
                           : 'bg-amber-500/10 text-amber-400'
                       }`}>
                         {getPitchLabel(block.pitchType)}

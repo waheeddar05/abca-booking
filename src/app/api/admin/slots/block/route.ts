@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { getAuthenticatedUser } from '@/lib/auth';
 import { dateStringToUTC } from '@/lib/time';
+import { isValidMachineId, LEATHER_MACHINES } from '@/lib/constants';
+import type { MachineId } from '@prisma/client';
 
 // GET /api/admin/slots/block - List blocked slots
 export async function GET(req: NextRequest) {
@@ -43,15 +45,17 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
+    const body = await req.json();
     const {
       startDate,
       endDate,
       startTime, // "HH:mm" or null
       endTime,   // "HH:mm" or null
-      machineType,
+      machineType,  // Legacy: BallType ('LEATHER' | 'TENNIS')
+      machineId,    // New: specific machine ID
       pitchType,
       reason
-    } = await req.json();
+    } = body;
 
     if (!startDate || !endDate) {
       return NextResponse.json({ error: 'Start date and end date are required' }, { status: 400 });
@@ -69,6 +73,12 @@ export async function POST(req: NextRequest) {
       endT = new Date(`1970-01-01T${endTime}:00+05:30`);
     }
 
+    // Validate machineId if provided
+    let validatedMachineId: MachineId | null = null;
+    if (machineId && isValidMachineId(machineId)) {
+      validatedMachineId = machineId as MachineId;
+    }
+
     // 1. Create the BlockedSlot record
     const blockedSlot = await prisma.blockedSlot.create({
       data: {
@@ -76,7 +86,8 @@ export async function POST(req: NextRequest) {
         endDate: end,
         startTime: startT,
         endTime: endT,
-        machineType,
+        machineType: validatedMachineId ? null : machineType, // Legacy field
+        machineId: validatedMachineId,
         pitchType,
         reason,
         blockedBy: admin.id,
@@ -92,12 +103,16 @@ export async function POST(req: NextRequest) {
       status: 'BOOKED',
     };
 
-    if (machineType) {
-      // In this system, ballType determines the machine
-      // MACHINE_A_BALLS: ['LEATHER', 'MACHINE']
-      // MACHINE_B_BALLS: ['TENNIS']
+    if (validatedMachineId) {
+      // New: block by specific machine
+      where.machineId = validatedMachineId;
+    } else if (machineType) {
+      // Legacy: block by machine category
       if (machineType === 'LEATHER' || machineType === 'MACHINE') {
-        where.ballType = { in: ['LEATHER', 'MACHINE'] };
+        where.OR = [
+          { ballType: { in: ['LEATHER', 'MACHINE'] } },
+          { machineId: { in: LEATHER_MACHINES } },
+        ];
       } else {
         where.ballType = 'TENNIS';
       }

@@ -1,4 +1,5 @@
 export type BallType = 'TENNIS' | 'LEATHER' | 'MACHINE';
+export type MachineId = 'GRAVITY' | 'YANTRA' | 'LEVERAGE_INDOOR' | 'LEVERAGE_OUTDOOR';
 
 export interface SlotStatus {
   startTime: string; // ISO LocalDateTime
@@ -11,6 +12,7 @@ export interface Booking {
   startTime: string;
   endTime: string;
   ballType: BallType;
+  machineId?: MachineId;
   playerName: string;
 }
 
@@ -18,14 +20,17 @@ export interface BookingRequest {
   startTime: string;
   durationMinutes: number;
   ballType: BallType;
+  machineId?: MachineId;
   playerName: string;
 }
 
 const API_BASE_URL = '/api';
 
 export const bookingApi = {
-  getSlots: async (date: string, ballType: BallType = 'TENNIS'): Promise<SlotStatus[]> => {
-    const response = await fetch(`${API_BASE_URL}/slots/available?date=${date}&ballType=${ballType}`);
+  getSlots: async (date: string, ballType: BallType = 'TENNIS', machineId?: MachineId): Promise<SlotStatus[]> => {
+    let url = `${API_BASE_URL}/slots/available?date=${date}&ballType=${ballType}`;
+    if (machineId) url += `&machineId=${machineId}`;
+    const response = await fetch(url);
     if (!response.ok) throw new Error('Failed to fetch slots');
     return response.json();
   },
@@ -39,6 +44,7 @@ export const bookingApi = {
         startTime: request.startTime,
         endTime: new Date(new Date(request.startTime).getTime() + request.durationMinutes * 60000).toISOString(),
         ballType: request.ballType,
+        ...(request.machineId ? { machineId: request.machineId } : {}),
         playerName: request.playerName
       }),
     });
