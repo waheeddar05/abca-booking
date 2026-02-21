@@ -548,7 +548,7 @@ export default function AdminDashboard() {
                               onClick={() => togglePitchType(machineId, pt)}
                               className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors cursor-pointer ${
                                 isOn
-                                  ? 'bg-primary/20 text-primary border border-primary/30'
+                                  ? 'bg-accent/15 text-accent border border-accent/30'
                                   : 'bg-white/[0.04] text-slate-500 border border-white/[0.08] hover:bg-white/[0.08]'
                               }`}
                             >
