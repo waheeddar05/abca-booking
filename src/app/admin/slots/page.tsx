@@ -257,10 +257,10 @@ export default function SlotManagement() {
   const getMachineIdLabel = (id: string | null) => {
     if (!id) return null;
     const labels: Record<string, string> = {
-      GRAVITY: 'Gravity',
-      YANTRA: 'Yantra',
-      LEVERAGE_INDOOR: 'Tennis Indoor',
-      LEVERAGE_OUTDOOR: 'Tennis Outdoor',
+      GRAVITY: 'Gravity (Leather)',
+      YANTRA: 'Yantra (Premium Leather)',
+      LEVERAGE_INDOOR: 'Leverage High Speed Tennis (Indoor)',
+      LEVERAGE_OUTDOOR: 'Leverage High Speed Tennis (Outdoor)',
     };
     return labels[id] || id;
   };
@@ -452,9 +452,9 @@ export default function SlotManagement() {
                 <div className="grid grid-cols-2 gap-2">
                   {([
                     { id: 'GRAVITY', label: 'Gravity', color: 'bg-red-500', sub: 'Leather' },
-                    { id: 'YANTRA', label: 'Yantra', color: 'bg-orange-500', sub: 'Leather' },
-                    { id: 'LEVERAGE_INDOOR', label: 'Tennis Indoor', color: 'bg-green-500', sub: 'Tennis' },
-                    { id: 'LEVERAGE_OUTDOOR', label: 'Tennis Outdoor', color: 'bg-teal-500', sub: 'Tennis' },
+                    { id: 'YANTRA', label: 'Yantra', color: 'bg-orange-500', sub: 'Premium Leather' },
+                    { id: 'LEVERAGE_INDOOR', label: 'Leverage Indoor', color: 'bg-green-500', sub: 'High Speed Tennis' },
+                    { id: 'LEVERAGE_OUTDOOR', label: 'Leverage Outdoor', color: 'bg-teal-500', sub: 'High Speed Tennis' },
                   ] as const).map(m => (
                     <button
                       key={m.id}

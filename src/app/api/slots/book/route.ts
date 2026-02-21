@@ -277,17 +277,19 @@ export async function POST(req: NextRequest) {
 
     // Determine category for pricing
     const firstBallType = validatedSlots[0].ballType;
+    const firstMachineId = validatedSlots[0].machineId;
     const category: 'MACHINE' | 'TENNIS' = MACHINE_A_BALLS.includes(firstBallType) ? 'MACHINE' : 'TENNIS';
     const pitchTypeForPricing = validatedSlots[0].pitchType;
 
-    // Calculate pricing using the new model
+    // Calculate pricing using the new model (pass machineId for machine-specific tiers like Yantra)
     const pricing = calculateNewPricing(
       validatedSlots.map(s => ({ startTime: s.startTime, endTime: s.endTime })),
       category,
       firstBallType,
       pitchTypeForPricing,
       timeSlabConfig,
-      pricingConfig
+      pricingConfig,
+      firstMachineId
     );
 
     // If package booking, validate the package first

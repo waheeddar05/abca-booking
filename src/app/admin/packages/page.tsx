@@ -19,10 +19,14 @@ interface PackageData {
   _count?: { userPackages: number };
 }
 
-const MACHINE_TYPES = ['LEATHER', 'TENNIS'];
-const BALL_TYPES = ['MACHINE', 'LEATHER', 'BOTH'];
-const WICKET_TYPES = ['CEMENT', 'ASTRO', 'BOTH'];
-const TIMING_TYPES = ['DAY', 'EVENING', 'BOTH'];
+const MACHINE_OPTIONS = [
+  { id: 'GRAVITY', label: 'Gravity (Leather)', type: 'LEATHER' },
+  { id: 'YANTRA', label: 'Yantra (Premium Leather)', type: 'LEATHER' },
+  { id: 'LEVERAGE_INDOOR', label: 'Leverage High Speed Tennis (Indoor)', type: 'TENNIS' },
+  { id: 'LEVERAGE_OUTDOOR', label: 'Leverage High Speed Tennis (Outdoor)', type: 'TENNIS' },
+];
+const BALL_TYPES = ['MACHINE', 'LEATHER'];
+const TIMING_TYPES = ['DAY', 'EVENING'];
 
 const defaultExtraChargeRules = {
   ballTypeUpgrade: 100,
@@ -32,13 +36,14 @@ const defaultExtraChargeRules = {
 
 const emptyForm = {
   name: '',
+  machineId: 'GRAVITY',
   machineType: 'LEATHER',
-  ballType: 'BOTH',
+  ballType: 'LEATHER',
   wicketType: 'BOTH',
-  timingType: 'BOTH',
+  timingType: 'DAY',
   totalSessions: 4,
   validityDays: 30,
-  price: 0,
+  price: '' as any,
   extraChargeRules: defaultExtraChargeRules,
   isActive: true,
 };
@@ -104,9 +109,14 @@ export default function AdminPackages() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setMessage({ text: '', type: '' });
+    if (!form.price || isNaN(Number(form.price)) || Number(form.price) <= 0) {
+      setMessage({ text: 'Please enter a valid price', type: 'error' });
+      return;
+    }
     try {
       const method = editingId ? 'PUT' : 'POST';
-      const body = editingId ? { ...form, id: editingId } : form;
+      const { machineId, ...formPayload } = form;
+      const body = editingId ? { ...formPayload, price: Number(formPayload.price), id: editingId } : { ...formPayload, price: Number(formPayload.price) };
       const res = await fetch('/api/admin/packages', {
         method,
         headers: { 'Content-Type': 'application/json' },
@@ -141,12 +151,15 @@ export default function AdminPackages() {
   };
 
   const startEdit = (pkg: PackageData) => {
+    // Infer machineId from existing data if possible
+    const inferredMachineId = (pkg as any).machineId || (pkg.machineType === 'LEATHER' ? 'GRAVITY' : 'LEVERAGE_INDOOR');
     setForm({
       name: pkg.name,
+      machineId: inferredMachineId,
       machineType: pkg.machineType,
-      ballType: pkg.ballType,
+      ballType: pkg.ballType === 'BOTH' ? 'LEATHER' : pkg.ballType,
       wicketType: pkg.wicketType,
-      timingType: pkg.timingType,
+      timingType: pkg.timingType === 'BOTH' ? 'DAY' : pkg.timingType,
       totalSessions: pkg.totalSessions,
       validityDays: pkg.validityDays,
       price: pkg.price,
@@ -179,7 +192,14 @@ export default function AdminPackages() {
   const labelMap: Record<string, string> = {
     LEATHER: 'Leather', TENNIS: 'Tennis', MACHINE: 'Machine Ball',
     BOTH: 'Both', CEMENT: 'Cement', ASTRO: 'Astro',
-    DAY: 'Day', EVENING: 'Evening/Night',
+    DAY: 'Day (7:00 AM – 5:00 PM)', EVENING: 'Evening/Night (7:00 PM – 10:30 PM)',
+    GRAVITY: 'Gravity (Leather)', YANTRA: 'Yantra (Premium Leather)',
+    LEVERAGE_INDOOR: 'Leverage High Speed Tennis (Indoor)', LEVERAGE_OUTDOOR: 'Leverage High Speed Tennis (Outdoor)',
+  };
+
+  const isLeatherMachine = (machineId: string) => {
+    const machine = MACHINE_OPTIONS.find(m => m.id === machineId);
+    return machine?.type === 'LEATHER';
   };
 
   return (
@@ -242,44 +262,60 @@ export default function AdminPackages() {
                     />
                   </div>
                   <div>
-                    <label className="block text-[11px] font-medium text-slate-400 mb-1">Machine Type</label>
+                    <label className="block text-[11px] font-medium text-slate-400 mb-1">Machine</label>
                     <select
-                      value={form.machineType}
-                      onChange={e => setForm({ ...form, machineType: e.target.value })}
+                      value={form.machineId}
+                      onChange={e => {
+                        const selected = MACHINE_OPTIONS.find(m => m.id === e.target.value);
+                        setForm({
+                          ...form,
+                          machineId: e.target.value,
+                          machineType: selected?.type || 'LEATHER',
+                          // Reset ball type for tennis machines
+                          ballType: selected?.type === 'TENNIS' ? 'BOTH' : form.ballType,
+                        });
+                      }}
                       className="w-full bg-white/[0.04] border border-white/[0.1] rounded-lg px-3 py-2.5 text-sm text-white outline-none focus:border-accent"
                     >
-                      {MACHINE_TYPES.map(t => <option key={t} value={t} className="bg-[#1a2a40]">{labelMap[t]}</option>)}
+                      {MACHINE_OPTIONS.map(m => (
+                        <option key={m.id} value={m.id} className="bg-[#1a2a40]">{m.label}</option>
+                      ))}
                     </select>
                   </div>
+                  {/* Ball Type - only shown for leather machines (Gravity / Yantra) */}
+                  {isLeatherMachine(form.machineId) && (
+                    <div>
+                      <label className="block text-[11px] font-medium text-slate-400 mb-1">Ball Type</label>
+                      <select
+                        value={form.ballType}
+                        onChange={e => setForm({ ...form, ballType: e.target.value })}
+                        className="w-full bg-white/[0.04] border border-white/[0.1] rounded-lg px-3 py-2.5 text-sm text-white outline-none focus:border-accent"
+                      >
+                        {BALL_TYPES.map(t => <option key={t} value={t} className="bg-[#1a2a40]">{labelMap[t]}</option>)}
+                      </select>
+                    </div>
+                  )}
                   <div>
-                    <label className="block text-[11px] font-medium text-slate-400 mb-1">Ball Type</label>
-                    <select
-                      value={form.ballType}
-                      onChange={e => setForm({ ...form, ballType: e.target.value })}
-                      className="w-full bg-white/[0.04] border border-white/[0.1] rounded-lg px-3 py-2.5 text-sm text-white outline-none focus:border-accent"
-                    >
-                      {BALL_TYPES.map(t => <option key={t} value={t} className="bg-[#1a2a40]">{labelMap[t]}</option>)}
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block text-[11px] font-medium text-slate-400 mb-1">Wicket Type</label>
-                    <select
-                      value={form.wicketType}
-                      onChange={e => setForm({ ...form, wicketType: e.target.value })}
-                      className="w-full bg-white/[0.04] border border-white/[0.1] rounded-lg px-3 py-2.5 text-sm text-white outline-none focus:border-accent"
-                    >
-                      {WICKET_TYPES.map(t => <option key={t} value={t} className="bg-[#1a2a40]">{labelMap[t]}</option>)}
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block text-[11px] font-medium text-slate-400 mb-1">Timing Type</label>
-                    <select
-                      value={form.timingType}
-                      onChange={e => setForm({ ...form, timingType: e.target.value })}
-                      className="w-full bg-white/[0.04] border border-white/[0.1] rounded-lg px-3 py-2.5 text-sm text-white outline-none focus:border-accent"
-                    >
-                      {TIMING_TYPES.map(t => <option key={t} value={t} className="bg-[#1a2a40]">{labelMap[t]}</option>)}
-                    </select>
+                    <label className="block text-[11px] font-medium text-slate-400 mb-1">Timing</label>
+                    <div className="flex gap-2">
+                      {TIMING_TYPES.map(t => (
+                        <button
+                          key={t}
+                          type="button"
+                          onClick={() => setForm({ ...form, timingType: t })}
+                          className={`flex-1 px-3 py-2.5 rounded-lg text-xs font-semibold transition-all cursor-pointer text-center ${
+                            form.timingType === t
+                              ? 'bg-accent text-primary shadow-sm'
+                              : 'bg-white/[0.04] text-slate-400 border border-white/[0.08] hover:border-accent/20'
+                          }`}
+                        >
+                          <div>{t === 'DAY' ? 'Day' : 'Evening/Night'}</div>
+                          <div className={`text-[9px] mt-0.5 ${form.timingType === t ? 'text-primary/70' : 'text-slate-500'}`}>
+                            {t === 'DAY' ? '7:00 AM – 5:00 PM' : '7:00 PM – 10:30 PM'}
+                          </div>
+                        </button>
+                      ))}
+                    </div>
                   </div>
                   <div>
                     <label className="block text-[11px] font-medium text-slate-400 mb-1">Total Sessions</label>
@@ -306,9 +342,13 @@ export default function AdminPackages() {
                     <input
                       type="number"
                       min={0}
-                      value={form.price}
-                      onChange={e => setForm({ ...form, price: parseFloat(e.target.value) || 0 })}
-                      className="w-full bg-white/[0.04] border border-white/[0.1] rounded-lg px-3 py-2.5 text-sm text-white outline-none focus:border-accent"
+                      value={form.price === ('' as any) ? '' : form.price}
+                      placeholder="Enter price"
+                      onChange={e => {
+                        const val = e.target.value;
+                        setForm({ ...form, price: val === '' ? ('' as any) : parseFloat(val) });
+                      }}
+                      className="w-full bg-white/[0.04] border border-white/[0.1] rounded-lg px-3 py-2.5 text-sm text-white outline-none focus:border-accent placeholder:text-slate-600"
                     />
                   </div>
                 </div>
@@ -388,9 +428,12 @@ export default function AdminPackages() {
                       </div>
                       <div className="flex flex-wrap gap-2 text-[11px] text-slate-400 mb-1">
                         <span className="bg-white/[0.06] px-2 py-0.5 rounded">{labelMap[pkg.machineType]} Machine</span>
-                        <span className="bg-white/[0.06] px-2 py-0.5 rounded">Ball: {labelMap[pkg.ballType]}</span>
-                        <span className="bg-white/[0.06] px-2 py-0.5 rounded">Wicket: {labelMap[pkg.wicketType]}</span>
-                        <span className="bg-white/[0.06] px-2 py-0.5 rounded">Timing: {labelMap[pkg.timingType]}</span>
+                        {pkg.machineType === 'LEATHER' && (
+                          <span className="bg-white/[0.06] px-2 py-0.5 rounded">Ball: {labelMap[pkg.ballType]}</span>
+                        )}
+                        <span className="bg-white/[0.06] px-2 py-0.5 rounded">
+                          {pkg.timingType === 'DAY' ? 'Day (7 AM – 5 PM)' : pkg.timingType === 'EVENING' ? 'Evening (7 PM – 10:30 PM)' : labelMap[pkg.timingType]}
+                        </span>
                       </div>
                       <div className="flex gap-4 text-xs text-slate-400">
                         <span>{pkg.totalSessions} sessions</span>

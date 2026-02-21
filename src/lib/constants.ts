@@ -15,7 +15,7 @@ export interface MachineDefinition {
 export const MACHINES: Record<MachineId, MachineDefinition> = {
   GRAVITY: {
     id: 'GRAVITY',
-    name: 'Gravity Machine (Leather)',
+    name: 'Gravity (Leather)',
     shortName: 'Gravity',
     ballType: 'LEATHER',
     category: 'LEATHER',
@@ -24,7 +24,7 @@ export const MACHINES: Record<MachineId, MachineDefinition> = {
   },
   YANTRA: {
     id: 'YANTRA',
-    name: 'Yantra Machine (Leather)',
+    name: 'Yantra (Premium Leather)',
     shortName: 'Yantra',
     ballType: 'LEATHER',
     category: 'LEATHER',
@@ -33,7 +33,7 @@ export const MACHINES: Record<MachineId, MachineDefinition> = {
   },
   LEVERAGE_INDOOR: {
     id: 'LEVERAGE_INDOOR',
-    name: 'Leverage High-Speed Tennis Machine (Indoor)',
+    name: 'Leverage High Speed Tennis (Indoor)',
     shortName: 'Tennis Indoor',
     ballType: 'TENNIS',
     category: 'TENNIS',
@@ -42,7 +42,7 @@ export const MACHINES: Record<MachineId, MachineDefinition> = {
   },
   LEVERAGE_OUTDOOR: {
     id: 'LEVERAGE_OUTDOOR',
-    name: 'Leverage High-Speed Tennis Machine (Outdoor)',
+    name: 'Leverage High Speed Tennis (Outdoor)',
     shortName: 'Tennis Outdoor',
     ballType: 'TENNIS',
     category: 'TENNIS',

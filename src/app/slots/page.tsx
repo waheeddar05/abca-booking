@@ -60,7 +60,7 @@ const MACHINE_CARDS: Array<{
   {
     id: 'YANTRA',
     label: 'Yantra',
-    shortLabel: 'Leather',
+    shortLabel: 'Premium Leather',
     category: 'LEATHER',
     image: '/images/leathermachine.jpeg',
     dotColor: 'bg-orange-500',
@@ -69,8 +69,8 @@ const MACHINE_CARDS: Array<{
   },
   {
     id: 'LEVERAGE_INDOOR',
-    label: 'Tennis Indoor',
-    shortLabel: 'Tennis',
+    label: 'Leverage Indoor',
+    shortLabel: 'High Speed Tennis',
     category: 'TENNIS',
     image: '/images/tennismachine.jpeg',
     dotColor: 'bg-green-500',
@@ -79,8 +79,8 @@ const MACHINE_CARDS: Array<{
   },
   {
     id: 'LEVERAGE_OUTDOOR',
-    label: 'Tennis Outdoor',
-    shortLabel: 'Tennis',
+    label: 'Leverage Outdoor',
+    shortLabel: 'High Speed Tennis',
     category: 'TENNIS',
     image: '/images/tennismachine.jpeg',
     dotColor: 'bg-teal-500',
@@ -144,6 +144,7 @@ function SlotsContent() {
   const selectedMachineInfo = machineConfig?.machines?.find(m => m.id === selectedMachineId);
   const enabledPitchTypes = selectedMachineInfo?.enabledPitchTypes || [];
   const showPitchSelection = enabledPitchTypes.length > 1;
+  const showPitchIndicator = enabledPitchTypes.length === 1;
 
   useEffect(() => {
     fetch('/api/machine-config')
@@ -318,8 +319,9 @@ function SlotsContent() {
       const validPType = (pType === 'ASTRO' || pType === 'CEMENT' || pType === 'NATURAL') ? pType : 'ASTRO';
 
       if (isLeatherMachine) {
-        const subType = ballType === 'LEATHER' ? 'leather' : 'machine';
-        consecutivePriceFor2 = pc[subType as 'leather' | 'machine'][validPType as 'ASTRO' | 'CEMENT' | 'NATURAL'][slab].consecutive;
+        // Yantra has its own pricing tier
+        const subType = selectedMachineId === 'YANTRA' ? 'yantra' : (ballType === 'LEATHER' ? 'leather' : 'machine');
+        consecutivePriceFor2 = pc[subType as keyof typeof pc][validPType as 'ASTRO' | 'CEMENT' | 'NATURAL'][slab].consecutive;
       } else {
         consecutivePriceFor2 = pc.tennis[validPType as 'ASTRO' | 'CEMENT' | 'NATURAL'][slab].consecutive;
       }
@@ -591,6 +593,21 @@ function SlotsContent() {
                   </button>
                 );
               })}
+            </div>
+          </div>
+        )}
+
+        {/* Pitch Type - auto-selected indicator when only one pitch type configured */}
+        {showPitchIndicator && (
+          <div>
+            <label className="block text-[10px] font-medium text-slate-500 mb-1 uppercase tracking-wider">Pitch Type</label>
+            <div className="flex gap-2">
+              <div className="flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-xs font-semibold bg-accent/15 text-accent border border-accent/20">
+                <Check className="w-3.5 h-3.5" />
+                <span className={`w-1.5 h-1.5 rounded-full ${(PITCH_TYPE_LABELS[enabledPitchTypes[0]] || { color: 'bg-slate-500' }).color}`}></span>
+                {(PITCH_TYPE_LABELS[enabledPitchTypes[0]] || { label: enabledPitchTypes[0] }).label}
+                <span className="text-[10px] text-slate-500 font-normal ml-1">(Auto-selected)</span>
+              </div>
             </div>
           </div>
         )}

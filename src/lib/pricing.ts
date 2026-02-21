@@ -5,22 +5,17 @@ export interface SlabPricing {
   consecutive: number;
 }
 
+export interface PitchPricing {
+  ASTRO: { morning: SlabPricing; evening: SlabPricing };
+  CEMENT: { morning: SlabPricing; evening: SlabPricing };
+  NATURAL: { morning: SlabPricing; evening: SlabPricing };
+}
+
 export interface PricingConfig {
-  leather: {
-    ASTRO: { morning: SlabPricing; evening: SlabPricing };
-    CEMENT: { morning: SlabPricing; evening: SlabPricing };
-    NATURAL: { morning: SlabPricing; evening: SlabPricing };
-  };
-  machine: {
-    ASTRO: { morning: SlabPricing; evening: SlabPricing };
-    CEMENT: { morning: SlabPricing; evening: SlabPricing };
-    NATURAL: { morning: SlabPricing; evening: SlabPricing };
-  };
-  tennis: {
-    ASTRO: { morning: SlabPricing; evening: SlabPricing };
-    CEMENT: { morning: SlabPricing; evening: SlabPricing };
-    NATURAL: { morning: SlabPricing; evening: SlabPricing };
-  };
+  leather: PitchPricing;
+  yantra: PitchPricing;
+  machine: PitchPricing;
+  tennis: PitchPricing;
 }
 
 export interface TimeSlabConfig {
@@ -41,6 +36,20 @@ export const DEFAULT_PRICING_CONFIG: PricingConfig = {
     NATURAL: {
       morning: { single: 600, consecutive: 1000 },
       evening: { single: 700, consecutive: 1200 },
+    },
+  },
+  yantra: {
+    ASTRO: {
+      morning: { single: 700, consecutive: 1200 },
+      evening: { single: 800, consecutive: 1400 },
+    },
+    CEMENT: {
+      morning: { single: 700, consecutive: 1200 },
+      evening: { single: 800, consecutive: 1400 },
+    },
+    NATURAL: {
+      morning: { single: 700, consecutive: 1200 },
+      evening: { single: 800, consecutive: 1400 },
     },
   },
   machine: {
@@ -121,38 +130,46 @@ export function getTimeSlab(
 }
 
 /**
+ * Resolve pricing tier key from category, ballType, and machineId.
+ */
+function resolvePricingTier(
+  category: 'MACHINE' | 'TENNIS',
+  ballType: string,
+  machineId?: string | null
+): keyof PricingConfig {
+  if (category === 'TENNIS') return 'tennis';
+  // Yantra has its own premium pricing tier
+  if (machineId === 'YANTRA') return 'yantra';
+  return ballType === 'LEATHER' ? 'leather' : 'machine';
+}
+
+/**
  * Get the single-slot price for a given configuration.
  * @param category - 'MACHINE' (leather machine) or 'TENNIS' (tennis machine)
  * @param ballType - 'LEATHER', 'MACHINE', or 'TENNIS'
  * @param pitchType - 'ASTRO' or 'TURF' (null for leather machine)
  * @param timeSlab - 'morning' or 'evening'
  * @param pricingConfig - the pricing config
+ * @param machineId - optional machine ID for machine-specific pricing (e.g. YANTRA)
  */
 export function getSlotPrice(
   category: 'MACHINE' | 'TENNIS',
   ballType: string,
   pitchType: string | null,
   timeSlab: 'morning' | 'evening',
-  pricingConfig: PricingConfig
+  pricingConfig: PricingConfig,
+  machineId?: string | null
 ): number {
   const pType = (pitchType as any) === 'TURF' ? 'CEMENT' : (pitchType || 'ASTRO');
   const validPType = (pType === 'ASTRO' || pType === 'CEMENT' || pType === 'NATURAL') ? pType : 'ASTRO';
 
   try {
-    if (category === 'MACHINE') {
-      const subType = ballType === 'LEATHER' ? 'leather' : 'machine';
-      return pricingConfig[subType][validPType][timeSlab].single;
-    }
-    
-    // Tennis machine
-    return pricingConfig.tennis[validPType][timeSlab].single;
+    const tier = resolvePricingTier(category, ballType, machineId);
+    return pricingConfig[tier][validPType][timeSlab].single;
   } catch (e) {
-    console.error(`[Pricing] Error getting slot price for ${category}/${ballType}/${validPType}/${timeSlab}:`, e);
-    // Fallback to default pricing if config is corrupted
-    const subType = category === 'MACHINE' 
-      ? (ballType === 'LEATHER' ? 'leather' : 'machine')
-      : 'tennis';
-    return DEFAULT_PRICING_CONFIG[subType as keyof PricingConfig][validPType][timeSlab].single;
+    console.error(`[Pricing] Error getting slot price for ${category}/${ballType}/${validPType}/${timeSlab}/${machineId}:`, e);
+    const tier = resolvePricingTier(category, ballType, machineId);
+    return DEFAULT_PRICING_CONFIG[tier][validPType][timeSlab].single;
   }
 }
 
@@ -164,24 +181,19 @@ export function getConsecutivePrice(
   ballType: string,
   pitchType: string | null,
   timeSlab: 'morning' | 'evening',
-  pricingConfig: PricingConfig
+  pricingConfig: PricingConfig,
+  machineId?: string | null
 ): number {
   const pType = (pitchType as any) === 'TURF' ? 'CEMENT' : (pitchType || 'ASTRO');
   const validPType = (pType === 'ASTRO' || pType === 'CEMENT' || pType === 'NATURAL') ? pType : 'ASTRO';
 
   try {
-    if (category === 'MACHINE') {
-      const subType = ballType === 'LEATHER' ? 'leather' : 'machine';
-      return pricingConfig[subType][validPType][timeSlab].consecutive;
-    }
-
-    return pricingConfig.tennis[validPType][timeSlab].consecutive;
+    const tier = resolvePricingTier(category, ballType, machineId);
+    return pricingConfig[tier][validPType][timeSlab].consecutive;
   } catch (e) {
-    console.error(`[Pricing] Error getting consecutive price for ${category}/${ballType}/${validPType}/${timeSlab}:`, e);
-    const subType = category === 'MACHINE' 
-      ? (ballType === 'LEATHER' ? 'leather' : 'machine')
-      : 'tennis';
-    return DEFAULT_PRICING_CONFIG[subType as keyof PricingConfig][validPType][timeSlab].consecutive;
+    console.error(`[Pricing] Error getting consecutive price for ${category}/${ballType}/${validPType}/${timeSlab}/${machineId}:`, e);
+    const tier = resolvePricingTier(category, ballType, machineId);
+    return DEFAULT_PRICING_CONFIG[tier][validPType][timeSlab].consecutive;
   }
 }
 
@@ -209,8 +221,12 @@ export async function getPricingConfig(): Promise<PricingConfig> {
 export function normalizePricingConfig(config: any): PricingConfig {
   // If it's already in the new format, return it
   if (config.leather && config.machine && config.tennis) {
+    // Auto-populate yantra from leather if missing (backward compat)
+    if (!config.yantra) {
+      config.yantra = JSON.parse(JSON.stringify(config.leather));
+    }
     // Ensure all pitch types exist for each category
-    const categories = ['leather', 'machine', 'tennis'] as const;
+    const categories = ['leather', 'yantra', 'machine', 'tennis'] as const;
     const pitches = ['ASTRO', 'CEMENT', 'NATURAL'] as const;
     const slabs = ['morning', 'evening'] as const;
 
@@ -292,7 +308,8 @@ export function calculateNewPricing(
   ballType: string,
   pitchType: string | null,
   timeSlabs: TimeSlabConfig,
-  pricingConfig: PricingConfig
+  pricingConfig: PricingConfig,
+  machineId?: string | null
 ): Array<{
   startTime: Date;
   endTime: Date;
@@ -314,8 +331,8 @@ export function calculateNewPricing(
 
   return sorted.map(slot => {
     const slab = getTimeSlab(slot.startTime, timeSlabs);
-    const singlePrice = getSlotPrice(category, ballType, pitchType, slab, pricingConfig);
-    const consecutiveTotalFor2 = getConsecutivePrice(category, ballType, pitchType, slab, pricingConfig);
+    const singlePrice = getSlotPrice(category, ballType, pitchType, slab, pricingConfig, machineId);
+    const consecutiveTotalFor2 = getConsecutivePrice(category, ballType, pitchType, slab, pricingConfig, machineId);
     const consecutivePerSlot = consecutiveTotalFor2 / 2;
 
     const originalPrice = singlePrice;

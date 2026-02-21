@@ -1,8 +1,8 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useSession } from 'next-auth/react';
-import { Package, Loader2, ShoppingCart, CheckCircle, Clock, AlertCircle } from 'lucide-react';
+import { Package, Loader2, ShoppingCart, Check, Clock, X, Filter, ChevronRight } from 'lucide-react';
 import Link from 'next/link';
 import { differenceInDays, startOfDay } from 'date-fns';
 
@@ -44,8 +44,17 @@ interface MyPackage {
 const labelMap: Record<string, string> = {
   LEATHER: 'Leather', TENNIS: 'Tennis', MACHINE: 'Machine Ball',
   BOTH: 'Both', CEMENT: 'Cement', ASTRO: 'Astro',
-  DAY: 'Day', EVENING: 'Evening/Night',
+  DAY: 'Day (7:00 AM – 5:00 PM)', EVENING: 'Evening/Night (7:00 PM – 10:30 PM)',
 };
+
+const MACHINE_LABELS: Record<string, string> = {
+  GRAVITY: 'Gravity (Leather)',
+  YANTRA: 'Yantra (Premium Leather)',
+  LEVERAGE_INDOOR: 'Leverage High Speed Tennis (Indoor)',
+  LEVERAGE_OUTDOOR: 'Leverage High Speed Tennis (Outdoor)',
+};
+
+type MachineFilter = 'all' | 'leather' | 'tennis';
 
 export default function PackagesPage() {
   const { data: session } = useSession();
@@ -55,6 +64,8 @@ export default function PackagesPage() {
   const [loading, setLoading] = useState(true);
   const [purchasing, setPurchasing] = useState<string | null>(null);
   const [message, setMessage] = useState({ text: '', type: '' });
+  const [machineFilter, setMachineFilter] = useState<MachineFilter>('all');
+  const [selectedPackage, setSelectedPackage] = useState<PackageInfo | null>(null);
 
   const fetchPackages = async () => {
     setLoading(true);
@@ -122,6 +133,19 @@ export default function PackagesPage() {
     }
   };
 
+  // Filtered and grouped browse packages
+  const filteredPackages = useMemo(() => {
+    return packages.filter(pkg => {
+      if (machineFilter === 'all') return true;
+      if (machineFilter === 'leather') return pkg.machineType === 'LEATHER';
+      if (machineFilter === 'tennis') return pkg.machineType === 'TENNIS';
+      return true;
+    });
+  }, [packages, machineFilter]);
+
+  const leatherPackages = filteredPackages.filter(p => p.machineType === 'LEATHER');
+  const tennisPackages = filteredPackages.filter(p => p.machineType === 'TENNIS');
+
   return (
     <div className="min-h-[calc(100vh-56px)]">
       <div className="fixed inset-0 -z-10 bg-gradient-to-br from-[#0a1628] via-[#132240] to-[#0d1f3c]"></div>
@@ -160,15 +184,14 @@ export default function PackagesPage() {
           </p>
         )}
 
-        {/* CONTENT AREA */}
-        <div className="flex flex-col md:flex-row gap-6">
-          {/* Left Side: My Packages (now default) */}
-          <div className={`flex-1 ${tab === 'my' ? 'block' : 'hidden md:block'}`}>
+        {/* MY PACKAGES TAB */}
+        {tab === 'my' && (
+          <div>
             <h2 className="text-sm font-semibold text-slate-400 mb-4 flex items-center gap-2">
               <Package className="w-4 h-4" />
               My Packages
             </h2>
-            {loading && tab === 'my' ? (
+            {loading ? (
               <div className="flex items-center justify-center py-12 text-slate-400">
                 <Loader2 className="w-5 h-5 animate-spin mr-2" />
                 <span className="text-sm">Loading your packages...</span>
@@ -185,8 +208,6 @@ export default function PackagesPage() {
                   const pct = up.totalSessions > 0 ? (up.usedSessions / up.totalSessions) * 100 : 0;
                   const isActive = up.status === 'ACTIVE';
                   const isExpired = up.status === 'EXPIRED';
-                  
-                  // Calculate days remaining
                   const today = startOfDay(new Date());
                   const expiry = startOfDay(new Date(up.expiryDate));
                   const daysRemaining = differenceInDays(expiry, today);
@@ -246,45 +267,265 @@ export default function PackagesPage() {
               </div>
             )}
           </div>
+        )}
 
-          {/* Right Side: Browse Packages */}
-          <div className={`flex-1 ${tab === 'browse' ? 'block' : 'hidden'}`}>
-            <h2 className="text-sm font-semibold text-slate-400 mb-4 flex items-center gap-2">
-              <ShoppingCart className="w-4 h-4" />
-              Available Packages
-            </h2>
-            {loading && tab === 'browse' ? (
+        {/* BROWSE PACKAGES TAB */}
+        {tab === 'browse' && (
+          <div>
+            {/* Machine Filter */}
+            <div className="flex items-center gap-2 mb-5">
+              <Filter className="w-4 h-4 text-slate-400" />
+              <span className="text-[11px] font-medium text-slate-500 uppercase tracking-wider mr-1">Filter:</span>
+              {([
+                { key: 'all' as MachineFilter, label: 'All Machines' },
+                { key: 'leather' as MachineFilter, label: 'Leather Machines' },
+                { key: 'tennis' as MachineFilter, label: 'Tennis Machines' },
+              ]).map(f => (
+                <button
+                  key={f.key}
+                  onClick={() => setMachineFilter(f.key)}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+                    machineFilter === f.key
+                      ? 'bg-accent/15 text-accent border border-accent/30'
+                      : 'bg-white/[0.04] text-slate-400 border border-white/[0.08] hover:border-accent/20'
+                  }`}
+                >
+                  {f.label}
+                </button>
+              ))}
+            </div>
+
+            {loading ? (
               <div className="flex items-center justify-center py-12 text-slate-400">
                 <Loader2 className="w-5 h-5 animate-spin mr-2" />
                 <span className="text-sm">Loading available packages...</span>
               </div>
+            ) : filteredPackages.length === 0 ? (
+              <div className="bg-white/[0.02] border border-white/[0.05] rounded-xl p-8 text-center">
+                <Package className="w-8 h-8 text-slate-600 mx-auto mb-3" />
+                <p className="text-sm text-slate-500">No packages found for this filter</p>
+              </div>
             ) : (
-              <div className="grid grid-cols-1 gap-4">
-                {packages.map(pkg => (
-                  <div key={pkg.id} className="bg-white/[0.04] backdrop-blur-sm rounded-xl border border-white/[0.08] p-5 flex flex-col">
-                    <div className="flex justify-between items-start mb-2">
-                      <h3 className="text-sm font-semibold text-white">{pkg.name}</h3>
-                      <span className="text-accent font-bold text-sm">₹{pkg.price}</span>
+              <div className="space-y-6">
+                {/* Leather Machines Section */}
+                {(machineFilter === 'all' || machineFilter === 'leather') && leatherPackages.length > 0 && (
+                  <div>
+                    <div className="flex items-center gap-2 mb-3">
+                      <span className="w-2.5 h-2.5 rounded-full bg-red-500"></span>
+                      <h3 className="text-sm font-bold text-white">Leather Machines</h3>
+                      <span className="text-[10px] text-slate-500 bg-white/[0.04] px-2 py-0.5 rounded-full">{leatherPackages.length}</span>
                     </div>
-                    <div className="flex flex-wrap gap-1.5 text-[10px] text-slate-400 mb-3">
-                      <span className="bg-white/[0.06] px-2 py-0.5 rounded">{labelMap[pkg.machineType]}</span>
-                      <span className="bg-white/[0.06] px-2 py-0.5 rounded">{pkg.totalSessions} Sessions</span>
-                      <span className="bg-white/[0.06] px-2 py-0.5 rounded">{pkg.validityDays} Days</span>
+                    <div className="bg-white/[0.03] rounded-xl border border-white/[0.06] overflow-hidden">
+                      {/* Table Header */}
+                      <div className="hidden sm:grid grid-cols-[1fr_100px_80px_80px_100px_90px] gap-2 px-4 py-2.5 bg-white/[0.03] border-b border-white/[0.06]">
+                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Package</span>
+                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Ball Type</span>
+                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Sessions</span>
+                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Validity</span>
+                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Price</span>
+                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider"></span>
+                      </div>
+                      {leatherPackages.map((pkg, idx) => (
+                        <div
+                          key={pkg.id}
+                          className={`sm:grid sm:grid-cols-[1fr_100px_80px_80px_100px_90px] gap-2 px-4 py-3.5 items-center hover:bg-white/[0.03] transition-colors ${
+                            idx < leatherPackages.length - 1 ? 'border-b border-white/[0.04]' : ''
+                          }`}
+                        >
+                          <div
+                            className="cursor-pointer"
+                            onClick={() => setSelectedPackage(pkg)}
+                          >
+                            <span className="text-sm font-semibold text-white hover:text-accent transition-colors">{pkg.name}</span>
+                            <div className="text-[10px] text-slate-500 mt-0.5">
+                              {pkg.timingType === 'DAY' ? 'Day' : 'Evening/Night'}
+                            </div>
+                          </div>
+                          <div className="text-xs text-slate-400 mt-1 sm:mt-0">
+                            <span className="sm:hidden text-[10px] text-slate-500">Ball: </span>
+                            {labelMap[pkg.ballType] || pkg.ballType}
+                          </div>
+                          <div className="text-xs text-white font-medium mt-1 sm:mt-0">
+                            <span className="sm:hidden text-[10px] text-slate-500">Sessions: </span>
+                            {pkg.totalSessions}
+                          </div>
+                          <div className="text-xs text-slate-400 mt-1 sm:mt-0">
+                            <span className="sm:hidden text-[10px] text-slate-500">Validity: </span>
+                            {pkg.validityDays}d
+                          </div>
+                          <div className="text-sm text-accent font-bold mt-1 sm:mt-0">
+                            <span className="sm:hidden text-[10px] text-slate-500">Price: </span>
+                            ₹{pkg.price}
+                          </div>
+                          <div className="flex items-center gap-2 mt-2 sm:mt-0">
+                            <button
+                              onClick={() => handlePurchase(pkg.id)}
+                              disabled={purchasing === pkg.id}
+                              className="bg-accent hover:bg-accent-light text-primary px-3 py-1.5 rounded-lg text-[11px] font-semibold transition-colors disabled:opacity-50 cursor-pointer"
+                            >
+                              {purchasing === pkg.id ? <Loader2 className="w-3 h-3 animate-spin" /> : 'Buy'}
+                            </button>
+                            <button
+                              onClick={() => setSelectedPackage(pkg)}
+                              className="p-1.5 text-slate-400 hover:text-accent hover:bg-accent/10 rounded-lg transition-colors cursor-pointer"
+                            >
+                              <ChevronRight className="w-4 h-4" />
+                            </button>
+                          </div>
+                        </div>
+                      ))}
                     </div>
-                    <button
-                      onClick={() => handlePurchase(pkg.id)}
-                      disabled={purchasing === pkg.id}
-                      className="w-full bg-accent hover:bg-accent-light text-primary py-2 rounded-lg text-xs font-semibold transition-colors disabled:opacity-50"
-                    >
-                      {purchasing === pkg.id ? <Loader2 className="w-3.5 h-3.5 animate-spin mx-auto" /> : 'Purchase Now'}
-                    </button>
                   </div>
-                ))}
+                )}
+
+                {/* Tennis Machines Section */}
+                {(machineFilter === 'all' || machineFilter === 'tennis') && tennisPackages.length > 0 && (
+                  <div>
+                    <div className="flex items-center gap-2 mb-3">
+                      <span className="w-2.5 h-2.5 rounded-full bg-green-500"></span>
+                      <h3 className="text-sm font-bold text-white">Tennis Machines</h3>
+                      <span className="text-[10px] text-slate-500 bg-white/[0.04] px-2 py-0.5 rounded-full">{tennisPackages.length}</span>
+                    </div>
+                    <div className="bg-white/[0.03] rounded-xl border border-white/[0.06] overflow-hidden">
+                      {/* Table Header */}
+                      <div className="hidden sm:grid grid-cols-[1fr_80px_80px_100px_90px] gap-2 px-4 py-2.5 bg-white/[0.03] border-b border-white/[0.06]">
+                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Package</span>
+                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Sessions</span>
+                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Validity</span>
+                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Price</span>
+                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider"></span>
+                      </div>
+                      {tennisPackages.map((pkg, idx) => (
+                        <div
+                          key={pkg.id}
+                          className={`sm:grid sm:grid-cols-[1fr_80px_80px_100px_90px] gap-2 px-4 py-3.5 items-center hover:bg-white/[0.03] transition-colors ${
+                            idx < tennisPackages.length - 1 ? 'border-b border-white/[0.04]' : ''
+                          }`}
+                        >
+                          <div
+                            className="cursor-pointer"
+                            onClick={() => setSelectedPackage(pkg)}
+                          >
+                            <span className="text-sm font-semibold text-white hover:text-accent transition-colors">{pkg.name}</span>
+                            <div className="text-[10px] text-slate-500 mt-0.5">
+                              {pkg.timingType === 'DAY' ? 'Day' : 'Evening/Night'}
+                            </div>
+                          </div>
+                          <div className="text-xs text-white font-medium mt-1 sm:mt-0">
+                            <span className="sm:hidden text-[10px] text-slate-500">Sessions: </span>
+                            {pkg.totalSessions}
+                          </div>
+                          <div className="text-xs text-slate-400 mt-1 sm:mt-0">
+                            <span className="sm:hidden text-[10px] text-slate-500">Validity: </span>
+                            {pkg.validityDays}d
+                          </div>
+                          <div className="text-sm text-accent font-bold mt-1 sm:mt-0">
+                            <span className="sm:hidden text-[10px] text-slate-500">Price: </span>
+                            ₹{pkg.price}
+                          </div>
+                          <div className="flex items-center gap-2 mt-2 sm:mt-0">
+                            <button
+                              onClick={() => handlePurchase(pkg.id)}
+                              disabled={purchasing === pkg.id}
+                              className="bg-accent hover:bg-accent-light text-primary px-3 py-1.5 rounded-lg text-[11px] font-semibold transition-colors disabled:opacity-50 cursor-pointer"
+                            >
+                              {purchasing === pkg.id ? <Loader2 className="w-3 h-3 animate-spin" /> : 'Buy'}
+                            </button>
+                            <button
+                              onClick={() => setSelectedPackage(pkg)}
+                              className="p-1.5 text-slate-400 hover:text-accent hover:bg-accent/10 rounded-lg transition-colors cursor-pointer"
+                            >
+                              <ChevronRight className="w-4 h-4" />
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
             )}
           </div>
-        </div>
+        )}
       </div>
+
+      {/* Package Detail Modal */}
+      {selectedPackage && (
+        <div
+          className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+          onClick={() => setSelectedPackage(null)}
+        >
+          <div
+            className="bg-[#0f1d2f] border border-white/[0.12] rounded-2xl w-full max-w-md p-6 shadow-2xl"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="flex items-start justify-between mb-5">
+              <div>
+                <h2 className="text-lg font-bold text-white">{selectedPackage.name}</h2>
+                <span className={`inline-block mt-1 text-[10px] px-2 py-0.5 rounded-full font-semibold ${
+                  selectedPackage.machineType === 'LEATHER'
+                    ? 'bg-red-500/15 text-red-400'
+                    : 'bg-green-500/15 text-green-400'
+                }`}>
+                  {selectedPackage.machineType === 'LEATHER' ? 'Leather Machine' : 'Tennis Machine'}
+                </span>
+              </div>
+              <button
+                onClick={() => setSelectedPackage(null)}
+                className="p-2 text-slate-400 hover:text-white hover:bg-white/[0.06] rounded-lg transition-colors cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              {/* Details Grid */}
+              <div className="grid grid-cols-2 gap-3">
+                <DetailItem label="Machine" value={selectedPackage.machineType === 'LEATHER' ? 'Leather' : 'Tennis'} />
+                {selectedPackage.machineType === 'LEATHER' && (
+                  <DetailItem label="Ball Type" value={labelMap[selectedPackage.ballType] || selectedPackage.ballType} />
+                )}
+                <DetailItem
+                  label="Timing"
+                  value={selectedPackage.timingType === 'DAY' ? 'Day' : selectedPackage.timingType === 'EVENING' ? 'Evening/Night' : 'Both'}
+                  subValue={selectedPackage.timingType === 'DAY' ? '7:00 AM – 5:00 PM' : selectedPackage.timingType === 'EVENING' ? '7:00 PM – 10:30 PM' : 'Any time'}
+                />
+                <DetailItem label="Sessions" value={`${selectedPackage.totalSessions} sessions`} />
+                <DetailItem label="Validity" value={`${selectedPackage.validityDays} days`} />
+                <DetailItem label="Price" value={`₹${selectedPackage.price}`} highlight />
+              </div>
+
+              {/* Purchase Button */}
+              <button
+                onClick={() => { handlePurchase(selectedPackage.id); setSelectedPackage(null); }}
+                disabled={purchasing === selectedPackage.id}
+                className="w-full bg-accent hover:bg-accent-light text-primary py-3 rounded-xl text-sm font-bold transition-colors disabled:opacity-50 cursor-pointer mt-2"
+              >
+                {purchasing === selectedPackage.id ? (
+                  <Loader2 className="w-4 h-4 animate-spin mx-auto" />
+                ) : (
+                  `Purchase for ₹${selectedPackage.price}`
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function DetailItem({ label, value, subValue, highlight }: {
+  label: string;
+  value: string;
+  subValue?: string;
+  highlight?: boolean;
+}) {
+  return (
+    <div className="bg-white/[0.04] rounded-lg p-3">
+      <div className="text-[10px] font-medium text-slate-500 uppercase tracking-wider mb-1">{label}</div>
+      <div className={`text-sm font-semibold ${highlight ? 'text-accent' : 'text-white'}`}>{value}</div>
+      {subValue && <div className="text-[10px] text-slate-500 mt-0.5">{subValue}</div>}
     </div>
   );
 }

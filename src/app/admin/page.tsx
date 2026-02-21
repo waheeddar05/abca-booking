@@ -30,22 +30,17 @@ interface SlabPricing {
   consecutive: number;
 }
 
+interface PitchPricing {
+  ASTRO: { morning: SlabPricing; evening: SlabPricing };
+  CEMENT: { morning: SlabPricing; evening: SlabPricing };
+  NATURAL: { morning: SlabPricing; evening: SlabPricing };
+}
+
 interface PricingConfig {
-  leather: {
-    ASTRO: { morning: SlabPricing; evening: SlabPricing };
-    CEMENT: { morning: SlabPricing; evening: SlabPricing };
-    NATURAL: { morning: SlabPricing; evening: SlabPricing };
-  };
-  machine: {
-    ASTRO: { morning: SlabPricing; evening: SlabPricing };
-    CEMENT: { morning: SlabPricing; evening: SlabPricing };
-    NATURAL: { morning: SlabPricing; evening: SlabPricing };
-  };
-  tennis: {
-    ASTRO: { morning: SlabPricing; evening: SlabPricing };
-    CEMENT: { morning: SlabPricing; evening: SlabPricing };
-    NATURAL: { morning: SlabPricing; evening: SlabPricing };
-  };
+  leather: PitchPricing;
+  yantra: PitchPricing;
+  machine: PitchPricing;
+  tennis: PitchPricing;
 }
 
 interface TimeSlabConfig {
@@ -101,6 +96,20 @@ const DEFAULT_PRICING: PricingConfig = {
       evening: { single: 700, consecutive: 1200 },
     },
   },
+  yantra: {
+    ASTRO: {
+      morning: { single: 700, consecutive: 1200 },
+      evening: { single: 800, consecutive: 1400 },
+    },
+    CEMENT: {
+      morning: { single: 700, consecutive: 1200 },
+      evening: { single: 800, consecutive: 1400 },
+    },
+    NATURAL: {
+      morning: { single: 700, consecutive: 1200 },
+      evening: { single: 800, consecutive: 1400 },
+    },
+  },
   machine: {
     ASTRO: {
       morning: { single: 500, consecutive: 800 },
@@ -144,10 +153,10 @@ const DEFAULT_MACHINE_PITCH_CONFIG: MachinePitchConfig = {
 };
 
 const MACHINE_LABELS: Record<MachineId, { name: string; category: string }> = {
-  GRAVITY: { name: 'Gravity', category: 'Leather' },
-  YANTRA: { name: 'Yantra', category: 'Leather' },
-  LEVERAGE_INDOOR: { name: 'Tennis Indoor', category: 'Tennis' },
-  LEVERAGE_OUTDOOR: { name: 'Tennis Outdoor', category: 'Tennis' },
+  GRAVITY: { name: 'Gravity (Leather)', category: 'Leather' },
+  YANTRA: { name: 'Yantra (Premium Leather)', category: 'Leather' },
+  LEVERAGE_INDOOR: { name: 'Leverage Indoor', category: 'Tennis' },
+  LEVERAGE_OUTDOOR: { name: 'Leverage Outdoor', category: 'Tennis' },
 };
 
 const PITCH_TYPE_LABELS: Record<PitchType, string> = {
@@ -222,9 +231,14 @@ export default function AdminDashboard() {
         const response = await fetch('/api/admin/machine-config');
         if (response.ok) {
           const data = await response.json();
+          const pc = data.pricingConfig || DEFAULT_PRICING;
+          // Ensure yantra tier exists (backward compat with old configs)
+          if (!pc.yantra) {
+            pc.yantra = JSON.parse(JSON.stringify(pc.leather || DEFAULT_PRICING.leather));
+          }
           setMachineConfig({
             ...data,
-            pricingConfig: data.pricingConfig || DEFAULT_PRICING,
+            pricingConfig: pc,
             timeSlabConfig: data.timeSlabConfig || DEFAULT_TIME_SLABS,
             machinePitchConfig: data.machinePitchConfig || DEFAULT_MACHINE_PITCH_CONFIG,
           });
@@ -630,11 +644,12 @@ export default function AdminDashboard() {
             <div className="pt-4 border-t border-white/[0.06]">
               <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">Slot Pricing Configuration</h3>
 
-              {(['leather', 'machine', 'tennis'] as const).map(category => (
+              {(['leather', 'yantra', 'machine', 'tennis'] as const).map(category => (
                 <div key={category} className="mb-6">
                   <h4 className="text-[11px] font-bold text-accent uppercase tracking-widest mb-3 px-1">
-                    {category === 'leather' ? 'Leather Ball Machine - Leather Balls' :
-                     category === 'machine' ? 'Leather Ball Machine - Machine Balls' :
+                    {category === 'leather' ? 'Gravity (Leather) - Leather Balls' :
+                     category === 'yantra' ? 'Yantra (Premium Leather) - Leather Balls' :
+                     category === 'machine' ? 'Gravity (Leather) - Machine Balls' :
                      'Tennis Ball Machine'}
                   </h4>
                   
