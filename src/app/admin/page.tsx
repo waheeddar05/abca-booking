@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useSession } from 'next-auth/react';
-import { CalendarCheck, Activity, UserPlus, CalendarDays, Settings, Clock, IndianRupee, TrendingUp, Percent, Save, Loader2, Zap, Wrench, CalendarPlus } from 'lucide-react';
+import { CalendarCheck, Activity, UserPlus, CalendarDays, Settings, Clock, IndianRupee, TrendingUp, Percent, Save, Loader2, Zap, Wrench, CalendarPlus, Check } from 'lucide-react';
 
 interface Stats {
   totalBookings: number;
@@ -53,7 +53,23 @@ interface TimeSlabConfig {
   evening: { start: string; end: string };
 }
 
+type MachineId = 'GRAVITY' | 'YANTRA' | 'LEVERAGE_INDOOR' | 'LEVERAGE_OUTDOOR';
+type PitchType = 'ASTRO' | 'CEMENT' | 'NATURAL';
+type MachinePitchConfig = Record<MachineId, PitchType[]>;
+
+interface MachineInfo {
+  id: MachineId;
+  name: string;
+  shortName: string;
+  ballType: string;
+  category: 'LEATHER' | 'TENNIS';
+  enabledPitchTypes: PitchType[];
+  allPitchTypes: PitchType[];
+}
+
 interface MachineConfig {
+  machines?: MachineInfo[];
+  machinePitchConfig?: MachinePitchConfig;
   leatherMachine: {
     ballTypeSelectionEnabled: boolean;
     pitchTypeSelectionEnabled: boolean;
@@ -120,6 +136,29 @@ const DEFAULT_TIME_SLABS: TimeSlabConfig = {
   evening: { start: '19:00', end: '22:30' },
 };
 
+const DEFAULT_MACHINE_PITCH_CONFIG: MachinePitchConfig = {
+  GRAVITY: ['ASTRO'],
+  YANTRA: ['ASTRO'],
+  LEVERAGE_INDOOR: ['ASTRO', 'CEMENT'],
+  LEVERAGE_OUTDOOR: ['ASTRO', 'CEMENT'],
+};
+
+const MACHINE_LABELS: Record<MachineId, { name: string; category: string }> = {
+  GRAVITY: { name: 'Gravity', category: 'Leather' },
+  YANTRA: { name: 'Yantra', category: 'Leather' },
+  LEVERAGE_INDOOR: { name: 'Tennis Indoor', category: 'Tennis' },
+  LEVERAGE_OUTDOOR: { name: 'Tennis Outdoor', category: 'Tennis' },
+};
+
+const PITCH_TYPE_LABELS: Record<PitchType, string> = {
+  ASTRO: 'Astro Turf',
+  CEMENT: 'Cement',
+  NATURAL: 'Natural Turf',
+};
+
+const ALL_MACHINE_IDS: MachineId[] = ['GRAVITY', 'YANTRA', 'LEVERAGE_INDOOR', 'LEVERAGE_OUTDOOR'];
+const ALL_PITCH_TYPES: PitchType[] = ['ASTRO', 'CEMENT', 'NATURAL'];
+
 export default function AdminDashboard() {
   const { data: session } = useSession();
   const [stats, setStats] = useState<Stats | null>(null);
@@ -141,6 +180,7 @@ export default function AdminDashboard() {
     numberOfOperators: 1,
     pricingConfig: DEFAULT_PRICING,
     timeSlabConfig: DEFAULT_TIME_SLABS,
+    machinePitchConfig: DEFAULT_MACHINE_PITCH_CONFIG,
   });
   const [machineLoading, setMachineLoading] = useState(true);
   const [savingMachine, setSavingMachine] = useState(false);
@@ -186,6 +226,7 @@ export default function AdminDashboard() {
             ...data,
             pricingConfig: data.pricingConfig || DEFAULT_PRICING,
             timeSlabConfig: data.timeSlabConfig || DEFAULT_TIME_SLABS,
+            machinePitchConfig: data.machinePitchConfig || DEFAULT_MACHINE_PITCH_CONFIG,
           });
         }
       } catch (error) {
@@ -264,6 +305,21 @@ export default function AdminDashboard() {
         [slab]: { ...prev.timeSlabConfig[slab], [field]: value },
       },
     }));
+  };
+
+  const togglePitchType = (machineId: MachineId, pitchType: PitchType) => {
+    setMachineConfig(prev => {
+      const current = prev.machinePitchConfig || DEFAULT_MACHINE_PITCH_CONFIG;
+      const enabled = current[machineId] || [];
+      const isEnabled = enabled.includes(pitchType);
+      const updated = isEnabled
+        ? enabled.filter(p => p !== pitchType)
+        : [...enabled, pitchType];
+      return {
+        ...prev,
+        machinePitchConfig: { ...current, [machineId]: updated },
+      };
+    });
   };
 
   const statCards = [
@@ -451,6 +507,46 @@ export default function AdminDashboard() {
                     machineConfig.tennisMachine.pitchTypeSelectionEnabled ? 'left-6' : 'left-1'
                   }`} />
                 </button>
+              </div>
+            </div>
+
+            {/* Machine-Pitch Compatibility */}
+            <div className="pt-4 border-t border-white/[0.06]">
+              <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">Machine &mdash; Pitch Compatibility</h3>
+              <p className="text-xs text-slate-400 mb-3">Toggle which pitch types are available for each machine</p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {ALL_MACHINE_IDS.map(machineId => {
+                  const label = MACHINE_LABELS[machineId];
+                  const enabled = machineConfig.machinePitchConfig?.[machineId] || [];
+                  return (
+                    <div key={machineId} className="bg-white/[0.02] rounded-lg p-3 border border-white/[0.06]">
+                      <div className="flex items-center gap-2 mb-2">
+                        <span className={`w-2 h-2 rounded-full ${label.category === 'Leather' ? 'bg-red-400' : 'bg-green-400'}`} />
+                        <p className="text-xs font-semibold text-slate-300">{label.name}</p>
+                        <span className="text-[10px] text-slate-500">({label.category})</span>
+                      </div>
+                      <div className="flex gap-2">
+                        {ALL_PITCH_TYPES.map(pt => {
+                          const isOn = enabled.includes(pt);
+                          return (
+                            <button
+                              key={pt}
+                              onClick={() => togglePitchType(machineId, pt)}
+                              className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors cursor-pointer ${
+                                isOn
+                                  ? 'bg-primary/20 text-primary border border-primary/30'
+                                  : 'bg-white/[0.04] text-slate-500 border border-white/[0.08] hover:bg-white/[0.08]'
+                              }`}
+                            >
+                              {isOn && <Check className="w-3 h-3" />}
+                              {PITCH_TYPE_LABELS[pt]}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
             </div>
 
