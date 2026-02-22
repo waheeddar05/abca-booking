@@ -12,7 +12,7 @@ interface DateSelectorProps {
 export function DateSelector({ selectedDate, onSelect, daysAhead = 7 }: DateSelectorProps) {
   return (
     <div className="mb-5">
-      <label className="block text-[10px] font-medium text-slate-500 mb-2 uppercase tracking-wider">
+      <label className="block text-[10px] font-medium text-accent mb-2 uppercase tracking-wider">
         Date
       </label>
       <div className="flex gap-2 overflow-x-auto pb-2 -mx-4 px-4 scrollbar-hide">

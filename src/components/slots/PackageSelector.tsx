@@ -22,7 +22,7 @@ export function PackageSelector({
 
   return (
     <div className="mb-8">
-      <label className="block text-xs font-medium text-slate-400 mb-2 uppercase tracking-wider">
+      <label className="block text-[10px] font-medium text-accent mb-2 uppercase tracking-wider">
         Use a Package
       </label>
       <div className="relative">

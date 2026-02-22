@@ -264,27 +264,20 @@ function AdminBookingsContent() {
             <p className="text-xs text-slate-400">Manage all bookings</p>
           </div>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <Link
-            href="/slots"
-            className="flex-1 sm:flex-none inline-flex items-center justify-center gap-2 px-3 py-2 bg-accent text-primary rounded-lg text-xs font-bold hover:bg-accent-light transition-colors cursor-pointer"
-          >
-            <CalendarPlus className="w-3.5 h-3.5" />
-            New Booking
-          </Link>
+        <div className="flex items-center gap-2">
           <button
             onClick={() => setShowBookOnBehalf(true)}
-            className="flex-1 sm:flex-none inline-flex items-center justify-center gap-2 px-3 py-2 bg-white/[0.06] text-slate-300 rounded-lg text-xs font-medium hover:bg-white/[0.1] transition-colors cursor-pointer whitespace-nowrap border border-white/[0.08]"
+            className="inline-flex items-center justify-center gap-2 px-3 py-2 bg-accent text-primary rounded-lg text-xs font-bold hover:bg-accent-light transition-colors cursor-pointer"
           >
             <UserPlus className="w-3.5 h-3.5" />
-            Book on Behalf
+            <span className="hidden sm:inline">Book on</span> Behalf
           </button>
           <button
             onClick={handleExport}
-            className="flex-1 sm:flex-none inline-flex items-center justify-center gap-2 px-3 py-2 bg-white/[0.06] text-slate-300 rounded-lg text-xs font-medium hover:bg-white/[0.1] transition-colors cursor-pointer whitespace-nowrap"
+            className="inline-flex items-center justify-center gap-2 px-3 py-2 bg-white/[0.06] text-slate-300 rounded-lg text-xs font-medium hover:bg-white/[0.1] transition-colors cursor-pointer border border-white/[0.08]"
           >
             <Download className="w-3.5 h-3.5" />
-            Export CSV
+            <span className="hidden sm:inline">Export</span> CSV
           </button>
         </div>
 
@@ -783,7 +776,7 @@ function AdminBookingsContent() {
 
           {/* Pagination */}
           {pagination.totalPages > 1 && (
-            <div className="flex items-center justify-between mt-4">
+            <div className="flex flex-col sm:flex-row items-center justify-between mt-4 gap-2">
               <div className="text-xs text-slate-400">
                 Showing {(pagination.page - 1) * pagination.limit + 1}-{Math.min(pagination.page * pagination.limit, pagination.total)} of {pagination.total}
               </div>

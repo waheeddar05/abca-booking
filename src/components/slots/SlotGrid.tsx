@@ -36,7 +36,7 @@ export function SlotGrid({
 }: SlotGridProps) {
   return (
     <div className="mb-5">
-      <label className="block text-[10px] font-medium text-slate-500 mb-2 uppercase tracking-wider">
+      <label className="block text-[10px] font-medium text-accent mb-2 uppercase tracking-wider">
         Available Slots
       </label>
 

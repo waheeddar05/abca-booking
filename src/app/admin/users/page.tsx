@@ -402,22 +402,22 @@ export default function AdminUsers() {
 
                 {isExpanded && (
                   <div className="px-4 pb-4 border-t border-white/[0.06]">
-                    <div className="grid grid-cols-2 gap-3 pt-3 mb-4">
-                      <div className="flex items-center gap-2 text-xs text-slate-400">
-                        <Mail className="w-3.5 h-3.5 text-slate-500" />
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-3 mb-4">
+                      <div className="flex items-center gap-2 text-xs text-slate-400 min-w-0">
+                        <Mail className="w-3.5 h-3.5 text-slate-500 flex-shrink-0" />
                         <span className="truncate">{user.email || 'No email'}</span>
                       </div>
-                      <div className="flex items-center gap-2 text-xs text-slate-400">
-                        <Phone className="w-3.5 h-3.5 text-slate-500" />
-                        <span>{user.mobileNumber || 'No phone'}</span>
+                      <div className="flex items-center gap-2 text-xs text-slate-400 min-w-0">
+                        <Phone className="w-3.5 h-3.5 text-slate-500 flex-shrink-0" />
+                        <span className="truncate">{user.mobileNumber || 'No phone'}</span>
                       </div>
-                      <div className="flex items-center gap-2 text-xs text-slate-400">
-                        <Clock className="w-3.5 h-3.5 text-slate-500" />
-                        <span>Joined {new Date(user.createdAt).toLocaleDateString()}</span>
+                      <div className="flex items-center gap-2 text-xs text-slate-400 min-w-0">
+                        <Clock className="w-3.5 h-3.5 text-slate-500 flex-shrink-0" />
+                        <span className="truncate">Joined {new Date(user.createdAt).toLocaleDateString()}</span>
                       </div>
-                      <div className="flex items-center gap-2 text-xs text-slate-400">
-                        <CalendarCheck className="w-3.5 h-3.5 text-slate-500" />
-                        <span>{user._count.bookings} total bookings</span>
+                      <div className="flex items-center gap-2 text-xs text-slate-400 min-w-0">
+                        <CalendarCheck className="w-3.5 h-3.5 text-slate-500 flex-shrink-0" />
+                        <span className="truncate">{user._count.bookings} total bookings</span>
                       </div>
                     </div>
                     <div className="text-[11px] text-slate-500 mb-3">
@@ -426,28 +426,27 @@ export default function AdminUsers() {
 
                     {user.email !== 'waheeddar8@gmail.com' && (
                       <div className="flex flex-col gap-2">
-                        <div className="flex gap-2">
+                        <div className="grid grid-cols-2 gap-2">
                           <Link
                             href={`/slots?userId=${user.id}&userName=${encodeURIComponent(user.name || user.email || '')}`}
-                            className="flex-1 flex items-center justify-center gap-1.5 py-2 text-xs font-medium text-accent bg-accent/10 rounded-lg hover:bg-accent/20 transition-colors cursor-pointer"
+                            className="flex items-center justify-center gap-1.5 py-2 text-xs font-medium text-accent bg-accent/10 rounded-lg hover:bg-accent/20 transition-colors cursor-pointer"
                           >
                             <CalendarPlus className="w-3.5 h-3.5" />
-                            Book for User
+                            Book
                           </Link>
                           <button
                             onClick={() => fetchBookingHistory(user)}
-                            className="flex-1 flex items-center justify-center gap-1.5 py-2 text-xs font-medium text-blue-400 bg-blue-500/10 rounded-lg hover:bg-blue-500/20 transition-colors cursor-pointer"
+                            className="flex items-center justify-center gap-1.5 py-2 text-xs font-medium text-blue-400 bg-blue-500/10 rounded-lg hover:bg-blue-500/20 transition-colors cursor-pointer"
                           >
                             <History className="w-3.5 h-3.5" />
-                            Check History
+                            History
                           </button>
                         </div>
-                        <div className="flex gap-2">
-                          {isSuperAdmin && (
-                            <>
+                        {isSuperAdmin && (
+                          <div className="grid grid-cols-3 gap-2">
                               <button
                                 onClick={() => handleToggleRole(user)}
-                                className={`flex-1 flex items-center justify-center gap-1.5 py-2 text-xs font-medium rounded-lg transition-colors cursor-pointer ${
+                                className={`flex items-center justify-center gap-1 py-2 text-xs font-medium rounded-lg transition-colors cursor-pointer ${
                                   user.role === 'ADMIN'
                                     ? 'text-orange-400 bg-orange-500/10 hover:bg-orange-500/20'
                                     : 'text-blue-400 bg-blue-500/10 hover:bg-blue-500/20'
@@ -455,19 +454,19 @@ export default function AdminUsers() {
                               >
                                 {user.role === 'ADMIN' ? (
                                   <>
-                                    <ShieldOff className="w-3.5 h-3.5" />
-                                    Demote to User
+                                    <ShieldOff className="w-3.5 h-3.5 flex-shrink-0" />
+                                    <span className="truncate">Demote</span>
                                   </>
                                 ) : (
                                   <>
-                                    <Shield className="w-3.5 h-3.5" />
-                                    Promote to Admin
+                                    <Shield className="w-3.5 h-3.5 flex-shrink-0" />
+                                    <span className="truncate">Promote</span>
                                   </>
                                 )}
                               </button>
                               <button
                                 onClick={() => handleToggleBlacklist(user)}
-                                className={`flex-1 flex items-center justify-center gap-1.5 py-2 text-xs font-medium rounded-lg transition-colors cursor-pointer ${
+                                className={`flex items-center justify-center gap-1 py-2 text-xs font-medium rounded-lg transition-colors cursor-pointer ${
                                   user.isBlacklisted
                                     ? 'text-green-400 bg-green-500/10 hover:bg-green-500/20'
                                     : 'text-red-400 bg-red-500/10 hover:bg-red-500/20'
@@ -475,26 +474,25 @@ export default function AdminUsers() {
                               >
                                 {user.isBlacklisted ? (
                                   <>
-                                    <Check className="w-3.5 h-3.5" />
-                                    Unblock
+                                    <Check className="w-3.5 h-3.5 flex-shrink-0" />
+                                    <span className="truncate">Unblock</span>
                                   </>
                                 ) : (
                                   <>
-                                    <XCircle className="w-3.5 h-3.5" />
-                                    Block
+                                    <XCircle className="w-3.5 h-3.5 flex-shrink-0" />
+                                    <span className="truncate">Block</span>
                                   </>
                                 )}
                               </button>
                               <button
                                 onClick={() => handleDeleteUser(user)}
-                                className="flex items-center justify-center gap-1.5 px-4 py-2 text-xs font-medium text-red-400 bg-red-500/10 rounded-lg hover:bg-red-500/20 transition-colors cursor-pointer"
+                                className="flex items-center justify-center gap-1 py-2 text-xs font-medium text-red-400 bg-red-500/10 rounded-lg hover:bg-red-500/20 transition-colors cursor-pointer"
                               >
-                                <Trash2 className="w-3.5 h-3.5" />
-                                Delete
+                                <Trash2 className="w-3.5 h-3.5 flex-shrink-0" />
+                                <span className="truncate">Delete</span>
                               </button>
-                            </>
-                          )}
-                        </div>
+                          </div>
+                        )}
                       </div>
                     )}
                     {user.email === 'waheeddar8@gmail.com' && (

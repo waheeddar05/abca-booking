@@ -1,24 +1,13 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { format, addDays, startOfWeek, endOfWeek, startOfMonth, endOfMonth, isSameDay, parseISO, isBefore, startOfDay } from 'date-fns';
-import { Calendar, List, Loader2, ChevronLeft, ChevronRight, Pencil, Trash2, ToggleLeft, ToggleRight, Clock, IndianRupee, Save, X, ShieldBan, Ban, AlertTriangle } from 'lucide-react';
+import { format, addDays, parseISO, eachDayOfInterval, getDay } from 'date-fns';
+import {
+  Clock, Loader2, Trash2, ShieldBan, Ban, AlertTriangle,
+  CalendarRange, Repeat, CalendarClock, CheckCircle2, Info,
+} from 'lucide-react';
 
-interface Slot {
-  id: string;
-  date: string;
-  startTime: string;
-  endTime: string;
-  price: number;
-  isActive: boolean;
-  isBooked: boolean;
-  bookings: Array<{
-    playerName: string;
-    ballType: string;
-    user?: { name: string; email: string };
-  }>;
-}
-
+// ─── Types ───────────────────────────────────────────────
 interface BlockedSlot {
   id: string;
   startDate: string;
@@ -33,117 +22,184 @@ interface BlockedSlot {
   createdAt: string;
 }
 
-type ViewMode = 'calendar' | 'list';
+type TabId = 'block' | 'active';
+type ScheduleType = 'dateRange' | 'recurring';
 
+const MACHINES = [
+  { id: 'GRAVITY', label: 'Gravity', sub: 'Leather Ball', image: '/images/leathermachine.jpeg' },
+  { id: 'YANTRA', label: 'Yantra', sub: 'Premium Leather', image: '/images/yantra-machine.jpeg' },
+  { id: 'LEVERAGE_INDOOR', label: 'Leverage Indoor', sub: 'Tennis Ball', image: '/images/tennismachine.jpeg' },
+  { id: 'LEVERAGE_OUTDOOR', label: 'Leverage Outdoor', sub: 'Tennis Ball', image: '/images/tennismachine.jpeg' },
+];
+
+const WEEKDAYS = [
+  { key: 1, label: 'Mon' },
+  { key: 2, label: 'Tue' },
+  { key: 3, label: 'Wed' },
+  { key: 4, label: 'Thu' },
+  { key: 5, label: 'Fri' },
+  { key: 6, label: 'Sat' },
+  { key: 0, label: 'Sun' },
+];
+
+// ─── Helpers ─────────────────────────────────────────────
+const getMachineIdLabel = (id: string | null) => {
+  if (!id) return null;
+  return MACHINES.find(m => m.id === id)?.label || id;
+};
+
+const formatBlockTime = (iso: string | null) => {
+  if (!iso) return null;
+  const d = new Date(iso);
+  const h = d.getUTCHours().toString().padStart(2, '0');
+  const m = d.getUTCMinutes().toString().padStart(2, '0');
+  return `${h}:${m}`;
+};
+
+// ─── Component ───────────────────────────────────────────
 export default function SlotManagement() {
-  const [slots, setSlots] = useState<Slot[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [viewMode, setViewMode] = useState<ViewMode>('calendar');
-  const [currentMonth, setCurrentMonth] = useState(new Date());
-  const [selectedDate, setSelectedDate] = useState<Date | null>(null);
-  const [editingSlot, setEditingSlot] = useState<string | null>(null);
-  const [editPrice, setEditPrice] = useState('');
+  const [activeTab, setActiveTab] = useState<TabId>('block');
   const [message, setMessage] = useState({ text: '', type: '' });
 
-  // Block Slots
-  const [showBlockForm, setShowBlockForm] = useState(false);
-  const [blockedSlots, setBlockedSlots] = useState<BlockedSlot[]>([]);
-  const [blockedLoading, setBlockedLoading] = useState(false);
-  const [blockForm, setBlockForm] = useState({
-    startDate: format(new Date(), 'yyyy-MM-dd'),
-    endDate: format(new Date(), 'yyyy-MM-dd'),
-    startTime: '',
-    endTime: '',
-    blockType: 'all' as 'all' | 'machine' | 'pitch',
-    machineIds: [] as string[],
-    pitchType: '' as '' | 'ASTRO' | 'CEMENT' | 'NATURAL',
-    reason: '',
-  });
+  // Block form state
+  const [scheduleType, setScheduleType] = useState<ScheduleType>('dateRange');
+  const [startDate, setStartDate] = useState(format(new Date(), 'yyyy-MM-dd'));
+  const [endDate, setEndDate] = useState(format(new Date(), 'yyyy-MM-dd'));
+  const [recurringDays, setRecurringDays] = useState<number[]>([]);
+  const [isFullDay, setIsFullDay] = useState(true);
+  const [startTime, setStartTime] = useState('07:00');
+  const [endTime, setEndTime] = useState('22:30');
+  const [selectedMachines, setSelectedMachines] = useState<string[]>([]);
+  const [allMachines, setAllMachines] = useState(true);
+  const [reason, setReason] = useState('');
   const [blockLoading, setBlockLoading] = useState(false);
 
-  const fetchSlots = useCallback(async () => {
-    setLoading(true);
-    try {
-      const from = format(startOfMonth(currentMonth), 'yyyy-MM-dd');
-      const to = format(endOfMonth(currentMonth), 'yyyy-MM-dd');
-      const res = await fetch(`/api/admin/slots?from=${from}&to=${to}`);
-      if (res.ok) {
-        const data = await res.json();
-        setSlots(data);
-      }
-    } catch (error) {
-      console.error('Failed to fetch slots', error);
-    } finally {
-      setLoading(false);
-    }
-  }, [currentMonth]);
+  // Active blocks state
+  const [blockedSlots, setBlockedSlots] = useState<BlockedSlot[]>([]);
+  const [blockedLoading, setBlockedLoading] = useState(false);
 
+  const todayStr = format(new Date(), 'yyyy-MM-dd');
+
+  // ─── Fetch blocked slots ────────────────────────────────
   const fetchBlockedSlots = useCallback(async () => {
     setBlockedLoading(true);
     try {
       const res = await fetch('/api/admin/slots/block');
-      if (res.ok) {
-        const data = await res.json();
-        setBlockedSlots(data);
-      }
-    } catch (error) {
-      console.error('Failed to fetch blocked slots', error);
+      if (res.ok) setBlockedSlots(await res.json());
+    } catch {
+      // silently fail
     } finally {
       setBlockedLoading(false);
     }
   }, []);
 
+  useEffect(() => { fetchBlockedSlots(); }, [fetchBlockedSlots]);
+
+  // ─── Auto-dismiss messages ──────────────────────────────
   useEffect(() => {
-    fetchSlots();
-  }, [fetchSlots]);
+    if (message.text) {
+      const t = setTimeout(() => setMessage({ text: '', type: '' }), 5000);
+      return () => clearTimeout(t);
+    }
+  }, [message]);
 
-  useEffect(() => {
-    fetchBlockedSlots();
-  }, [fetchBlockedSlots]);
+  // ─── Toggle machine selection ───────────────────────────
+  const toggleMachine = (id: string) => {
+    setSelectedMachines(prev =>
+      prev.includes(id) ? prev.filter(m => m !== id) : [...prev, id]
+    );
+  };
 
-  const todayStr = format(new Date(), 'yyyy-MM-dd');
+  const toggleRecurringDay = (day: number) => {
+    setRecurringDays(prev =>
+      prev.includes(day) ? prev.filter(d => d !== day) : [...prev, day]
+    );
+  };
 
-  const handleBlockSlots = async (e: React.FormEvent) => {
+  // ─── Reset form ─────────────────────────────────────────
+  const resetForm = () => {
+    setScheduleType('dateRange');
+    setStartDate(format(new Date(), 'yyyy-MM-dd'));
+    setEndDate(format(new Date(), 'yyyy-MM-dd'));
+    setRecurringDays([]);
+    setIsFullDay(true);
+    setStartTime('07:00');
+    setEndTime('22:30');
+    setSelectedMachines([]);
+    setAllMachines(true);
+    setReason('');
+  };
+
+  // ─── Build list of dates to block ───────────────────────
+  const getDatesToBlock = (): string[] => {
+    if (scheduleType === 'dateRange') {
+      // For date range, it's a single block entry (API handles the range)
+      return [];
+    }
+    // Recurring: find all matching days in the date range
+    if (recurringDays.length === 0) return [];
+    try {
+      const days = eachDayOfInterval({
+        start: parseISO(startDate),
+        end: parseISO(endDate),
+      });
+      return days
+        .filter(d => recurringDays.includes(getDay(d)))
+        .map(d => format(d, 'yyyy-MM-dd'));
+    } catch {
+      return [];
+    }
+  };
+
+  // ─── Submit block ───────────────────────────────────────
+  const handleBlock = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    // Past date validation
-    if (blockForm.startDate < todayStr) {
+    // Validations
+    if (startDate < todayStr) {
       setMessage({ text: 'Start date cannot be in the past', type: 'error' });
       return;
     }
-    if (blockForm.endDate < todayStr) {
-      setMessage({ text: 'End date cannot be in the past', type: 'error' });
+    if (endDate < startDate) {
+      setMessage({ text: 'End date must be on or after start date', type: 'error' });
       return;
     }
-    // If blocking today and a time is set, validate it's not past
-    if (blockForm.startDate === todayStr && blockForm.startTime) {
-      const nowMins = new Date().getHours() * 60 + new Date().getMinutes();
-      const [h, m] = blockForm.startTime.split(':').map(Number);
-      if (h * 60 + m < nowMins) {
-        setMessage({ text: 'Start time cannot be in the past for today', type: 'error' });
-        return;
-      }
+    if (scheduleType === 'recurring' && recurringDays.length === 0) {
+      setMessage({ text: 'Select at least one day of the week', type: 'error' });
+      return;
     }
+    if (!isFullDay && !startTime) {
+      setMessage({ text: 'Start time is required', type: 'error' });
+      return;
+    }
+    if (!isFullDay && !endTime) {
+      setMessage({ text: 'End time is required', type: 'error' });
+      return;
+    }
+
+    const machineIds = allMachines ? [] : selectedMachines;
 
     setBlockLoading(true);
     setMessage({ text: '', type: '' });
 
     try {
-      // If specific machines selected, create one block per machine
-      if (blockForm.machineIds.length > 0) {
-        let totalCancelled = 0;
-        let successCount = 0;
-        for (const machineId of blockForm.machineIds) {
-          const body: any = {
-            startDate: blockForm.startDate,
-            endDate: blockForm.endDate,
-            reason: blockForm.reason || null,
-            machineId,
+      let totalSuccess = 0;
+      let totalCancelled = 0;
+
+      const createBlock = async (sd: string, ed: string) => {
+        const ids = machineIds.length > 0 ? machineIds : [null];
+        for (const mid of ids) {
+          const body: Record<string, unknown> = {
+            startDate: sd,
+            endDate: ed,
+            reason: reason || null,
           };
-          if (blockForm.startTime && blockForm.endTime) {
-            body.startTime = blockForm.startTime;
-            body.endTime = blockForm.endTime;
+          if (!isFullDay) {
+            body.startTime = startTime;
+            body.endTime = endTime;
           }
+          if (mid) body.machineId = mid;
+
           const res = await fetch('/api/admin/slots/block', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -151,69 +207,48 @@ export default function SlotManagement() {
           });
           const data = await res.json();
           if (res.ok) {
-            successCount++;
+            totalSuccess++;
             totalCancelled += data.cancelledBookingsCount || 0;
           }
         }
-        const parts = [`${successCount} machine(s) blocked successfully`];
-        if (totalCancelled > 0) parts.push(`${totalCancelled} booking(s) cancelled`);
-        setMessage({ text: parts.join('. '), type: 'success' });
+      };
+
+      if (scheduleType === 'dateRange') {
+        await createBlock(startDate, endDate);
       } else {
-        const body: any = {
-          startDate: blockForm.startDate,
-          endDate: blockForm.endDate,
-          reason: blockForm.reason || null,
-        };
-        if (blockForm.startTime && blockForm.endTime) {
-          body.startTime = blockForm.startTime;
-          body.endTime = blockForm.endTime;
-        }
-        if (blockForm.blockType === 'pitch' && blockForm.pitchType) {
-          body.pitchType = blockForm.pitchType;
-        }
-        const res = await fetch('/api/admin/slots/block', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(body),
-        });
-        const data = await res.json();
-        if (res.ok) {
-          const parts = ['Slots blocked successfully'];
-          if (data.cancelledBookingsCount > 0) parts.push(`${data.cancelledBookingsCount} booking(s) cancelled`);
-          setMessage({ text: parts.join('. '), type: 'success' });
-        } else {
-          setMessage({ text: data.error || 'Failed to block slots', type: 'error' });
+        // Recurring: create individual blocks for each matching day
+        const dates = getDatesToBlock();
+        if (dates.length === 0) {
+          setMessage({ text: 'No matching days found in the selected range', type: 'error' });
           setBlockLoading(false);
           return;
         }
+        for (const d of dates) {
+          await createBlock(d, d);
+        }
       }
 
-      setShowBlockForm(false);
-      setBlockForm({
-        startDate: format(new Date(), 'yyyy-MM-dd'),
-        endDate: format(new Date(), 'yyyy-MM-dd'),
-        startTime: '',
-        endTime: '',
-        blockType: 'all',
-        machineIds: [],
-        pitchType: '',
-        reason: '',
-      });
+      const parts = [];
+      if (totalSuccess > 0) parts.push(`${totalSuccess} block(s) created successfully`);
+      if (totalCancelled > 0) parts.push(`${totalCancelled} booking(s) cancelled`);
+      setMessage({ text: parts.join('. ') || 'Blocked successfully', type: 'success' });
+
+      resetForm();
       fetchBlockedSlots();
-      fetchSlots();
-    } catch (error) {
+    } catch {
       setMessage({ text: 'Failed to block slots', type: 'error' });
     } finally {
       setBlockLoading(false);
     }
   };
 
+  // ─── Unblock ────────────────────────────────────────────
   const handleUnblock = async (id: string) => {
-    if (!confirm('Remove this block? This will not restore any previously cancelled bookings.')) return;
+    if (!confirm('Remove this block? Previously cancelled bookings will not be restored.')) return;
     try {
       const res = await fetch(`/api/admin/slots/block?id=${id}`, { method: 'DELETE' });
       if (res.ok) {
-        setMessage({ text: 'Block removed successfully', type: 'success' });
+        setMessage({ text: 'Block removed', type: 'success' });
         fetchBlockedSlots();
       } else {
         const data = await res.json();
@@ -224,278 +259,259 @@ export default function SlotManagement() {
     }
   };
 
-  const handleUpdatePrice = async (slotId: string) => {
-    try {
-      const res = await fetch('/api/admin/slots', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ slotId, price: parseFloat(editPrice) }),
-      });
-      const data = await res.json();
-      if (res.ok) {
-        setEditingSlot(null);
-        fetchSlots();
-      } else {
-        alert(data.error || 'Failed to update price');
-      }
-    } catch {
-      alert('Failed to update price');
-    }
-  };
-
-  const handleToggleActive = async (slotId: string, isActive: boolean) => {
-    try {
-      const res = await fetch('/api/admin/slots', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ slotId, isActive: !isActive }),
-      });
-      if (res.ok) {
-        fetchSlots();
-      } else {
-        const data = await res.json();
-        alert(data.error || 'Failed to toggle slot');
-      }
-    } catch {
-      alert('Failed to toggle slot');
-    }
-  };
-
-  const handleDelete = async (slotId: string) => {
-    if (!confirm('Delete this slot?')) return;
-    try {
-      const res = await fetch(`/api/admin/slots?id=${slotId}`, { method: 'DELETE' });
-      if (res.ok) {
-        fetchSlots();
-      } else {
-        const data = await res.json();
-        alert(data.error || 'Failed to delete slot');
-      }
-    } catch {
-      alert('Failed to delete slot');
-    }
-  };
-
-  const formatTime = (iso: string) => {
-    return new Date(iso).toLocaleTimeString('en-IN', {
-      timeZone: 'Asia/Kolkata',
-      hour: '2-digit',
-      minute: '2-digit',
-    });
-  };
-
-  const formatBlockTime = (iso: string | null) => {
-    if (!iso) return null;
-    const d = new Date(iso);
-    const h = d.getUTCHours().toString().padStart(2, '0');
-    const m = d.getUTCMinutes().toString().padStart(2, '0');
-    return `${h}:${m}`;
-  };
-
-  const getMachineLabel = (type: string | null) => {
-    if (!type) return 'All Machines';
-    if (type === 'LEATHER' || type === 'MACHINE') return 'Leather Ball Machine';
-    if (type === 'TENNIS') return 'Tennis Ball Machine';
-    return type;
-  };
-
-  const getMachineIdLabel = (id: string | null) => {
-    if (!id) return null;
-    const labels: Record<string, string> = {
-      GRAVITY: 'Gravity (Leather)',
-      YANTRA: 'Yantra (Premium Leather)',
-      LEVERAGE_INDOOR: 'Leverage Tennis (Indoor)',
-      LEVERAGE_OUTDOOR: 'Leverage Tennis (Outdoor)',
-    };
-    return labels[id] || id;
-  };
-
-  const getPitchLabel = (type: string | null) => {
-    if (!type) return 'All Pitches';
-    if (type === 'ASTRO') return 'Astro Turf';
-    if (type === 'CEMENT') return 'Cement';
-    if (type === 'NATURAL') return 'Natural Turf';
-    if (type === 'TURF') return 'Cement Wicket';
-    return type;
-  };
-
-  // Calendar rendering
-  const monthStart = startOfMonth(currentMonth);
-  const weekStart = startOfWeek(monthStart, { weekStartsOn: 1 });
-  const monthEnd = endOfMonth(currentMonth);
-  const weekEnd = endOfWeek(monthEnd, { weekStartsOn: 1 });
-
-  const calendarDays: Date[] = [];
-  let day = weekStart;
-  while (day <= weekEnd) {
-    calendarDays.push(day);
-    day = addDays(day, 1);
-  }
-
-  const getSlotsForDate = (date: Date) => {
-    return slots.filter(s => isSameDay(parseISO(s.date), date));
-  };
-
-  const selectedDateSlots = selectedDate ? getSlotsForDate(selectedDate) : [];
+  // ─── Preview info for recurring ─────────────────────────
+  const recurringPreviewCount = scheduleType === 'recurring' ? getDatesToBlock().length : 0;
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-5">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-accent/10 flex items-center justify-center">
-            <Clock className="w-5 h-5 text-accent" />
-          </div>
-          <div>
-            <h1 className="text-xl font-bold text-white">Slot Management</h1>
-            <p className="text-xs text-slate-400">Manage booking slots & block sessions</p>
-          </div>
+      {/* Header */}
+      <div className="flex items-center gap-3 mb-6">
+        <div className="w-10 h-10 rounded-xl bg-accent/10 flex items-center justify-center">
+          <Clock className="w-5 h-5 text-accent" />
         </div>
-        <div className="flex gap-2">
+        <div>
+          <h1 className="text-xl font-bold text-white">Slot Management</h1>
+          <p className="text-xs text-slate-400">Block time slots & manage availability</p>
+        </div>
+      </div>
+
+      {/* Tabs */}
+      <div className="flex gap-1 mb-5 bg-white/[0.03] p-1 rounded-xl border border-white/[0.06]">
+        {([
+          { id: 'block' as TabId, label: 'Block Slots', icon: ShieldBan },
+          { id: 'active' as TabId, label: 'Active Blocks', icon: Ban, count: blockedSlots.length },
+        ]).map(tab => (
           <button
-            onClick={() => setViewMode(viewMode === 'calendar' ? 'list' : 'calendar')}
-            className="p-2 text-slate-400 hover:text-accent hover:bg-accent/10 rounded-lg transition-colors cursor-pointer"
-            title={viewMode === 'calendar' ? 'Switch to list view' : 'Switch to calendar view'}
+            key={tab.id}
+            onClick={() => setActiveTab(tab.id)}
+            className={`flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium transition-all cursor-pointer ${
+              activeTab === tab.id
+                ? 'bg-white/[0.08] text-white shadow-sm'
+                : 'text-slate-400 hover:text-slate-300'
+            }`}
           >
-            {viewMode === 'calendar' ? <List className="w-5 h-5" /> : <Calendar className="w-5 h-5" />}
+            <tab.icon className="w-4 h-4" />
+            {tab.label}
+            {tab.count !== undefined && tab.count > 0 && (
+              <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-bold ${
+                activeTab === tab.id ? 'bg-red-500/20 text-red-400' : 'bg-white/[0.06] text-slate-500'
+              }`}>
+                {tab.count}
+              </span>
+            )}
           </button>
-        </div>
+        ))}
       </div>
 
-      {/* Action Buttons */}
-      <div className="flex flex-wrap gap-2 mb-5">
-        <button
-          onClick={() => setShowBlockForm(!showBlockForm)}
-          className="inline-flex items-center gap-2 px-4 py-2.5 bg-red-500/15 text-red-400 border border-red-500/20 rounded-lg text-sm font-medium hover:bg-red-500/25 transition-colors cursor-pointer"
-        >
-          <ShieldBan className="w-4 h-4" />
-          Block Slots
-        </button>
-      </div>
-
-      {/* Message */}
+      {/* Message Toast */}
       {message.text && (
-        <div className={`mb-4 px-4 py-3 rounded-lg text-sm ${message.type === 'success' ? 'bg-green-500/10 text-green-400' : 'bg-red-500/10 text-red-400'}`}>
+        <div className={`mb-4 px-4 py-3 rounded-xl text-sm flex items-center gap-2 ${
+          message.type === 'success'
+            ? 'bg-green-500/10 border border-green-500/20 text-green-400'
+            : 'bg-red-500/10 border border-red-500/20 text-red-400'
+        }`}>
+          {message.type === 'success' ? <CheckCircle2 className="w-4 h-4 flex-shrink-0" /> : <AlertTriangle className="w-4 h-4 flex-shrink-0" />}
           {message.text}
         </div>
       )}
 
-      {/* Block Slots Form */}
-      {showBlockForm && (
-        <div className="bg-white/[0.04] backdrop-blur-sm rounded-xl border border-red-500/20 p-5 mb-5">
-          <div className="flex items-center gap-2 mb-4">
-            <ShieldBan className="w-4 h-4 text-red-400" />
-            <h2 className="text-sm font-semibold text-white">Block Slots</h2>
-          </div>
-          <div className="mb-3 px-3 py-2.5 bg-amber-500/10 border border-amber-500/20 rounded-lg flex items-start gap-2">
+      {/* ════════════════════════════════════════════════════ */}
+      {/* BLOCK SLOTS TAB                                     */}
+      {/* ════════════════════════════════════════════════════ */}
+      {activeTab === 'block' && (
+        <form onSubmit={handleBlock} className="space-y-5">
+
+          {/* Warning Banner */}
+          <div className="px-3.5 py-2.5 bg-amber-500/8 border border-amber-500/15 rounded-xl flex items-start gap-2.5">
             <AlertTriangle className="w-4 h-4 text-amber-400 mt-0.5 flex-shrink-0" />
-            <p className="text-[11px] text-amber-400">
-              Blocking slots will automatically cancel any existing bookings in the selected range. Affected users will be notified.
+            <p className="text-[11px] text-amber-400/90 leading-relaxed">
+              Blocking will automatically cancel any existing bookings in the selected range. Affected users will be notified.
             </p>
           </div>
-          <form onSubmit={handleBlockSlots} className="space-y-4">
-            {/* Date Range */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+
+          {/* ── Section 1: Schedule Type ────────────────── */}
+          <div className="bg-white/[0.03] rounded-xl border border-white/[0.06] p-4">
+            <div className="flex items-center gap-2 mb-3">
+              <CalendarClock className="w-4 h-4 text-accent" />
+              <h3 className="text-xs font-semibold text-white uppercase tracking-wider">Schedule</h3>
+            </div>
+
+            {/* Toggle: Date Range / Recurring */}
+            <div className="flex gap-1 mb-4 bg-white/[0.03] p-1 rounded-lg">
+              <button
+                type="button"
+                onClick={() => setScheduleType('dateRange')}
+                className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-md text-xs font-medium transition-all cursor-pointer ${
+                  scheduleType === 'dateRange'
+                    ? 'bg-accent/15 text-accent'
+                    : 'text-slate-400 hover:text-slate-300'
+                }`}
+              >
+                <CalendarRange className="w-3.5 h-3.5" />
+                Date Range
+              </button>
+              <button
+                type="button"
+                onClick={() => setScheduleType('recurring')}
+                className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-md text-xs font-medium transition-all cursor-pointer ${
+                  scheduleType === 'recurring'
+                    ? 'bg-accent/15 text-accent'
+                    : 'text-slate-400 hover:text-slate-300'
+                }`}
+              >
+                <Repeat className="w-3.5 h-3.5" />
+                Recurring Days
+              </button>
+            </div>
+
+            {/* Date Inputs */}
+            <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="block text-[11px] font-medium text-slate-400 mb-1">From Date</label>
+                <label className="block text-[10px] font-medium text-slate-500 mb-1 uppercase tracking-wider">
+                  {scheduleType === 'recurring' ? 'From' : 'Start Date'}
+                </label>
                 <input
                   type="date"
-                  value={blockForm.startDate}
+                  value={startDate}
                   min={todayStr}
-                  onChange={e => setBlockForm({ ...blockForm, startDate: e.target.value })}
+                  onChange={e => setStartDate(e.target.value)}
                   required
-                  className="w-full bg-white/[0.04] border border-white/[0.1] rounded-lg px-3 py-2.5 text-sm text-white outline-none focus:border-red-400 focus:ring-1 focus:ring-red-400/20 placeholder:text-slate-500"
+                  className="w-full bg-white/[0.04] border border-white/[0.08] rounded-lg px-3 py-2.5 text-sm text-white outline-none focus:border-accent/50 focus:ring-1 focus:ring-accent/20"
                 />
               </div>
               <div>
-                <label className="block text-[11px] font-medium text-slate-400 mb-1">To Date</label>
+                <label className="block text-[10px] font-medium text-slate-500 mb-1 uppercase tracking-wider">
+                  {scheduleType === 'recurring' ? 'Until' : 'End Date'}
+                </label>
                 <input
                   type="date"
-                  value={blockForm.endDate}
-                  min={blockForm.startDate || todayStr}
-                  onChange={e => setBlockForm({ ...blockForm, endDate: e.target.value })}
+                  value={endDate}
+                  min={startDate || todayStr}
+                  onChange={e => setEndDate(e.target.value)}
                   required
-                  className="w-full bg-white/[0.04] border border-white/[0.1] rounded-lg px-3 py-2.5 text-sm text-white outline-none focus:border-red-400 focus:ring-1 focus:ring-red-400/20 placeholder:text-slate-500"
+                  className="w-full bg-white/[0.04] border border-white/[0.08] rounded-lg px-3 py-2.5 text-sm text-white outline-none focus:border-accent/50 focus:ring-1 focus:ring-accent/20"
                 />
               </div>
             </div>
 
-            {/* Full Day Checkbox */}
-            <div>
-              <label className="flex items-center gap-2.5 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={!blockForm.startTime && !blockForm.endTime}
-                  onChange={e => {
-                    if (e.target.checked) {
-                      setBlockForm({ ...blockForm, startTime: '', endTime: '' });
-                    } else {
-                      setBlockForm({ ...blockForm, startTime: '07:00', endTime: '22:30' });
-                    }
-                  }}
-                  className="w-4 h-4 rounded border-slate-500 bg-white/[0.04] text-red-500 focus:ring-red-400/30 cursor-pointer"
-                />
-                <span className="text-xs font-semibold text-white">Full Day</span>
-                <span className="text-[10px] text-slate-500">Block entire selected dates</span>
-              </label>
+            {/* Recurring Day Picker */}
+            {scheduleType === 'recurring' && (
+              <div className="mt-4">
+                <label className="block text-[10px] font-medium text-slate-500 mb-2 uppercase tracking-wider">
+                  Repeat on
+                </label>
+                <div className="grid grid-cols-4 sm:grid-cols-7 gap-1.5">
+                  {WEEKDAYS.map(day => (
+                    <button
+                      key={day.key}
+                      type="button"
+                      onClick={() => toggleRecurringDay(day.key)}
+                      className={`py-2 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+                        recurringDays.includes(day.key)
+                          ? 'bg-accent/20 text-accent ring-1 ring-accent/30'
+                          : 'bg-white/[0.04] text-slate-400 hover:bg-white/[0.06]'
+                      }`}
+                    >
+                      {day.label}
+                    </button>
+                  ))}
+                </div>
+                {recurringPreviewCount > 0 && (
+                  <div className="mt-2.5 flex items-center gap-1.5 text-[11px] text-accent/80">
+                    <Info className="w-3 h-3" />
+                    {recurringPreviewCount} day{recurringPreviewCount > 1 ? 's' : ''} will be blocked
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* ── Section 2: Time ─────────────────────────── */}
+          <div className="bg-white/[0.03] rounded-xl border border-white/[0.06] p-4">
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-2">
+                <Clock className="w-4 h-4 text-accent" />
+                <h3 className="text-xs font-semibold text-white uppercase tracking-wider">Time</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsFullDay(!isFullDay)}
+                className={`px-3 py-1.5 rounded-lg text-[11px] font-semibold transition-all cursor-pointer ${
+                  isFullDay
+                    ? 'bg-accent/15 text-accent'
+                    : 'bg-white/[0.04] text-slate-400 hover:bg-white/[0.06]'
+                }`}
+              >
+                {isFullDay ? 'Full Day' : 'Custom Hours'}
+              </button>
             </div>
 
-            {/* Time Range - only shown when Full Day is unchecked */}
-            {(blockForm.startTime || blockForm.endTime) && (
-              <div>
-                <label className="block text-[11px] font-medium text-slate-400 mb-1">Time Range</label>
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-[10px] text-slate-500 mb-1">From Time</label>
-                    <input
-                      type="time"
-                      value={blockForm.startTime}
-                      onChange={e => setBlockForm({ ...blockForm, startTime: e.target.value })}
-                      required
-                      className="w-full bg-white/[0.04] border border-white/[0.1] rounded-lg px-3 py-2.5 text-sm text-white outline-none focus:border-red-400 focus:ring-1 focus:ring-red-400/20 placeholder:text-slate-500"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-[10px] text-slate-500 mb-1">To Time</label>
-                    <input
-                      type="time"
-                      value={blockForm.endTime}
-                      onChange={e => setBlockForm({ ...blockForm, endTime: e.target.value })}
-                      required
-                      className="w-full bg-white/[0.04] border border-white/[0.1] rounded-lg px-3 py-2.5 text-sm text-white outline-none focus:border-red-400 focus:ring-1 focus:ring-red-400/20 placeholder:text-slate-500"
-                    />
-                  </div>
+            {isFullDay ? (
+              <p className="text-xs text-slate-500">All slots for the entire day will be blocked.</p>
+            ) : (
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-[10px] font-medium text-slate-500 mb-1 uppercase tracking-wider">From</label>
+                  <input
+                    type="time"
+                    value={startTime}
+                    onChange={e => setStartTime(e.target.value)}
+                    required={!isFullDay}
+                    className="w-full bg-white/[0.04] border border-white/[0.08] rounded-lg px-3 py-2.5 text-sm text-white outline-none focus:border-accent/50 focus:ring-1 focus:ring-accent/20"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-medium text-slate-500 mb-1 uppercase tracking-wider">To</label>
+                  <input
+                    type="time"
+                    value={endTime}
+                    onChange={e => setEndTime(e.target.value)}
+                    required={!isFullDay}
+                    className="w-full bg-white/[0.04] border border-white/[0.08] rounded-lg px-3 py-2.5 text-sm text-white outline-none focus:border-accent/50 focus:ring-1 focus:ring-accent/20"
+                  />
                 </div>
               </div>
             )}
+          </div>
 
-            {/* Machine Selection - 4 boxes with multi-select */}
-            <div>
-              <label className="block text-[11px] font-medium text-slate-400 mb-2">Select Machines (multi-select)</label>
+          {/* ── Section 3: Machines ─────────────────────── */}
+          <div className="bg-white/[0.03] rounded-xl border border-white/[0.06] p-4">
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-2">
+                <ShieldBan className="w-4 h-4 text-accent" />
+                <h3 className="text-xs font-semibold text-white uppercase tracking-wider">Machines</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setAllMachines(!allMachines);
+                  if (!allMachines) setSelectedMachines([]);
+                }}
+                className={`px-3 py-1.5 rounded-lg text-[11px] font-semibold transition-all cursor-pointer ${
+                  allMachines
+                    ? 'bg-red-500/15 text-red-400'
+                    : 'bg-white/[0.04] text-slate-400 hover:bg-white/[0.06]'
+                }`}
+              >
+                {allMachines ? 'All Machines' : 'Select Specific'}
+              </button>
+            </div>
+
+            {allMachines ? (
+              <p className="text-xs text-slate-500">All machines will be blocked for the selected period.</p>
+            ) : (
               <div className="grid grid-cols-2 gap-2">
-                {([
-                  { id: 'GRAVITY', label: 'Gravity', sub: 'Leather', image: '/images/leathermachine.jpeg' },
-                  { id: 'YANTRA', label: 'Yantra', sub: 'Premium Leather', image: '/images/yantra-machine.jpeg' },
-                  { id: 'LEVERAGE_INDOOR', label: 'Leverage Tennis', sub: 'Indoor', image: '/images/tennismachine.jpeg' },
-                  { id: 'LEVERAGE_OUTDOOR', label: 'Leverage Tennis', sub: 'Outdoor', image: '/images/tennismachine.jpeg' },
-                ]).map(m => {
-                  const isSelected = blockForm.machineIds.includes(m.id);
+                {MACHINES.map(m => {
+                  const isSelected = selectedMachines.includes(m.id);
                   return (
                     <button
                       key={m.id}
                       type="button"
-                      onClick={() => {
-                        setBlockForm(prev => ({
-                          ...prev,
-                          blockType: 'machine',
-                          machineIds: isSelected
-                            ? prev.machineIds.filter(id => id !== m.id)
-                            : [...prev.machineIds, m.id],
-                        }));
-                      }}
-                      className={`flex items-center gap-2.5 px-2.5 py-2 rounded-xl transition-all cursor-pointer text-left ${
+                      onClick={() => toggleMachine(m.id)}
+                      className={`flex items-center gap-2.5 p-2.5 rounded-xl transition-all cursor-pointer text-left ${
                         isSelected
-                          ? 'bg-red-500/15 ring-2 ring-red-500/50 shadow-sm'
-                          : 'bg-white/[0.04] border border-white/[0.08] hover:border-red-500/30'
+                          ? 'bg-red-500/10 ring-1.5 ring-red-500/40'
+                          : 'bg-white/[0.03] border border-white/[0.06] hover:border-white/[0.12]'
                       }`}
                     >
                       {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -505,15 +521,15 @@ export default function SlotManagement() {
                         className="w-9 h-9 rounded-lg object-cover flex-shrink-0"
                       />
                       <div className="min-w-0 flex-1">
-                        <span className={`text-[11px] font-bold truncate block ${isSelected ? 'text-red-400' : 'text-slate-300'}`}>
+                        <span className={`text-[11px] font-bold block truncate ${isSelected ? 'text-red-400' : 'text-slate-300'}`}>
                           {m.label}
                         </span>
-                        <p className={`text-[9px] ${isSelected ? 'text-red-400/70' : 'text-slate-600'}`}>
+                        <span className={`text-[9px] ${isSelected ? 'text-red-400/60' : 'text-slate-600'}`}>
                           {m.sub}
-                        </p>
+                        </span>
                       </div>
                       <span className={`w-4 h-4 rounded border flex items-center justify-center flex-shrink-0 ${
-                        isSelected ? 'bg-red-500 border-red-500' : 'border-slate-500'
+                        isSelected ? 'bg-red-500 border-red-500' : 'border-slate-600'
                       }`}>
                         {isSelected && <span className="text-white text-[8px] font-bold">✓</span>}
                       </span>
@@ -521,372 +537,133 @@ export default function SlotManagement() {
                   );
                 })}
               </div>
-              <p className="text-[10px] text-slate-500 mt-1.5">Leave empty to block all machines</p>
-            </div>
-
-            {/* Reason */}
-            <div>
-              <label className="block text-[11px] font-medium text-slate-400 mb-1">Reason (Optional)</label>
-              <input
-                type="text"
-                value={blockForm.reason}
-                onChange={e => setBlockForm({ ...blockForm, reason: e.target.value })}
-                placeholder="e.g., Pitch maintenance, Machine repair..."
-                className="w-full bg-white/[0.04] border border-white/[0.1] rounded-lg px-3 py-2.5 text-sm text-white outline-none focus:border-red-400 focus:ring-1 focus:ring-red-400/20 placeholder:text-slate-500"
-              />
-            </div>
-
-            {/* Submit - only Block button + Reset */}
-            <div className="flex gap-2">
-              <button
-                type="submit"
-                disabled={blockLoading}
-                className="inline-flex items-center gap-2 bg-red-500/20 hover:bg-red-500/30 text-red-400 border border-red-500/30 px-5 py-2.5 rounded-lg text-sm font-medium transition-colors cursor-pointer disabled:opacity-50"
-              >
-                {blockLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <ShieldBan className="w-4 h-4" />}
-                Block
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setBlockForm({
-                    startDate: format(new Date(), 'yyyy-MM-dd'),
-                    endDate: format(new Date(), 'yyyy-MM-dd'),
-                    startTime: '',
-                    endTime: '',
-                    blockType: 'all',
-                    machineIds: [],
-                    pitchType: '',
-                    reason: '',
-                  });
-                }}
-                className="px-4 py-2.5 bg-white/[0.06] text-slate-300 rounded-lg text-sm font-medium hover:bg-white/[0.1] transition-colors cursor-pointer"
-              >
-                Reset
-              </button>
-            </div>
-          </form>
-        </div>
-      )}
-
-      {/* Active Blocked Slots */}
-      {blockedSlots.length > 0 && (
-        <div className="mb-5">
-          <div className="flex items-center gap-2 mb-3">
-            <Ban className="w-4 h-4 text-red-400" />
-            <h3 className="text-sm font-semibold text-white">Active Blocks</h3>
-            <span className="text-[10px] text-slate-500 bg-white/[0.04] px-2 py-0.5 rounded-full">{blockedSlots.length}</span>
+            )}
           </div>
-          <div className="space-y-2">
-            {blockedSlots.map(block => (
-              <div
-                key={block.id}
-                className="bg-red-500/[0.06] border border-red-500/15 rounded-xl p-3.5 flex items-start justify-between gap-3"
-              >
-                <div className="min-w-0 flex-1">
-                  <div className="flex flex-wrap items-center gap-2 mb-1">
-                    <span className="text-xs font-semibold text-white">
-                      {format(parseISO(block.startDate), 'MMM d, yyyy')}
-                      {block.startDate !== block.endDate && ` - ${format(parseISO(block.endDate), 'MMM d, yyyy')}`}
-                    </span>
-                    {block.startTime && block.endTime && (
-                      <span className="text-[10px] text-slate-400 bg-white/[0.04] px-1.5 py-0.5 rounded">
-                        {formatBlockTime(block.startTime)} - {formatBlockTime(block.endTime)}
-                      </span>
-                    )}
-                    {!block.startTime && (
-                      <span className="text-[10px] text-red-400 bg-red-500/10 px-1.5 py-0.5 rounded font-medium">
-                        Full Day
-                      </span>
-                    )}
-                  </div>
-                  <div className="flex flex-wrap items-center gap-2">
-                    {block.machineId ? (
-                      <span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-400">
-                        {getMachineIdLabel(block.machineId)}
-                      </span>
-                    ) : block.machineType ? (
-                      <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded ${
-                        block.machineType === 'TENNIS'
-                          ? 'bg-green-500/10 text-green-400'
-                          : 'bg-red-500/10 text-red-400'
-                      }`}>
-                        {getMachineLabel(block.machineType)}
-                      </span>
-                    ) : block.pitchType ? (
-                      <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded ${
-                        block.pitchType === 'ASTRO'
-                          ? 'bg-emerald-500/10 text-emerald-400'
-                          : block.pitchType === 'CEMENT'
-                          ? 'bg-amber-500/10 text-amber-400'
-                          : block.pitchType === 'NATURAL'
-                          ? 'bg-lime-500/10 text-lime-400'
-                          : 'bg-amber-500/10 text-amber-400'
-                      }`}>
-                        {getPitchLabel(block.pitchType)}
-                      </span>
-                    ) : (
-                      <span className="text-[10px] font-medium text-red-400 bg-red-500/10 px-1.5 py-0.5 rounded">
-                        All Slots
-                      </span>
-                    )}
-                    {block.reason && (
-                      <span className="text-[10px] text-slate-400 truncate">
-                        {block.reason}
-                      </span>
-                    )}
-                  </div>
-                </div>
-                <button
-                  onClick={() => handleUnblock(block.id)}
-                  className="flex-shrink-0 p-2 text-slate-500 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-colors cursor-pointer"
-                  title="Remove block"
-                >
-                  <Trash2 className="w-4 h-4" />
-                </button>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
 
-      {/* Calendar View */}
-      {viewMode === 'calendar' && (
-        <div className="bg-white/[0.04] backdrop-blur-sm rounded-xl border border-white/[0.08] p-4 mb-5">
-          {/* Month Navigation */}
-          <div className="flex items-center justify-between mb-4">
+          {/* ── Section 4: Reason ───────────────────────── */}
+          <div className="bg-white/[0.03] rounded-xl border border-white/[0.06] p-4">
+            <label className="block text-[10px] font-medium text-slate-500 mb-1.5 uppercase tracking-wider">
+              Reason <span className="text-slate-600 normal-case">(optional)</span>
+            </label>
+            <input
+              type="text"
+              value={reason}
+              onChange={e => setReason(e.target.value)}
+              placeholder="e.g., Pitch maintenance, Machine repair, Holiday..."
+              className="w-full bg-white/[0.04] border border-white/[0.08] rounded-lg px-3 py-2.5 text-sm text-white outline-none focus:border-accent/50 focus:ring-1 focus:ring-accent/20 placeholder:text-slate-600"
+            />
+          </div>
+
+          {/* ── Actions ────────────────────────────────── */}
+          <div className="flex gap-2">
             <button
-              onClick={() => setCurrentMonth(prev => new Date(prev.getFullYear(), prev.getMonth() - 1, 1))}
-              className="p-2 hover:bg-white/[0.06] rounded-lg transition-colors cursor-pointer"
+              type="submit"
+              disabled={blockLoading || (!allMachines && selectedMachines.length === 0)}
+              className="flex-1 inline-flex items-center justify-center gap-2 bg-red-500/15 hover:bg-red-500/25 text-red-400 border border-red-500/25 px-5 py-3 rounded-xl text-sm font-semibold transition-all cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
             >
-              <ChevronLeft className="w-5 h-5 text-slate-400" />
+              {blockLoading ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <ShieldBan className="w-4 h-4" />
+              )}
+              {blockLoading ? 'Blocking...' : 'Block Slots'}
             </button>
-            <h3 className="text-sm font-semibold text-white">
-              {format(currentMonth, 'MMMM yyyy')}
-            </h3>
             <button
-              onClick={() => setCurrentMonth(prev => new Date(prev.getFullYear(), prev.getMonth() + 1, 1))}
-              className="p-2 hover:bg-white/[0.06] rounded-lg transition-colors cursor-pointer"
+              type="button"
+              onClick={resetForm}
+              className="px-5 py-3 bg-white/[0.04] text-slate-400 rounded-xl text-sm font-medium hover:bg-white/[0.08] transition-colors cursor-pointer"
             >
-              <ChevronRight className="w-5 h-5 text-slate-400" />
+              Reset
             </button>
           </div>
-
-          {/* Day Headers */}
-          <div className="grid grid-cols-7 gap-1 mb-1">
-            {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map(d => (
-              <div key={d} className="text-center text-[10px] font-semibold text-slate-500 uppercase py-1">
-                {d}
-              </div>
-            ))}
-          </div>
-
-          {/* Calendar Grid */}
-          <div className="grid grid-cols-7 gap-1">
-            {calendarDays.map((calDay, i) => {
-              const isCurrentMonth = calDay.getMonth() === currentMonth.getMonth();
-              const isSelected = selectedDate && isSameDay(calDay, selectedDate);
-              const daySlots = getSlotsForDate(calDay);
-              const hasSlots = daySlots.length > 0;
-              const bookedSlots = daySlots.filter(s => s.isBooked).length;
-              const totalBookings = daySlots.reduce((sum, s) => sum + (s.bookings?.length || 0), 0);
-              const isPast = isBefore(calDay, startOfDay(new Date()));
-
-              // Check if any blocked slots overlap this day
-              const dayStr = format(calDay, 'yyyy-MM-dd');
-              const hasBlocks = blockedSlots.some(b => {
-                const blockStart = b.startDate.split('T')[0];
-                const blockEnd = b.endDate.split('T')[0];
-                return dayStr >= blockStart && dayStr <= blockEnd;
-              });
-
-              return (
-                <button
-                  key={i}
-                  onClick={() => setSelectedDate(calDay)}
-                  className={`relative p-2 rounded-lg text-center transition-all cursor-pointer min-h-[60px] ${
-                    isSelected
-                      ? 'bg-accent text-primary ring-2 ring-accent/30'
-                      : hasBlocks
-                        ? 'bg-red-500/[0.08] hover:bg-red-500/[0.12]'
-                        : isCurrentMonth
-                          ? 'hover:bg-white/[0.04]'
-                          : 'opacity-30'
-                  } ${isPast && !isSelected ? 'opacity-50' : ''}`}
-                >
-                  <div className={`text-xs font-medium ${isSelected ? 'text-primary' : hasBlocks ? 'text-red-400' : 'text-slate-300'}`}>
-                    {format(calDay, 'd')}
-                  </div>
-                  {(hasSlots || hasBlocks) && (
-                    <div className="mt-1">
-                      {hasBlocks && (
-                        <div className={`text-[8px] font-bold ${isSelected ? 'text-primary/70' : 'text-red-400'}`}>
-                          BLOCKED
-                        </div>
-                      )}
-                      {hasSlots && (
-                        <div className={`text-[9px] font-medium ${isSelected ? 'text-primary/80' : 'text-accent'}`}>
-                          {daySlots.length} slots
-                        </div>
-                      )}
-                      {bookedSlots > 0 && (
-                        <div className={`text-[9px] ${isSelected ? 'text-primary/60' : 'text-orange-500'}`}>
-                          {bookedSlots} booked
-                        </div>
-                      )}
-                      {totalBookings > 0 && totalBookings !== bookedSlots && (
-                        <div className={`text-[8px] ${isSelected ? 'text-primary/50' : 'text-slate-500'}`}>
-                          {totalBookings} total
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </button>
-              );
-            })}
-          </div>
-        </div>
+        </form>
       )}
 
-      {/* Selected Date Slots / List View */}
-      {(viewMode === 'list' || selectedDate) && (
+      {/* ════════════════════════════════════════════════════ */}
+      {/* ACTIVE BLOCKS TAB                                   */}
+      {/* ════════════════════════════════════════════════════ */}
+      {activeTab === 'active' && (
         <div>
-          {viewMode === 'calendar' && selectedDate && (
-            <h3 className="text-sm font-semibold text-white mb-3">
-              Slots for {format(selectedDate, 'EEE, MMM d, yyyy')}
-            </h3>
-          )}
-
-          {loading ? (
+          {blockedLoading ? (
             <div className="flex flex-col items-center justify-center py-16 text-slate-400">
               <Loader2 className="w-5 h-5 animate-spin mb-2" />
-              <span className="text-sm">Loading slots...</span>
+              <span className="text-sm">Loading blocks...</span>
+            </div>
+          ) : blockedSlots.length === 0 ? (
+            <div className="text-center py-16">
+              <div className="w-14 h-14 rounded-full bg-white/[0.04] flex items-center justify-center mx-auto mb-3">
+                <Ban className="w-6 h-6 text-slate-600" />
+              </div>
+              <p className="text-sm text-slate-400 mb-1">No active blocks</p>
+              <p className="text-xs text-slate-600">All slots are currently available for booking.</p>
             </div>
           ) : (
-            (() => {
-              const displaySlots = viewMode === 'list' ? slots : selectedDateSlots;
-              if (displaySlots.length === 0) {
+            <div className="space-y-2.5">
+              {blockedSlots.map(block => {
+                const sameDay = block.startDate.split('T')[0] === block.endDate.split('T')[0];
+                const startStr = format(parseISO(block.startDate), 'MMM d, yyyy');
+                const endStr = format(parseISO(block.endDate), 'MMM d, yyyy');
+                const st = formatBlockTime(block.startTime);
+                const et = formatBlockTime(block.endTime);
+                const isFullDay = !block.startTime;
+                const machineLabel = block.machineId ? getMachineIdLabel(block.machineId) : null;
+
                 return (
-                  <div className="text-center py-12">
-                    <div className="w-12 h-12 rounded-full bg-white/[0.04] flex items-center justify-center mx-auto mb-3">
-                      <Clock className="w-5 h-5 text-slate-500" />
+                  <div
+                    key={block.id}
+                    className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-4 flex items-start gap-3"
+                  >
+                    {/* Left color bar */}
+                    <div className="w-1 self-stretch rounded-full bg-red-500/40 flex-shrink-0" />
+
+                    <div className="flex-1 min-w-0">
+                      {/* Date line */}
+                      <div className="flex flex-wrap items-center gap-2 mb-1.5">
+                        <span className="text-sm font-semibold text-white">
+                          {sameDay ? startStr : `${startStr} — ${endStr}`}
+                        </span>
+                        {isFullDay ? (
+                          <span className="text-[10px] font-semibold text-red-400 bg-red-500/10 px-2 py-0.5 rounded-md">
+                            Full Day
+                          </span>
+                        ) : st && et ? (
+                          <span className="text-[10px] font-medium text-slate-400 bg-white/[0.04] px-2 py-0.5 rounded-md">
+                            {st} — {et}
+                          </span>
+                        ) : null}
+                      </div>
+
+                      {/* Tags line */}
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        {machineLabel ? (
+                          <span className="text-[10px] font-medium px-2 py-0.5 rounded-md bg-blue-500/10 text-blue-400">
+                            {machineLabel}
+                          </span>
+                        ) : (
+                          <span className="text-[10px] font-medium px-2 py-0.5 rounded-md bg-red-500/10 text-red-400">
+                            All Machines
+                          </span>
+                        )}
+                        {block.reason && (
+                          <span className="text-[10px] text-slate-500 italic truncate">
+                            {block.reason}
+                          </span>
+                        )}
+                      </div>
                     </div>
-                    <p className="text-sm text-slate-400">
-                      {viewMode === 'calendar' ? 'No slots for this date' : 'No slots found for this month'}
-                    </p>
+
+                    {/* Delete */}
+                    <button
+                      onClick={() => handleUnblock(block.id)}
+                      className="flex-shrink-0 p-2 text-slate-600 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-colors cursor-pointer"
+                      title="Remove block"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
                   </div>
                 );
-              }
-
-              // Group by date for list view
-              const grouped: Record<string, Slot[]> = {};
-              for (const s of displaySlots) {
-                const dateKey = s.date.split('T')[0];
-                if (!grouped[dateKey]) grouped[dateKey] = [];
-                grouped[dateKey].push(s);
-              }
-
-              return Object.entries(grouped).map(([dateKey, dateSlots]) => (
-                <div key={dateKey} className="mb-4">
-                  {viewMode === 'list' && (
-                    <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">
-                      {format(parseISO(dateKey), 'EEE, MMM d, yyyy')}
-                    </div>
-                  )}
-                  <div className="space-y-2">
-                    {dateSlots.map(slot => (
-                      <div
-                        key={slot.id}
-                        className={`bg-white/[0.04] rounded-xl border p-4 flex items-center justify-between ${
-                          slot.isActive ? 'border-white/[0.08]' : 'border-white/[0.04] bg-white/[0.02] opacity-60'
-                        }`}
-                      >
-                        <div className="flex items-center gap-4 flex-1 min-w-0">
-                          <div className="flex-shrink-0">
-                            <div className="text-sm font-semibold text-white">
-                              {formatTime(slot.startTime)} - {formatTime(slot.endTime)}
-                            </div>
-                            {slot.isBooked && (
-                              <div className="text-[10px] text-orange-500 font-medium mt-0.5">
-                                Booked: {slot.bookings?.[0]?.playerName || 'Unknown'}
-                              </div>
-                            )}
-                            {!slot.isActive && (
-                              <div className="text-[10px] text-slate-500 font-medium mt-0.5">Inactive</div>
-                            )}
-                          </div>
-                          <div className="flex items-center gap-1">
-                            {editingSlot === slot.id ? (
-                              <div className="flex items-center gap-1">
-                                <IndianRupee className="w-3 h-3 text-slate-400" />
-                                <input
-                                  type="number"
-                                  value={editPrice}
-                                  onChange={e => setEditPrice(e.target.value)}
-                                  className="w-20 bg-white/[0.04] border border-white/[0.1] rounded px-2 py-1 text-sm text-white outline-none focus:border-accent"
-                                  autoFocus
-                                />
-                                <button
-                                  onClick={() => handleUpdatePrice(slot.id)}
-                                  className="p-1 text-green-400 hover:bg-green-500/10 rounded cursor-pointer"
-                                >
-                                  <Save className="w-3.5 h-3.5" />
-                                </button>
-                                <button
-                                  onClick={() => setEditingSlot(null)}
-                                  className="p-1 text-slate-400 hover:bg-white/[0.06] rounded cursor-pointer"
-                                >
-                                  <X className="w-3.5 h-3.5" />
-                                </button>
-                              </div>
-                            ) : (
-                              <button
-                                onClick={() => {
-                                  if (!slot.isBooked) {
-                                    setEditingSlot(slot.id);
-                                    setEditPrice(String(slot.price));
-                                  }
-                                }}
-                                className={`inline-flex items-center gap-1 px-2 py-1 rounded text-sm font-medium ${
-                                  slot.isBooked
-                                    ? 'text-slate-400 bg-white/[0.04]'
-                                    : 'text-accent bg-accent/10 hover:bg-accent/20 cursor-pointer'
-                                }`}
-                                disabled={slot.isBooked}
-                              >
-                                <IndianRupee className="w-3 h-3" />
-                                {slot.price}
-                                {!slot.isBooked && <Pencil className="w-2.5 h-2.5 ml-1 opacity-50" />}
-                              </button>
-                            )}
-                          </div>
-                        </div>
-                        <div className="flex items-center gap-1 ml-3">
-                          <button
-                            onClick={() => handleToggleActive(slot.id, slot.isActive)}
-                            className={`p-2 rounded-lg transition-colors cursor-pointer ${
-                              slot.isActive ? 'text-green-400 hover:bg-green-500/10' : 'text-slate-500 hover:bg-white/[0.06]'
-                            }`}
-                            title={slot.isActive ? 'Deactivate slot' : 'Activate slot'}
-                          >
-                            {slot.isActive ? <ToggleRight className="w-5 h-5" /> : <ToggleLeft className="w-5 h-5" />}
-                          </button>
-                          {!slot.isBooked && (
-                            <button
-                              onClick={() => handleDelete(slot.id)}
-                              className="p-2 text-slate-500 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-colors cursor-pointer"
-                              title="Delete slot"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
-                          )}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              ));
-            })()
+              })}
+            </div>
           )}
         </div>
       )}

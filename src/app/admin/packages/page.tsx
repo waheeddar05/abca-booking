@@ -204,9 +204,9 @@ export default function AdminPackages() {
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-5">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-5">
         <h1 className="text-xl font-bold text-white">Packages</h1>
-        <div className="flex gap-2">
+        <div className="flex gap-1 sm:gap-2">
           {(['packages', 'users', 'reports'] as const).map(t => (
             <button
               key={t}
@@ -479,11 +479,11 @@ export default function AdminPackages() {
           <div className="space-y-2">
             {userPackages.map((up: any) => (
               <div key={up.id} className="bg-white/[0.04] backdrop-blur-sm rounded-xl border border-white/[0.08] p-4">
-                <div className="flex items-start justify-between">
-                  <div>
+                <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
+                  <div className="min-w-0">
                     <div className="flex items-center gap-2 mb-1">
-                      <span className="text-sm font-semibold text-white">{up.user?.name || up.user?.email || 'Unknown'}</span>
-                      <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${
+                      <span className="text-sm font-semibold text-white truncate">{up.user?.name || up.user?.email || 'Unknown'}</span>
+                      <span className={`flex-shrink-0 text-[10px] px-2 py-0.5 rounded-full font-medium ${
                         up.status === 'ACTIVE' ? 'bg-green-500/15 text-green-400' :
                         up.status === 'EXPIRED' ? 'bg-red-500/15 text-red-400' :
                         'bg-slate-500/15 text-slate-400'
@@ -492,7 +492,7 @@ export default function AdminPackages() {
                       </span>
                     </div>
                     <p className="text-xs text-slate-400 mb-1">{up.package?.name}</p>
-                    <div className="flex gap-4 text-xs text-slate-400">
+                    <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-400">
                       <span>Used: {up.usedSessions}/{up.totalSessions}</span>
                       <span>Remaining: {up.totalSessions - up.usedSessions}</span>
                       <span>Expires: {new Date(up.expiryDate).toLocaleDateString()}</span>

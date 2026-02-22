@@ -36,7 +36,7 @@ export function OptionsPanel({
       {/* Ball Type */}
       {isLeatherMachine && machineConfig?.leatherMachine.ballTypeSelectionEnabled && (
         <div>
-          <label className="block text-xs font-bold text-white mb-1 uppercase tracking-wider">
+          <label className="block text-[10px] font-medium text-accent mb-1 uppercase tracking-wider">
             Ball Type
           </label>
           <div className="flex gap-2">
@@ -55,7 +55,7 @@ export function OptionsPanel({
       {/* Pitch Type (multiple options) */}
       {showPitchSelection && (
         <div>
-          <label className="block text-xs font-bold text-white mb-1 uppercase tracking-wider">
+          <label className="block text-[10px] font-medium text-accent mb-1 uppercase tracking-wider">
             Pitch Type
           </label>
           <div className="flex gap-2">
@@ -77,7 +77,7 @@ export function OptionsPanel({
       {/* Pitch Type (single, auto-selected) */}
       {showPitchIndicator && (
         <div>
-          <label className="block text-xs font-bold text-white mb-1 uppercase tracking-wider">
+          <label className="block text-[10px] font-medium text-accent mb-1 uppercase tracking-wider">
             Pitch Type
           </label>
           <div className="flex gap-2">
@@ -93,7 +93,7 @@ export function OptionsPanel({
       {/* Operation Mode */}
       {!isLeatherMachine && (
         <div>
-          <label className="block text-xs font-bold text-white mb-1 uppercase tracking-wider">
+          <label className="block text-[10px] font-medium text-accent mb-1 uppercase tracking-wider">
             Operation Mode
           </label>
           <div className="flex gap-2">

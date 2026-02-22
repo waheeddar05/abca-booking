@@ -14,7 +14,7 @@ export function MachineSelector({ selectedMachineId, onSelect }: MachineSelector
 
   return (
     <div className="mb-4">
-      <label className="block text-xs font-bold text-white mb-2 uppercase tracking-wider">
+      <label className="block text-[10px] font-medium text-accent mb-2 uppercase tracking-wider">
         Machine Type
       </label>
 

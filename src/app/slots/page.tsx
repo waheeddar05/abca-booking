@@ -258,6 +258,8 @@ function SlotsContent() {
         onSelect={handleMachineSelect}
       />
 
+      <hr className="border-white/[0.06] my-4" />
+
       <OptionsPanel
         isLeatherMachine={isLeatherMachine}
         machineConfig={machineConfig}
@@ -273,6 +275,8 @@ function SlotsContent() {
       />
 
       <DateSelector selectedDate={selectedDate} onSelect={setSelectedDate} />
+
+      <hr className="border-white/[0.06] my-4" />
 
       <SlotGrid
         slots={slots}
@@ -310,6 +314,8 @@ function SlotsContent() {
           </p>
         </div>
       )}
+
+      <hr className="border-white/[0.06] my-4" />
 
       {/* Package Selection */}
       {session && (
