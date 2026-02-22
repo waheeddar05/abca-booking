@@ -442,8 +442,28 @@ export default function AdminUsers() {
                             History
                           </button>
                         </div>
+                        <button
+                          onClick={() => handleToggleBlacklist(user)}
+                          className={`flex items-center justify-center gap-1 py-2 text-xs font-medium rounded-lg transition-colors cursor-pointer ${
+                            user.isBlacklisted
+                              ? 'text-green-400 bg-green-500/10 hover:bg-green-500/20'
+                              : 'text-red-400 bg-red-500/10 hover:bg-red-500/20'
+                          }`}
+                        >
+                          {user.isBlacklisted ? (
+                            <>
+                              <Check className="w-3.5 h-3.5 flex-shrink-0" />
+                              <span className="truncate">Unblock User</span>
+                            </>
+                          ) : (
+                            <>
+                              <XCircle className="w-3.5 h-3.5 flex-shrink-0" />
+                              <span className="truncate">Block User</span>
+                            </>
+                          )}
+                        </button>
                         {isSuperAdmin && (
-                          <div className="grid grid-cols-3 gap-2">
+                          <div className="grid grid-cols-2 gap-2">
                               <button
                                 onClick={() => handleToggleRole(user)}
                                 className={`flex items-center justify-center gap-1 py-2 text-xs font-medium rounded-lg transition-colors cursor-pointer ${
@@ -461,26 +481,6 @@ export default function AdminUsers() {
                                   <>
                                     <Shield className="w-3.5 h-3.5 flex-shrink-0" />
                                     <span className="truncate">Promote</span>
-                                  </>
-                                )}
-                              </button>
-                              <button
-                                onClick={() => handleToggleBlacklist(user)}
-                                className={`flex items-center justify-center gap-1 py-2 text-xs font-medium rounded-lg transition-colors cursor-pointer ${
-                                  user.isBlacklisted
-                                    ? 'text-green-400 bg-green-500/10 hover:bg-green-500/20'
-                                    : 'text-red-400 bg-red-500/10 hover:bg-red-500/20'
-                                }`}
-                              >
-                                {user.isBlacklisted ? (
-                                  <>
-                                    <Check className="w-3.5 h-3.5 flex-shrink-0" />
-                                    <span className="truncate">Unblock</span>
-                                  </>
-                                ) : (
-                                  <>
-                                    <XCircle className="w-3.5 h-3.5 flex-shrink-0" />
-                                    <span className="truncate">Block</span>
                                   </>
                                 )}
                               </button>

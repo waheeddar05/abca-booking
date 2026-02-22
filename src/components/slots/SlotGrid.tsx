@@ -93,10 +93,12 @@ function SlotCard({
   onToggle,
 }: SlotCardProps) {
   const isBooked = slot.status === 'Booked';
+  const isBlocked = slot.status === 'Blocked';
   const isOperatorUnavailable = slot.status === 'OperatorUnavailable';
-  const noOperator = !slot.operatorAvailable && !isLeatherMachine && !isBooked && !isOperatorUnavailable;
+  const isUnavailable = isBooked || isBlocked || isOperatorUnavailable;
+  const noOperator = !slot.operatorAvailable && !isLeatherMachine && !isUnavailable;
 
-  const bgClass = isBooked || isOperatorUnavailable
+  const bgClass = isUnavailable
     ? 'bg-white/[0.02] border border-white/[0.05] cursor-not-allowed'
     : isSelected
     ? 'bg-accent text-primary shadow-md shadow-accent/20 border border-accent'
@@ -104,7 +106,9 @@ function SlotCard({
     ? 'bg-amber-500/10 border border-amber-500/20 hover:border-amber-500/30 active:scale-[0.97]'
     : 'bg-white/[0.04] border border-white/[0.08] hover:border-accent/40 active:scale-[0.97]';
 
-  const statusLabel = isOperatorUnavailable
+  const statusLabel = isBlocked
+    ? 'Not Available'
+    : isOperatorUnavailable
     ? 'No Machine Operator'
     : isBooked
     ? 'Booked'
@@ -114,7 +118,9 @@ function SlotCard({
     ? 'Self Operate'
     : 'Open';
 
-  const statusColor = isOperatorUnavailable
+  const statusColor = isBlocked
+    ? 'text-red-400'
+    : isOperatorUnavailable
     ? 'text-amber-400'
     : isBooked
     ? 'text-red-400'
@@ -141,11 +147,11 @@ function SlotCard({
         </div>
       )}
 
-      <div className={`text-sm font-bold ${isBooked || isOperatorUnavailable ? 'text-slate-600' : isSelected ? '' : 'text-white'}`}>
+      <div className={`text-sm font-bold ${isUnavailable ? 'text-slate-600' : isSelected ? '' : 'text-white'}`}>
         {format(parseISO(slot.startTime), 'HH:mm')}
       </div>
       <div className={`text-[10px] mt-0.5 ${
-        isBooked || isOperatorUnavailable ? 'text-slate-600' : isSelected ? 'text-primary/70' : 'text-slate-400'
+        isUnavailable ? 'text-slate-600' : isSelected ? 'text-primary/70' : 'text-slate-400'
       }`}>
         to {format(parseISO(slot.endTime), 'HH:mm')}
       </div>
@@ -154,7 +160,7 @@ function SlotCard({
         <span className={`text-[10px] font-semibold uppercase tracking-wider ${statusColor}`}>
           {statusLabel}
         </span>
-        {!isBooked && !isOperatorUnavailable && (
+        {!isUnavailable && (
           <span className={`text-[10px] font-medium ${isSelected ? 'text-primary/70' : 'text-slate-400'}`}>
             {selectedPackageId && packageValidation?.valid ? 'Package' : `₹${displayPrice}`}
           </span>
