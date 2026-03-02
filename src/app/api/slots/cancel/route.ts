@@ -14,7 +14,7 @@ export async function POST(req: NextRequest) {
 
     const userId = user.id;
 
-    const { bookingId } = await req.json();
+    const { bookingId, cancellationReason } = await req.json();
 
     if (!bookingId) {
       return NextResponse.json({ error: 'Booking ID is required' }, { status: 400 });
@@ -45,7 +45,7 @@ export async function POST(req: NextRequest) {
       data: {
         status: 'CANCELLED',
         cancelledBy: user.name || user.id,
-        cancellationReason: user.role === 'ADMIN' ? `Cancelled by Admin (${user.name || user.id})` : `Cancelled by User (${user.name || user.id})`,
+        cancellationReason: cancellationReason || (user.role === 'ADMIN' ? `Cancelled by Admin (${user.name || user.id})` : `Cancelled by User (${user.name || user.id})`),
       },
     });
 

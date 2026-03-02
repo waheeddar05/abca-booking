@@ -167,12 +167,13 @@ export async function POST(req: NextRequest) {
             `${dateStr}`,
             `${timeStr} – ${endStr}`,
             `Machine: ${machineName}`,
+            `Cancelled by: ${cancelledByName}`,
             `Reason: ${reason || 'Maintenance'}`,
           ];
           return prisma.notification.create({
             data: {
               userId: booking.userId as string,
-              title: 'Booking Cancelled by Admin',
+              title: 'Booking Cancelled',
               message: lines.join('\n'),
               type: 'CANCELLATION',
             }

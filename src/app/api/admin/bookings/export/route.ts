@@ -65,7 +65,16 @@ export async function GET(req: NextRequest) {
     try {
       bookings = await prisma.booking.findMany({
         where,
-        include: { user: { select: { email: true, mobileNumber: true } } },
+        include: {
+          user: { select: { email: true, mobileNumber: true } },
+          packageBooking: {
+            include: {
+              userPackage: {
+                include: { package: { select: { name: true } } }
+              }
+            }
+          },
+        },
         orderBy: [{ date: 'desc' }, { startTime: 'asc' }],
       });
     } catch {
@@ -97,6 +106,11 @@ export async function GET(req: NextRequest) {
       'Created By',
       'Cancelled By',
       'Cancelled At',
+      'Booking Type',
+      'Package Name',
+      'Package ID',
+      'Payment Method',
+      'Payment Status',
     ];
 
     const rows = bookings.map((b: any) => [
@@ -119,6 +133,11 @@ export async function GET(req: NextRequest) {
       `"${(b.createdBy || '').replace(/"/g, '""')}"`,
       `"${(b.cancelledBy || '').replace(/"/g, '""')}"`,
       b.status === 'CANCELLED' && b.updatedAt ? formatIST(b.updatedAt, 'yyyy-MM-dd HH:mm:ss') : '',
+      b.packageBooking ? 'Package' : 'Regular',
+      b.packageBooking?.userPackage?.package?.name || '',
+      b.packageBooking?.userPackageId || '',
+      b.paymentMethod || '',
+      b.paymentStatus || '',
     ]);
 
     const csv = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');

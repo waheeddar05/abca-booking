@@ -170,7 +170,7 @@ async function completePackagePurchase(
       userId,
       title: 'Package Purchased',
       message: `Your "${pkg.name}" package (${pkg.totalSessions} sessions) is now active. Valid until ${expiry.toLocaleDateString('en-IN')}.`,
-      type: 'INFO',
+      type: 'PACKAGE',
     },
   });
 

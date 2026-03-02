@@ -210,9 +210,28 @@ export async function DELETE(req: NextRequest) {
       return NextResponse.json({ error: 'Cannot delete super admin' }, { status: 400 });
     }
 
-    // Delete user's bookings first (cascade), then user
+    // Delete all related records first, then user
+    // 1. Get user's packages to delete their sub-relations
+    const userPackages = await prisma.userPackage.findMany({
+      where: { userId: id },
+      select: { id: true },
+    });
+    const userPackageIds = userPackages.map(up => up.id);
+
+    if (userPackageIds.length > 0) {
+      // Delete package audit logs and package bookings tied to user's packages
+      await prisma.packageAuditLog.deleteMany({ where: { userPackageId: { in: userPackageIds } } });
+      await prisma.packageBooking.deleteMany({ where: { userPackageId: { in: userPackageIds } } });
+    }
+
+    // 2. Delete all direct user relations
+    await prisma.userPackage.deleteMany({ where: { userId: id } });
+    await prisma.notification.deleteMany({ where: { userId: id } });
+    await prisma.payment.deleteMany({ where: { userId: id } });
     await prisma.booking.deleteMany({ where: { userId: id } });
     await prisma.otp.deleteMany({ where: { userId: id } });
+
+    // 3. Finally delete the user
     await prisma.user.delete({ where: { id } });
 
     return NextResponse.json({ message: 'User deleted successfully' });

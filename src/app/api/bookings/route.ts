@@ -18,26 +18,60 @@ const SAFE_BOOKING_SELECT = {
 export async function GET(req: NextRequest) {
   try {
     const user = await getAuthenticatedUser(req);
-
     if (!user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
     const userId = user.id;
+    const { searchParams } = new URL(req.url);
+    const tab = searchParams.get('tab'); // all, upcoming, inProgress, completed, cancelled
+    const page = parseInt(searchParams.get('page') || '1');
+    const limit = parseInt(searchParams.get('limit') || '20');
+    const skip = (page - 1) * limit;
+
+    const where: any = { userId };
+    const now = new Date();
+
+    if (tab === 'upcoming') {
+      where.status = 'BOOKED';
+      where.startTime = { gt: now };
+    } else if (tab === 'inProgress') {
+      where.status = 'BOOKED';
+      where.startTime = { lte: now };
+      where.endTime = { gt: now };
+    } else if (tab === 'completed') {
+      where.OR = [
+        { status: 'DONE' },
+        { status: 'BOOKED', endTime: { lte: now } },
+      ];
+    } else if (tab === 'cancelled') {
+      where.status = 'CANCELLED';
+    }
 
     // Try full query first; if new columns don't exist, fall back to safe select
     let bookings: any[];
+    let total: number;
     try {
-      bookings = await prisma.booking.findMany({
-        where: { userId },
-        orderBy: { startTime: 'desc' },
-      });
+      [bookings, total] = await Promise.all([
+        prisma.booking.findMany({
+          where,
+          orderBy: { startTime: 'desc' },
+          skip,
+          take: limit,
+        }),
+        prisma.booking.count({ where }),
+      ]);
     } catch {
-      bookings = await prisma.booking.findMany({
-        where: { userId },
-        orderBy: { startTime: 'desc' },
-        select: SAFE_BOOKING_SELECT,
-      });
+      [bookings, total] = await Promise.all([
+        prisma.booking.findMany({
+          where,
+          orderBy: { startTime: 'desc' },
+          select: SAFE_BOOKING_SELECT,
+          skip,
+          take: limit,
+        }),
+        prisma.booking.count({ where }),
+      ]);
     }
 
     // Check if any booking has a package booking
@@ -76,7 +110,15 @@ export async function GET(req: NextRequest) {
       isPackageBooking: packageBookingSet.has(b.id),
     }));
 
-    return NextResponse.json(mappedBookings);
+    return NextResponse.json({
+      bookings: mappedBookings,
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages: Math.ceil(total / limit),
+      },
+    });
   } catch (error: any) {
     console.error('Fetch bookings error:', error);
     return NextResponse.json({ error: error?.message || 'Internal server error' }, { status: 500 });

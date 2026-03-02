@@ -13,6 +13,8 @@ import { SlotGrid } from '@/components/slots/SlotGrid';
 import { PackageSelector } from '@/components/slots/PackageSelector';
 import { BookingBar } from '@/components/slots/BookingBar';
 import { ContactFooter } from '@/components/ContactFooter';
+import { PackageFirstBookingBanner } from '@/components/ui/PackageFirstBookingBanner';
+import { PaymentMethodSelector } from '@/components/ui/PaymentMethodSelector';
 import { useSlots } from '@/hooks/useSlots';
 import { usePackages } from '@/hooks/usePackages';
 import { usePricing } from '@/hooks/usePricing';
@@ -42,6 +44,7 @@ function SlotsContent() {
   const [bookingLoading, setBookingLoading] = useState(false);
   const [machineConfig, setMachineConfig] = useState<MachineConfig | null>(null);
   const [showBookingConfirm, setShowBookingConfirm] = useState(false);
+  const [paymentMethod, setPaymentMethod] = useState<'ONLINE' | 'CASH'>('ONLINE');
 
   const { data: session } = useSession();
   const toast = useToast();
@@ -77,6 +80,7 @@ function SlotsContent() {
   // ─── Hooks ─────────────────────────────────────────────
   const { slots, loading, error, fetchSlots } = useSlots();
   const pkg = usePackages();
+  const firstBookingPackage = pkg.packages.find(p => p.status === 'ACTIVE' && p.usedSessions === 0);
   const pricing = usePricing({
     selectedSlots,
     machineConfig,
@@ -220,27 +224,32 @@ function SlotsContent() {
       : 0;
     const isPackageBooking = !!pkg.selectedPackageId;
 
+    const isCashPayment = paymentMethod === 'CASH';
+
     const message = isFreeBooking
       ? `Book ${selectedSlots.length} slot(s) for FREE?${isBookingForOther ? ` For: ${userName}` : ''}`
       : isBookingForOther
         ? `Book ${selectedSlots.length} slot(s) for ${userName}?`
         : isPackageBooking
           ? `Book ${selectedSlots.length} slot(s) using package?${total > 0 ? ` Extra charge: ₹${total}` : ''}`
-          : `Book ${selectedSlots.length} slot(s) for ₹${total.toLocaleString()}?`;
+          : isCashPayment
+            ? `Book ${selectedSlots.length} slot(s)? Pay ₹${total.toLocaleString()} at center.`
+            : `Book ${selectedSlots.length} slot(s) for ₹${total.toLocaleString()}?`;
 
     let warning = '';
     if (selfOperateSlots > 0) {
       warning = `${selfOperateSlots} slot(s) will be Self Operate — no machine operator provided. You must operate the machine yourself.`;
     }
 
-    const requiresPayment = paymentConfig?.paymentEnabled
+    const requiresOnlinePayment = paymentConfig?.paymentEnabled
       && paymentConfig?.slotPaymentRequired
       && !isPackageBooking
       && !isBookingForOther
       && !isFreeBooking
+      && !isCashPayment
       && total > 0;
 
-    const confirmLabel = requiresPayment ? `Pay ₹${total.toLocaleString()}` : 'Confirm Booking';
+    const confirmLabel = requiresOnlinePayment ? `Pay ₹${total.toLocaleString()}` : 'Confirm Booking';
 
     return { message, warning, confirmLabel };
   };
@@ -262,11 +271,13 @@ function SlotsContent() {
     const total = pkg.selectedPackageId && pkg.validation ? (pkg.validation.extraCharge || 0) : pricing.totalPrice;
 
     const isPackageBooking = !!pkg.selectedPackageId;
-    const requiresPayment = paymentConfig?.paymentEnabled
+    const isCashPayment = paymentMethod === 'CASH';
+    const requiresOnlinePayment = paymentConfig?.paymentEnabled
       && paymentConfig?.slotPaymentRequired
       && !isPackageBooking
       && !isBookingForOther
       && !isFreeBooking
+      && !isCashPayment
       && total > 0;
 
     const bookingPayload = selectedSlots.map(slot => ({
@@ -280,10 +291,11 @@ function SlotsContent() {
       userId: isBookingForOther ? userId : undefined,
       playerName: isBookingForOther ? userName : undefined,
       ...(pitchType ? { pitchType } : {}),
+      ...(isCashPayment ? { paymentMethod: 'CASH' as const } : {}),
     }));
 
-    // If payment is required, go through Razorpay first
-    if (requiresPayment) {
+    // If online payment is required, go through Razorpay first
+    if (requiresOnlinePayment) {
       setBookingLoading(true);
       try {
         const paymentResult = await initiatePayment({
@@ -337,12 +349,12 @@ function SlotsContent() {
       return;
     }
 
-    // No payment required — direct booking (original flow)
+    // No online payment required — direct booking (free, admin, cash, or package flow)
     setBookingLoading(true);
     try {
       await api.post('/api/slots/book', bookingPayload);
 
-      toast.success('Booking confirmed! Check My Bookings for details.');
+      toast.success(isCashPayment ? 'Booking confirmed! Pay at center when you arrive.' : 'Booking confirmed! Check My Bookings for details.');
       setSelectedSlots([]);
       pkg.reset();
       fetchSlots(selectedDate, selectedMachineId, ballType, pitchType);
@@ -381,6 +393,11 @@ function SlotsContent() {
             <p className="text-sm font-medium text-white">Booking for: <span className="text-accent">{userName}</span></p>
           </div>
         </div>
+      )}
+
+      {/* First Booking Banner */}
+      {firstBookingPackage && (
+        <PackageFirstBookingBanner packageName={firstBookingPackage.packageName} />
       )}
 
       {/* Page Header */}
@@ -467,6 +484,25 @@ function SlotsContent() {
           validation={pkg.validation}
           isValidating={pkg.isValidating}
         />
+      )}
+
+      {/* Payment Method Selection */}
+      {selectedSlots.length > 0
+        && paymentConfig?.paymentEnabled
+        && paymentConfig?.slotPaymentRequired
+        && paymentConfig?.cashPaymentEnabled
+        && !isBookingForOther
+        && !isFreeBooking
+        && !pkg.selectedPackageId
+        && (
+        <div className="mb-4">
+          <p className="text-xs font-medium text-slate-400 mb-2 uppercase tracking-wider">Payment Method</p>
+          <PaymentMethodSelector
+            selected={paymentMethod}
+            onChange={setPaymentMethod}
+            disabled={bookingLoading || paymentProcessing}
+          />
+        </div>
       )}
 
       <ContactFooter />

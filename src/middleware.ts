@@ -33,6 +33,10 @@ export async function middleware(req: NextRequest) {
       const otpToken = otpTokenStr ? verifyToken(otpTokenStr) as any : null;
 
       if (token || otpToken) {
+        const role = (token?.role || otpToken?.role) as string | undefined;
+        if (role === 'OPERATOR') {
+          return NextResponse.redirect(new URL("/operator", req.url));
+        }
         return NextResponse.redirect(new URL("/slots", req.url));
       }
     }
@@ -58,6 +62,13 @@ export async function middleware(req: NextRequest) {
   // Protect Admin routes
   if (pathname.startsWith("/admin")) {
     if (userRole !== "ADMIN") {
+      return NextResponse.redirect(new URL("/", req.url));
+    }
+  }
+
+  // Protect Operator routes
+  if (pathname.startsWith("/operator")) {
+    if (userRole !== "OPERATOR" && userRole !== "ADMIN") {
       return NextResponse.redirect(new URL("/", req.url));
     }
   }

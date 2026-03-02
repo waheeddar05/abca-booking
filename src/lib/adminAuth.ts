@@ -23,3 +23,19 @@ export async function requireAdmin(req: NextRequest) {
   if (session?.role !== 'ADMIN') return null;
   return session;
 }
+
+export async function requireOperatorOrAdmin(req: NextRequest) {
+  const session = await getAdminSession(req);
+  if (!session?.role || !['ADMIN', 'OPERATOR'].includes(session.role)) return null;
+  return session;
+}
+
+export async function getOperatorSession(req: NextRequest) {
+  const session = await getAdminSession(req);
+  if (!session?.role || !['ADMIN', 'OPERATOR'].includes(session.role)) return null;
+  // Need to look up userId from email
+  const { prisma } = await import('@/lib/prisma');
+  const user = await prisma.user.findUnique({ where: { email: session.email } });
+  if (!user) return null;
+  return { ...session, userId: user.id, isAdmin: session.role === 'ADMIN' };
+}

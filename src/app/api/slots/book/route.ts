@@ -95,6 +95,8 @@ type BookingColumnSupport = {
   pitchType: boolean;
   extraCharge: boolean;
   isSuperAdminBooking: boolean;
+  paymentMethod: boolean;
+  paymentStatus: boolean;
 };
 
 async function getBookingColumnSupport(): Promise<BookingColumnSupport> {
@@ -115,6 +117,8 @@ async function getBookingColumnSupport(): Promise<BookingColumnSupport> {
       pitchType: columnSet.has('pitchType'),
       extraCharge: columnSet.has('extraCharge'),
       isSuperAdminBooking: columnSet.has('isSuperAdminBooking'),
+      paymentMethod: columnSet.has('paymentMethod'),
+      paymentStatus: columnSet.has('paymentStatus'),
     };
   } catch {
     return {
@@ -126,6 +130,8 @@ async function getBookingColumnSupport(): Promise<BookingColumnSupport> {
       pitchType: false,
       extraCharge: false,
       isSuperAdminBooking: false,
+      paymentMethod: false,
+      paymentStatus: false,
     };
   }
 }
@@ -167,6 +173,10 @@ export async function POST(req: NextRequest) {
 
     // Check if this is a package-based booking
     const userPackageId = slotsToBook[0]?.userPackageId as string | undefined;
+
+    // Check if cash payment method was selected
+    const requestedPaymentMethod = slotsToBook[0]?.paymentMethod as string | undefined;
+    const isCashPayment = requestedPaymentMethod === 'CASH';
 
     if (slotsToBook.length === 0) {
       return NextResponse.json({ error: 'No slots provided' }, { status: 400 });
@@ -439,6 +449,13 @@ export async function POST(req: NextRequest) {
             const effectiveDiscountAmount = isFreeBooking ? null : (priceInfo.discountAmount || null);
             const effectiveDiscountType = isFreeBooking ? null : (priceInfo.discountAmount > 0 ? 'FIXED' as const : null);
 
+            // Determine payment fields (only for non-free bookings)
+            const paymentFields = !isFreeBooking && bookingColumns.paymentMethod && bookingColumns.paymentStatus
+              ? isCashPayment
+                ? { paymentMethod: 'CASH' as const, paymentStatus: 'PENDING' as const }
+                : { paymentMethod: 'ONLINE' as const, paymentStatus: 'PAID' as const }
+              : {};
+
             const fullBookingData: Prisma.BookingUncheckedCreateInput = {
               ...baseBookingData,
               createdBy,
@@ -449,6 +466,7 @@ export async function POST(req: NextRequest) {
               ...(bookingColumns.discountAmount ? { discountAmount: effectiveDiscountAmount } : {}),
               ...(bookingColumns.discountType ? { discountType: effectiveDiscountType } : {}),
               ...(bookingColumns.operationMode ? { operationMode: slot.operationMode } : {}),
+              ...paymentFields,
             };
 
             const fullUpdateData: Prisma.BookingUncheckedUpdateInput = {
@@ -461,6 +479,7 @@ export async function POST(req: NextRequest) {
               ...(bookingColumns.discountAmount ? { discountAmount: effectiveDiscountAmount } : {}),
               ...(bookingColumns.discountType ? { discountType: effectiveDiscountType } : {}),
               ...(bookingColumns.operationMode ? { operationMode: slot.operationMode } : {}),
+              ...paymentFields,
             };
 
             if (slot.pitchType !== null && bookingColumns.pitchType) {
@@ -560,6 +579,8 @@ export async function POST(req: NextRequest) {
       if (firstSlot.pitchType) lines.push(`Pitch: ${firstSlot.pitchType}`);
       if (isFreeBooking) {
         lines.push('Price: FREE');
+      } else if (isCashPayment) {
+        lines.push(`Price: ₹${totalPrice} (Pay at center)`);
       } else if (!userPackageId) {
         lines.push(`Price: ₹${totalPrice}`);
       }

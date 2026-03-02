@@ -2,6 +2,8 @@
 
 import { useState, useEffect } from 'react';
 import { Package, Plus, Pencil, ToggleLeft, ToggleRight, Loader2, Users, BarChart3 } from 'lucide-react';
+import { NumberInputDialog } from '@/components/ui/NumberInputDialog';
+import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 
 interface PackageData {
   id: string;
@@ -78,6 +80,15 @@ export default function AdminPackages() {
   const [userPackages, setUserPackages] = useState<any[]>([]);
   const [reportsLoading, setReportsLoading] = useState(false);
   const [userPkgLoading, setUserPkgLoading] = useState(false);
+  const [numberDialog, setNumberDialog] = useState<{
+    title: string;
+    label: string;
+    placeholder: string;
+    confirmLabel: string;
+    variant?: 'default' | 'danger';
+    onConfirm: (value: number) => void;
+  } | null>(null);
+  const [cancelPackageId, setCancelPackageId] = useState<string | null>(null);
 
   const fetchPackages = async () => {
     setLoading(true);
@@ -771,49 +782,61 @@ export default function AdminPackages() {
                     {up.status === 'ACTIVE' && (
                       <>
                         <button
-                          onClick={() => {
-                            const days = prompt('Days to extend:');
-                            if (days) handleUserAction(up.id, 'EXTEND_EXPIRY', { days: parseInt(days) });
-                          }}
+                          onClick={() => setNumberDialog({
+                            title: 'Extend Expiry',
+                            label: 'Days to extend',
+                            placeholder: 'e.g. 7',
+                            confirmLabel: 'Extend',
+                            onConfirm: (days) => { setNumberDialog(null); handleUserAction(up.id, 'EXTEND_EXPIRY', { days }); },
+                          })}
                           className="px-2 py-1 text-[10px] bg-blue-500/15 text-blue-400 rounded-lg hover:bg-blue-500/25 cursor-pointer"
                           title="Add days to expiry"
                         >
                           +Days
                         </button>
                         <button
-                          onClick={() => {
-                            const days = prompt('Days to reduce:');
-                            if (days) handleUserAction(up.id, 'EXTEND_EXPIRY', { days: -parseInt(days) });
-                          }}
+                          onClick={() => setNumberDialog({
+                            title: 'Reduce Expiry',
+                            label: 'Days to reduce',
+                            placeholder: 'e.g. 3',
+                            confirmLabel: 'Reduce',
+                            variant: 'danger',
+                            onConfirm: (days) => { setNumberDialog(null); handleUserAction(up.id, 'EXTEND_EXPIRY', { days: -days }); },
+                          })}
                           className="px-2 py-1 text-[10px] bg-orange-500/15 text-orange-400 rounded-lg hover:bg-orange-500/25 cursor-pointer"
                           title="Reduce days from expiry"
                         >
                           -Days
                         </button>
                         <button
-                          onClick={() => {
-                            const sessions = prompt('Sessions to add:');
-                            if (sessions) handleUserAction(up.id, 'ADD_SESSIONS', { sessions: parseInt(sessions) });
-                          }}
+                          onClick={() => setNumberDialog({
+                            title: 'Add Sessions',
+                            label: 'Sessions to add',
+                            placeholder: 'e.g. 5',
+                            confirmLabel: 'Add',
+                            onConfirm: (sessions) => { setNumberDialog(null); handleUserAction(up.id, 'ADD_SESSIONS', { sessions }); },
+                          })}
                           className="px-2 py-1 text-[10px] bg-green-500/15 text-green-400 rounded-lg hover:bg-green-500/25 cursor-pointer"
                           title="Increase total sessions"
                         >
                           +Sessions
                         </button>
                         <button
-                          onClick={() => {
-                            const sessions = prompt('Sessions to reduce:');
-                            if (sessions) handleUserAction(up.id, 'REDUCE_SESSIONS', { sessions: parseInt(sessions) });
-                          }}
+                          onClick={() => setNumberDialog({
+                            title: 'Reduce Sessions',
+                            label: 'Sessions to reduce',
+                            placeholder: 'e.g. 2',
+                            confirmLabel: 'Reduce',
+                            variant: 'danger',
+                            onConfirm: (sessions) => { setNumberDialog(null); handleUserAction(up.id, 'REDUCE_SESSIONS', { sessions }); },
+                          })}
                           className="px-2 py-1 text-[10px] bg-yellow-500/15 text-yellow-400 rounded-lg hover:bg-yellow-500/25 cursor-pointer"
                           title="Decrease total sessions"
                         >
                           -Sessions
                         </button>
                         <button
-                          onClick={() => {
-                            if (confirm('Cancel this package?')) handleUserAction(up.id, 'CANCEL');
-                          }}
+                          onClick={() => setCancelPackageId(up.id)}
                           className="px-2 py-1 text-[10px] bg-red-500/15 text-red-400 rounded-lg hover:bg-red-500/25 cursor-pointer"
                         >
                           Cancel
@@ -855,6 +878,26 @@ export default function AdminPackages() {
           <p className="text-sm text-slate-400 text-center py-16">No report data</p>
         )
       )}
+
+      <NumberInputDialog
+        open={!!numberDialog}
+        title={numberDialog?.title || ''}
+        label={numberDialog?.label || ''}
+        placeholder={numberDialog?.placeholder}
+        confirmLabel={numberDialog?.confirmLabel}
+        variant={numberDialog?.variant}
+        onConfirm={(v) => numberDialog?.onConfirm(v)}
+        onCancel={() => setNumberDialog(null)}
+      />
+      <ConfirmDialog
+        open={!!cancelPackageId}
+        title="Cancel Package"
+        message="Are you sure you want to cancel this package? This action cannot be undone."
+        confirmLabel="Cancel Package"
+        variant="danger"
+        onConfirm={() => { const id = cancelPackageId; setCancelPackageId(null); if (id) handleUserAction(id, 'CANCEL'); }}
+        onCancel={() => setCancelPackageId(null)}
+      />
     </div>
   );
 }

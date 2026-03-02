@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { Settings, Save, Pencil, Trash2, Loader2, HelpCircle } from 'lucide-react';
+import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 
 export default function PolicyManagement() {
   const [policies, setPolicies] = useState<any[]>([]);
@@ -9,6 +10,7 @@ export default function PolicyManagement() {
   const [newPolicy, setNewPolicy] = useState({ key: '', value: '' });
   const [message, setMessage] = useState({ text: '', type: '' });
   const [showHelp, setShowHelp] = useState(false);
+  const [deleteKey, setDeleteKey] = useState<string | null>(null);
 
   const fetchPolicies = async () => {
     setLoading(true);
@@ -51,8 +53,14 @@ export default function PolicyManagement() {
     }
   };
 
-  const handleDeletePolicy = async (key: string) => {
-    if (!confirm(`Delete policy "${key}"?`)) return;
+  const handleDeleteClick = (key: string) => {
+    setDeleteKey(key);
+  };
+
+  const handleDeleteConfirm = async () => {
+    const key = deleteKey;
+    if (!key) return;
+    setDeleteKey(null);
     setMessage({ text: '', type: '' });
     try {
       const res = await fetch(`/api/admin/policies?key=${encodeURIComponent(key)}`, {
@@ -65,7 +73,7 @@ export default function PolicyManagement() {
         const data = await res.json();
         setMessage({ text: data.error || 'Failed to delete policy', type: 'error' });
       }
-    } catch (error) {
+    } catch {
       setMessage({ text: 'Internal server error', type: 'error' });
     }
   };
@@ -187,7 +195,7 @@ export default function PolicyManagement() {
                   <Pencil className="w-4 h-4" />
                 </button>
                 <button
-                  onClick={() => handleDeletePolicy(policy.key)}
+                  onClick={() => handleDeleteClick(policy.key)}
                   className="p-2 text-slate-500 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-colors cursor-pointer"
                 >
                   <Trash2 className="w-4 h-4" />
@@ -197,6 +205,16 @@ export default function PolicyManagement() {
           ))}
         </div>
       )}
+
+      <ConfirmDialog
+        open={!!deleteKey}
+        title="Delete Policy"
+        message={`Are you sure you want to delete policy "${deleteKey}"?`}
+        confirmLabel="Delete"
+        variant="danger"
+        onConfirm={handleDeleteConfirm}
+        onCancel={() => setDeleteKey(null)}
+      />
     </div>
   );
 }

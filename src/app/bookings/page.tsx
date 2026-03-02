@@ -2,8 +2,8 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { format } from 'date-fns';
-import { ClipboardList, Loader2, X, Calendar, Clock, IndianRupee, Phone, Instagram } from 'lucide-react';
-import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
+import { ClipboardList, Loader2, X, Calendar, Clock, IndianRupee, Phone, Instagram, ChevronLeft, ChevronRight } from 'lucide-react';
+import { CancellationDialog } from '@/components/ui/CancellationDialog';
 import { useToast } from '@/components/ui/Toast';
 import {
   BOOKING_STATUS_CONFIG,
@@ -32,38 +32,62 @@ interface Booking {
   isPackageBooking: boolean;
 }
 
+type BookingTab = 'all' | 'upcoming' | 'inProgress' | 'completed' | 'cancelled';
+
+interface PaginationInfo {
+  page: number;
+  limit: number;
+  total: number;
+  totalPages: number;
+}
+
+const TAB_OPTIONS = [
+  { key: 'all', label: 'All' },
+  { key: 'upcoming', label: 'Upcoming' },
+  { key: 'inProgress', label: 'In Progress' },
+  { key: 'completed', label: 'Completed' },
+  { key: 'cancelled', label: 'Cancelled' },
+] as const;
+
 export default function BookingsPage() {
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [cancellingId, setCancellingId] = useState<string | null>(null);
   const [confirmCancelId, setConfirmCancelId] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<BookingTab>('all');
+  const [pagination, setPagination] = useState<PaginationInfo>({ page: 1, limit: 20, total: 0, totalPages: 0 });
   const toast = useToast();
 
-  useEffect(() => {
-    fetchBookings();
-  }, []);
-
-  const fetchBookings = async () => {
+  const fetchBookings = useCallback(async () => {
     setLoading(true);
     setError('');
     try {
-      const res = await fetch('/api/bookings');
+      const params = new URLSearchParams();
+      if (activeTab !== 'all') params.set('tab', activeTab);
+      params.set('page', String(pagination.page));
+      params.set('limit', '20');
+      const res = await fetch(`/api/bookings?${params.toString()}`);
       if (!res.ok) throw new Error('Failed to fetch bookings');
       const data = await res.json();
-      setBookings(data);
+      setBookings(data.bookings);
+      setPagination(data.pagination);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'An error occurred');
     } finally {
       setLoading(false);
     }
-  };
+  }, [activeTab, pagination.page]);
+
+  useEffect(() => {
+    fetchBookings();
+  }, [fetchBookings]);
 
   const handleCancelRequest = useCallback((bookingId: string) => {
     setConfirmCancelId(bookingId);
   }, []);
 
-  const handleCancelConfirm = async () => {
+  const handleCancelConfirm = async (reason: string) => {
     if (!confirmCancelId) return;
     const bookingId = confirmCancelId;
     setConfirmCancelId(null);
@@ -72,7 +96,7 @@ export default function BookingsPage() {
       const res = await fetch('/api/slots/cancel', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ bookingId }),
+        body: JSON.stringify({ bookingId, cancellationReason: reason || undefined }),
       });
 
       if (!res.ok) {
@@ -94,9 +118,15 @@ export default function BookingsPage() {
   const machineLabels = MACHINE_LABELS;
   const pitchLabels = PITCH_LABELS;
 
-  const getDisplayStatus = (booking: Booking): Booking['status'] => {
-    if (booking.status !== 'BOOKED') return booking.status;
-    return new Date(booking.endTime).getTime() <= Date.now() ? 'DONE' : 'BOOKED';
+  const getDisplayStatus = (booking: Booking): string => {
+    if (booking.status === 'CANCELLED') return 'CANCELLED';
+    if (booking.status === 'DONE') return 'DONE';
+    const now = Date.now();
+    const start = new Date(booking.startTime).getTime();
+    const end = new Date(booking.endTime).getTime();
+    if (now >= start && now < end) return 'IN_PROGRESS';
+    if (now >= end) return 'DONE';
+    return 'BOOKED';
   };
 
   return (
@@ -112,8 +142,28 @@ export default function BookingsPage() {
         </div>
         <div>
           <h1 className="text-xl font-bold text-white">My Bookings</h1>
-          <p className="text-xs text-slate-400">{bookings.length} total session{bookings.length !== 1 ? 's' : ''}</p>
+          <p className="text-xs text-slate-400">{pagination.total} total session{pagination.total !== 1 ? 's' : ''}</p>
         </div>
+      </div>
+
+      {/* Filter Tabs */}
+      <div className="flex gap-1.5 overflow-x-auto pb-1 mb-5 scrollbar-hide">
+        {TAB_OPTIONS.map(tab => (
+          <button
+            key={tab.key}
+            onClick={() => {
+              setActiveTab(tab.key);
+              setPagination(prev => ({ ...prev, page: 1 }));
+            }}
+            className={`flex-shrink-0 px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+              activeTab === tab.key
+                ? 'bg-accent text-primary'
+                : 'bg-white/[0.04] text-slate-400 border border-white/[0.08] hover:bg-white/[0.06]'
+            }`}
+          >
+            {tab.label}
+          </button>
+        ))}
       </div>
 
       {loading ? (
@@ -145,7 +195,7 @@ export default function BookingsPage() {
 
           {bookings.map((booking) => {
             const displayStatus = getDisplayStatus(booking);
-            const status = statusConfig[displayStatus];
+            const status = statusConfig[displayStatus as keyof typeof statusConfig];
             const ballInfo = ballTypeConfig[booking.ballType] || { color: 'bg-gray-400', label: booking.ballType };
             const canCancel = booking.status === 'BOOKED' && new Date(booking.startTime) > new Date();
             const hasDiscount = booking.discountAmount && booking.discountAmount > 0;
@@ -255,14 +305,37 @@ export default function BookingsPage() {
         </div>
       )}
 
+      {/* Pagination */}
+      {pagination.totalPages > 1 && (
+        <div className="flex items-center justify-between mt-4 pt-3 border-t border-white/[0.06]">
+          <span className="text-xs text-slate-400">
+            Page {pagination.page} of {pagination.totalPages}
+          </span>
+          <div className="flex items-center gap-1">
+            <button
+              onClick={() => setPagination(prev => ({ ...prev, page: prev.page - 1 }))}
+              disabled={pagination.page <= 1}
+              className="p-1.5 rounded-lg hover:bg-white/[0.06] transition-colors cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
+            >
+              <ChevronLeft className="w-4 h-4 text-slate-400" />
+            </button>
+            <span className="text-sm text-slate-300 px-2">{pagination.page}</span>
+            <button
+              onClick={() => setPagination(prev => ({ ...prev, page: prev.page + 1 }))}
+              disabled={pagination.page >= pagination.totalPages}
+              className="p-1.5 rounded-lg hover:bg-white/[0.06] transition-colors cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
+            >
+              <ChevronRight className="w-4 h-4 text-slate-400" />
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Cancel Confirm Dialog */}
-      <ConfirmDialog
+      <CancellationDialog
         open={!!confirmCancelId}
-        title="Cancel This Booking?"
-        message="This action cannot be undone. Your slot will be released and available for others to book."
-        confirmLabel="Cancel Booking"
-        cancelLabel="Keep Booking"
-        variant="danger"
+        title="Cancel Booking"
+        isAdmin={false}
         onConfirm={handleCancelConfirm}
         onCancel={() => setConfirmCancelId(null)}
       />

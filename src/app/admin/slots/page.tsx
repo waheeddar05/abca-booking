@@ -6,6 +6,7 @@ import {
   Clock, Loader2, Trash2, ShieldBan, Ban, AlertTriangle,
   CalendarRange, Repeat, CalendarClock, CheckCircle2, Info,
 } from 'lucide-react';
+import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 
 // ─── Types ───────────────────────────────────────────────
 interface BlockedSlot {
@@ -77,6 +78,7 @@ export default function SlotManagement() {
   // Active blocks state
   const [blockedSlots, setBlockedSlots] = useState<BlockedSlot[]>([]);
   const [blockedLoading, setBlockedLoading] = useState(false);
+  const [unblockId, setUnblockId] = useState<string | null>(null);
 
   const todayStr = format(new Date(), 'yyyy-MM-dd');
 
@@ -243,8 +245,14 @@ export default function SlotManagement() {
   };
 
   // ─── Unblock ────────────────────────────────────────────
-  const handleUnblock = async (id: string) => {
-    if (!confirm('Remove this block? Previously cancelled bookings will not be restored.')) return;
+  const handleUnblockClick = (id: string) => {
+    setUnblockId(id);
+  };
+
+  const handleUnblockConfirm = async () => {
+    const id = unblockId;
+    if (!id) return;
+    setUnblockId(null);
     try {
       const res = await fetch(`/api/admin/slots/block?id=${id}`, { method: 'DELETE' });
       if (res.ok) {
@@ -654,7 +662,7 @@ export default function SlotManagement() {
 
                     {/* Delete */}
                     <button
-                      onClick={() => handleUnblock(block.id)}
+                      onClick={() => handleUnblockClick(block.id)}
                       className="flex-shrink-0 p-2 text-slate-600 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-colors cursor-pointer"
                       title="Remove block"
                     >
@@ -667,6 +675,16 @@ export default function SlotManagement() {
           )}
         </div>
       )}
+
+      <ConfirmDialog
+        open={!!unblockId}
+        title="Remove Block"
+        message="Remove this block? Previously cancelled bookings will not be restored."
+        confirmLabel="Remove"
+        variant="danger"
+        onConfirm={handleUnblockConfirm}
+        onCancel={() => setUnblockId(null)}
+      />
     </div>
   );
 }

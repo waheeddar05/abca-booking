@@ -6,6 +6,10 @@ import { useSearchParams } from 'next/navigation';
 import { Search, Filter, XCircle, RotateCcw, Calendar, Loader2, Download, ChevronLeft, ChevronRight, ArrowUpDown, IndianRupee, Copy, Pencil, X, Check, CalendarPlus, UserPlus } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
+import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
+import { CancellationDialog } from '@/components/ui/CancellationDialog';
+import { TextInputDialog } from '@/components/ui/TextInputDialog';
+import { useToast } from '@/components/ui/Toast';
 
 type Category = 'all' | 'today' | 'upcoming' | 'previous' | 'lastMonth';
 
@@ -46,6 +50,14 @@ function AdminBookingsContent() {
   const [editPriceValue, setEditPriceValue] = useState('');
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [showBookOnBehalf, setShowBookOnBehalf] = useState(false);
+  const toast = useToast();
+
+  // Dialog states
+  const [cancelDialog, setCancelDialog] = useState<{ bookingId: string; playerName: string } | null>(null);
+  const [restoreDialog, setRestoreDialog] = useState<{ bookingId: string; playerName: string } | null>(null);
+  const [copyDialog, setCopyDialog] = useState<string | null>(null);
+  const [customNameDialog, setCustomNameDialog] = useState(false);
+
   const [behalfSearch, setBehalfSearch] = useState('');
   const [behalfResults, setBehalfResults] = useState<any[]>([]);
   const [behalfLoading, setBehalfLoading] = useState(false);
@@ -115,38 +127,59 @@ function AdminBookingsContent() {
     setPagination(prev => ({ ...prev, page: 1 }));
   };
 
-  const [statusMessage, setStatusMessage] = useState({ text: '', type: '' });
+  const handleCancelClick = (bookingId: string, playerName: string) => {
+    setCancelDialog({ bookingId, playerName });
+  };
 
-  const updateStatus = async (bookingId: string, status: string) => {
-    const booking = bookings.find(b => b.id === bookingId);
-    const playerName = booking?.playerName || 'this booking';
-    const actionLabel = status === 'CANCELLED' ? 'cancel' : 'restore';
+  const handleRestoreClick = (bookingId: string, playerName: string) => {
+    setRestoreDialog({ bookingId, playerName });
+  };
 
-    if (!confirm(`Are you sure you want to ${actionLabel} the booking for "${playerName}"?`)) return;
-
+  const handleCancelConfirm = async (reason: string) => {
+    const bookingId = cancelDialog?.bookingId;
+    if (!bookingId) return;
+    setCancelDialog(null);
     setActionLoading(bookingId);
     try {
       const res = await fetch('/api/admin/bookings', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ bookingId, status }),
+        body: JSON.stringify({ bookingId, status: 'CANCELLED', cancellationReason: reason }),
       });
       if (res.ok) {
-        const successMsg = status === 'CANCELLED'
-          ? `Booking for "${playerName}" has been cancelled successfully.`
-          : `Booking for "${playerName}" has been restored successfully.`;
-        setStatusMessage({ text: successMsg, type: 'success' });
+        toast.success('Booking cancelled successfully');
         fetchBookings();
-        setTimeout(() => setStatusMessage({ text: '', type: '' }), 4000);
       } else {
         const data = await res.json();
-        setStatusMessage({ text: data.error || 'Update failed', type: 'error' });
-        setTimeout(() => setStatusMessage({ text: '', type: '' }), 4000);
+        toast.error(data.error || 'Failed to cancel booking');
       }
-    } catch (error) {
-      console.error('Failed to update booking', error);
-      setStatusMessage({ text: 'Failed to update booking', type: 'error' });
-      setTimeout(() => setStatusMessage({ text: '', type: '' }), 4000);
+    } catch {
+      toast.error('Failed to cancel booking');
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const handleRestoreConfirm = async () => {
+    const bookingId = restoreDialog?.bookingId;
+    if (!bookingId) return;
+    setRestoreDialog(null);
+    setActionLoading(bookingId);
+    try {
+      const res = await fetch('/api/admin/bookings', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ bookingId, status: 'BOOKED' }),
+      });
+      if (res.ok) {
+        toast.success('Booking restored successfully');
+        fetchBookings();
+      } else {
+        const data = await res.json();
+        toast.error(data.error || 'Failed to restore booking');
+      }
+    } catch {
+      toast.error('Failed to restore booking');
     } finally {
       setActionLoading(null);
     }
@@ -155,7 +188,7 @@ function AdminBookingsContent() {
   const updatePrice = async (bookingId: string) => {
     const price = parseFloat(editPriceValue);
     if (isNaN(price) || price < 0) {
-      alert('Please enter a valid price');
+      toast.error('Please enter a valid price');
       return;
     }
     setActionLoading(bookingId);
@@ -171,17 +204,23 @@ function AdminBookingsContent() {
         fetchBookings();
       } else {
         const data = await res.json();
-        alert(data.error || 'Price update failed');
+        toast.error(data.error || 'Price update failed');
       }
     } catch {
-      alert('Failed to update price');
+      toast.error('Failed to update price');
     } finally {
       setActionLoading(null);
     }
   };
 
-  const copyToNextSlot = async (bookingId: string) => {
-    if (!confirm('Copy this booking to the next consecutive slot?')) return;
+  const handleCopyClick = (bookingId: string) => {
+    setCopyDialog(bookingId);
+  };
+
+  const handleCopyConfirm = async () => {
+    const bookingId = copyDialog;
+    if (!bookingId) return;
+    setCopyDialog(null);
     setActionLoading(bookingId);
     try {
       const res = await fetch('/api/admin/bookings', {
@@ -190,14 +229,14 @@ function AdminBookingsContent() {
         body: JSON.stringify({ bookingId, action: 'copy_next_slot' }),
       });
       if (res.ok) {
-        alert('Booking copied to next slot successfully');
+        toast.success('Booking copied to next slot');
         fetchBookings();
       } else {
         const data = await res.json();
-        alert(data.error || 'Copy failed');
+        toast.error(data.error || 'Copy failed');
       }
     } catch {
-      alert('Failed to copy booking');
+      toast.error('Failed to copy booking');
     } finally {
       setActionLoading(null);
     }
@@ -349,12 +388,7 @@ function AdminBookingsContent() {
                   <div className="text-center py-6">
                     <p className="text-xs text-slate-400">No users found</p>
                     <button
-                      onClick={() => {
-                        const name = prompt('Enter player name for the booking:');
-                        if (name) {
-                          router.push(`/slots?userName=${encodeURIComponent(name)}`);
-                        }
-                      }}
+                      onClick={() => setCustomNameDialog(true)}
                       className="mt-2 text-xs text-accent hover:underline cursor-pointer"
                     >
                       Book with custom name instead
@@ -397,17 +431,6 @@ function AdminBookingsContent() {
           <div className="text-[10px] font-medium text-slate-400 uppercase tracking-wider">Cancelled</div>
         </div>
       </div>
-
-      {/* Status Message */}
-      {statusMessage.text && (
-        <div className={`mb-4 px-4 py-3 rounded-xl text-sm font-medium ${
-          statusMessage.type === 'success'
-            ? 'bg-green-500/10 border border-green-500/20 text-green-400'
-            : 'bg-red-500/10 border border-red-500/20 text-red-400'
-        }`}>
-          {statusMessage.text}
-        </div>
-      )}
 
       {/* Filters */}
       <div className="bg-white/[0.06] backdrop-blur-sm rounded-xl border border-white/[0.12] p-5 mb-5">
@@ -665,7 +688,7 @@ function AdminBookingsContent() {
                     {booking.status === 'BOOKED' && (
                       <>
                         <button
-                          onClick={() => copyToNextSlot(booking.id)}
+                          onClick={() => handleCopyClick(booking.id)}
                           disabled={isActionLoading}
                           className="flex-1 flex items-center justify-center gap-1.5 py-1.5 text-[11px] font-medium text-accent bg-accent/10 rounded-lg hover:bg-accent/20 transition-colors cursor-pointer disabled:opacity-50"
                         >
@@ -673,7 +696,7 @@ function AdminBookingsContent() {
                           Copy Next
                         </button>
                         <button
-                          onClick={() => updateStatus(booking.id, 'CANCELLED')}
+                          onClick={() => handleCancelClick(booking.id, booking.playerName)}
                           className="flex-1 flex items-center justify-center gap-1.5 py-1.5 text-[11px] font-medium text-red-400 bg-red-500/10 rounded-lg hover:bg-red-500/20 transition-colors cursor-pointer"
                         >
                           <XCircle className="w-3 h-3" />
@@ -683,7 +706,7 @@ function AdminBookingsContent() {
                     )}
                     {booking.status === 'CANCELLED' && (
                       <button
-                        onClick={() => updateStatus(booking.id, 'BOOKED')}
+                        onClick={() => handleRestoreClick(booking.id, booking.playerName)}
                         className="flex-1 flex items-center justify-center gap-1.5 py-1.5 text-[11px] font-medium text-slate-400 bg-white/[0.04] rounded-lg hover:bg-white/[0.08] transition-colors cursor-pointer"
                       >
                         <RotateCcw className="w-3 h-3" />
@@ -801,7 +824,7 @@ function AdminBookingsContent() {
                           {booking.status === 'BOOKED' && (
                             <>
                               <button
-                                onClick={() => copyToNextSlot(booking.id)}
+                                onClick={() => handleCopyClick(booking.id)}
                                 disabled={isActionLoading}
                                 className="px-2.5 py-1.5 text-xs font-medium text-accent hover:bg-accent/10 rounded-lg transition-colors cursor-pointer disabled:opacity-50"
                                 title="Copy to next consecutive slot"
@@ -810,7 +833,7 @@ function AdminBookingsContent() {
                                 Copy Next
                               </button>
                               <button
-                                onClick={() => updateStatus(booking.id, 'CANCELLED')}
+                                onClick={() => handleCancelClick(booking.id, booking.playerName)}
                                 className="px-2.5 py-1.5 text-xs font-medium text-red-400 hover:bg-red-500/10 rounded-lg transition-colors cursor-pointer"
                               >
                                 Cancel
@@ -819,7 +842,7 @@ function AdminBookingsContent() {
                           )}
                           {booking.status === 'CANCELLED' && (
                             <button
-                              onClick={() => updateStatus(booking.id, 'BOOKED')}
+                              onClick={() => handleRestoreClick(booking.id, booking.playerName)}
                               className="px-2.5 py-1.5 text-xs font-medium text-slate-400 hover:bg-white/[0.06] rounded-lg transition-colors cursor-pointer"
                             >
                               Restore
@@ -863,6 +886,53 @@ function AdminBookingsContent() {
           )}
         </>
       )}
+
+      {/* Cancellation Dialog */}
+      <CancellationDialog
+        open={!!cancelDialog}
+        title="Cancel Booking"
+        playerName={cancelDialog?.playerName}
+        isAdmin={true}
+        loading={!!actionLoading}
+        onConfirm={handleCancelConfirm}
+        onCancel={() => setCancelDialog(null)}
+      />
+
+      {/* Restore Confirm Dialog */}
+      <ConfirmDialog
+        open={!!restoreDialog}
+        title="Restore Booking"
+        message={`Are you sure you want to restore the booking for "${restoreDialog?.playerName}"?`}
+        confirmLabel="Restore"
+        cancelLabel="Cancel"
+        onConfirm={handleRestoreConfirm}
+        onCancel={() => setRestoreDialog(null)}
+      />
+
+      {/* Copy Next Slot Confirm */}
+      <ConfirmDialog
+        open={!!copyDialog}
+        title="Copy to Next Slot"
+        message="Copy this booking to the next consecutive 30-minute slot?"
+        confirmLabel="Copy"
+        cancelLabel="Cancel"
+        onConfirm={handleCopyConfirm}
+        onCancel={() => setCopyDialog(null)}
+      />
+
+      {/* Custom Name for Book on Behalf */}
+      <TextInputDialog
+        open={customNameDialog}
+        title="Book with Custom Name"
+        label="Player Name"
+        placeholder="Enter player name..."
+        confirmLabel="Continue"
+        onConfirm={(name) => {
+          setCustomNameDialog(false);
+          router.push(`/slots?userName=${encodeURIComponent(name)}`);
+        }}
+        onCancel={() => setCustomNameDialog(false)}
+      />
     </div>
   );
 }

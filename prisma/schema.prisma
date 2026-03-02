@@ -17,12 +17,15 @@ model User {
   role          UserRole       @default(USER)
   image         String?
   isBlacklisted Boolean        @default(false)
-  isFreeUser    Boolean        @default(false)
-  bookings      Booking[]
-  notifications Notification[]
-  otps          Otp[]
-  userPackages  UserPackage[]
-  payments      Payment[]
+  isFreeUser           Boolean              @default(false)
+  phonePromptDismissed Boolean              @default(false)
+  bookings             Booking[]
+  notifications        Notification[]
+  otps                 Otp[]
+  userPackages         UserPackage[]
+  payments             Payment[]
+  operatorAssignments  OperatorAssignment[]
+  cashPaymentUser      CashPaymentUser?
 }
 
 model Policy {
@@ -75,7 +78,9 @@ model Booking {
   cancelledBy        String?
   createdBy          String?
   machineId          MachineId?
-  isSuperAdminBooking Boolean        @default(false)
+  isSuperAdminBooking Boolean              @default(false)
+  paymentMethod       BookingPaymentMethod?
+  paymentStatus       BookingPaymentStatus?
   user               User?           @relation(fields: [userId], references: [id])
   packageBooking     PackageBooking?
 
@@ -168,6 +173,7 @@ model Notification {
 enum UserRole {
   USER
   ADMIN
+  OPERATOR
 }
 
 enum AuthProvider {
@@ -241,6 +247,17 @@ enum UserPackageStatus {
   CANCELLED
 }
 
+enum BookingPaymentMethod {
+  ONLINE
+  CASH
+}
+
+enum BookingPaymentStatus {
+  PENDING
+  PAID
+  UNPAID
+}
+
 enum PaymentStatus {
   CREATED
   AUTHORIZED
@@ -289,4 +306,22 @@ model Payment {
   @@index([userId])
   @@index([razorpayOrderId])
   @@index([status])
+}
+
+model OperatorAssignment {
+  id        String   @id @default(cuid())
+  userId    String
+  machineId MachineId
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, machineId])
+}
+
+model CashPaymentUser {
+  id        String   @id @default(cuid())
+  userId    String   @unique
+  enabledBy String
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 }

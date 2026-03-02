@@ -165,7 +165,7 @@ export async function PATCH(req: NextRequest) {
     }
 
     const body = await req.json();
-    const { bookingId, status, price } = body;
+    const { bookingId, status, price, cancellationReason } = body;
 
     if (!bookingId) {
       return NextResponse.json({ error: 'Booking ID is required' }, { status: 400 });
@@ -184,7 +184,7 @@ export async function PATCH(req: NextRequest) {
       data.status = status;
       if (status === 'CANCELLED') {
         data.cancelledBy = adminName;
-        data.cancellationReason = `Cancelled by Admin (${adminName})`;
+        data.cancellationReason = cancellationReason || `Cancelled by Admin (${adminName})`;
       } else if (status === 'BOOKED') {
         // Restoring a booking - clear cancellation info
         data.cancelledBy = null;
@@ -224,6 +224,9 @@ export async function PATCH(req: NextRequest) {
           `Machine: ${machineName}`,
           `Cancelled by: ${adminName}`,
         ];
+        if (cancellationReason) {
+          lines.push(`Reason: ${cancellationReason}`);
+        }
         await prisma.notification.create({
           data: {
             userId: booking.userId,

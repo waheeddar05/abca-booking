@@ -5,6 +5,8 @@ import Image from 'next/image';
 import { useSession } from 'next-auth/react';
 import { UserPlus, Trash2, Loader2, Search, Shield, ShieldOff, Users, ChevronDown, ChevronUp, CalendarCheck, Mail, Phone, Clock, X, XCircle, Check, CalendarPlus, History } from 'lucide-react';
 import Link from 'next/link';
+import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
+import { useToast } from '@/components/ui/Toast';
 
 interface UserData {
   id: string;
@@ -22,6 +24,7 @@ interface UserData {
 
 export default function AdminUsers() {
   const { data: session } = useSession();
+  const toast = useToast();
   const [users, setUsers] = useState<UserData[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
@@ -29,9 +32,16 @@ export default function AdminUsers() {
   const [email, setEmail] = useState('');
   const [name, setName] = useState('');
   const [addRole, setAddRole] = useState('USER');
-  const [message, setMessage] = useState({ text: '', type: '' });
   const [expandedUser, setExpandedUser] = useState<string | null>(null);
   const [showAddForm, setShowAddForm] = useState(false);
+  const [pendingConfirm, setPendingConfirm] = useState<{
+    title: string;
+    message: string;
+    variant?: 'default' | 'danger';
+    confirmLabel?: string;
+    onConfirm: () => void;
+  } | null>(null);
+  const [cancelBookingDialog, setCancelBookingDialog] = useState<string | null>(null);
 
   // Booking history modal state
   const [historyUser, setHistoryUser] = useState<UserData | null>(null);
@@ -57,8 +67,14 @@ export default function AdminUsers() {
     }
   };
 
-  const handleCancelBooking = async (bookingId: string) => {
-    if (!confirm('Are you sure you want to cancel this booking?')) return;
+  const handleCancelBooking = (bookingId: string) => {
+    setCancelBookingDialog(bookingId);
+  };
+
+  const executeCancelBooking = async () => {
+    const bookingId = cancelBookingDialog;
+    if (!bookingId) return;
+    setCancelBookingDialog(null);
     setCancellingId(bookingId);
     try {
       const res = await fetch('/api/slots/cancel', {
@@ -67,16 +83,15 @@ export default function AdminUsers() {
         body: JSON.stringify({ bookingId }),
       });
       if (res.ok) {
-        setMessage({ text: 'Booking cancelled successfully', type: 'success' });
-        // Refresh history
+        toast.success('Booking cancelled successfully');
         if (historyUser) fetchBookingHistory(historyUser);
         fetchUsers();
       } else {
         const data = await res.json();
-        setMessage({ text: data.error || 'Failed to cancel booking', type: 'error' });
+        toast.error(data.error || 'Failed to cancel booking');
       }
     } catch {
-      setMessage({ text: 'Failed to cancel booking', type: 'error' });
+      toast.error('Failed to cancel booking');
     } finally {
       setCancellingId(null);
     }
@@ -114,7 +129,6 @@ export default function AdminUsers() {
 
   const handleAddUser = async (e: React.FormEvent) => {
     e.preventDefault();
-    setMessage({ text: '', type: '' });
     try {
       const res = await fetch('/api/admin/users', {
         method: 'POST',
@@ -123,105 +137,129 @@ export default function AdminUsers() {
       });
       const data = await res.json();
       if (res.ok) {
-        setMessage({ text: data.message || 'User added successfully', type: 'success' });
+        toast.success(data.message || 'User added successfully');
         setEmail('');
         setName('');
         setAddRole('USER');
         setShowAddForm(false);
         fetchUsers();
       } else {
-        setMessage({ text: data.error || 'Failed to add user', type: 'error' });
-      }
-    } catch (error) {
-      setMessage({ text: 'Internal server error', type: 'error' });
-    }
-  };
-
-  const handleToggleRole = async (user: UserData) => {
-    const newRole = user.role === 'ADMIN' ? 'USER' : 'ADMIN';
-    if (!confirm(`Are you sure you want to ${newRole === 'ADMIN' ? 'promote' : 'demote'} ${user.name || user.email} to ${newRole}?`)) return;
-    setMessage({ text: '', type: '' });
-    try {
-      const res = await fetch('/api/admin/users', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id: user.id, role: newRole }),
-      });
-      const data = await res.json();
-      if (res.ok) {
-        setMessage({ text: `User ${newRole === 'ADMIN' ? 'promoted to admin' : 'demoted to user'}`, type: 'success' });
-        fetchUsers();
-      } else {
-        setMessage({ text: data.error || 'Failed to update user', type: 'error' });
-      }
-    } catch (error) {
-      setMessage({ text: 'Internal server error', type: 'error' });
-    }
-  };
-
-  const handleToggleBlacklist = async (user: UserData) => {
-    const newStatus = !user.isBlacklisted;
-    if (!confirm(`Are you sure you want to ${newStatus ? 'block' : 'unblock'} ${user.name || user.email}?`)) return;
-    setMessage({ text: '', type: '' });
-    try {
-      const res = await fetch('/api/admin/users/blacklist', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId: user.id, isBlacklisted: newStatus }),
-      });
-      const data = await res.json();
-      if (res.ok) {
-        setMessage({ text: data.message, type: 'success' });
-        fetchUsers();
-      } else {
-        setMessage({ text: data.error || 'Failed to update user', type: 'error' });
-      }
-    } catch (error) {
-      setMessage({ text: 'Internal server error', type: 'error' });
-    }
-  };
-
-  const handleDeleteUser = async (user: UserData) => {
-    if (!confirm(`Are you sure you want to delete ${user.name || user.email}? This will also delete all their bookings. This action cannot be undone.`)) return;
-    setMessage({ text: '', type: '' });
-    try {
-      const res = await fetch('/api/admin/users', {
-        method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id: user.id }),
-      });
-      const data = await res.json();
-      if (res.ok) {
-        setMessage({ text: 'User deleted successfully', type: 'success' });
-        fetchUsers();
-      } else {
-        setMessage({ text: data.error || 'Failed to delete user', type: 'error' });
-      }
-    } catch (error) {
-      setMessage({ text: 'Internal server error', type: 'error' });
-    }
-  };
-
-  const handleToggleFreeUser = async (user: UserData) => {
-    const newStatus = !user.isFreeUser;
-    if (!confirm(`Are you sure you want to ${newStatus ? 'grant FREE lifetime booking' : 'remove free booking'} for ${user.name || user.email}?`)) return;
-    setMessage({ text: '', type: '' });
-    try {
-      const res = await fetch('/api/admin/users', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id: user.id, isFreeUser: newStatus }),
-      });
-      const data = await res.json();
-      if (res.ok) {
-        setMessage({ text: `${user.name || user.email} ${newStatus ? 'now has free lifetime booking' : 'no longer has free booking'}`, type: 'success' });
-        fetchUsers();
-      } else {
-        setMessage({ text: data.error || 'Failed to update user', type: 'error' });
+        toast.error(data.error || 'Failed to add user');
       }
     } catch {
-      setMessage({ text: 'Internal server error', type: 'error' });
+      toast.error('Internal server error');
     }
+  };
+
+  const handleToggleRole = (user: UserData) => {
+    const newRole = user.role === 'ADMIN' ? 'USER' : 'ADMIN';
+    setPendingConfirm({
+      title: newRole === 'ADMIN' ? 'Promote to Admin' : 'Demote to User',
+      message: `Are you sure you want to ${newRole === 'ADMIN' ? 'promote' : 'demote'} ${user.name || user.email} to ${newRole}?`,
+      variant: 'danger',
+      confirmLabel: newRole === 'ADMIN' ? 'Promote' : 'Demote',
+      onConfirm: async () => {
+        try {
+          const res = await fetch('/api/admin/users', {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id: user.id, role: newRole }),
+          });
+          const data = await res.json();
+          if (res.ok) {
+            toast.success(`User ${newRole === 'ADMIN' ? 'promoted to admin' : 'demoted to user'}`);
+            fetchUsers();
+          } else {
+            toast.error(data.error || 'Failed to update user');
+          }
+        } catch {
+          toast.error('Internal server error');
+        }
+      },
+    });
+  };
+
+  const handleToggleBlacklist = (user: UserData) => {
+    const newStatus = !user.isBlacklisted;
+    setPendingConfirm({
+      title: newStatus ? 'Block User' : 'Unblock User',
+      message: `Are you sure you want to ${newStatus ? 'block' : 'unblock'} ${user.name || user.email}?`,
+      variant: 'danger',
+      confirmLabel: newStatus ? 'Block' : 'Unblock',
+      onConfirm: async () => {
+        try {
+          const res = await fetch('/api/admin/users/blacklist', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ userId: user.id, isBlacklisted: newStatus }),
+          });
+          const data = await res.json();
+          if (res.ok) {
+            toast.success(data.message);
+            fetchUsers();
+          } else {
+            toast.error(data.error || 'Failed to update user');
+          }
+        } catch {
+          toast.error('Internal server error');
+        }
+      },
+    });
+  };
+
+  const handleDeleteUser = (user: UserData) => {
+    setPendingConfirm({
+      title: 'Delete User',
+      message: `Are you sure you want to delete ${user.name || user.email}? This will also delete all their bookings. This action cannot be undone.`,
+      variant: 'danger',
+      confirmLabel: 'Delete',
+      onConfirm: async () => {
+        try {
+          const res = await fetch('/api/admin/users', {
+            method: 'DELETE',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id: user.id }),
+          });
+          const data = await res.json();
+          if (res.ok) {
+            toast.success('User deleted successfully');
+            fetchUsers();
+          } else {
+            toast.error(data.error || 'Failed to delete user');
+          }
+        } catch {
+          toast.error('Internal server error');
+        }
+      },
+    });
+  };
+
+  const handleToggleFreeUser = (user: UserData) => {
+    const newStatus = !user.isFreeUser;
+    setPendingConfirm({
+      title: newStatus ? 'Grant Free Booking' : 'Remove Free Booking',
+      message: `Are you sure you want to ${newStatus ? 'grant FREE lifetime booking' : 'remove free booking'} for ${user.name || user.email}?`,
+      variant: newStatus ? 'default' : 'danger',
+      confirmLabel: newStatus ? 'Grant' : 'Remove',
+      onConfirm: async () => {
+        try {
+          const res = await fetch('/api/admin/users', {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id: user.id, isFreeUser: newStatus }),
+          });
+          const data = await res.json();
+          if (res.ok) {
+            toast.success(`${user.name || user.email} ${newStatus ? 'now has free lifetime booking' : 'no longer has free booking'}`);
+            fetchUsers();
+          } else {
+            toast.error(data.error || 'Failed to update user');
+          }
+        } catch {
+          toast.error('Internal server error');
+        }
+      },
+    });
   };
 
   const totalUsers = users.length;
@@ -278,14 +316,6 @@ export default function AdminUsers() {
           <div className="text-[10px] font-medium text-green-500 uppercase tracking-wider">Users</div>
         </button>
       </div>
-
-      {message.text && (
-        <div className={`mb-4 px-4 py-3 rounded-xl text-sm font-medium ${
-          message.type === 'success' ? 'bg-green-500/10 text-green-400' : 'bg-red-500/10 text-red-400'
-        }`}>
-          {message.text}
-        </div>
-      )}
 
       {showAddForm && (
         <div className="bg-white/[0.04] backdrop-blur-sm rounded-xl border border-white/[0.08] p-5 mb-5">
@@ -677,6 +707,25 @@ export default function AdminUsers() {
           </div>
         </div>
       )}
+
+      <ConfirmDialog
+        open={!!pendingConfirm}
+        title={pendingConfirm?.title || ''}
+        message={pendingConfirm?.message || ''}
+        confirmLabel={pendingConfirm?.confirmLabel || 'Confirm'}
+        variant={pendingConfirm?.variant || 'default'}
+        onConfirm={() => { pendingConfirm?.onConfirm(); setPendingConfirm(null); }}
+        onCancel={() => setPendingConfirm(null)}
+      />
+      <ConfirmDialog
+        open={!!cancelBookingDialog}
+        title="Cancel Booking"
+        message="Are you sure you want to cancel this booking?"
+        confirmLabel="Cancel Booking"
+        variant="danger"
+        onConfirm={executeCancelBooking}
+        onCancel={() => setCancelBookingDialog(null)}
+      />
     </div>
   );
 }

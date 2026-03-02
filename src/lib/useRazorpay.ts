@@ -7,6 +7,7 @@ interface PaymentConfig {
   slotPaymentRequired: boolean;
   packagePaymentRequired: boolean;
   razorpayKeyId: string;
+  cashPaymentEnabled: boolean;
 }
 
 interface RazorpayOrderResponse {

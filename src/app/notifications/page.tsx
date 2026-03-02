@@ -122,6 +122,7 @@ export default function NotificationsPage() {
                   n.type === 'ALERT' ? 'bg-red-500/10 text-red-400' :
                   n.type === 'BOOKING' ? 'bg-green-500/10 text-green-400' :
                   n.type === 'CANCELLATION' ? 'bg-orange-500/10 text-orange-400' :
+                  n.type === 'PACKAGE' ? 'bg-purple-500/10 text-purple-400' :
                   'bg-blue-500/10 text-blue-400'
                 }`}>
                   {n.type === 'ALERT' ? <AlertCircle className="w-4 h-4" /> : <Info className="w-4 h-4" />}
@@ -144,9 +145,10 @@ export default function NotificationsPage() {
                       n.type === 'ALERT' ? 'bg-red-500/10 text-red-400' :
                       n.type === 'BOOKING' ? 'bg-green-500/10 text-green-400' :
                       n.type === 'CANCELLATION' ? 'bg-orange-500/10 text-orange-400' :
+                      n.type === 'PACKAGE' ? 'bg-purple-500/10 text-purple-400' :
                       'bg-blue-500/10 text-blue-400'
                     }`}>
-                      {n.type === 'ALERT' ? 'Alert' : n.type === 'BOOKING' ? 'Booking' : n.type === 'CANCELLATION' ? 'Cancellation' : 'Info'}
+                      {n.type === 'ALERT' ? 'Alert' : n.type === 'BOOKING' ? 'Booking' : n.type === 'CANCELLATION' ? 'Cancellation' : n.type === 'PACKAGE' ? 'Package' : 'Info'}
                     </span>
                     <span className="text-[10px] text-slate-600">
                       {format(new Date(n.createdAt), 'EEEE, MMM d, yyyy')}
