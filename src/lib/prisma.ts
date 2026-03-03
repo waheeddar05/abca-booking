@@ -53,4 +53,6 @@ const prismaClientOptions: Prisma.PrismaClientOptions = {
 export const prisma =
   globalForPrisma.prisma || new PrismaClient(prismaClientOptions);
 
-if (process.env.NODE_ENV !== 'production') globalForPrisma.prisma = prisma;
+// Cache on globalThis in ALL environments to avoid creating new connections on every
+// Vercel serverless cold start. This is the #1 cause of slow API responses.
+if (!globalForPrisma.prisma) globalForPrisma.prisma = prisma;
