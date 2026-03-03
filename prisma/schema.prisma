@@ -87,6 +87,9 @@ model Booking {
   packageBooking     PackageBooking?
 
   @@unique([date, startTime, machineId, pitchType])
+  @@index([status])
+  @@index([userId, status])
+  @@index([date, status])
 }
 
 model BlockedSlot {
