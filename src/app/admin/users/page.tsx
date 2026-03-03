@@ -534,44 +534,44 @@ export default function AdminUsers() {
                             </>
                           )}
                         </button>
-                        {isSuperAdmin && (
-                          <>
-                            <button
-                              onClick={() => handleToggleFreeUser(user)}
-                              className={`flex items-center justify-center gap-1.5 py-2 text-xs font-medium rounded-lg transition-colors cursor-pointer ${
-                                user.isFreeUser
-                                  ? 'text-orange-400 bg-orange-500/10 hover:bg-orange-500/20'
-                                  : 'text-green-400 bg-green-500/10 hover:bg-green-500/20'
-                              }`}
+                        <div className="grid grid-cols-2 gap-2">
+                          <div className="flex items-center gap-1.5">
+                            <Shield className="w-3.5 h-3.5 text-slate-400 flex-shrink-0" />
+                            <select
+                              value={user.role}
+                              onChange={(e) => handleChangeRole(user, e.target.value)}
+                              className="flex-1 bg-white/[0.04] border border-white/[0.1] text-slate-300 rounded-lg px-2 py-2 text-xs outline-none focus:border-accent focus:ring-1 focus:ring-accent/20 cursor-pointer"
                             >
-                              {user.isFreeUser ? (
-                                <span className="truncate">Remove Free Booking</span>
-                              ) : (
-                                <span className="truncate">Grant Free Lifetime Booking</span>
-                              )}
+                              <option value="USER">User</option>
+                              <option value="OPERATOR">Operator</option>
+                              {isSuperAdmin && <option value="ADMIN">Admin</option>}
+                            </select>
+                          </div>
+                          {isSuperAdmin && (
+                            <button
+                              onClick={() => handleDeleteUser(user)}
+                              className="flex items-center justify-center gap-1 py-2 text-xs font-medium text-red-400 bg-red-500/10 rounded-lg hover:bg-red-500/20 transition-colors cursor-pointer"
+                            >
+                              <Trash2 className="w-3.5 h-3.5 flex-shrink-0" />
+                              <span className="truncate">Delete</span>
                             </button>
-                            <div className="grid grid-cols-2 gap-2">
-                              <div className="flex items-center gap-1.5">
-                                <Shield className="w-3.5 h-3.5 text-slate-400 flex-shrink-0" />
-                                <select
-                                  value={user.role}
-                                  onChange={(e) => handleChangeRole(user, e.target.value)}
-                                  className="flex-1 bg-white/[0.04] border border-white/[0.1] text-slate-300 rounded-lg px-2 py-2 text-xs outline-none focus:border-accent focus:ring-1 focus:ring-accent/20 cursor-pointer"
-                                >
-                                  <option value="USER">User</option>
-                                  <option value="OPERATOR">Operator</option>
-                                  <option value="ADMIN">Admin</option>
-                                </select>
-                              </div>
-                              <button
-                                onClick={() => handleDeleteUser(user)}
-                                className="flex items-center justify-center gap-1 py-2 text-xs font-medium text-red-400 bg-red-500/10 rounded-lg hover:bg-red-500/20 transition-colors cursor-pointer"
-                              >
-                                <Trash2 className="w-3.5 h-3.5 flex-shrink-0" />
-                                <span className="truncate">Delete</span>
-                              </button>
-                            </div>
-                          </>
+                          )}
+                        </div>
+                        {isSuperAdmin && (
+                          <button
+                            onClick={() => handleToggleFreeUser(user)}
+                            className={`flex items-center justify-center gap-1.5 py-2 text-xs font-medium rounded-lg transition-colors cursor-pointer ${
+                              user.isFreeUser
+                                ? 'text-orange-400 bg-orange-500/10 hover:bg-orange-500/20'
+                                : 'text-green-400 bg-green-500/10 hover:bg-green-500/20'
+                            }`}
+                          >
+                            {user.isFreeUser ? (
+                              <span className="truncate">Remove Free Booking</span>
+                            ) : (
+                              <span className="truncate">Grant Free Lifetime Booking</span>
+                            )}
+                          </button>
                         )}
                       </div>
                     )}
