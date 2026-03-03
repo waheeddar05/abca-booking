@@ -3,8 +3,6 @@ import type { NextRequest } from "next/server";
 import { getToken } from "next-auth/jwt";
 import { verifyToken } from "@/lib/jwt";
 
-const SUPER_ADMIN_EMAIL = process.env.SUPER_ADMIN_EMAIL || '';
-
 export async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
 
@@ -25,8 +23,11 @@ export async function middleware(req: NextRequest) {
     pathname.startsWith("/.well-known/") ||
     pathname === "/privacy-policy";
 
+  // The verify-mobile page is accessible to authenticated but unverified users
+  const isVerifyMobilePath = pathname === "/verify-mobile";
+
   if (isPublicPath) {
-    // If the user is logged in and tries to access login or otp page, redirect to slots
+    // If the user is logged in and tries to access login or otp page, redirect
     if (pathname === "/login" || pathname === "/otp") {
       const token = await getToken({ req, secret: process.env.NEXTAUTH_SECRET });
       const otpTokenStr = req.cookies.get("token")?.value;
@@ -36,6 +37,11 @@ export async function middleware(req: NextRequest) {
         const role = (token?.role || otpToken?.role) as string | undefined;
         if (role === 'OPERATOR') {
           return NextResponse.redirect(new URL("/operator", req.url));
+        }
+        // Check if mobile is verified — redirect to verify-mobile if not
+        const mobileVerified = token?.mobileVerified as boolean | undefined;
+        if (token && !mobileVerified && role !== 'ADMIN' && role !== 'OPERATOR') {
+          return NextResponse.redirect(new URL("/verify-mobile", req.url));
         }
         return NextResponse.redirect(new URL("/slots", req.url));
       }
@@ -56,8 +62,27 @@ export async function middleware(req: NextRequest) {
   }
 
   // Get user info
-  const userEmail = (token?.email || otpToken?.email) as string | undefined;
   const userRole = (token?.role || otpToken?.role) as string | undefined;
+
+  // Mobile verification gate: if user has a NextAuth session but hasn't verified
+  // their mobile number, redirect them to /verify-mobile (except for admin/operator/API)
+  if (
+    token &&
+    !isVerifyMobilePath &&
+    !pathname.startsWith("/api/") &&
+    userRole !== "ADMIN" &&
+    userRole !== "OPERATOR"
+  ) {
+    const mobileVerified = token.mobileVerified as boolean | undefined;
+    if (!mobileVerified) {
+      return NextResponse.redirect(new URL("/verify-mobile", req.url));
+    }
+  }
+
+  // Allow access to /verify-mobile for authenticated but unverified users
+  if (isVerifyMobilePath) {
+    return NextResponse.next();
+  }
 
   // Protect Admin routes
   if (pathname.startsWith("/admin")) {
@@ -71,49 +96,6 @@ export async function middleware(req: NextRequest) {
     if (userRole !== "OPERATOR" && userRole !== "ADMIN") {
       return NextResponse.redirect(new URL("/", req.url));
     }
-  }
-
-  // Maintenance mode check
-  // Fetch maintenance status from our internal API
-  try {
-    const maintenanceUrl = new URL("/api/maintenance/status", req.url);
-    const maintenanceRes = await fetch(maintenanceUrl, {
-      headers: { 'Cache-Control': 'no-cache' },
-    });
-
-    if (maintenanceRes.ok) {
-      const maintenance = await maintenanceRes.json();
-
-      if (maintenance.enabled) {
-        // Super admin always has access
-        if (userEmail === SUPER_ADMIN_EMAIL) {
-          return NextResponse.next();
-        }
-
-        // Check if all admins are allowed
-        if (maintenance.allowAllAdmins && userRole === 'ADMIN') {
-          return NextResponse.next();
-        }
-
-        // Check if specific email is allowed
-        if (userEmail && Array.isArray(maintenance.allowedEmails) && maintenance.allowedEmails.includes(userEmail)) {
-          return NextResponse.next();
-        }
-
-        // User is not allowed - redirect to maintenance page (for pages) or return 503 (for APIs)
-        if (pathname.startsWith("/api/")) {
-          return NextResponse.json(
-            { error: 'Service temporarily unavailable', message: maintenance.message },
-            { status: 503 }
-          );
-        }
-
-        return NextResponse.redirect(new URL("/maintenance", req.url));
-      }
-    }
-  } catch (error) {
-    // If maintenance check fails, allow access to avoid locking everyone out
-    console.error('Maintenance check failed:', error);
   }
 
   return NextResponse.next();

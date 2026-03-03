@@ -8,27 +8,22 @@ import {
   isValidMachineId, getBallTypeForMachine, getMachineCategory, LEATHER_MACHINES, MACHINES,
 } from '@/lib/constants';
 import { dateStringToUTC, formatIST } from '@/lib/time';
+import { notifyBookingConfirmed } from '@/lib/notifications';
 import { getPricingConfig, getTimeSlabConfig, calculateNewPricing } from '@/lib/pricing';
+import { getCachedPolicies } from '@/lib/policy-cache';
 import { validatePackageBooking } from '@/lib/packages';
+import { debitWallet, rollbackWalletDebit, isWalletEnabled, getWalletBalance } from '@/lib/wallet';
 
 async function getMachineConfig() {
-  const policies = await prisma.policy.findMany({
-    where: {
-      key: {
-        in: [
-          'BALL_TYPE_SELECTION_ENABLED',
-          'LEATHER_BALL_EXTRA_CHARGE',
-          'MACHINE_BALL_EXTRA_CHARGE',
-          'PITCH_TYPE_SELECTION_ENABLED',
-          'ASTRO_PITCH_PRICE',
-          'TURF_PITCH_PRICE',
-          'NUMBER_OF_OPERATORS',
-        ],
-      },
-    },
-  });
-  const config: Record<string, string> = {};
-  for (const p of policies) config[p.key] = p.value;
+  const config = await getCachedPolicies([
+    'BALL_TYPE_SELECTION_ENABLED',
+    'LEATHER_BALL_EXTRA_CHARGE',
+    'MACHINE_BALL_EXTRA_CHARGE',
+    'PITCH_TYPE_SELECTION_ENABLED',
+    'ASTRO_PITCH_PRICE',
+    'TURF_PITCH_PRICE',
+    'NUMBER_OF_OPERATORS',
+  ]);
 
   return {
     ballTypeSelectionEnabled: config['BALL_TYPE_SELECTION_ENABLED'] === 'true',
@@ -86,56 +81,6 @@ function isTransactionAborted(error: unknown): boolean {
   );
 }
 
-type BookingColumnSupport = {
-  operationMode: boolean;
-  price: boolean;
-  originalPrice: boolean;
-  discountAmount: boolean;
-  discountType: boolean;
-  pitchType: boolean;
-  extraCharge: boolean;
-  isSuperAdminBooking: boolean;
-  paymentMethod: boolean;
-  paymentStatus: boolean;
-};
-
-async function getBookingColumnSupport(): Promise<BookingColumnSupport> {
-  try {
-    const columns = await prisma.$queryRaw<{ column_name: string }[]>`
-      SELECT column_name
-      FROM information_schema.columns
-      WHERE table_schema = 'public' AND table_name = 'Booking'
-    `;
-    const columnSet = new Set(columns.map((c) => c.column_name));
-
-    return {
-      operationMode: columnSet.has('operationMode'),
-      price: columnSet.has('price'),
-      originalPrice: columnSet.has('originalPrice'),
-      discountAmount: columnSet.has('discountAmount'),
-      discountType: columnSet.has('discountType'),
-      pitchType: columnSet.has('pitchType'),
-      extraCharge: columnSet.has('extraCharge'),
-      isSuperAdminBooking: columnSet.has('isSuperAdminBooking'),
-      paymentMethod: columnSet.has('paymentMethod'),
-      paymentStatus: columnSet.has('paymentStatus'),
-    };
-  } catch {
-    return {
-      operationMode: false,
-      price: false,
-      originalPrice: false,
-      discountAmount: false,
-      discountType: false,
-      pitchType: false,
-      extraCharge: false,
-      isSuperAdminBooking: false,
-      paymentMethod: false,
-      paymentStatus: false,
-    };
-  }
-}
-
 export async function POST(req: NextRequest) {
   try {
     const user = await getAuthenticatedUser(req);
@@ -174,17 +119,14 @@ export async function POST(req: NextRequest) {
     // Check if this is a package-based booking
     const userPackageId = slotsToBook[0]?.userPackageId as string | undefined;
 
-    // Check if cash payment method was selected
+    // Check payment method
     const requestedPaymentMethod = slotsToBook[0]?.paymentMethod as string | undefined;
     const isCashPayment = requestedPaymentMethod === 'CASH';
+    const isWalletPayment = requestedPaymentMethod === 'WALLET';
 
-    if (slotsToBook.length === 0) {
-      return NextResponse.json({ error: 'No slots provided' }, { status: 400 });
-    }
-
-    const machineConfig = await getMachineConfig();
-    const bookingColumns = await getBookingColumnSupport();
-    const [pricingConfig, timeSlabConfig] = await Promise.all([
+    // Fetch configs in parallel
+    const [machineConfig, pricingConfig, timeSlabConfig] = await Promise.all([
+      getMachineConfig(),
       getPricingConfig(),
       getTimeSlabConfig(),
     ]);
@@ -309,6 +251,21 @@ export async function POST(req: NextRequest) {
       firstMachineId
     );
 
+    // If wallet payment, validate balance upfront
+    const totalPrice = isFreeBooking ? 0 : pricing.reduce((sum, p) => sum + p.price, 0);
+    if (isWalletPayment && !isFreeBooking && !userPackageId) {
+      const walletEnabled = await isWalletEnabled();
+      if (!walletEnabled) {
+        return NextResponse.json({ error: 'Wallet payments are not enabled' }, { status: 400 });
+      }
+      const balance = await getWalletBalance(userId!);
+      if (balance < totalPrice) {
+        return NextResponse.json({
+          error: `Insufficient wallet balance. Required: ₹${totalPrice}, Available: ₹${balance}`,
+        }, { status: 400 });
+      }
+    }
+
     // If package booking, validate the package first
     let packageValidation: { valid: boolean; extraCharge?: number; extraChargeType?: string } | null = null;
     if (userPackageId) {
@@ -378,21 +335,15 @@ export async function POST(req: NextRequest) {
 
             // Operator constraint check
             if (requiresOperator) {
-              const operatorWhere: Prisma.BookingWhereInput = bookingColumns.operationMode
-                ? {
-                    date: slot.date,
-                    startTime: slot.startTime,
-                    status: 'BOOKED',
-                    OR: [
-                      { ballType: { in: MACHINE_A_BALLS } },
-                      { ballType: 'TENNIS', operationMode: 'WITH_OPERATOR' },
-                    ],
-                  }
-                : {
-                    date: slot.date,
-                    startTime: slot.startTime,
-                    status: 'BOOKED',
-                  };
+              const operatorWhere: Prisma.BookingWhereInput = {
+                date: slot.date,
+                startTime: slot.startTime,
+                status: 'BOOKED',
+                OR: [
+                  { ballType: { in: MACHINE_A_BALLS } },
+                  { ballType: 'TENNIS', operationMode: 'WITH_OPERATOR' },
+                ],
+              };
 
               const operatorBookings = await tx.booking.findMany({
                 where: operatorWhere,
@@ -426,23 +377,6 @@ export async function POST(req: NextRequest) {
               select: { id: true },
             });
 
-            const baseBookingData: Prisma.BookingUncheckedCreateInput = {
-              userId: userId!,
-              date: slot.date,
-              startTime: slot.startTime,
-              endTime: slot.endTime,
-              status: 'BOOKED',
-              ballType: slot.ballType,
-              playerName: slot.playerName,
-            };
-
-            const baseUpdateData: Prisma.BookingUncheckedUpdateInput = {
-              userId: userId!,
-              endTime: slot.endTime,
-              status: 'BOOKED',
-              playerName: slot.playerName,
-            };
-
             // Free bookings: superadmin or free user
             const effectivePrice = isFreeBooking ? 0 : priceInfo.price;
             const effectiveOriginalPrice = isFreeBooking ? 0 : priceInfo.originalPrice;
@@ -450,54 +384,62 @@ export async function POST(req: NextRequest) {
             const effectiveDiscountType = isFreeBooking ? null : (priceInfo.discountAmount > 0 ? 'FIXED' as const : null);
 
             // Determine payment fields (only for non-free bookings)
-            const paymentFields = !isFreeBooking && bookingColumns.paymentMethod && bookingColumns.paymentStatus
-              ? isCashPayment
-                ? { paymentMethod: 'CASH' as const, paymentStatus: 'PENDING' as const }
-                : { paymentMethod: 'ONLINE' as const, paymentStatus: 'PAID' as const }
+            const paymentFields = !isFreeBooking
+              ? isWalletPayment
+                ? { paymentMethod: 'WALLET' as const, paymentStatus: 'PAID' as const }
+                : isCashPayment
+                  ? { paymentMethod: 'CASH' as const, paymentStatus: 'PENDING' as const }
+                  : { paymentMethod: 'ONLINE' as const, paymentStatus: 'PAID' as const }
               : {};
 
-            const fullBookingData: Prisma.BookingUncheckedCreateInput = {
-              ...baseBookingData,
+            const bookingData: Prisma.BookingUncheckedCreateInput = {
+              userId: userId!,
+              date: slot.date,
+              startTime: slot.startTime,
+              endTime: slot.endTime,
+              status: 'BOOKED',
+              ballType: slot.ballType,
+              playerName: slot.playerName,
               createdBy,
-              ...(bookingColumns.isSuperAdminBooking ? { isSuperAdminBooking: isFreeBooking } : {}),
+              isSuperAdminBooking: isFreeBooking,
+              operationMode: slot.operationMode,
+              price: effectivePrice,
+              originalPrice: effectiveOriginalPrice,
+              discountAmount: effectiveDiscountAmount,
+              discountType: effectiveDiscountType,
               ...(slot.machineId ? { machineId: slot.machineId } : {}),
-              ...(bookingColumns.price ? { price: effectivePrice } : {}),
-              ...(bookingColumns.originalPrice ? { originalPrice: effectiveOriginalPrice } : {}),
-              ...(bookingColumns.discountAmount ? { discountAmount: effectiveDiscountAmount } : {}),
-              ...(bookingColumns.discountType ? { discountType: effectiveDiscountType } : {}),
-              ...(bookingColumns.operationMode ? { operationMode: slot.operationMode } : {}),
+              ...(slot.pitchType !== null ? { pitchType: slot.pitchType } : {}),
               ...paymentFields,
             };
 
-            const fullUpdateData: Prisma.BookingUncheckedUpdateInput = {
-              ...baseUpdateData,
+            const updateData: Prisma.BookingUncheckedUpdateInput = {
+              userId: userId!,
+              endTime: slot.endTime,
+              status: 'BOOKED',
+              playerName: slot.playerName,
               createdBy,
-              ...(bookingColumns.isSuperAdminBooking ? { isSuperAdminBooking: isFreeBooking } : {}),
+              isSuperAdminBooking: isFreeBooking,
+              operationMode: slot.operationMode,
+              price: effectivePrice,
+              originalPrice: effectiveOriginalPrice,
+              discountAmount: effectiveDiscountAmount,
+              discountType: effectiveDiscountType,
               ...(slot.machineId ? { machineId: slot.machineId } : {}),
-              ...(bookingColumns.price ? { price: effectivePrice } : {}),
-              ...(bookingColumns.originalPrice ? { originalPrice: effectiveOriginalPrice } : {}),
-              ...(bookingColumns.discountAmount ? { discountAmount: effectiveDiscountAmount } : {}),
-              ...(bookingColumns.discountType ? { discountType: effectiveDiscountType } : {}),
-              ...(bookingColumns.operationMode ? { operationMode: slot.operationMode } : {}),
+              ...(slot.pitchType !== null ? { pitchType: slot.pitchType } : {}),
               ...paymentFields,
             };
-
-            if (slot.pitchType !== null && bookingColumns.pitchType) {
-              fullBookingData.pitchType = slot.pitchType;
-              fullUpdateData.pitchType = slot.pitchType;
-            }
 
             try {
               if (existingSameConfig) {
                 return await tx.booking.update({
                   where: { id: existingSameConfig.id },
-                  data: fullUpdateData,
+                  data: updateData,
                   select: { id: true, status: true },
                 });
               }
 
               return await tx.booking.create({
-                data: fullBookingData,
+                data: bookingData,
                 select: { id: true, status: true },
               });
             } catch (error) {
@@ -561,6 +503,42 @@ export async function POST(req: NextRequest) {
       });
     }
 
+    // Debit wallet if wallet payment was selected
+    let walletDebitResult: { transactionId: string; newBalance: number } | null = null;
+    if (isWalletPayment && !isFreeBooking && !userPackageId && totalPrice > 0) {
+      try {
+        const bookingIds = results.map(r => r.id).join(', ');
+        const result = await debitWallet(
+          userId!,
+          totalPrice,
+          'DEBIT_BOOKING',
+          `Booking payment (${results.length} slot${results.length > 1 ? 's' : ''})`,
+          results[0].id,
+        );
+        walletDebitResult = {
+          transactionId: result.transactionId,
+          newBalance: result.newBalance,
+        };
+      } catch (walletErr) {
+        // Wallet debit failed — cancel the bookings we just created
+        console.error('Wallet debit failed, rolling back bookings:', walletErr);
+        try {
+          await prisma.booking.updateMany({
+            where: { id: { in: results.map(r => r.id) } },
+            data: {
+              status: 'CANCELLED',
+              cancelledBy: 'System',
+              cancellationReason: 'Wallet payment failed',
+            },
+          });
+        } catch (rollbackErr) {
+          console.error('Failed to rollback bookings after wallet failure:', rollbackErr);
+        }
+        const msg = walletErr instanceof Error ? walletErr.message : 'Wallet payment failed';
+        return NextResponse.json({ error: msg }, { status: 400 });
+      }
+    }
+
     // Create booking confirmation notification
     try {
       const firstSlot = validatedSlots[0];
@@ -568,7 +546,6 @@ export async function POST(req: NextRequest) {
       const dateStr = formatIST(firstSlot.date, 'EEE, dd MMM yyyy');
       const timeStr = formatIST(firstSlot.startTime, 'hh:mm a');
       const endTimeStr = formatIST(validatedSlots[validatedSlots.length - 1].endTime, 'hh:mm a');
-      const totalPrice = pricing.reduce((sum, p) => sum + p.price, 0);
       const slotCount = validatedSlots.length;
 
       const lines = [
@@ -579,6 +556,8 @@ export async function POST(req: NextRequest) {
       if (firstSlot.pitchType) lines.push(`Pitch: ${firstSlot.pitchType}`);
       if (isFreeBooking) {
         lines.push('Price: FREE');
+      } else if (isWalletPayment && walletDebitResult) {
+        lines.push(`Price: ₹${totalPrice} (Wallet — Balance: ₹${walletDebitResult.newBalance})`);
       } else if (isCashPayment) {
         lines.push(`Price: ₹${totalPrice} (Pay at center)`);
       } else if (!userPackageId) {
@@ -586,13 +565,14 @@ export async function POST(req: NextRequest) {
       }
       if (userPackageId) lines.push('Booked via package');
 
-      await prisma.notification.create({
-        data: {
-          userId: userId!,
-          title: 'Booking Confirmed',
-          message: lines.join('\n'),
-          type: 'BOOKING',
-        },
+      // Fetch user mobile for WhatsApp notification
+      const notifUser = await prisma.user.findUnique({
+        where: { id: userId! },
+        select: { mobileNumber: true, mobileVerified: true },
+      });
+      await notifyBookingConfirmed(userId!, {
+        slotSummary: lines.join('\n'),
+        mobileNumber: notifUser?.mobileVerified ? notifUser.mobileNumber : null,
       });
     } catch (notifErr) {
       console.error('Failed to create booking notification:', notifErr);

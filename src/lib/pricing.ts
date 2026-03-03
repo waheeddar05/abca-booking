@@ -1,4 +1,4 @@
-import { prisma } from '@/lib/prisma';
+import { getCachedPolicy } from '@/lib/policy-cache';
 
 export interface SlabPricing {
   single: number;
@@ -219,11 +219,9 @@ export function getConsecutivePrice(
  */
 export async function getPricingConfig(): Promise<PricingConfig> {
   try {
-    const policy = await prisma.policy.findUnique({
-      where: { key: 'PRICING_CONFIG' },
-    });
-    if (policy?.value) {
-      const config = JSON.parse(policy.value);
+    const value = await getCachedPolicy('PRICING_CONFIG');
+    if (value) {
+      const config = JSON.parse(value);
       return normalizePricingConfig(config);
     }
   } catch (error) {
@@ -307,11 +305,9 @@ export function normalizePricingConfig(config: any): PricingConfig {
  */
 export async function getTimeSlabConfig(): Promise<TimeSlabConfig> {
   try {
-    const policy = await prisma.policy.findUnique({
-      where: { key: 'TIME_SLAB_CONFIG' },
-    });
-    if (policy?.value) {
-      return JSON.parse(policy.value) as TimeSlabConfig;
+    const value = await getCachedPolicy('TIME_SLAB_CONFIG');
+    if (value) {
+      return JSON.parse(value) as TimeSlabConfig;
     }
   } catch {
     // Fall back to default

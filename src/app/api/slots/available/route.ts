@@ -10,6 +10,7 @@ import {
 } from '@/lib/constants';
 import type { MachinePitchConfig } from '@/lib/constants';
 import { getPricingConfig, getTimeSlabConfig, getSlotPrice, getTimeSlab } from '@/lib/pricing';
+import { getCachedPolicies } from '@/lib/policy-cache';
 import { getAuthenticatedUser } from '@/lib/auth';
 
 function isValidPitchTypeValue(val: string): val is PitchType {
@@ -45,11 +46,9 @@ export async function GET(req: NextRequest) {
 
     if (machineIdParam && isValidMachineId(machineIdParam)) {
       machineId = machineIdParam as MachineId;
-      // Use explicit ballType from query if valid, otherwise fall back to machine's default
       ballType = (isValidBallType(ballTypeParam)) ? ballTypeParam as BallType : getBallTypeForMachine(machineId);
       category = getMachineCategory(machineId) === 'LEATHER' ? 'MACHINE' : 'TENNIS';
     } else {
-      // Legacy: use ballType param
       if (!isValidBallType(ballTypeParam)) {
         return NextResponse.json({ error: 'Invalid ball type' }, { status: 400 });
       }
@@ -75,14 +74,29 @@ export async function GET(req: NextRequest) {
       return NextResponse.json([]);
     }
 
-    // Fetch policies
-    const policies = await prisma.policy.findMany({
-      where: {
-        key: { in: ['SLOT_DURATION', 'DISABLED_DATES', 'NUMBER_OF_OPERATORS', 'MACHINE_PITCH_CONFIG'] }
-      }
-    });
-
-    const policyMap = Object.fromEntries(policies.map(p => [p.key, p.value]));
+    // Fetch all data in parallel: policies (cached), pricing, time slabs, blocked slots, and ALL bookings
+    const [policyMap, pricingConfig, timeSlabConfig, blockedSlots, allBookings] = await Promise.all([
+      getCachedPolicies(['SLOT_DURATION', 'DISABLED_DATES', 'NUMBER_OF_OPERATORS', 'MACHINE_PITCH_CONFIG']),
+      getPricingConfig(),
+      getTimeSlabConfig(),
+      prisma.blockedSlot.findMany({
+        where: {
+          startDate: { lte: dateUTC },
+          endDate: { gte: dateUTC },
+        },
+      }).catch((err: unknown) => {
+        console.warn('BlockedSlot query failed:', err instanceof Error ? err.message : err);
+        return [];
+      }),
+      // Single booking query for both occupancy and operator usage (replaces two separate queries)
+      prisma.booking.findMany({
+        where: {
+          date: dateUTC,
+          status: 'BOOKED',
+        },
+        select: { startTime: true, ballType: true, operationMode: true, machineId: true, pitchType: true },
+      }),
+    ]);
 
     // Check if date is disabled
     const disabledDates = policyMap['DISABLED_DATES'] ? policyMap['DISABLED_DATES'].split(',') : [];
@@ -108,20 +122,6 @@ export async function GET(req: NextRequest) {
     const numberOfOperators = parseInt(policyMap['NUMBER_OF_OPERATORS'] || '1', 10);
     const duration = policyMap['SLOT_DURATION'] ? parseInt(policyMap['SLOT_DURATION']) : undefined;
 
-    const [pricingConfig, timeSlabConfig, blockedSlots] = await Promise.all([
-      getPricingConfig(),
-      getTimeSlabConfig(),
-      prisma.blockedSlot.findMany({
-        where: {
-          startDate: { lte: dateUTC },
-          endDate: { gte: dateUTC },
-        }
-      }).catch((err: unknown) => {
-        console.warn('BlockedSlot query failed (table may not exist yet):', err instanceof Error ? err.message : err);
-        return [];
-      })
-    ]);
-
     // Generate slots using dual time windows
     let slots = generateSlotsForDateDualWindow(dateUTC, timeSlabConfig, duration);
 
@@ -133,54 +133,30 @@ export async function GET(req: NextRequest) {
     const relevantBallTypes = getRelevantBallTypes(ballType);
     const isLeatherMachine = MACHINE_A_BALLS.includes(ballType);
 
-    // Get bookings on the same machine
-    const occupancyWhere: any = {
-      date: dateUTC,
-      status: 'BOOKED',
-    };
-
-    if (machineId) {
-      // Filter by specific machine only (not pitch type) - a booked slot on a machine
-      // should block that entire time slot for that machine regardless of pitch type
-      occupancyWhere.machineId = machineId;
-    } else {
-      // Legacy: filter by ball type group
-      occupancyWhere.ballType = { in: relevantBallTypes };
-      if (!isLeatherMachine && validatedPitchType) {
-        occupancyWhere.pitchType = validatedPitchType;
-      }
-    }
-
-    const occupiedBookings = await prisma.booking.findMany({
-      where: occupancyWhere,
-      select: { startTime: true },
-    });
-
-    // Get ALL active bookings for this date to compute operator usage per slot
-    let allBookings: { startTime: Date; ballType: BallType; operationMode: string }[] = [];
-    try {
-      allBookings = await prisma.booking.findMany({
-        where: {
-          date: dateUTC,
-          status: 'BOOKED',
-        },
-        select: { startTime: true, ballType: true, operationMode: true },
-      });
-    } catch {
-      const fallbackBookings = await prisma.booking.findMany({
-        where: {
-          date: dateUTC,
-          status: 'BOOKED',
-        },
-        select: { startTime: true, ballType: true },
-      });
-      allBookings = fallbackBookings.map(b => ({ ...b, operationMode: 'WITH_OPERATOR' }));
-    }
-
-    // Build a map of startTime -> number of operators consumed
+    // Build occupancy and operator usage maps from single query
+    const occupiedTimeKeys = new Set<number>();
     const operatorUsageMap = new Map<number, number>();
+
     for (const booking of allBookings) {
       const timeKey = booking.startTime.getTime();
+
+      // Check if this booking occupies the requested machine/pitch
+      let isOccupying = false;
+      if (machineId) {
+        isOccupying = booking.machineId === machineId;
+      } else {
+        const matchesBallType = relevantBallTypes.includes(booking.ballType);
+        const matchesPitch = !isLeatherMachine && validatedPitchType
+          ? booking.pitchType === validatedPitchType
+          : true;
+        isOccupying = matchesBallType && matchesPitch;
+      }
+
+      if (isOccupying) {
+        occupiedTimeKeys.add(timeKey);
+      }
+
+      // Operator usage tracking
       const consumesOperator =
         MACHINE_A_BALLS.includes(booking.ballType) ||
         booking.operationMode === 'WITH_OPERATOR';
@@ -192,35 +168,27 @@ export async function GET(req: NextRequest) {
 
     const availableSlots = slots.map(slot => {
       const timeKey = slot.startTime.getTime();
-
-      const isOccupied = occupiedBookings.some(booking => {
-        return booking.startTime.getTime() === timeKey;
-      });
+      const isOccupied = occupiedTimeKeys.has(timeKey);
 
       // Check if slot is blocked by Admin
       const isBlocked = blockedSlots.some(block => {
-        // New: Match by machineId if the block specifies one
         if (block.machineId) {
           if (machineId && (block.machineId as MachineId) !== machineId) return false;
           if (!machineId) {
-            // Legacy request: check if block's machineId is in the relevant machine category
             const blockIsLeather = LEATHER_MACHINES.includes(block.machineId as MachineId);
             if (isLeatherMachine !== blockIsLeather) return false;
           }
         }
 
-        // Legacy: Match machine type
         if (block.machineType && !block.machineId) {
           const relevantTypes = getRelevantBallTypes(block.machineType);
           if (!relevantTypes.includes(ballType)) return false;
         }
 
-        // Match pitch type
         if (block.pitchType && block.pitchType !== validatedPitchType) {
           return false;
         }
 
-        // Match time range
         if (block.startTime && block.endTime) {
           const getMinutes = (d: Date) => d.getUTCHours() * 60 + d.getUTCMinutes();
           const blockStartMin = getMinutes(block.startTime);
@@ -228,17 +196,16 @@ export async function GET(req: NextRequest) {
           const slotStartMin = getMinutes(slot.startTime);
           const slotEndMin = getMinutes(slot.endTime);
 
-          // Overlap check
           return slotStartMin < blockEndMin && slotEndMin > blockStartMin;
         }
 
-        return true; // Full day block if no startTime/endTime
+        return true;
       });
 
       const operatorsUsed = operatorUsageMap.get(timeKey) || 0;
       const operatorAvailable = operatorsUsed < numberOfOperators;
 
-      // Calculate price using pricing config (per-machine/ball-type/time-slab)
+      // Calculate price using pricing config
       const timeSlab = getTimeSlab(slot.startTime, timeSlabConfig);
       const finalPrice = getSlotPrice(category, ballType, validatedPitchType, timeSlab, pricingConfig, machineId);
 
@@ -267,10 +234,9 @@ export async function GET(req: NextRequest) {
     return NextResponse.json(availableSlots);
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : 'Internal server error';
-    const stack = error instanceof Error ? error.stack : undefined;
     console.error('Available slots error:', error);
     return NextResponse.json(
-      { error: message, stack: process.env.NODE_ENV === 'development' ? stack : undefined },
+      { error: message, stack: process.env.NODE_ENV === 'development' ? (error instanceof Error ? error.stack : undefined) : undefined },
       { status: 500 }
     );
   }

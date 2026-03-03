@@ -16,6 +16,7 @@ export async function GET(req: NextRequest) {
         name: true,
         email: true,
         mobileNumber: true,
+        mobileVerified: true,
         phonePromptDismissed: true,
         authProvider: true,
         image: true,

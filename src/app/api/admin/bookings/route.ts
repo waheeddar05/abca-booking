@@ -4,6 +4,7 @@ import { requireAdmin } from '@/lib/adminAuth';
 import { getAuthenticatedUser } from '@/lib/auth';
 import { getISTTodayUTC, getISTLastMonthRange, dateStringToUTC, formatIST } from '@/lib/time';
 import { MACHINES } from '@/lib/constants';
+import { notifyBookingCancelled } from '@/lib/notifications';
 
 type MachineIdFilter = 'GRAVITY' | 'YANTRA' | 'LEVERAGE_INDOOR' | 'LEVERAGE_OUTDOOR';
 
@@ -227,13 +228,13 @@ export async function PATCH(req: NextRequest) {
         if (cancellationReason) {
           lines.push(`Reason: ${cancellationReason}`);
         }
-        await prisma.notification.create({
-          data: {
-            userId: booking.userId,
-            title: 'Booking Cancelled',
-            message: lines.join('\n'),
-            type: 'CANCELLATION',
-          },
+        const notifUser = await prisma.user.findUnique({
+          where: { id: booking.userId },
+          select: { mobileNumber: true, mobileVerified: true },
+        });
+        await notifyBookingCancelled(booking.userId, {
+          message: lines.join('\n'),
+          mobileNumber: notifUser?.mobileVerified ? notifUser.mobileNumber : null,
         });
       } catch (notifErr) {
         console.error('Failed to create cancellation notification:', notifErr);

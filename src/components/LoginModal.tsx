@@ -120,7 +120,7 @@ export default function LoginModal({ isOpen, onClose }: LoginModalProps) {
                 setLoading(true);
                 setError('');
                 try {
-                  await signIn('google', { callbackUrl: '/slots' });
+                  await signIn('google', { callbackUrl: '/verify-mobile' });
                 } catch {
                   setError('Sign-in failed. Please try again.');
                   setLoading(false);

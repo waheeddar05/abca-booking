@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { getAuthenticatedUser } from '@/lib/auth';
 import { verifyPaymentSignature } from '@/lib/razorpay';
+import { notifyPaymentSuccess } from '@/lib/notifications';
 
 // POST /api/payments/verify - Verify payment and complete booking/purchase
 export async function POST(req: NextRequest) {
@@ -164,15 +165,19 @@ async function completePackagePurchase(
     data: { userPackageId: userPackage.id },
   });
 
-  // Create notification
-  await prisma.notification.create({
-    data: {
-      userId,
-      title: 'Package Purchased',
+  // Send notification (in-app + WhatsApp if configured)
+  try {
+    const notifUser = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { mobileNumber: true, mobileVerified: true },
+    });
+    await notifyPaymentSuccess(userId, {
       message: `Your "${pkg.name}" package (${pkg.totalSessions} sessions) is now active. Valid until ${expiry.toLocaleDateString('en-IN')}.`,
-      type: 'PACKAGE',
-    },
-  });
+      mobileNumber: notifUser?.mobileVerified ? notifUser.mobileNumber : null,
+    });
+  } catch (notifErr) {
+    console.error('Failed to send package purchase notification:', notifErr);
+  }
 
   return { userPackage };
 }

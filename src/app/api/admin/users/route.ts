@@ -40,7 +40,7 @@ export async function GET(req: NextRequest) {
     const role = searchParams.get('role');
 
     const where: any = {};
-    if (role && (role === 'ADMIN' || role === 'USER')) {
+    if (role && (role === 'ADMIN' || role === 'USER' || role === 'OPERATOR')) {
       where.role = role;
     }
     if (search) {

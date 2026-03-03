@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { getToken } from 'next-auth/jwt';
 import { verifyToken } from '@/lib/jwt';
+import { invalidatePolicyCache } from '@/lib/policy-cache';
 
 async function getSession(req: NextRequest) {
   const token = await getToken({ req, secret: process.env.NEXTAUTH_SECRET });
@@ -49,6 +50,9 @@ export async function POST(req: NextRequest) {
       create: { key, value },
     });
 
+    // Invalidate cache for this key so changes take effect immediately
+    invalidatePolicyCache(key);
+
     return NextResponse.json(policy);
   } catch (error) {
     console.error('Admin policy update error:', error);
@@ -73,6 +77,9 @@ export async function DELETE(req: NextRequest) {
     await prisma.policy.delete({
       where: { key },
     });
+
+    // Invalidate cache for deleted key
+    invalidatePolicyCache(key);
 
     return NextResponse.json({ message: 'Policy deleted successfully' });
   } catch (error) {

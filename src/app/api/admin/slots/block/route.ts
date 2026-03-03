@@ -3,6 +3,7 @@ import { prisma } from '@/lib/prisma';
 import { getAuthenticatedUser } from '@/lib/auth';
 import { dateStringToUTC, formatIST } from '@/lib/time';
 import { isValidMachineId, LEATHER_MACHINES, MACHINES } from '@/lib/constants';
+import { notifyBookingCancelled } from '@/lib/notifications';
 import type { MachineId } from '@prisma/client';
 
 // GET /api/admin/slots/block - List blocked slots
@@ -147,8 +148,9 @@ export async function POST(req: NextRequest) {
       const displayReason = `Cancelled by Admin - ${reason || 'Maintenance'}`;
       const cancelledByName = `Admin (${admin.name || admin.id})`;
 
-      await prisma.$transaction([
-        ...bookingsToCancel.map(booking =>
+      // Cancel bookings in a transaction
+      await prisma.$transaction(
+        bookingsToCancel.map(booking =>
           prisma.booking.update({
             where: { id: booking.id },
             data: {
@@ -157,29 +159,41 @@ export async function POST(req: NextRequest) {
               cancellationReason: displayReason,
             }
           })
-        ),
-        ...bookingsToCancel.filter(b => b.userId).map(booking => {
-          const dateStr = formatIST(new Date(booking.date), 'EEE, dd MMM yyyy');
-          const timeStr = formatIST(new Date(booking.startTime), 'hh:mm a');
-          const endStr = formatIST(new Date(booking.endTime), 'hh:mm a');
-          const machineName = booking.machineId ? (MACHINES[booking.machineId]?.shortName || booking.machineId) : booking.ballType;
-          const lines = [
-            `${dateStr}`,
-            `${timeStr} – ${endStr}`,
-            `Machine: ${machineName}`,
-            `Cancelled by: ${cancelledByName}`,
-            `Reason: ${reason || 'Maintenance'}`,
-          ];
-          return prisma.notification.create({
-            data: {
-              userId: booking.userId as string,
-              title: 'Booking Cancelled',
+        )
+      );
+
+      // Send notifications (outside transaction — non-blocking)
+      const notifBookings = bookingsToCancel.filter(b => b.userId);
+      if (notifBookings.length > 0) {
+        // Fetch mobile numbers for all affected users
+        const userIds = [...new Set(notifBookings.map(b => b.userId as string))];
+        const users = await prisma.user.findMany({
+          where: { id: { in: userIds } },
+          select: { id: true, mobileNumber: true, mobileVerified: true },
+        });
+        const userMap = new Map(users.map(u => [u.id, u]));
+
+        await Promise.allSettled(
+          notifBookings.map(booking => {
+            const dateStr = formatIST(new Date(booking.date), 'EEE, dd MMM yyyy');
+            const timeStr = formatIST(new Date(booking.startTime), 'hh:mm a');
+            const endStr = formatIST(new Date(booking.endTime), 'hh:mm a');
+            const machineName = booking.machineId ? (MACHINES[booking.machineId]?.shortName || booking.machineId) : booking.ballType;
+            const lines = [
+              `${dateStr}`,
+              `${timeStr} – ${endStr}`,
+              `Machine: ${machineName}`,
+              `Cancelled by: ${cancelledByName}`,
+              `Reason: ${reason || 'Maintenance'}`,
+            ];
+            const u = userMap.get(booking.userId as string);
+            return notifyBookingCancelled(booking.userId as string, {
               message: lines.join('\n'),
-              type: 'CANCELLATION',
-            }
-          });
-        })
-      ]);
+              mobileNumber: u?.mobileVerified ? u.mobileNumber : null,
+            });
+          })
+        );
+      }
 
       // Restore package sessions for cancelled bookings
       for (const booking of bookingsToCancel) {

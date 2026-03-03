@@ -19,6 +19,7 @@ model User {
   isBlacklisted Boolean        @default(false)
   isFreeUser           Boolean              @default(false)
   phonePromptDismissed Boolean              @default(false)
+  mobileVerified       Boolean              @default(false)
   bookings             Booking[]
   notifications        Notification[]
   otps                 Otp[]
@@ -26,6 +27,7 @@ model User {
   payments             Payment[]
   operatorAssignments  OperatorAssignment[]
   cashPaymentUser      CashPaymentUser?
+  wallet               Wallet?
 }
 
 model Policy {
@@ -160,15 +162,46 @@ model PackageAuditLog {
 }
 
 model Notification {
-  id        String   @id @default(cuid())
-  userId    String
-  title     String
-  message   String
-  type      String   @default("INFO")
-  isRead    Boolean  @default(false)
-  createdAt DateTime @default(now())
-  user      User     @relation(fields: [userId], references: [id])
+  id                String                 @id @default(cuid())
+  userId            String
+  title             String
+  message           String
+  type              String                 @default("INFO")
+  isRead            Boolean                @default(false)
+  createdAt         DateTime               @default(now())
+  channel           NotificationChannel    @default(IN_APP)
+  whatsappMessageId String?
+  whatsappStatus    WhatsAppMessageStatus?
+  user              User                   @relation(fields: [userId], references: [id])
 }
+
+// ─── Wallet ──────────────────────────────────────────────────────────
+
+model Wallet {
+  id           String              @id @default(cuid())
+  userId       String              @unique
+  balance      Float               @default(0)
+  createdAt    DateTime            @default(now())
+  updatedAt    DateTime            @updatedAt
+  user         User                @relation(fields: [userId], references: [id])
+  transactions WalletTransaction[]
+}
+
+model WalletTransaction {
+  id          String                @id @default(cuid())
+  walletId    String
+  type        WalletTransactionType
+  amount      Float
+  balance     Float                 // Balance after this transaction
+  description String?
+  referenceId String?               // Booking ID, Payment ID, etc.
+  createdAt   DateTime              @default(now())
+  wallet      Wallet                @relation(fields: [walletId], references: [id])
+
+  @@index([walletId])
+}
+
+// ─── Enums ──────────────────────────────────────────────────────────
 
 enum UserRole {
   USER
@@ -179,6 +212,7 @@ enum UserRole {
 enum AuthProvider {
   GOOGLE
   OTP
+  WHATSAPP
 }
 
 enum BookingStatus {
@@ -250,6 +284,7 @@ enum UserPackageStatus {
 enum BookingPaymentMethod {
   ONLINE
   CASH
+  WALLET
 }
 
 enum BookingPaymentStatus {
@@ -270,6 +305,32 @@ enum PaymentStatus {
 enum PaymentType {
   SLOT_BOOKING
   PACKAGE_PURCHASE
+}
+
+enum RefundMethod {
+  RAZORPAY
+  WALLET
+}
+
+enum WalletTransactionType {
+  CREDIT_REFUND
+  DEBIT_BOOKING
+  CREDIT_ADMIN
+  DEBIT_ADMIN
+}
+
+enum NotificationChannel {
+  IN_APP
+  WHATSAPP
+  BOTH
+}
+
+enum WhatsAppMessageStatus {
+  PENDING
+  SENT
+  DELIVERED
+  READ
+  FAILED
 }
 
 model Payment {
@@ -293,6 +354,7 @@ model Payment {
   refundId          String?
   refundAmount      Float?
   refundedAt        DateTime?
+  refundMethod      RefundMethod?
 
   // Metadata
   metadata          Json?         // Store any extra info (slot details, package info, etc.)

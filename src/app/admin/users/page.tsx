@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import Image from 'next/image';
 import { useSession } from 'next-auth/react';
-import { UserPlus, Trash2, Loader2, Search, Shield, ShieldOff, Users, ChevronDown, ChevronUp, CalendarCheck, Mail, Phone, Clock, X, XCircle, Check, CalendarPlus, History } from 'lucide-react';
+import { UserPlus, Trash2, Loader2, Search, Shield, Users, ChevronDown, ChevronUp, CalendarCheck, Mail, Phone, Clock, X, XCircle, Check, CalendarPlus, History } from 'lucide-react';
 import Link from 'next/link';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { useToast } from '@/components/ui/Toast';
@@ -151,34 +151,6 @@ export default function AdminUsers() {
     }
   };
 
-  const handleToggleRole = (user: UserData) => {
-    const newRole = user.role === 'ADMIN' ? 'USER' : 'ADMIN';
-    setPendingConfirm({
-      title: newRole === 'ADMIN' ? 'Promote to Admin' : 'Demote to User',
-      message: `Are you sure you want to ${newRole === 'ADMIN' ? 'promote' : 'demote'} ${user.name || user.email} to ${newRole}?`,
-      variant: 'danger',
-      confirmLabel: newRole === 'ADMIN' ? 'Promote' : 'Demote',
-      onConfirm: async () => {
-        try {
-          const res = await fetch('/api/admin/users', {
-            method: 'PATCH',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ id: user.id, role: newRole }),
-          });
-          const data = await res.json();
-          if (res.ok) {
-            toast.success(`User ${newRole === 'ADMIN' ? 'promoted to admin' : 'demoted to user'}`);
-            fetchUsers();
-          } else {
-            toast.error(data.error || 'Failed to update user');
-          }
-        } catch {
-          toast.error('Internal server error');
-        }
-      },
-    });
-  };
-
   const handleToggleBlacklist = (user: UserData) => {
     const newStatus = !user.isBlacklisted;
     setPendingConfirm({
@@ -262,8 +234,38 @@ export default function AdminUsers() {
     });
   };
 
+  const handleChangeRole = (user: UserData, newRole: string) => {
+    if (newRole === user.role) return;
+    const roleLabel = newRole === 'ADMIN' ? 'Admin' : newRole === 'OPERATOR' ? 'Operator' : 'User';
+    setPendingConfirm({
+      title: `Change Role to ${roleLabel}`,
+      message: `Are you sure you want to change ${user.name || user.email}'s role to ${roleLabel}?`,
+      variant: 'danger',
+      confirmLabel: `Set ${roleLabel}`,
+      onConfirm: async () => {
+        try {
+          const res = await fetch('/api/admin/users', {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id: user.id, role: newRole }),
+          });
+          const data = await res.json();
+          if (res.ok) {
+            toast.success(`User role changed to ${roleLabel}`);
+            fetchUsers();
+          } else {
+            toast.error(data.error || 'Failed to update user');
+          }
+        } catch {
+          toast.error('Internal server error');
+        }
+      },
+    });
+  };
+
   const totalUsers = users.length;
   const adminCount = users.filter(u => u.role === 'ADMIN').length;
+  const operatorCount = users.filter(u => u.role === 'OPERATOR').length;
   const userCount = users.filter(u => u.role === 'USER').length;
 
   return (
@@ -287,7 +289,7 @@ export default function AdminUsers() {
         </button>
       </div>
 
-      <div className="grid grid-cols-3 gap-2 mb-5">
+      <div className="grid grid-cols-4 gap-2 mb-5">
         <button
           onClick={() => setRoleFilter('')}
           className={`rounded-xl p-3 text-center cursor-pointer transition-all ${
@@ -305,6 +307,15 @@ export default function AdminUsers() {
         >
           <div className="text-lg font-bold text-blue-600">{adminCount}</div>
           <div className="text-[10px] font-medium text-blue-500 uppercase tracking-wider">Admins</div>
+        </button>
+        <button
+          onClick={() => setRoleFilter(roleFilter === 'OPERATOR' ? '' : 'OPERATOR')}
+          className={`rounded-xl p-3 text-center cursor-pointer transition-all ${
+            roleFilter === 'OPERATOR' ? 'bg-purple-500/10 ring-1 ring-purple-500/30' : 'bg-white/[0.04] border border-white/[0.08]'
+          }`}
+        >
+          <div className="text-lg font-bold text-purple-600">{operatorCount}</div>
+          <div className="text-[10px] font-medium text-purple-500 uppercase tracking-wider">Operators</div>
         </button>
         <button
           onClick={() => setRoleFilter(roleFilter === 'USER' ? '' : 'USER')}
@@ -354,6 +365,7 @@ export default function AdminUsers() {
                     className="bg-white/[0.04] border border-white/[0.1] rounded-lg px-3 py-2.5 text-sm text-white outline-none focus:border-accent focus:ring-1 focus:ring-accent/20 cursor-pointer"
                   >
                     <option value="USER">User</option>
+                    <option value="OPERATOR">Operator</option>
                     <option value="ADMIN">Admin</option>
                   </select>
                 </div>
@@ -438,7 +450,9 @@ export default function AdminUsers() {
                         </span>
                       )}
                       <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider ${
-                        user.role === 'ADMIN' ? 'bg-blue-500/10 text-blue-400' : 'bg-white/[0.04] text-slate-400'
+                        user.role === 'ADMIN' ? 'bg-blue-500/10 text-blue-400' :
+                        user.role === 'OPERATOR' ? 'bg-purple-500/10 text-purple-400' :
+                        'bg-white/[0.04] text-slate-400'
                       }`}>
                         {user.role}
                       </span>
@@ -537,26 +551,18 @@ export default function AdminUsers() {
                               )}
                             </button>
                             <div className="grid grid-cols-2 gap-2">
-                              <button
-                                onClick={() => handleToggleRole(user)}
-                                className={`flex items-center justify-center gap-1 py-2 text-xs font-medium rounded-lg transition-colors cursor-pointer ${
-                                  user.role === 'ADMIN'
-                                    ? 'text-orange-400 bg-orange-500/10 hover:bg-orange-500/20'
-                                    : 'text-blue-400 bg-blue-500/10 hover:bg-blue-500/20'
-                                }`}
-                              >
-                                {user.role === 'ADMIN' ? (
-                                  <>
-                                    <ShieldOff className="w-3.5 h-3.5 flex-shrink-0" />
-                                    <span className="truncate">Demote</span>
-                                  </>
-                                ) : (
-                                  <>
-                                    <Shield className="w-3.5 h-3.5 flex-shrink-0" />
-                                    <span className="truncate">Promote</span>
-                                  </>
-                                )}
-                              </button>
+                              <div className="flex items-center gap-1.5">
+                                <Shield className="w-3.5 h-3.5 text-slate-400 flex-shrink-0" />
+                                <select
+                                  value={user.role}
+                                  onChange={(e) => handleChangeRole(user, e.target.value)}
+                                  className="flex-1 bg-white/[0.04] border border-white/[0.1] text-slate-300 rounded-lg px-2 py-2 text-xs outline-none focus:border-accent focus:ring-1 focus:ring-accent/20 cursor-pointer"
+                                >
+                                  <option value="USER">User</option>
+                                  <option value="OPERATOR">Operator</option>
+                                  <option value="ADMIN">Admin</option>
+                                </select>
+                              </div>
                               <button
                                 onClick={() => handleDeleteUser(user)}
                                 className="flex items-center justify-center gap-1 py-2 text-xs font-medium text-red-400 bg-red-500/10 rounded-lg hover:bg-red-500/20 transition-colors cursor-pointer"

@@ -19,6 +19,7 @@ export const authOptions: NextAuthOptions = {
         token.role = (user as any).role;
         token.image = (user as any).image;
         token.isFreeUser = (user as any).isFreeUser || false;
+        token.mobileVerified = (user as any).mobileVerified || false;
       }
       // Always compute from token email so existing sessions pick it up
       token.isSuperAdmin = !!(token.email && SUPER_ADMIN_EMAIL && token.email === SUPER_ADMIN_EMAIL);
@@ -30,6 +31,7 @@ export const authOptions: NextAuthOptions = {
         (session.user as any).role = token.role;
         (session.user as any).isSuperAdmin = token.isSuperAdmin || false;
         (session.user as any).isFreeUser = token.isFreeUser || false;
+        (session.user as any).mobileVerified = token.mobileVerified || false;
         if (token.image) {
           session.user.image = token.image as string;
         }
@@ -71,6 +73,7 @@ export const authOptions: NextAuthOptions = {
         (user as any).role = dbUser.role;
         (user as any).image = dbUser.image;
         (user as any).isFreeUser = dbUser.isFreeUser;
+        (user as any).mobileVerified = dbUser.mobileVerified;
         return true;
       }
       return true;

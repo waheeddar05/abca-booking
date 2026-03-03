@@ -12,6 +12,7 @@ export async function getAuthenticatedUser(req: NextRequest) {
   let userRole: string | undefined;
   let userEmail: string | undefined;
   let isFreeUser = false;
+  let mobileVerified = false;
 
   // Check for NextAuth session
   const session = await getServerSession(authOptions);
@@ -24,6 +25,7 @@ export async function getAuthenticatedUser(req: NextRequest) {
     userRole = dbUser?.role;
     userEmail = dbUser?.email || undefined;
     isFreeUser = dbUser?.isFreeUser || false;
+    mobileVerified = dbUser?.mobileVerified || false;
   }
 
   // Check for JWT token if no NextAuth session
@@ -39,6 +41,7 @@ export async function getAuthenticatedUser(req: NextRequest) {
       userRole = dbUser?.role;
       userEmail = dbUser?.email || undefined;
       isFreeUser = dbUser?.isFreeUser || false;
+      mobileVerified = dbUser?.mobileVerified || false;
     }
   }
 
@@ -46,5 +49,5 @@ export async function getAuthenticatedUser(req: NextRequest) {
 
   const isSuperAdmin = !!(userEmail && SUPER_ADMIN_EMAIL && userEmail === SUPER_ADMIN_EMAIL);
 
-  return { id: userId, name: userName, role: userRole, email: userEmail, isSuperAdmin, isFreeUser };
+  return { id: userId, name: userName, role: userRole, email: userEmail, isSuperAdmin, isFreeUser, mobileVerified };
 }
