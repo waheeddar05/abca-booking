@@ -51,13 +51,19 @@ export async function GET(req: NextRequest) {
       throw err;
     }
 
-    // For each slot, check if it has an active booking
-    const slotDates = slots.map(s => s.date);
+    if (slots.length === 0) {
+      return NextResponse.json([]);
+    }
+
+    // Fetch bookings for the same date range in a single query using the same
+    // where clause (avoids passing a potentially huge array of dates)
+    const bookingWhere: any = { status: 'BOOKED' };
+    if (where.date) {
+      bookingWhere.date = where.date;
+    }
+
     const bookings = await prisma.booking.findMany({
-      where: {
-        date: { in: slotDates },
-        status: 'BOOKED',
-      },
+      where: bookingWhere,
       select: {
         date: true,
         startTime: true,
@@ -67,10 +73,20 @@ export async function GET(req: NextRequest) {
       },
     });
 
+    // Build a lookup map keyed by startTime timestamp for O(1) matching
+    const bookingsByTime = new Map<number, typeof bookings>();
+    for (const b of bookings) {
+      const key = b.startTime.getTime();
+      const existing = bookingsByTime.get(key);
+      if (existing) {
+        existing.push(b);
+      } else {
+        bookingsByTime.set(key, [b]);
+      }
+    }
+
     const slotsWithBookingInfo = slots.map(slot => {
-      const slotBookings = bookings.filter(
-        b => b.startTime.getTime() === slot.startTime.getTime()
-      );
+      const slotBookings = bookingsByTime.get(slot.startTime.getTime()) || [];
       return {
         ...slot,
         isBooked: slotBookings.length > 0,

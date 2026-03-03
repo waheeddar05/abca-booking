@@ -1,9 +1,9 @@
 import { NextResponse } from 'next/server';
-import { prisma } from '@/lib/prisma';
 import { DEFAULT_PRICING_CONFIG, DEFAULT_TIME_SLABS, normalizePricingConfig } from '@/lib/pricing';
 import type { PricingConfig, TimeSlabConfig } from '@/lib/pricing';
 import { DEFAULT_MACHINE_PITCH_CONFIG, MACHINES, ALL_MACHINE_IDS } from '@/lib/constants';
 import type { MachinePitchConfig } from '@/lib/constants';
+import { getCachedPolicies } from '@/lib/policy-cache';
 
 const MACHINE_CONFIG_KEYS = [
   'BALL_TYPE_SELECTION_ENABLED',
@@ -22,14 +22,7 @@ const MACHINE_CONFIG_KEYS = [
 
 export async function GET() {
   try {
-    const policies = await prisma.policy.findMany({
-      where: { key: { in: MACHINE_CONFIG_KEYS } },
-    });
-
-    const config: Record<string, string> = {};
-    for (const p of policies) {
-      config[p.key] = p.value;
-    }
+    const config = await getCachedPolicies(MACHINE_CONFIG_KEYS);
 
     let pricingConfig: PricingConfig = DEFAULT_PRICING_CONFIG;
     if (config['PRICING_CONFIG']) {
@@ -86,6 +79,10 @@ export async function GET() {
       numberOfOperators: parseInt(config['NUMBER_OF_OPERATORS'] || '1', 10),
       pricingConfig,
       timeSlabConfig,
+    }, {
+      headers: {
+        'Cache-Control': 'public, s-maxage=60, stale-while-revalidate=300',
+      },
     });
   } catch (error: any) {
     console.error('Public machine config fetch error:', error);

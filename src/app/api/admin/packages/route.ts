@@ -24,7 +24,11 @@ export async function GET(req: NextRequest) {
       },
     });
 
-    return NextResponse.json(packages);
+    return NextResponse.json(packages, {
+      headers: {
+        'Cache-Control': 'private, s-maxage=30, stale-while-revalidate=60',
+      },
+    });
   } catch (error) {
     console.error('Admin packages list error:', error);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
