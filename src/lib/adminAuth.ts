@@ -1,6 +1,7 @@
 import { NextRequest } from 'next/server';
 import { getToken } from 'next-auth/jwt';
 import { verifyToken } from '@/lib/jwt';
+import { prisma } from '@/lib/prisma';
 
 export async function getAdminSession(req: NextRequest) {
   const token = await getToken({ req, secret: process.env.NEXTAUTH_SECRET });
@@ -33,9 +34,10 @@ export async function requireOperatorOrAdmin(req: NextRequest) {
 export async function getOperatorSession(req: NextRequest) {
   const session = await getAdminSession(req);
   if (!session?.role || !['ADMIN', 'OPERATOR'].includes(session.role)) return null;
-  // Need to look up userId from email
-  const { prisma } = await import('@/lib/prisma');
-  const user = await prisma.user.findUnique({ where: { email: session.email } });
+  const user = await prisma.user.findUnique({
+    where: { email: session.email },
+    select: { id: true },
+  });
   if (!user) return null;
   return { ...session, userId: user.id, isAdmin: session.role === 'ADMIN' };
 }
