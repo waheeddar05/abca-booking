@@ -5,6 +5,7 @@ import { DEFAULT_PRICING_CONFIG, DEFAULT_TIME_SLABS, normalizePricingConfig } fr
 import type { PricingConfig, TimeSlabConfig } from '@/lib/pricing';
 import { DEFAULT_MACHINE_PITCH_CONFIG, ALL_MACHINE_IDS, MACHINES } from '@/lib/constants';
 import type { MachinePitchConfig } from '@/lib/constants';
+import { getCachedPolicies, invalidatePolicyCache } from '@/lib/policy-cache';
 
 const MACHINE_CONFIG_KEYS = [
   'BALL_TYPE_SELECTION_ENABLED',
@@ -27,14 +28,7 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 403 });
     }
 
-    const policies = await prisma.policy.findMany({
-      where: { key: { in: MACHINE_CONFIG_KEYS } },
-    });
-
-    const config: Record<string, string> = {};
-    for (const p of policies) {
-      config[p.key] = p.value;
-    }
+    const config = await getCachedPolicies(MACHINE_CONFIG_KEYS);
 
     let pricingConfig: PricingConfig = DEFAULT_PRICING_CONFIG;
     if (config['PRICING_CONFIG']) {
@@ -174,13 +168,18 @@ export async function POST(req: NextRequest) {
       updates.push({ key: 'MACHINE_PITCH_CONFIG', value: JSON.stringify(machinePitchConfig) });
     }
 
-    for (const { key, value } of updates) {
-      await prisma.policy.upsert({
-        where: { key },
-        update: { value },
-        create: { key, value },
-      });
-    }
+    await Promise.all(
+      updates.map(({ key, value }) =>
+        prisma.policy.upsert({
+          where: { key },
+          update: { value },
+          create: { key, value },
+        })
+      )
+    );
+
+    // Invalidate cache so subsequent reads pick up the new values
+    invalidatePolicyCache(...updates.map(u => u.key));
 
     return NextResponse.json({ message: 'Machine configuration updated successfully' });
   } catch (error: any) {
