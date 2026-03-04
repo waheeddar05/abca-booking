@@ -1,53 +1,65 @@
 import { NextRequest } from 'next/server';
-import { getServerSession } from "next-auth/next";
+import { getToken } from 'next-auth/jwt';
 import { prisma } from '@/lib/prisma';
 import { verifyToken } from '@/lib/jwt';
-import { authOptions } from '@/lib/authOptions';
 
 const SUPER_ADMIN_EMAIL = process.env.SUPER_ADMIN_EMAIL || process.env.INITIAL_ADMIN_EMAIL || '';
 
+// Minimal select for auth — only fetch the fields we actually return.
+const AUTH_USER_SELECT = {
+  id: true,
+  name: true,
+  email: true,
+  role: true,
+  isFreeUser: true,
+  mobileVerified: true,
+} as const;
+
 export async function getAuthenticatedUser(req: NextRequest) {
-  let userId: string | undefined;
-  let userName: string | undefined;
-  let userRole: string | undefined;
-  let userEmail: string | undefined;
-  let isFreeUser = false;
-  let mobileVerified = false;
-
-  // Check for NextAuth session
-  const session = await getServerSession(authOptions);
-  if (session?.user?.email) {
+  // 1. Try NextAuth JWT first (local decode, no HTTP request — ~1ms vs ~500ms for getServerSession)
+  const nextAuthToken = await getToken({ req, secret: process.env.NEXTAUTH_SECRET });
+  if (nextAuthToken?.email) {
     const dbUser = await prisma.user.findUnique({
-      where: { email: session.user.email },
+      where: { email: nextAuthToken.email },
+      select: AUTH_USER_SELECT,
     });
-    userId = dbUser?.id;
-    userName = dbUser?.name || undefined;
-    userRole = dbUser?.role;
-    userEmail = dbUser?.email || undefined;
-    isFreeUser = dbUser?.isFreeUser || false;
-    mobileVerified = dbUser?.mobileVerified || false;
-  }
-
-  // Check for JWT token if no NextAuth session
-  if (!userId) {
-    const token = req.cookies.get('token')?.value;
-    const decoded = token ? (verifyToken(token) as any) : null;
-    if (decoded?.userId) {
-      userId = decoded.userId;
-      const dbUser = await prisma.user.findUnique({
-        where: { id: userId },
-      });
-      userName = dbUser?.name || undefined;
-      userRole = dbUser?.role;
-      userEmail = dbUser?.email || undefined;
-      isFreeUser = dbUser?.isFreeUser || false;
-      mobileVerified = dbUser?.mobileVerified || false;
+    if (dbUser) {
+      const isSuperAdmin = !!(dbUser.email && SUPER_ADMIN_EMAIL && dbUser.email === SUPER_ADMIN_EMAIL);
+      return {
+        id: dbUser.id,
+        name: dbUser.name || undefined,
+        role: dbUser.role,
+        email: dbUser.email || undefined,
+        isSuperAdmin,
+        isFreeUser: dbUser.isFreeUser || false,
+        mobileVerified: dbUser.mobileVerified || false,
+      };
     }
   }
 
-  if (!userId) return null;
+  // 2. Fallback to custom OTP JWT
+  const otpTokenStr = req.cookies.get('token')?.value;
+  if (otpTokenStr) {
+    const decoded = verifyToken(otpTokenStr) as any;
+    if (decoded?.userId) {
+      const dbUser = await prisma.user.findUnique({
+        where: { id: decoded.userId },
+        select: AUTH_USER_SELECT,
+      });
+      if (dbUser) {
+        const isSuperAdmin = !!(dbUser.email && SUPER_ADMIN_EMAIL && dbUser.email === SUPER_ADMIN_EMAIL);
+        return {
+          id: dbUser.id,
+          name: dbUser.name || undefined,
+          role: dbUser.role,
+          email: dbUser.email || undefined,
+          isSuperAdmin,
+          isFreeUser: dbUser.isFreeUser || false,
+          mobileVerified: dbUser.mobileVerified || false,
+        };
+      }
+    }
+  }
 
-  const isSuperAdmin = !!(userEmail && SUPER_ADMIN_EMAIL && userEmail === SUPER_ADMIN_EMAIL);
-
-  return { id: userId, name: userName, role: userRole, email: userEmail, isSuperAdmin, isFreeUser, mobileVerified };
+  return null;
 }

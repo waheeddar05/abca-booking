@@ -196,6 +196,11 @@ export async function sendWhatsAppOTP(
 
   const to = formatIndianMobile(mobileNumber);
 
+  // Use plain text message when template is set to "text" (useful for Test WABA)
+  if (OTP_TEMPLATE_NAME === 'text') {
+    return provider.sendText(to, `Your PlayOrbit verification code is: ${otp}. It expires in ${process.env.OTP_TTL_MINUTES || '10'} minutes.`);
+  }
+
   return provider.sendTemplate(to, OTP_TEMPLATE_NAME, TEMPLATE_LANGUAGE, [
     {
       type: 'body',

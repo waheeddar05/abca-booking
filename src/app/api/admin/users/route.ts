@@ -3,18 +3,6 @@ import { prisma } from '@/lib/prisma';
 import { getToken } from 'next-auth/jwt';
 import { verifyToken } from '@/lib/jwt';
 
-// Check if isFreeUser column exists in User table
-async function hasIsFreeUserColumn(): Promise<boolean> {
-  try {
-    const result = await prisma.$queryRaw<Array<{ count: bigint }>>`
-      SELECT COUNT(*) as count FROM information_schema.columns
-      WHERE table_name = 'User' AND column_name = 'isFreeUser'
-    `;
-    return Number(result[0]?.count) > 0;
-  } catch {
-    return false;
-  }
-}
 
 async function getSession(req: NextRequest) {
   const token = await getToken({ req, secret: process.env.NEXTAUTH_SECRET });
@@ -51,8 +39,6 @@ export async function GET(req: NextRequest) {
       ];
     }
 
-    const hasFreeUserCol = await hasIsFreeUserColumn();
-
     const users = await prisma.user.findMany({
       where,
       select: {
@@ -64,7 +50,7 @@ export async function GET(req: NextRequest) {
         authProvider: true,
         role: true,
         isBlacklisted: true,
-        ...(hasFreeUserCol ? { isFreeUser: true } : {}),
+        isFreeUser: true,
         createdAt: true,
         _count: {
           select: { bookings: true },
@@ -73,13 +59,7 @@ export async function GET(req: NextRequest) {
       orderBy: { createdAt: 'desc' },
     });
 
-    // Ensure isFreeUser is always present in response
-    const usersWithDefaults = users.map((u: any) => ({
-      ...u,
-      isFreeUser: u.isFreeUser ?? false,
-    }));
-
-    return NextResponse.json(usersWithDefaults);
+    return NextResponse.json(users);
   } catch (error) {
     console.error('Admin users fetch error:', error);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
@@ -167,13 +147,11 @@ export async function PATCH(req: NextRequest) {
       return NextResponse.json({ error: 'Only super admin can set free user status' }, { status: 403 });
     }
 
-    const hasFreeUserCol = await hasIsFreeUserColumn();
-
     const updated = await prisma.user.update({
       where: { id },
       data: {
         ...(role && { role }),
-        ...(typeof isFreeUser === 'boolean' && hasFreeUserCol ? { isFreeUser } : {}),
+        ...(typeof isFreeUser === 'boolean' ? { isFreeUser } : {}),
       },
     });
 

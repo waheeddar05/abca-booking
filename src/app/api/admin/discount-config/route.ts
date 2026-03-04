@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { requireAdmin } from '@/lib/adminAuth';
+import { getCachedPolicies, invalidatePolicyCache } from '@/lib/policy-cache';
 
 const DISCOUNT_KEYS = [
   'CONSECUTIVE_DISCOUNT_ENABLED',
@@ -17,14 +18,7 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 403 });
     }
 
-    const policies = await prisma.policy.findMany({
-      where: { key: { in: DISCOUNT_KEYS } },
-    });
-
-    const config: Record<string, string> = {};
-    for (const p of policies) {
-      config[p.key] = p.value;
-    }
+    const config = await getCachedPolicies(DISCOUNT_KEYS);
 
     return NextResponse.json({
       enabled: config['CONSECUTIVE_DISCOUNT_ENABLED'] === 'true',
@@ -64,13 +58,17 @@ export async function POST(req: NextRequest) {
     if (discountValue !== undefined) updates.push({ key: 'CONSECUTIVE_DISCOUNT_VALUE', value: String(discountValue) });
     if (defaultSlotPrice !== undefined) updates.push({ key: 'DEFAULT_SLOT_PRICE', value: String(defaultSlotPrice) });
 
-    for (const { key, value } of updates) {
-      await prisma.policy.upsert({
-        where: { key },
-        update: { value },
-        create: { key, value },
-      });
-    }
+    await Promise.all(
+      updates.map(({ key, value }) =>
+        prisma.policy.upsert({
+          where: { key },
+          update: { value },
+          create: { key, value },
+        })
+      )
+    );
+
+    invalidatePolicyCache(...updates.map(u => u.key));
 
     return NextResponse.json({ message: 'Discount configuration updated successfully' });
   } catch (error: any) {

@@ -13,12 +13,16 @@ export async function GET(req: NextRequest) {
     const todayUTC = getISTTodayUTC();
     const lastMonthRange = getISTLastMonthRange();
 
+    // Run ALL queries in a single Promise.all for maximum parallelism
     const [
       totalBookings,
       activeAdmins,
       todayBookings,
       upcomingBookings,
       lastMonthBookings,
+      totalSlots,
+      totalRevenueValue,
+      totalDiscountValue,
     ] = await Promise.all([
       prisma.booking.count({
         where: { status: { not: 'CANCELLED' } },
@@ -39,31 +43,20 @@ export async function GET(req: NextRequest) {
           status: { not: 'CANCELLED' },
         },
       }),
+      prisma.slot.count().catch(() => 0),
+      prisma.booking.aggregate({
+        _sum: { price: true },
+        where: { status: { in: ['BOOKED', 'DONE'] }, isSuperAdminBooking: false },
+      }).then(r => r._sum.price || 0).catch(() => 0),
+      prisma.booking.aggregate({
+        _sum: { discountAmount: true },
+        where: {
+          status: { in: ['BOOKED', 'DONE'] },
+          isSuperAdminBooking: false,
+          discountAmount: { gt: 0 },
+        },
+      }).then(r => r._sum.discountAmount || 0).catch(() => 0),
     ]);
-
-    // These queries depend on post-migration schema (Slot table, price/discountAmount columns)
-    let totalSlots = 0;
-    let totalRevenueValue = 0;
-    let totalDiscountValue = 0;
-    try {
-      [totalSlots, totalRevenueValue, totalDiscountValue] = await Promise.all([
-        prisma.slot.count(),
-        prisma.booking.aggregate({
-          _sum: { price: true },
-          where: { status: { in: ['BOOKED', 'DONE'] }, isSuperAdminBooking: false },
-        }).then(r => r._sum.price || 0),
-        prisma.booking.aggregate({
-          _sum: { discountAmount: true },
-          where: {
-            status: { in: ['BOOKED', 'DONE'] },
-            isSuperAdminBooking: false,
-            discountAmount: { gt: 0 },
-          },
-        }).then(r => r._sum.discountAmount || 0),
-      ]);
-    } catch {
-      // Slot table or pricing columns may not exist if migrations haven't been applied
-    }
 
     return NextResponse.json({
       totalBookings,
@@ -75,6 +68,10 @@ export async function GET(req: NextRequest) {
       totalRevenue: totalRevenueValue,
       totalDiscount: totalDiscountValue,
       systemStatus: 'Healthy',
+    }, {
+      headers: {
+        'Cache-Control': 'private, s-maxage=30, stale-while-revalidate=60',
+      },
     });
   } catch (error: any) {
     console.error('Admin stats fetch error:', error);

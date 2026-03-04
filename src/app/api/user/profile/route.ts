@@ -9,6 +9,8 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
+    // getAuthenticatedUser already fetched user from DB; select only the extra
+    // fields not present on the auth object to avoid a redundant full query.
     const dbUser = await prisma.user.findUnique({
       where: { id: user.id },
       select: {
@@ -23,7 +25,11 @@ export async function GET(req: NextRequest) {
       },
     });
 
-    return NextResponse.json(dbUser);
+    return NextResponse.json(dbUser, {
+      headers: {
+        'Cache-Control': 'private, s-maxage=30, stale-while-revalidate=60',
+      },
+    });
   } catch (error) {
     console.error('Get user profile error:', error);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });

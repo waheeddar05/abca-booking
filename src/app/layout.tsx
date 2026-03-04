@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import { GeistSans } from "geist/font/sans";
+import { GeistMono } from "geist/font/mono";
 import Navbar from "@/components/Navbar";
 import { Providers } from "@/components/Providers";
 import { ErrorBoundary } from "@/components/ui/ErrorBoundary";
@@ -7,16 +8,6 @@ import { ToastProvider } from "@/components/ui/Toast";
 import { MobileNumberCheck } from "@/components/MobileNumberCheck";
 import PWARegister from "@/components/PWARegister";
 import "./globals.css";
-
-const geistSans = Geist({
-  variable: "--font-geist-sans",
-  subsets: ["latin"],
-});
-
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
-  subsets: ["latin"],
-});
 
 export const metadata: Metadata = {
   title: "PlayOrbit - Book Cricket Practice Sessions",
@@ -64,7 +55,7 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body
-        className={`${geistSans.variable} ${geistMono.variable} antialiased bg-[#0a1628] min-h-screen`}
+        className={`${GeistSans.variable} ${GeistMono.variable} antialiased bg-[#0a1628] min-h-screen`}
       >
         <Providers>
           <ToastProvider>
