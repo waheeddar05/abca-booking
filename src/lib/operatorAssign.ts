@@ -40,8 +40,17 @@ export async function autoAssignOperator(
       .filter((a) => a.user.role === 'OPERATOR')
       .map((a) => ({ id: a.user.id, operatorPriority: a.user.operatorPriority }))
       .sort((a, b) => b.operatorPriority - a.operatorPriority);
+
+    // Fallback: if no machine-specific assignments, use ALL operators
+    if (operators.length === 0) {
+      operators = await db.user.findMany({
+        where: { role: 'OPERATOR' },
+        select: { id: true, operatorPriority: true },
+        orderBy: { operatorPriority: 'desc' },
+      });
+    }
   } else {
-    // Fallback: get all operators ordered by priority (highest first)
+    // No machineId: get all operators ordered by priority (highest first)
     operators = await db.user.findMany({
       where: { role: 'OPERATOR' },
       select: { id: true, operatorPriority: true },

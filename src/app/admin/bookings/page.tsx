@@ -50,6 +50,8 @@ function AdminBookingsContent() {
   const [editPriceValue, setEditPriceValue] = useState('');
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [showBookOnBehalf, setShowBookOnBehalf] = useState(false);
+  const [operators, setOperators] = useState<Array<{ id: string; name: string }>>([]);
+  const [changingOperator, setChangingOperator] = useState<string | null>(null);
   const toast = useToast();
 
   // Dialog states
@@ -98,6 +100,18 @@ function AdminBookingsContent() {
     fetchBookings();
   }, [fetchBookings]);
 
+  // Fetch operators list for assignment dropdown
+  useEffect(() => {
+    fetch('/api/admin/operators')
+      .then(res => res.json())
+      .then(data => {
+        if (data.operators) {
+          setOperators(data.operators.map((op: any) => ({ id: op.id, name: op.name || op.email })));
+        }
+      })
+      .catch(() => {});
+  }, []);
+
   useEffect(() => {
     const cat = searchParams.get('category');
     if (cat && cat !== category) {
@@ -125,6 +139,28 @@ function AdminBookingsContent() {
       setSortOrder('desc');
     }
     setPagination(prev => ({ ...prev, page: 1 }));
+  };
+
+  const handleOperatorChange = async (bookingId: string, operatorId: string | null) => {
+    setChangingOperator(bookingId);
+    try {
+      const res = await fetch('/api/admin/bookings', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ bookingId, operatorId }),
+      });
+      if (res.ok) {
+        toast.success('Operator updated');
+        fetchBookings();
+      } else {
+        const data = await res.json();
+        toast.error(data.error || 'Failed to update operator');
+      }
+    } catch {
+      toast.error('Failed to update operator');
+    } finally {
+      setChangingOperator(null);
+    }
   };
 
   const handleCancelClick = (bookingId: string, playerName: string) => {
@@ -683,6 +719,24 @@ function AdminBookingsContent() {
                     )}
                   </div>
 
+                  {/* Operator Assignment */}
+                  {booking.operationMode === 'WITH_OPERATOR' && (
+                    <div className="flex items-center gap-2 mb-2.5">
+                      <span className="text-[10px] text-slate-500">Operator:</span>
+                      <select
+                        value={booking.operatorId || ''}
+                        onChange={(e) => handleOperatorChange(booking.id, e.target.value || null)}
+                        disabled={changingOperator === booking.id}
+                        className="text-[11px] bg-white/[0.06] border border-white/[0.08] text-slate-300 rounded px-2 py-1 outline-none cursor-pointer disabled:opacity-50"
+                      >
+                        <option value="">Unassigned</option>
+                        {operators.map(op => (
+                          <option key={op.id} value={op.id}>{op.name}</option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+
                   {/* Row 4: Actions */}
                   <div className="flex gap-2 pt-2.5 border-t border-white/[0.04]">
                     {booking.status === 'BOOKED' && (
@@ -729,6 +783,7 @@ function AdminBookingsContent() {
                   <th className="px-5 py-3 text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Created</th>
                   <th className="px-5 py-3 text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Type</th>
                   <th className="px-5 py-3 text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Price</th>
+                  <th className="px-5 py-3 text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Operator</th>
                   <th className="px-5 py-3 text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Status</th>
                   <th className="px-5 py-3 text-[11px] font-semibold text-slate-400 uppercase tracking-wider text-right">Actions</th>
                 </tr>
@@ -811,6 +866,23 @@ function AdminBookingsContent() {
                           </button>
                         ) : (
                           <button onClick={() => startEditPrice(booking)} className="text-xs text-slate-500 hover:text-accent cursor-pointer">Set price</button>
+                        )}
+                      </td>
+                      <td className="px-5 py-3.5">
+                        {booking.operationMode === 'WITH_OPERATOR' ? (
+                          <select
+                            value={booking.operatorId || ''}
+                            onChange={(e) => handleOperatorChange(booking.id, e.target.value || null)}
+                            disabled={changingOperator === booking.id}
+                            className="text-xs bg-white/[0.06] border border-white/[0.08] text-slate-300 rounded px-2 py-1.5 outline-none cursor-pointer disabled:opacity-50 min-w-[100px]"
+                          >
+                            <option value="">Unassigned</option>
+                            {operators.map(op => (
+                              <option key={op.id} value={op.id}>{op.name}</option>
+                            ))}
+                          </select>
+                        ) : (
+                          <span className="text-[10px] text-slate-500">—</span>
                         )}
                       </td>
                       <td className="px-5 py-3.5">

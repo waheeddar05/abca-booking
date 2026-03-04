@@ -168,7 +168,7 @@ export async function PATCH(req: NextRequest) {
     }
 
     const body = await req.json();
-    const { bookingId, status, price, cancellationReason } = body;
+    const { bookingId, status, price, cancellationReason, operatorId } = body;
 
     if (!bookingId) {
       return NextResponse.json({ error: 'Booking ID is required' }, { status: 400 });
@@ -178,6 +178,27 @@ export async function PATCH(req: NextRequest) {
     const adminName = authUser?.name || authUser?.id || 'Admin';
 
     const data: any = {};
+
+    // Handle operator reassignment
+    if (operatorId !== undefined) {
+      if (operatorId === null) {
+        // Unassign operator
+        data.operatorId = null;
+      } else {
+        // Validate operator exists and has OPERATOR role
+        const operator = await prisma.user.findUnique({
+          where: { id: operatorId },
+          select: { id: true, role: true },
+        });
+        if (!operator) {
+          return NextResponse.json({ error: 'Operator not found' }, { status: 404 });
+        }
+        if (operator.role !== 'OPERATOR' && operator.role !== 'ADMIN') {
+          return NextResponse.json({ error: 'User is not an operator' }, { status: 400 });
+        }
+        data.operatorId = operatorId;
+      }
+    }
 
     // Handle status update
     if (status) {
