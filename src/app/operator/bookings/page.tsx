@@ -70,15 +70,16 @@ export default function OperatorBookingsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
+  const [dateMode, setDateMode] = useState<'day' | 'all'>('day');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [showOnlyMine, setShowOnlyMine] = useState(false);
 
-  const fetchBookings = useCallback(async (date: Date) => {
+  const fetchBookings = useCallback(async (date: Date, mode: 'day' | 'all' = 'day') => {
     try {
       setLoading(true);
       setError(null);
-      const dateStr = toDateString(date);
-      const res = await fetch(`/api/operator/bookings?date=${dateStr}`);
+      const params = mode === 'all' ? 'date=all' : `date=${toDateString(date)}`;
+      const res = await fetch(`/api/operator/bookings?${params}`);
       if (!res.ok) {
         if (res.status === 403) {
           setError('Access denied. You need operator permissions.');
@@ -97,8 +98,8 @@ export default function OperatorBookingsPage() {
   }, []);
 
   useEffect(() => {
-    fetchBookings(selectedDate);
-  }, [selectedDate, fetchBookings]);
+    fetchBookings(selectedDate, dateMode);
+  }, [selectedDate, dateMode, fetchBookings]);
 
   const goToPreviousDay = () => {
     setSelectedDate(prev => {
@@ -149,35 +150,74 @@ export default function OperatorBookingsPage() {
         </p>
       </div>
 
-      {/* Date Navigation */}
-      <div className="flex items-center justify-between bg-[#0f1d2f]/60 border border-white/[0.08] rounded-xl p-3">
+      {/* Date Mode Toggle */}
+      <div className="flex items-center gap-2">
         <button
-          onClick={goToPreviousDay}
-          className="p-2 rounded-lg hover:bg-white/[0.06] text-slate-400 hover:text-white transition-colors"
+          onClick={() => { setDateMode('day'); setSelectedDate(new Date()); }}
+          className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
+            dateMode === 'day'
+              ? 'bg-accent/15 text-accent border border-accent/30'
+              : 'bg-[#0f1d2f]/60 text-slate-400 border border-white/[0.08] hover:border-white/[0.15]'
+          }`}
         >
-          <ChevronLeft className="w-5 h-5" />
+          By Day
         </button>
-        <div className="text-center">
-          <p className="text-white font-medium text-sm">{formatDate(selectedDate)}</p>
-          {!isToday && (
-            <button
-              onClick={goToToday}
-              className="text-accent text-xs mt-0.5 hover:underline"
-            >
-              Go to today
-            </button>
-          )}
-          {isToday && (
-            <span className="text-accent text-xs mt-0.5">Today</span>
-          )}
-        </div>
         <button
-          onClick={goToNextDay}
-          className="p-2 rounded-lg hover:bg-white/[0.06] text-slate-400 hover:text-white transition-colors"
+          onClick={() => setDateMode('all')}
+          className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
+            dateMode === 'all'
+              ? 'bg-accent/15 text-accent border border-accent/30'
+              : 'bg-[#0f1d2f]/60 text-slate-400 border border-white/[0.08] hover:border-white/[0.15]'
+          }`}
         >
-          <ChevronRight className="w-5 h-5" />
+          All Upcoming
         </button>
       </div>
+
+      {/* Date Navigation (day mode only) */}
+      {dateMode === 'day' && (
+        <div className="flex items-center justify-between bg-[#0f1d2f]/60 border border-white/[0.08] rounded-xl p-3">
+          <button
+            onClick={goToPreviousDay}
+            className="p-2 rounded-lg hover:bg-white/[0.06] text-slate-400 hover:text-white transition-colors"
+          >
+            <ChevronLeft className="w-5 h-5" />
+          </button>
+          <div className="flex items-center gap-3">
+            <div className="text-center">
+              <p className="text-white font-medium text-sm">{formatDate(selectedDate)}</p>
+              {!isToday && (
+                <button
+                  onClick={goToToday}
+                  className="text-accent text-xs mt-0.5 hover:underline"
+                >
+                  Go to today
+                </button>
+              )}
+              {isToday && (
+                <span className="text-accent text-xs mt-0.5">Today</span>
+              )}
+            </div>
+            <input
+              type="date"
+              value={toDateString(selectedDate)}
+              onChange={(e) => {
+                if (e.target.value) {
+                  const [y, m, d] = e.target.value.split('-').map(Number);
+                  setSelectedDate(new Date(y, m - 1, d));
+                }
+              }}
+              className="bg-white/[0.06] border border-white/[0.08] text-slate-300 text-xs rounded-lg px-2 py-1.5 outline-none cursor-pointer"
+            />
+          </div>
+          <button
+            onClick={goToNextDay}
+            className="p-2 rounded-lg hover:bg-white/[0.06] text-slate-400 hover:text-white transition-colors"
+          >
+            <ChevronRight className="w-5 h-5" />
+          </button>
+        </div>
+      )}
 
       {/* My Bookings / All toggle */}
       {data && !loading && (
@@ -342,9 +382,15 @@ export default function OperatorBookingsPage() {
                               {booking.user.mobileNumber}
                             </a>
                           )}
-                          {/* Time */}
+                          {/* Date (shown in All mode) + Time */}
                           <p className="text-slate-400 text-xs mt-1 flex items-center gap-1">
                             <Clock className="w-3 h-3" />
+                            {dateMode === 'all' && (
+                              <span className="text-slate-300 font-medium">
+                                {new Date(booking.date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', timeZone: 'Asia/Kolkata' })}
+                                {' · '}
+                              </span>
+                            )}
                             {formatTime(booking.startTime)} - {formatTime(booking.endTime)}
                           </p>
                           {/* Tags */}

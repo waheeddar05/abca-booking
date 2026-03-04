@@ -13,10 +13,11 @@ export async function GET(req: NextRequest) {
     const { searchParams } = new URL(req.url);
     const dateParam = searchParams.get('date');
 
-    // Determine the target date
-    const targetDate = dateParam && dateParam !== 'today'
-      ? dateStringToUTC(dateParam)
-      : getISTTodayUTC();
+    // Determine the target date (or all upcoming)
+    const isAllMode = dateParam === 'all';
+    const targetDate = !isAllMode
+      ? (dateParam && dateParam !== 'today' ? dateStringToUTC(dateParam) : getISTTodayUTC())
+      : null;
 
     // Build booking filter based on role
     let machineIds: string[];
@@ -43,9 +44,15 @@ export async function GET(req: NextRequest) {
     // All operators and admins see ALL bookings on their machines
     // The UI highlights which ones are assigned to the current operator
     bookingWhere = {
-      date: targetDate,
       machineId: { in: machineIds as any },
-    };
+    } as any;
+
+    if (isAllMode) {
+      // Show today and future bookings
+      bookingWhere.date = { gte: getISTTodayUTC() };
+    } else {
+      bookingWhere.date = targetDate;
+    }
 
     // Fetch bookings
     const bookings = await prisma.booking.findMany({
@@ -54,8 +61,9 @@ export async function GET(req: NextRequest) {
         user: { select: { name: true, email: true, mobileNumber: true } },
       },
       orderBy: [
-        { machineId: 'asc' },
-        { startTime: 'asc' },
+        ...(isAllMode ? [{ date: 'asc' as const }] : []),
+        { machineId: 'asc' as const },
+        { startTime: 'asc' as const },
       ],
     });
 
