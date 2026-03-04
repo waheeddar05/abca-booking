@@ -1,6 +1,7 @@
 import { NextAuthOptions } from "next-auth";
 import GoogleProvider from "next-auth/providers/google";
 import { prisma } from "@/lib/prisma";
+import { getCachedPolicy } from "@/lib/policy-cache";
 
 const SUPER_ADMIN_EMAIL = process.env.SUPER_ADMIN_EMAIL || process.env.INITIAL_ADMIN_EMAIL || '';
 
@@ -21,6 +22,21 @@ export const authOptions: NextAuthOptions = {
         token.isFreeUser = (user as any).isFreeUser || false;
         token.mobileVerified = (user as any).mobileVerified || false;
       }
+
+      // For existing sessions where mobileVerified is false,
+      // check if WhatsApp login is even enabled — if not, bypass the gate
+      if (!token.mobileVerified && token.role !== 'ADMIN' && token.role !== 'OPERATOR') {
+        try {
+          const whatsappEnabled = await getCachedPolicy('WHATSAPP_LOGIN_ENABLED');
+          if (whatsappEnabled !== 'true') {
+            token.mobileVerified = true;
+          }
+        } catch {
+          // If policy check fails, don't block the user
+          token.mobileVerified = true;
+        }
+      }
+
       // Always compute from token email so existing sessions pick it up
       token.isSuperAdmin = !!(token.email && SUPER_ADMIN_EMAIL && token.email === SUPER_ADMIN_EMAIL);
       return token;
@@ -73,7 +89,17 @@ export const authOptions: NextAuthOptions = {
         (user as any).role = dbUser.role;
         (user as any).image = dbUser.image;
         (user as any).isFreeUser = dbUser.isFreeUser;
-        (user as any).mobileVerified = dbUser.mobileVerified;
+
+        // If WhatsApp login is not enabled, skip mobile verification gate
+        // so users aren't stuck at /verify-mobile with no way to verify
+        let mobileVerified = dbUser.mobileVerified;
+        if (!mobileVerified) {
+          const whatsappEnabled = await getCachedPolicy('WHATSAPP_LOGIN_ENABLED');
+          if (whatsappEnabled !== 'true') {
+            mobileVerified = true;
+          }
+        }
+        (user as any).mobileVerified = mobileVerified;
         return true;
       }
       return true;
