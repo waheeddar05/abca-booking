@@ -1,0 +1,397 @@
+diff --git a/prisma/schema.prisma b/prisma/schema.prisma
+index c660cbd..a28e82f 100644
+--- a/prisma/schema.prisma
++++ b/prisma/schema.prisma
+@@ -25,7 +25,9 @@ model User {
+   otps                 Otp[]
+   userPackages         UserPackage[]
+   payments             Payment[]
++  operatorPriority     Int                  @default(0)
+   operatorAssignments  OperatorAssignment[]
++  operatedBookings     Booking[]            @relation("OperatorBookings")
+   cashPaymentUser      CashPaymentUser?
+   wallet               Wallet?
+ }
+@@ -81,15 +83,18 @@ model Booking {
+   createdBy          String?
+   machineId          MachineId?
+   isSuperAdminBooking Boolean              @default(false)
++  operatorId          String?
+   paymentMethod       BookingPaymentMethod?
+   paymentStatus       BookingPaymentStatus?
+   user               User?           @relation(fields: [userId], references: [id])
++  operator           User?           @relation("OperatorBookings", fields: [operatorId], references: [id])
+   packageBooking     PackageBooking?
+
+   @@unique([date, startTime, machineId, pitchType])
+   @@index([status])
+   @@index([userId, status])
+   @@index([date, status])
++  @@index([operatorId])
+ }
+
+ model BlockedSlot {
+
+diff --git a/src/app/admin/page.tsx b/src/app/admin/page.tsx
+index 4217ce0..597a61c 100644
+--- a/src/app/admin/page.tsx
++++ b/src/app/admin/page.tsx
+@@ -3,7 +3,7 @@
+ import { useEffect, useState } from 'react';
+ import Link from 'next/link';
+ import { useSession } from 'next-auth/react';
+-import { CalendarCheck, Activity, UserPlus, CalendarDays, Settings, Clock, IndianRupee, TrendingUp, Save, Loader2, Zap, Wrench, CalendarPlus, Check } from 'lucide-react';
++import { CalendarCheck, Activity, UserPlus, CalendarDays, Settings, Clock, IndianRupee, TrendingUp, Save, Loader2, Zap, Wrench, CalendarPlus, Check, ChevronUp, ChevronDown, Users } from 'lucide-react';
+
+ interface Stats {
+   totalBookings: number;
+@@ -234,6 +234,8 @@ export default function AdminDashboard() {
+   const [machineLoading, setMachineLoading] = useState(true);
+   const [savingMachine, setSavingMachine] = useState(false);
+   const [machineMessage, setMachineMessage] = useState({ text: '', type: '' });
++  const [operators, setOperators] = useState<{ id: string; name: string | null; email: string | null; operatorPriority: number }[]>([]);
++  const [savingPriority, setSavingPriority] = useState(false);
+
+   const isSuperAdmin = session?.user?.email === 'waheeddar8@gmail.com';
+
+@@ -279,8 +281,21 @@ export default function AdminDashboard() {
+       }
+     }
+
++    async function fetchOperators() {
++      try {
++        const res = await fetch('/api/admin/operators');
++        if (res.ok) {
++          const data = await res.json();
++          setOperators(data.operators || []);
++        }
++      } catch (error) {
++        console.error('Failed to fetch operators:', error);
++      }
++    }
++
+     fetchStats();
+     fetchMachineConfig();
++    fetchOperators();
+   }, []);
+
+
+@@ -343,6 +358,45 @@ export default function AdminDashboard() {
+     });
+   };
+
++  const moveOperator = (index: number, direction: 'up' | 'down') => {
++    setOperators(prev => {
++      const arr = [...prev];
++      const swapIndex = direction === 'up' ? index - 1 : index + 1;
++      if (swapIndex < 0 || swapIndex >= arr.length) return prev;
++      [arr[index], arr[swapIndex]] = [arr[swapIndex], arr[index]];
++      return arr;
++    });
++  };
++
++  const saveOperatorPriority = async () => {
++    setSavingPriority(true);
++    try {
++      // Assign priority: highest index in array = lowest priority value
++      // First in array = highest priority
++      const payload = operators.map((op, i) => ({
++        userId: op.id,
++        priority: operators.length - i,
++      }));
++      const res = await fetch('/api/admin/operators', {
++        method: 'PATCH',
++        headers: { 'Content-Type': 'application/json' },
++        body: JSON.stringify({ operators: payload }),
++      });
++      if (res.ok) {
++        const data = await res.json();
++        setOperators(data.operators || []);
++        setMachineMessage({ text: 'Operator priority saved', type: 'success' });
++      } else {
++        const data = await res.json();
++        setMachineMessage({ text: data.error || 'Failed to save priority', type: 'error' });
++      }
++    } catch {
++      setMachineMessage({ text: 'Failed to save operator priority', type: 'error' });
++    } finally {
++      setSavingPriority(false);
++    }
++  };
++
+   const statCards = [
+     { label: 'Total Bookings', value: stats?.totalBookings ?? 0, icon: CalendarCheck, color: 'text-primary', bg: 'bg-accent/10', href: '/admin/bookings' },
+     { label: 'Today', value: stats?.todayBookings ?? 0, icon: CalendarDays, color: 'text-orange-600', bg: 'bg-orange-500/10', href: '/admin/bookings?category=today' },
+@@ -571,6 +625,56 @@ export default function AdminDashboard() {
+                   className="w-32 bg-white/[0.04] border border-white/[0.1] text-white placeholder:text-slate-500 rounded-lg px-3 py-2.5 text-sm outline-none focus:border-accent focus:ring-1 focus:ring-accent/20"
+                 />
+               </div>
++
++              {/* Operator Priority */}
++              <div className="mt-4">
++                <p className="text-sm font-medium text-slate-300">Operator Priority</p>
++                <p className="text-xs text-slate-400 mb-3">First operator gets booking preference. Reorder to change priority.</p>
++                {operators.length === 0 ? (
++                  <p className="text-xs text-slate-500 italic">No operators found. Assign OPERATOR role to users first.</p>
++                ) : (
++                  <div className="space-y-2">
++                    {operators.map((op, index) => (
++                      <div
++                        key={op.id}
++                        className="flex items-center gap-3 bg-white/[0.03] border border-white/[0.08] rounded-lg px-3 py-2.5"
++                      >
++                        <span className="w-5 h-5 rounded-full bg-accent/15 flex items-center justify-center text-[10px] font-bold text-accent flex-shrink-0">
++                          {index + 1}
++                        </span>
++                        <div className="flex-1 min-w-0">
++                          <p className="text-sm text-white truncate">{op.name || 'Unnamed'}</p>
++                          <p className="text-[10px] text-slate-500 truncate">{op.email || op.id.slice(0, 8)}</p>
++                        </div>
++                        <div className="flex flex-col gap-0.5">
++                          <button
++                            onClick={() => moveOperator(index, 'up')}
++                            disabled={index === 0}
++                            className="p-1 text-slate-400 hover:text-white disabled:opacity-20 disabled:cursor-not-allowed cursor-pointer transition-colors"
++                          >
++                            <ChevronUp className="w-3.5 h-3.5" />
++                          </button>
++                          <button
++                            onClick={() => moveOperator(index, 'down')}
++                            disabled={index === operators.length - 1}
++                            className="p-1 text-slate-400 hover:text-white disabled:opacity-20 disabled:cursor-not-allowed cursor-pointer transition-colors"
++                          >
++                            <ChevronDown className="w-3.5 h-3.5" />
++                          </button>
++                        </div>
++                      </div>
++                    ))}
++                    <button
++                      onClick={saveOperatorPriority}
++                      disabled={savingPriority}
++                      className="mt-2 inline-flex items-center gap-1.5 bg-accent/10 hover:bg-accent/20 text-accent px-3 py-1.5 rounded-lg text-xs font-medium transition-colors cursor-pointer disabled:opacity-50"
++                    >
++                      {savingPriority ? <Loader2 className="w-3 h-3 animate-spin" /> : <Save className="w-3 h-3" />}
++                      Save Priority
++                    </button>
++                  </div>
++                )}
++              </div>
+             </div>
+
+             {/* Time Slab Configuration */}
+
+diff --git a/src/app/api/admin/bookings/route.ts b/src/app/api/admin/bookings/route.ts
+index 42365a7..9b71984 100644
+--- a/src/app/api/admin/bookings/route.ts
++++ b/src/app/api/admin/bookings/route.ts
+@@ -5,6 +5,7 @@ import { getAuthenticatedUser } from '@/lib/auth';
+ import { getISTTodayUTC, getISTLastMonthRange, dateStringToUTC, formatIST } from '@/lib/time';
+ import { MACHINES } from '@/lib/constants';
+ import { notifyBookingCancelled } from '@/lib/notifications';
++import { autoAssignOperator } from '@/lib/operatorAssign';
+
+ type MachineIdFilter = 'GRAVITY' | 'YANTRA' | 'LEVERAGE_INDOOR' | 'LEVERAGE_OUTDOOR';
+
+@@ -328,6 +329,12 @@ export async function POST(req: NextRequest) {
+         // fallback: keep same price
+       }
+
++      // Auto-assign operator if booking requires one
++      let assignedOperatorId: string | null = null;
++      if (sourceBooking.operationMode === 'WITH_OPERATOR') {
++        assignedOperatorId = await autoAssignOperator(sourceBooking.date, nextStartTime);
++      }
++
+       // Start transaction to create new booking and update source booking price
+       const [newBooking] = await prisma.$transaction([
+         prisma.booking.create({
+@@ -345,6 +352,7 @@ export async function POST(req: NextRequest) {
+             createdBy: createdBy,
+             price: newPrice,
+             originalPrice: sourceBooking.originalPrice,
++            ...(assignedOperatorId ? { operatorId: assignedOperatorId } : {}),
+           },
+         }),
+         prisma.booking.update({
+
+diff --git a/src/app/api/admin/operators/route.ts b/src/app/api/admin/operators/route.ts
+index 890841b..e779bee 100644
+--- a/src/app/api/admin/operators/route.ts
++++ b/src/app/api/admin/operators/route.ts
+@@ -17,6 +17,7 @@ export async function GET(req: NextRequest) {
+         name: true,
+         email: true,
+         mobileNumber: true,
++        operatorPriority: true,
+         operatorAssignments: {
+           select: {
+             id: true,
+@@ -25,7 +26,7 @@ export async function GET(req: NextRequest) {
+           },
+         },
+       },
+-      orderBy: { name: 'asc' },
++      orderBy: { operatorPriority: 'desc' },
+     });
+
+     return NextResponse.json({ operators });
+@@ -107,6 +108,63 @@ export async function POST(req: NextRequest) {
+   }
+ }
+
++// PATCH: Update operator priorities
++export async function PATCH(req: NextRequest) {
++  try {
++    const session = await requireAdmin(req);
++    if (!session) {
++      return NextResponse.json({ error: 'Unauthorized' }, { status: 403 });
++    }
++
++    const { operators } = await req.json();
++
++    if (!Array.isArray(operators) || operators.length === 0) {
++      return NextResponse.json(
++        { error: 'operators array is required with { userId, priority } entries' },
++        { status: 400 }
++      );
++    }
++
++    // Update each operator's priority in a transaction
++    await prisma.$transaction(
++      operators.map((op: { userId: string; priority: number }) =>
++        prisma.user.update({
++          where: { id: op.userId },
++          data: { operatorPriority: op.priority },
++        })
++      )
++    );
++
++    // Return updated operator list
++    const updated = await prisma.user.findMany({
++      where: { role: 'OPERATOR' },
++      select: {
++        id: true,
++        name: true,
++        email: true,
++        mobileNumber: true,
++        operatorPriority: true,
++        operatorAssignments: {
++          select: {
++            id: true,
++            machineId: true,
++            createdAt: true,
++          },
++        },
++      },
++      orderBy: { operatorPriority: 'desc' },
++    });
++
++    return NextResponse.json({ operators: updated });
++  } catch (error: any) {
++    console.error('Admin operator priority update error:', error);
++    return NextResponse.json(
++      { error: error?.message || 'Failed to update operator priorities' },
++      { status: 500 }
++    );
++  }
++}
++
+ // DELETE: Remove a machine assignment from an operator
+ export async function DELETE(req: NextRequest) {
+   try {
+
+diff --git a/src/app/api/operator/bookings/route.ts b/src/app/api/operator/bookings/route.ts
+index 01f8cf1..13ffa9d 100644
+--- a/src/app/api/operator/bookings/route.ts
++++ b/src/app/api/operator/bookings/route.ts
+@@ -18,13 +18,19 @@ export async function GET(req: NextRequest) {
+       ? dateStringToUTC(dateParam)
+       : getISTTodayUTC();
+
+-    // Get the operator's assigned machine IDs
++    // Build booking filter based on role
+     let machineIds: string[];
++    let bookingWhere: any;
+
+     if (session.isAdmin) {
+-      // Admins can see all machines
++      // Admins see all bookings
+       machineIds = ['GRAVITY', 'YANTRA', 'LEVERAGE_INDOOR', 'LEVERAGE_OUTDOOR'];
++      bookingWhere = {
++        date: targetDate,
++        machineId: { in: machineIds as any },
++      };
+     } else {
++      // Operators see bookings assigned to them
+       const assignments = await prisma.operatorAssignment.findMany({
+         where: { userId: session.userId },
+         select: { machineId: true },
+@@ -39,14 +45,21 @@ export async function GET(req: NextRequest) {
+           machineIds: [],
+         });
+       }
+-    }
+
+-    // Fetch bookings for the assigned machines on the target date
+-    const bookings = await prisma.booking.findMany({
+-      where: {
++      // Show bookings assigned to this operator, or unassigned ones on their machines
++      bookingWhere = {
+         date: targetDate,
+         machineId: { in: machineIds as any },
+-      },
++        OR: [
++          { operatorId: session.userId },
++          { operatorId: null, operationMode: 'WITH_OPERATOR' },
++        ],
++      };
++    }
++
++    // Fetch bookings
++    const bookings = await prisma.booking.findMany({
++      where: bookingWhere,
+       include: {
+         user: { select: { name: true, email: true, mobileNumber: true } },
+       },
+
+diff --git a/src/app/api/slots/book/route.ts b/src/app/api/slots/book/route.ts
+index b4b6c9b..16bccbf 100644
+--- a/src/app/api/slots/book/route.ts
++++ b/src/app/api/slots/book/route.ts
+@@ -13,6 +13,7 @@ import { getPricingConfig, getTimeSlabConfig, calculateNewPricing } from '@/lib/
+ import { getCachedPolicies } from '@/lib/policy-cache';
+ import { validatePackageBooking } from '@/lib/packages';
+ import { debitWallet, rollbackWalletDebit, isWalletEnabled, getWalletBalance } from '@/lib/wallet';
++import { autoAssignOperator } from '@/lib/operatorAssign';
+
+ async function getMachineConfig() {
+   const config = await getCachedPolicies([
+@@ -392,6 +393,12 @@ export async function POST(req: NextRequest) {
+                   : { paymentMethod: 'ONLINE' as const, paymentStatus: 'PAID' as const }
+               : {};
+
++            // Auto-assign operator for WITH_OPERATOR bookings
++            let assignedOperatorId: string | null = null;
++            if (requiresOperator) {
++              assignedOperatorId = await autoAssignOperator(slot.date, slot.startTime, tx);
++            }
++
+             const bookingData: Prisma.BookingUncheckedCreateInput = {
+               userId: userId!,
+               date: slot.date,
+@@ -409,6 +416,7 @@ export async function POST(req: NextRequest) {
+               discountType: effectiveDiscountType,
+               ...(slot.machineId ? { machineId: slot.machineId } : {}),
+               ...(slot.pitchType !== null ? { pitchType: slot.pitchType } : {}),
++              ...(assignedOperatorId ? { operatorId: assignedOperatorId } : {}),
+               ...paymentFields,
+             };
+
+@@ -426,6 +434,7 @@ export async function POST(req: NextRequest) {
+               discountType: effectiveDiscountType,
+               ...(slot.machineId ? { machineId: slot.machineId } : {}),
+               ...(slot.pitchType !== null ? { pitchType: slot.pitchType } : {}),
++              ...(assignedOperatorId ? { operatorId: assignedOperatorId } : {}),
+               ...paymentFields,
+             };
+

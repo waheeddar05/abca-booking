@@ -25,7 +25,9 @@ model User {
   otps                 Otp[]
   userPackages         UserPackage[]
   payments             Payment[]
+  operatorPriority     Int                  @default(0)
   operatorAssignments  OperatorAssignment[]
+  operatedBookings     Booking[]            @relation("OperatorBookings")
   cashPaymentUser      CashPaymentUser?
   wallet               Wallet?
 }
@@ -81,15 +83,18 @@ model Booking {
   createdBy          String?
   machineId          MachineId?
   isSuperAdminBooking Boolean              @default(false)
+  operatorId          String?
   paymentMethod       BookingPaymentMethod?
   paymentStatus       BookingPaymentStatus?
   user               User?           @relation(fields: [userId], references: [id])
+  operator           User?           @relation("OperatorBookings", fields: [operatorId], references: [id])
   packageBooking     PackageBooking?
 
   @@unique([date, startTime, machineId, pitchType])
   @@index([status])
   @@index([userId, status])
   @@index([date, status])
+  @@index([operatorId])
 }
 
 model BlockedSlot {

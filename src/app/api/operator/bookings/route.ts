@@ -18,13 +18,19 @@ export async function GET(req: NextRequest) {
       ? dateStringToUTC(dateParam)
       : getISTTodayUTC();
 
-    // Get the operator's assigned machine IDs
+    // Build booking filter based on role
     let machineIds: string[];
+    let bookingWhere: any;
 
     if (session.isAdmin) {
-      // Admins can see all machines
+      // Admins see all bookings
       machineIds = ['GRAVITY', 'YANTRA', 'LEVERAGE_INDOOR', 'LEVERAGE_OUTDOOR'];
+      bookingWhere = {
+        date: targetDate,
+        machineId: { in: machineIds as any },
+      };
     } else {
+      // Operators see bookings assigned to them
       const assignments = await prisma.operatorAssignment.findMany({
         where: { userId: session.userId },
         select: { machineId: true },
@@ -39,14 +45,21 @@ export async function GET(req: NextRequest) {
           machineIds: [],
         });
       }
-    }
 
-    // Fetch bookings for the assigned machines on the target date
-    const bookings = await prisma.booking.findMany({
-      where: {
+      // Show bookings assigned to this operator, or unassigned ones on their machines
+      bookingWhere = {
         date: targetDate,
         machineId: { in: machineIds as any },
-      },
+        OR: [
+          { operatorId: session.userId },
+          { operatorId: null, operationMode: 'WITH_OPERATOR' },
+        ],
+      };
+    }
+
+    // Fetch bookings
+    const bookings = await prisma.booking.findMany({
+      where: bookingWhere,
       include: {
         user: { select: { name: true, email: true, mobileNumber: true } },
       },

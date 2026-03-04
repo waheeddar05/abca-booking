@@ -5,6 +5,7 @@ import { getAuthenticatedUser } from '@/lib/auth';
 import { getISTTodayUTC, getISTLastMonthRange, dateStringToUTC, formatIST } from '@/lib/time';
 import { MACHINES } from '@/lib/constants';
 import { notifyBookingCancelled } from '@/lib/notifications';
+import { autoAssignOperator } from '@/lib/operatorAssign';
 
 type MachineIdFilter = 'GRAVITY' | 'YANTRA' | 'LEVERAGE_INDOOR' | 'LEVERAGE_OUTDOOR';
 
@@ -328,6 +329,12 @@ export async function POST(req: NextRequest) {
         // fallback: keep same price
       }
 
+      // Auto-assign operator if booking requires one
+      let assignedOperatorId: string | null = null;
+      if (sourceBooking.operationMode === 'WITH_OPERATOR') {
+        assignedOperatorId = await autoAssignOperator(sourceBooking.date, nextStartTime);
+      }
+
       // Start transaction to create new booking and update source booking price
       const [newBooking] = await prisma.$transaction([
         prisma.booking.create({
@@ -345,6 +352,7 @@ export async function POST(req: NextRequest) {
             createdBy: createdBy,
             price: newPrice,
             originalPrice: sourceBooking.originalPrice,
+            ...(assignedOperatorId ? { operatorId: assignedOperatorId } : {}),
           },
         }),
         prisma.booking.update({

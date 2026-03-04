@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useSession } from 'next-auth/react';
-import { CalendarCheck, Activity, UserPlus, CalendarDays, Settings, Clock, IndianRupee, TrendingUp, Save, Loader2, Zap, Wrench, CalendarPlus, Check } from 'lucide-react';
+import { CalendarCheck, Activity, UserPlus, CalendarDays, Settings, Clock, IndianRupee, TrendingUp, Save, Loader2, Zap, Wrench, CalendarPlus, Check, ChevronUp, ChevronDown, Users } from 'lucide-react';
 
 interface Stats {
   totalBookings: number;
@@ -234,6 +234,8 @@ export default function AdminDashboard() {
   const [machineLoading, setMachineLoading] = useState(true);
   const [savingMachine, setSavingMachine] = useState(false);
   const [machineMessage, setMachineMessage] = useState({ text: '', type: '' });
+  const [operators, setOperators] = useState<{ id: string; name: string | null; email: string | null; operatorPriority: number }[]>([]);
+  const [savingPriority, setSavingPriority] = useState(false);
 
   const isSuperAdmin = session?.user?.email === 'waheeddar8@gmail.com';
 
@@ -279,8 +281,21 @@ export default function AdminDashboard() {
       }
     }
 
+    async function fetchOperators() {
+      try {
+        const res = await fetch('/api/admin/operators');
+        if (res.ok) {
+          const data = await res.json();
+          setOperators(data.operators || []);
+        }
+      } catch (error) {
+        console.error('Failed to fetch operators:', error);
+      }
+    }
+
     fetchStats();
     fetchMachineConfig();
+    fetchOperators();
   }, []);
 
 
@@ -341,6 +356,45 @@ export default function AdminDashboard() {
         machinePitchConfig: { ...current, [machineId]: updated },
       };
     });
+  };
+
+  const moveOperator = (index: number, direction: 'up' | 'down') => {
+    setOperators(prev => {
+      const arr = [...prev];
+      const swapIndex = direction === 'up' ? index - 1 : index + 1;
+      if (swapIndex < 0 || swapIndex >= arr.length) return prev;
+      [arr[index], arr[swapIndex]] = [arr[swapIndex], arr[index]];
+      return arr;
+    });
+  };
+
+  const saveOperatorPriority = async () => {
+    setSavingPriority(true);
+    try {
+      // Assign priority: highest index in array = lowest priority value
+      // First in array = highest priority
+      const payload = operators.map((op, i) => ({
+        userId: op.id,
+        priority: operators.length - i,
+      }));
+      const res = await fetch('/api/admin/operators', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ operators: payload }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setOperators(data.operators || []);
+        setMachineMessage({ text: 'Operator priority saved', type: 'success' });
+      } else {
+        const data = await res.json();
+        setMachineMessage({ text: data.error || 'Failed to save priority', type: 'error' });
+      }
+    } catch {
+      setMachineMessage({ text: 'Failed to save operator priority', type: 'error' });
+    } finally {
+      setSavingPriority(false);
+    }
   };
 
   const statCards = [
@@ -570,6 +624,56 @@ export default function AdminDashboard() {
                   min="1"
                   className="w-32 bg-white/[0.04] border border-white/[0.1] text-white placeholder:text-slate-500 rounded-lg px-3 py-2.5 text-sm outline-none focus:border-accent focus:ring-1 focus:ring-accent/20"
                 />
+              </div>
+
+              {/* Operator Priority */}
+              <div className="mt-4">
+                <p className="text-sm font-medium text-slate-300">Operator Priority</p>
+                <p className="text-xs text-slate-400 mb-3">First operator gets booking preference. Reorder to change priority.</p>
+                {operators.length === 0 ? (
+                  <p className="text-xs text-slate-500 italic">No operators found. Assign OPERATOR role to users first.</p>
+                ) : (
+                  <div className="space-y-2">
+                    {operators.map((op, index) => (
+                      <div
+                        key={op.id}
+                        className="flex items-center gap-3 bg-white/[0.03] border border-white/[0.08] rounded-lg px-3 py-2.5"
+                      >
+                        <span className="w-5 h-5 rounded-full bg-accent/15 flex items-center justify-center text-[10px] font-bold text-accent flex-shrink-0">
+                          {index + 1}
+                        </span>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm text-white truncate">{op.name || 'Unnamed'}</p>
+                          <p className="text-[10px] text-slate-500 truncate">{op.email || op.id.slice(0, 8)}</p>
+                        </div>
+                        <div className="flex flex-col gap-0.5">
+                          <button
+                            onClick={() => moveOperator(index, 'up')}
+                            disabled={index === 0}
+                            className="p-1 text-slate-400 hover:text-white disabled:opacity-20 disabled:cursor-not-allowed cursor-pointer transition-colors"
+                          >
+                            <ChevronUp className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            onClick={() => moveOperator(index, 'down')}
+                            disabled={index === operators.length - 1}
+                            className="p-1 text-slate-400 hover:text-white disabled:opacity-20 disabled:cursor-not-allowed cursor-pointer transition-colors"
+                          >
+                            <ChevronDown className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                    <button
+                      onClick={saveOperatorPriority}
+                      disabled={savingPriority}
+                      className="mt-2 inline-flex items-center gap-1.5 bg-accent/10 hover:bg-accent/20 text-accent px-3 py-1.5 rounded-lg text-xs font-medium transition-colors cursor-pointer disabled:opacity-50"
+                    >
+                      {savingPriority ? <Loader2 className="w-3 h-3 animate-spin" /> : <Save className="w-3 h-3" />}
+                      Save Priority
+                    </button>
+                  </div>
+                )}
               </div>
             </div>
 

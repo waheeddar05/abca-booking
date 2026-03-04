@@ -17,6 +17,7 @@ export async function GET(req: NextRequest) {
         name: true,
         email: true,
         mobileNumber: true,
+        operatorPriority: true,
         operatorAssignments: {
           select: {
             id: true,
@@ -25,7 +26,7 @@ export async function GET(req: NextRequest) {
           },
         },
       },
-      orderBy: { name: 'asc' },
+      orderBy: { operatorPriority: 'desc' },
     });
 
     return NextResponse.json({ operators });
@@ -102,6 +103,63 @@ export async function POST(req: NextRequest) {
     console.error('Admin operator assignment error:', error);
     return NextResponse.json(
       { error: error?.message || 'Internal server error' },
+      { status: 500 }
+    );
+  }
+}
+
+// PATCH: Update operator priorities
+export async function PATCH(req: NextRequest) {
+  try {
+    const session = await requireAdmin(req);
+    if (!session) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 403 });
+    }
+
+    const { operators } = await req.json();
+
+    if (!Array.isArray(operators) || operators.length === 0) {
+      return NextResponse.json(
+        { error: 'operators array is required with { userId, priority } entries' },
+        { status: 400 }
+      );
+    }
+
+    // Update each operator's priority in a transaction
+    await prisma.$transaction(
+      operators.map((op: { userId: string; priority: number }) =>
+        prisma.user.update({
+          where: { id: op.userId },
+          data: { operatorPriority: op.priority },
+        })
+      )
+    );
+
+    // Return updated operator list
+    const updated = await prisma.user.findMany({
+      where: { role: 'OPERATOR' },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        mobileNumber: true,
+        operatorPriority: true,
+        operatorAssignments: {
+          select: {
+            id: true,
+            machineId: true,
+            createdAt: true,
+          },
+        },
+      },
+      orderBy: { operatorPriority: 'desc' },
+    });
+
+    return NextResponse.json({ operators: updated });
+  } catch (error: any) {
+    console.error('Admin operator priority update error:', error);
+    return NextResponse.json(
+      { error: error?.message || 'Failed to update operator priorities' },
       { status: 500 }
     );
   }

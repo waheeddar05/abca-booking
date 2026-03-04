@@ -13,6 +13,7 @@ import { getPricingConfig, getTimeSlabConfig, calculateNewPricing } from '@/lib/
 import { getCachedPolicies } from '@/lib/policy-cache';
 import { validatePackageBooking } from '@/lib/packages';
 import { debitWallet, rollbackWalletDebit, isWalletEnabled, getWalletBalance } from '@/lib/wallet';
+import { autoAssignOperator } from '@/lib/operatorAssign';
 
 async function getMachineConfig() {
   const config = await getCachedPolicies([
@@ -392,6 +393,12 @@ export async function POST(req: NextRequest) {
                   : { paymentMethod: 'ONLINE' as const, paymentStatus: 'PAID' as const }
               : {};
 
+            // Auto-assign operator for WITH_OPERATOR bookings
+            let assignedOperatorId: string | null = null;
+            if (requiresOperator) {
+              assignedOperatorId = await autoAssignOperator(slot.date, slot.startTime, tx);
+            }
+
             const bookingData: Prisma.BookingUncheckedCreateInput = {
               userId: userId!,
               date: slot.date,
@@ -409,6 +416,7 @@ export async function POST(req: NextRequest) {
               discountType: effectiveDiscountType,
               ...(slot.machineId ? { machineId: slot.machineId } : {}),
               ...(slot.pitchType !== null ? { pitchType: slot.pitchType } : {}),
+              ...(assignedOperatorId ? { operatorId: assignedOperatorId } : {}),
               ...paymentFields,
             };
 
@@ -426,6 +434,7 @@ export async function POST(req: NextRequest) {
               discountType: effectiveDiscountType,
               ...(slot.machineId ? { machineId: slot.machineId } : {}),
               ...(slot.pitchType !== null ? { pitchType: slot.pitchType } : {}),
+              ...(assignedOperatorId ? { operatorId: assignedOperatorId } : {}),
               ...paymentFields,
             };
 
