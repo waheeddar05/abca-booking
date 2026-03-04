@@ -1,6 +1,5 @@
 'use client';
 
-import { useSession } from 'next-auth/react';
 import { useEffect, useState, useCallback } from 'react';
 import { CalendarCheck, Clock, CheckCircle, Loader2, AlertCircle } from 'lucide-react';
 import { MACHINE_LABELS, BOOKING_STATUS_CONFIG, PITCH_TYPE_LABELS } from '@/lib/client-constants';
@@ -48,7 +47,6 @@ function formatTime(dateStr: string): string {
 }
 
 export default function OperatorDashboard() {
-  const { data: session, status: sessionStatus } = useSession();
   const [data, setData] = useState<OperatorData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -59,6 +57,10 @@ export default function OperatorDashboard() {
       setError(null);
       const res = await fetch('/api/operator/bookings?date=today');
       if (!res.ok) {
+        if (res.status === 403) {
+          setError('Access denied. You need operator permissions.');
+          return;
+        }
         const err = await res.json();
         throw new Error(err.error || 'Failed to fetch bookings');
       }
@@ -72,30 +74,8 @@ export default function OperatorDashboard() {
   }, []);
 
   useEffect(() => {
-    if (sessionStatus === 'authenticated') {
-      fetchBookings();
-    }
-  }, [sessionStatus, fetchBookings]);
-
-  if (sessionStatus === 'loading') {
-    return (
-      <div className="flex items-center justify-center min-h-[50vh]">
-        <Loader2 className="w-6 h-6 animate-spin text-accent" />
-      </div>
-    );
-  }
-
-  if (!session || !['OPERATOR', 'ADMIN'].includes(session.user?.role as string)) {
-    return (
-      <div className="flex items-center justify-center min-h-[50vh]">
-        <div className="text-center">
-          <AlertCircle className="w-10 h-10 text-red-400 mx-auto mb-3" />
-          <p className="text-white text-lg font-medium">Access Denied</p>
-          <p className="text-slate-400 text-sm mt-1">You need operator permissions to view this page.</p>
-        </div>
-      </div>
-    );
-  }
+    fetchBookings();
+  }, [fetchBookings]);
 
   // Group bookings by machine
   const groupedByMachine: Record<string, Booking[]> = {};
@@ -120,7 +100,7 @@ export default function OperatorDashboard() {
       </div>
 
       {/* Summary Stats */}
-      {data && (
+      {data && !loading && (
         <div className="grid grid-cols-3 gap-3">
           <div className="bg-[#0f1d2f]/60 border border-white/[0.08] rounded-xl p-4">
             <div className="flex items-center gap-2 mb-1">
