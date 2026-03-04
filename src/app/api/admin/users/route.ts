@@ -62,7 +62,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json(users);
   } catch (error) {
     console.error('Admin users fetch error:', error);
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+    return NextResponse.json({ error: 'Failed to load users. Please try again.' }, { status: 500 });
   }
 }
 
@@ -108,9 +108,16 @@ export async function POST(req: NextRequest) {
       });
       return NextResponse.json({ message: 'User added successfully', user: newUser });
     }
-  } catch (error) {
+  } catch (error: any) {
     console.error('Admin user add error:', error);
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+    const message = error?.message || '';
+    if (message.includes('invalid input value for enum')) {
+      return NextResponse.json({ error: 'Invalid role value. Please run database migrations.' }, { status: 400 });
+    }
+    if (message.includes('Unique constraint')) {
+      return NextResponse.json({ error: 'A user with this email already exists.' }, { status: 409 });
+    }
+    return NextResponse.json({ error: 'Failed to add user. Please try again.' }, { status: 500 });
   }
 }
 
@@ -125,6 +132,11 @@ export async function PATCH(req: NextRequest) {
 
     if (!id) {
       return NextResponse.json({ error: 'User ID is required' }, { status: 400 });
+    }
+
+    const validRoles = ['USER', 'ADMIN', 'OPERATOR'];
+    if (role && !validRoles.includes(role)) {
+      return NextResponse.json({ error: `Invalid role. Must be one of: ${validRoles.join(', ')}` }, { status: 400 });
     }
 
     const user = await prisma.user.findUnique({ where: { id } });
@@ -156,9 +168,17 @@ export async function PATCH(req: NextRequest) {
     });
 
     return NextResponse.json({ message: 'User updated', user: updated });
-  } catch (error) {
+  } catch (error: any) {
     console.error('Admin user update error:', error);
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+    const message = error?.message || '';
+    if (message.includes('invalid input value for enum')) {
+      const match = message.match(/invalid input value for enum "(\w+)": "(\w+)"/);
+      return NextResponse.json(
+        { error: `Role "${match?.[2] || 'unknown'}" is not available yet. Please run database migrations.` },
+        { status: 400 }
+      );
+    }
+    return NextResponse.json({ error: 'Failed to update user. Please try again.' }, { status: 500 });
   }
 }
 
@@ -215,6 +235,6 @@ export async function DELETE(req: NextRequest) {
     return NextResponse.json({ message: 'User deleted successfully' });
   } catch (error) {
     console.error('Admin user delete error:', error);
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+    return NextResponse.json({ error: 'Failed to delete user. Please try again.' }, { status: 500 });
   }
 }
