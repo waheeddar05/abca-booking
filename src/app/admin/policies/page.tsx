@@ -105,6 +105,22 @@ export default function PolicyManagement() {
               </ul>
             </div>
             <div>
+              <p className="font-medium mb-1">Payments (all default to &quot;false&quot;):</p>
+              <ul className="space-y-1 text-xs">
+                <li><code className="bg-blue-500/20 px-1.5 py-0.5 rounded">PAYMENT_GATEWAY_ENABLED</code> - Master switch for Razorpay (&quot;true&quot;/&quot;false&quot;)</li>
+                <li><code className="bg-blue-500/20 px-1.5 py-0.5 rounded">SLOT_PAYMENT_REQUIRED</code> - Require payment for slot bookings (&quot;true&quot;/&quot;false&quot;)</li>
+                <li><code className="bg-blue-500/20 px-1.5 py-0.5 rounded">PACKAGE_PAYMENT_REQUIRED</code> - Require payment for packages (&quot;true&quot;/&quot;false&quot;)</li>
+                <li><code className="bg-blue-500/20 px-1.5 py-0.5 rounded">CASH_PAYMENT_ENABLED</code> - Allow cash payments (&quot;true&quot;/&quot;false&quot;)</li>
+              </ul>
+            </div>
+            <div>
+              <p className="font-medium mb-1">WhatsApp:</p>
+              <ul className="space-y-1 text-xs">
+                <li><code className="bg-blue-500/20 px-1.5 py-0.5 rounded">WHATSAPP_NOTIFICATIONS_ENABLED</code> - Send WhatsApp notifications (&quot;true&quot;/&quot;false&quot;)</li>
+                <li><code className="bg-blue-500/20 px-1.5 py-0.5 rounded">WHATSAPP_LOGIN_ENABLED</code> - WhatsApp OTP login (&quot;true&quot;/&quot;false&quot;)</li>
+              </ul>
+            </div>
+            <div>
               <p className="font-medium mb-1">Other:</p>
               <ul className="space-y-1 text-xs">
                 <li><code className="bg-blue-500/20 px-1.5 py-0.5 rounded">DISABLED_DATES</code> - Comma-separated dates</li>

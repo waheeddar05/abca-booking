@@ -79,7 +79,7 @@ export default function PackagesPage() {
     onFailure: (error) => {
       setMessage({ text: error || 'Payment failed', type: 'error' });
     },
-  });
+  }, paymentConfig?.paymentEnabled ?? false);
 
   const fetchPackages = async () => {
     setLoading(true);

@@ -62,13 +62,16 @@ export function usePaymentConfig() {
   return { config, loading };
 }
 
-export function useRazorpay(options: UseRazorpayOptions = {}) {
+export function useRazorpay(options: UseRazorpayOptions = {}, paymentEnabled = true) {
   const [processing, setProcessing] = useState(false);
   const [scriptLoaded, setScriptLoaded] = useState(false);
 
   useEffect(() => {
-    loadRazorpayScript().then(setScriptLoaded);
-  }, []);
+    // Only load Razorpay script when payment is actually enabled
+    if (paymentEnabled) {
+      loadRazorpayScript().then(setScriptLoaded);
+    }
+  }, [paymentEnabled]);
 
   const initiatePayment = useCallback(
     async (params: {

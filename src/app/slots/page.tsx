@@ -64,7 +64,7 @@ function SlotsContent() {
     onFailure: (error) => {
       toast.error(error || 'Payment failed');
     },
-  });
+  }, paymentConfig?.paymentEnabled ?? false);
 
   // ─── Derived State ─────────────────────────────────────
   const selectedCard = getMachineCard(selectedMachineId);
