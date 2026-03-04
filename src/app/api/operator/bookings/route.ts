@@ -25,12 +25,8 @@ export async function GET(req: NextRequest) {
     if (session.isAdmin) {
       // Admins see all bookings
       machineIds = ['GRAVITY', 'YANTRA', 'LEVERAGE_INDOOR', 'LEVERAGE_OUTDOOR'];
-      bookingWhere = {
-        date: targetDate,
-        machineId: { in: machineIds as any },
-      };
     } else {
-      // Operators see bookings assigned to them
+      // Get operator's assigned machines
       const assignments = await prisma.operatorAssignment.findMany({
         where: { userId: session.userId },
         select: { machineId: true },
@@ -38,24 +34,18 @@ export async function GET(req: NextRequest) {
 
       machineIds = assignments.map((a) => a.machineId);
 
+      // Fallback: if no machine assignments, show all machines
       if (machineIds.length === 0) {
-        return NextResponse.json({
-          bookings: [],
-          summary: { total: 0, booked: 0, done: 0, cancelled: 0 },
-          machineIds: [],
-        });
+        machineIds = ['GRAVITY', 'YANTRA', 'LEVERAGE_INDOOR', 'LEVERAGE_OUTDOOR'];
       }
-
-      // Show bookings assigned to this operator, or unassigned ones on their machines
-      bookingWhere = {
-        date: targetDate,
-        machineId: { in: machineIds as any },
-        OR: [
-          { operatorId: session.userId },
-          { operatorId: null, operationMode: 'WITH_OPERATOR' },
-        ],
-      };
     }
+
+    // All operators and admins see ALL bookings on their machines
+    // The UI highlights which ones are assigned to the current operator
+    bookingWhere = {
+      date: targetDate,
+      machineId: { in: machineIds as any },
+    };
 
     // Fetch bookings
     const bookings = await prisma.booking.findMany({
@@ -83,6 +73,7 @@ export async function GET(req: NextRequest) {
         cancelled,
       },
       machineIds,
+      currentOperatorId: session.userId,
     });
   } catch (error: any) {
     console.error('Operator bookings fetch error:', error);

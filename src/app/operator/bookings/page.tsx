@@ -37,6 +37,7 @@ interface OperatorData {
     cancelled: number;
   };
   machineIds: string[];
+  currentOperatorId: string;
 }
 
 function formatTime(dateStr: string): string {
@@ -70,6 +71,7 @@ export default function OperatorBookingsPage() {
   const [error, setError] = useState<string | null>(null);
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
   const [statusFilter, setStatusFilter] = useState<string>('all');
+  const [showOnlyMine, setShowOnlyMine] = useState(false);
 
   const fetchBookings = useCallback(async (date: Date) => {
     try {
@@ -118,11 +120,14 @@ export default function OperatorBookingsPage() {
 
   const isToday = toDateString(selectedDate) === toDateString(new Date());
 
-  // Filter bookings by status
+  // Filter bookings by status and assignment
   const filteredBookings = data?.bookings.filter(b => {
-    if (statusFilter === 'all') return true;
-    return b.status === statusFilter;
+    if (statusFilter !== 'all' && b.status !== statusFilter) return false;
+    if (showOnlyMine && b.operatorId !== data?.currentOperatorId) return false;
+    return true;
   }) ?? [];
+
+  const myBookingsCount = data?.bookings.filter(b => b.operatorId === data?.currentOperatorId).length ?? 0;
 
   // Group bookings by machine
   const groupedByMachine: Record<string, Booking[]> = {};
@@ -173,6 +178,32 @@ export default function OperatorBookingsPage() {
           <ChevronRight className="w-5 h-5" />
         </button>
       </div>
+
+      {/* My Bookings / All toggle */}
+      {data && !loading && (
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setShowOnlyMine(false)}
+            className={`flex-1 py-2 text-sm font-medium rounded-lg transition-colors ${
+              !showOnlyMine
+                ? 'bg-accent/15 text-accent border border-accent/30'
+                : 'bg-[#0f1d2f]/60 text-slate-400 border border-white/[0.08] hover:border-white/[0.15]'
+            }`}
+          >
+            All Bookings ({data.summary.total})
+          </button>
+          <button
+            onClick={() => setShowOnlyMine(true)}
+            className={`flex-1 py-2 text-sm font-medium rounded-lg transition-colors ${
+              showOnlyMine
+                ? 'bg-accent/15 text-accent border border-accent/30'
+                : 'bg-[#0f1d2f]/60 text-slate-400 border border-white/[0.08] hover:border-white/[0.15]'
+            }`}
+          >
+            My Bookings ({myBookingsCount})
+          </button>
+        </div>
+      )}
 
       {/* Summary Stats */}
       {data && !loading && (
@@ -277,18 +308,30 @@ export default function OperatorBookingsPage() {
                   const pitchLabel = booking.pitchType
                     ? PITCH_TYPE_LABELS[booking.pitchType]?.label || booking.pitchType
                     : null;
+                  const isMyBooking = booking.operatorId === data?.currentOperatorId;
 
                   return (
                     <div
                       key={booking.id}
-                      className="bg-[#0f1d2f]/60 border border-white/[0.08] rounded-xl p-4"
+                      className={`rounded-xl p-4 ${
+                        isMyBooking
+                          ? 'bg-accent/[0.06] border border-accent/20'
+                          : 'bg-[#0f1d2f]/60 border border-white/[0.08]'
+                      }`}
                     >
                       <div className="flex items-start justify-between gap-3">
                         <div className="min-w-0 flex-1">
                           {/* Player Name */}
-                          <p className="text-white font-medium text-sm truncate">
-                            {booking.playerName}
-                          </p>
+                          <div className="flex items-center gap-2">
+                            <p className="text-white font-medium text-sm truncate">
+                              {booking.playerName}
+                            </p>
+                            {isMyBooking && (
+                              <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-accent/20 text-accent font-semibold shrink-0">
+                                YOURS
+                              </span>
+                            )}
+                          </div>
                           {/* Customer contact */}
                           {booking.user?.mobileNumber && (
                             <a
