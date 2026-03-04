@@ -4,8 +4,9 @@ import { requireAdmin } from '@/lib/adminAuth';
 import { getAuthenticatedUser } from '@/lib/auth';
 import { getISTTodayUTC, getISTLastMonthRange, dateStringToUTC, formatIST } from '@/lib/time';
 import { MACHINES } from '@/lib/constants';
-import { notifyBookingCancelled } from '@/lib/notifications';
+import { notifyBookingCancelled, notifyWalletCredit } from '@/lib/notifications';
 import { autoAssignOperator } from '@/lib/operatorAssign';
+import { creditWallet, isWalletEnabled, getDefaultRefundMethod } from '@/lib/wallet';
 
 type MachineIdFilter = 'GRAVITY' | 'YANTRA' | 'LEVERAGE_INDOOR' | 'LEVERAGE_OUTDOOR';
 
@@ -213,8 +214,144 @@ export async function PATCH(req: NextRequest) {
       include: { user: { select: { id: true } } },
     });
 
-    // Send notification when booking is cancelled by admin
+    // Process refund when booking is cancelled by admin
+    let refundInfo: string | undefined;
     if (status === 'CANCELLED' && booking.userId) {
+      try {
+        // Case 1: Wallet-paid booking — refund to wallet
+        if (booking.paymentMethod === 'WALLET' && booking.paymentStatus === 'PAID' && booking.price && booking.price > 0) {
+          const walletResult = await creditWallet(
+            booking.userId,
+            booking.price,
+            'CREDIT_REFUND',
+            `Refund for booking cancelled by admin (${adminName})`,
+            bookingId,
+          );
+
+          await prisma.booking.update({
+            where: { id: bookingId },
+            data: { paymentStatus: 'UNPAID' },
+          });
+
+          refundInfo = `Refund: ₹${booking.price} credited to wallet (Balance: ₹${walletResult.newBalance})`;
+
+          // Notify wallet credit
+          try {
+            const notifUser = await prisma.user.findUnique({
+              where: { id: booking.userId },
+              select: { mobileNumber: true, mobileVerified: true },
+            });
+            await notifyWalletCredit(booking.userId, {
+              amount: booking.price,
+              reason: 'Booking cancelled by admin',
+              newBalance: walletResult.newBalance,
+              mobileNumber: notifUser?.mobileVerified ? notifUser.mobileNumber : null,
+            });
+          } catch (notifErr) {
+            console.error('Wallet credit notification failed:', notifErr);
+          }
+        } else if (booking.paymentMethod === 'ONLINE' && booking.paymentStatus === 'PAID') {
+          // Case 2: Online payment — check for Razorpay refund or wallet refund
+          const payment = await prisma.payment.findFirst({
+            where: {
+              bookingIds: { has: bookingId },
+              status: 'CAPTURED',
+            },
+          });
+
+          if (payment?.razorpayPaymentId) {
+            const refundAmount = payment.bookingIds.length > 1
+              ? payment.amount / payment.bookingIds.length
+              : payment.amount;
+
+            const walletEnabled = await isWalletEnabled();
+            const resolvedMethod = walletEnabled
+              ? await getDefaultRefundMethod()
+              : 'RAZORPAY';
+
+            if (resolvedMethod === 'WALLET') {
+              const walletResult = await creditWallet(
+                booking.userId,
+                refundAmount,
+                'CREDIT_REFUND',
+                `Refund for booking cancelled by admin (${adminName})`,
+                bookingId,
+              );
+
+              const isFullRefund = payment.bookingIds.length === 1;
+              await prisma.payment.update({
+                where: { id: payment.id },
+                data: {
+                  status: isFullRefund ? 'REFUNDED' : 'PARTIALLY_REFUNDED',
+                  refundAmount: { increment: refundAmount },
+                  refundedAt: new Date(),
+                  refundMethod: 'WALLET',
+                },
+              });
+
+              refundInfo = `Refund: ₹${refundAmount} credited to wallet (Balance: ₹${walletResult.newBalance})`;
+
+              try {
+                const notifUser = await prisma.user.findUnique({
+                  where: { id: booking.userId },
+                  select: { mobileNumber: true, mobileVerified: true },
+                });
+                await notifyWalletCredit(booking.userId, {
+                  amount: refundAmount,
+                  reason: 'Booking cancelled by admin',
+                  newBalance: walletResult.newBalance,
+                  mobileNumber: notifUser?.mobileVerified ? notifUser.mobileNumber : null,
+                });
+              } catch (notifErr) {
+                console.error('Wallet credit notification failed:', notifErr);
+              }
+            } else {
+              // Razorpay refund
+              const { initiateRefund } = await import('@/lib/razorpay');
+              const refund = await initiateRefund({
+                paymentId: payment.razorpayPaymentId,
+                amount: refundAmount,
+                notes: { bookingId, cancelledBy: adminName },
+              });
+
+              const isFullRefund = payment.bookingIds.length === 1;
+              await prisma.payment.update({
+                where: { id: payment.id },
+                data: {
+                  status: isFullRefund ? 'REFUNDED' : 'PARTIALLY_REFUNDED',
+                  refundId: refund.id,
+                  refundAmount: { increment: refundAmount },
+                  refundedAt: new Date(),
+                  refundMethod: 'RAZORPAY',
+                },
+              });
+
+              refundInfo = `Refund: ₹${refundAmount} will be credited to bank in 5-7 business days`;
+            }
+          }
+        }
+      } catch (refundErr) {
+        console.error('Admin cancellation refund failed:', refundErr);
+      }
+
+      // Restore package session if this was a package booking
+      try {
+        const packageBooking = await prisma.packageBooking.findUnique({
+          where: { bookingId },
+        });
+        if (packageBooking) {
+          await prisma.userPackage.update({
+            where: { id: packageBooking.userPackageId },
+            data: {
+              usedSessions: { decrement: packageBooking.sessionsUsed },
+            },
+          });
+        }
+      } catch (pkgErr) {
+        console.error('Failed to restore package session:', pkgErr);
+      }
+
+      // Send cancellation notification
       try {
         const dateStr = formatIST(new Date(booking.date), 'EEE, dd MMM yyyy');
         const timeStr = formatIST(new Date(booking.startTime), 'hh:mm a');
@@ -236,6 +373,7 @@ export async function PATCH(req: NextRequest) {
         await notifyBookingCancelled(booking.userId, {
           message: lines.join('\n'),
           mobileNumber: notifUser?.mobileVerified ? notifUser.mobileNumber : null,
+          refundInfo,
         });
       } catch (notifErr) {
         console.error('Failed to create cancellation notification:', notifErr);
@@ -332,7 +470,12 @@ export async function POST(req: NextRequest) {
       // Auto-assign operator if booking requires one
       let assignedOperatorId: string | null = null;
       if (sourceBooking.operationMode === 'WITH_OPERATOR') {
-        assignedOperatorId = await autoAssignOperator(sourceBooking.date, nextStartTime);
+        assignedOperatorId = await autoAssignOperator(
+          sourceBooking.date,
+          nextStartTime,
+          undefined,
+          sourceBooking.machineId
+        );
       }
 
       // Start transaction to create new booking and update source booking price

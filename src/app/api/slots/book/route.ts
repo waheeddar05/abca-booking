@@ -396,7 +396,7 @@ export async function POST(req: NextRequest) {
             // Auto-assign operator for WITH_OPERATOR bookings
             let assignedOperatorId: string | null = null;
             if (requiresOperator) {
-              assignedOperatorId = await autoAssignOperator(slot.date, slot.startTime, tx);
+              assignedOperatorId = await autoAssignOperator(slot.date, slot.startTime, tx, slot.machineId);
             }
 
             const bookingData: Prisma.BookingUncheckedCreateInput = {
