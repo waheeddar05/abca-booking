@@ -234,8 +234,9 @@ export default function AdminDashboard() {
   const [machineLoading, setMachineLoading] = useState(true);
   const [savingMachine, setSavingMachine] = useState(false);
   const [machineMessage, setMachineMessage] = useState({ text: '', type: '' });
-  const [operators, setOperators] = useState<{ id: string; name: string | null; email: string | null; operatorPriority: number }[]>([]);
+  const [operators, setOperators] = useState<{ id: string; name: string | null; email: string | null; mobileNumber: string | null; operatorPriority: number; operatorAssignments?: { id: string; machineId: string; createdAt: string }[] }[]>([]);
   const [savingPriority, setSavingPriority] = useState(false);
+  const [togglingAssignment, setTogglingAssignment] = useState<string | null>(null);
 
   const isSuperAdmin = session?.user?.email === 'waheeddar8@gmail.com';
 
@@ -394,6 +395,45 @@ export default function AdminDashboard() {
       setMachineMessage({ text: 'Failed to save operator priority', type: 'error' });
     } finally {
       setSavingPriority(false);
+    }
+  };
+
+  const toggleMachineAssignment = async (operatorId: string, machineId: string, isCurrentlyAssigned: boolean) => {
+    const key = `${operatorId}-${machineId}`;
+    setTogglingAssignment(key);
+    try {
+      if (isCurrentlyAssigned) {
+        const res = await fetch('/api/admin/operators', {
+          method: 'DELETE',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ userId: operatorId, machineId }),
+        });
+        if (!res.ok) {
+          const data = await res.json();
+          throw new Error(data.error || 'Failed to remove assignment');
+        }
+      } else {
+        const res = await fetch('/api/admin/operators', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ userId: operatorId, machineId }),
+        });
+        if (!res.ok) {
+          const data = await res.json();
+          throw new Error(data.error || 'Failed to assign machine');
+        }
+      }
+
+      // Refresh operators list
+      const refreshRes = await fetch('/api/admin/operators');
+      if (refreshRes.ok) {
+        const data = await refreshRes.json();
+        setOperators(data.operators || []);
+      }
+    } catch (err) {
+      setMachineMessage({ text: err instanceof Error ? err.message : 'Assignment failed', type: 'error' });
+    } finally {
+      setTogglingAssignment(null);
     }
   };
 
@@ -633,37 +673,78 @@ export default function AdminDashboard() {
                 {operators.length === 0 ? (
                   <p className="text-xs text-slate-500 italic">No operators found. Assign OPERATOR role to users first.</p>
                 ) : (
-                  <div className="space-y-2">
-                    {operators.map((op, index) => (
-                      <div
-                        key={op.id}
-                        className="flex items-center gap-3 bg-white/[0.03] border border-white/[0.08] rounded-lg px-3 py-2.5"
-                      >
-                        <span className="w-5 h-5 rounded-full bg-accent/15 flex items-center justify-center text-[10px] font-bold text-accent flex-shrink-0">
-                          {index + 1}
-                        </span>
-                        <div className="flex-1 min-w-0">
-                          <p className="text-sm text-white truncate">{op.name || 'Unnamed'}</p>
-                          <p className="text-[10px] text-slate-500 truncate">{op.email || op.id.slice(0, 8)}</p>
+                  <div className="space-y-3">
+                    {operators.map((op, index) => {
+                      const assignedMachines = new Set(
+                        (op.operatorAssignments || []).map(a => a.machineId)
+                      );
+
+                      return (
+                        <div
+                          key={op.id}
+                          className="bg-white/[0.03] border border-white/[0.08] rounded-lg px-3 py-3"
+                        >
+                          <div className="flex items-center gap-3 mb-2">
+                            <span className="w-5 h-5 rounded-full bg-accent/15 flex items-center justify-center text-[10px] font-bold text-accent flex-shrink-0">
+                              {index + 1}
+                            </span>
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm text-white truncate">{op.name || 'Unnamed'}</p>
+                              <p className="text-[10px] text-slate-500 truncate">{op.email || op.mobileNumber || op.id.slice(0, 8)}</p>
+                            </div>
+                            <div className="flex flex-col gap-0.5">
+                              <button
+                                onClick={() => moveOperator(index, 'up')}
+                                disabled={index === 0}
+                                className="p-1 text-slate-400 hover:text-white disabled:opacity-20 disabled:cursor-not-allowed cursor-pointer transition-colors"
+                              >
+                                <ChevronUp className="w-3.5 h-3.5" />
+                              </button>
+                              <button
+                                onClick={() => moveOperator(index, 'down')}
+                                disabled={index === operators.length - 1}
+                                className="p-1 text-slate-400 hover:text-white disabled:opacity-20 disabled:cursor-not-allowed cursor-pointer transition-colors"
+                              >
+                                <ChevronDown className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          </div>
+
+                          {/* Machine Assignments */}
+                          <div className="ml-8">
+                            <p className="text-[10px] text-slate-500 uppercase tracking-wider mb-1.5">Assigned Machines</p>
+                            <div className="flex flex-wrap gap-1.5">
+                              {ALL_MACHINE_IDS.map(mid => {
+                                const isAssigned = assignedMachines.has(mid);
+                                const isToggling = togglingAssignment === `${op.id}-${mid}`;
+                                return (
+                                  <button
+                                    key={mid}
+                                    onClick={() => toggleMachineAssignment(op.id, mid, isAssigned)}
+                                    disabled={!!togglingAssignment}
+                                    className={`flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-medium transition-all cursor-pointer disabled:opacity-60 ${
+                                      isAssigned
+                                        ? 'bg-accent/15 text-accent border border-accent/30'
+                                        : 'bg-white/[0.04] text-slate-500 border border-white/[0.08] hover:bg-white/[0.08]'
+                                    }`}
+                                  >
+                                    {isToggling ? (
+                                      <Loader2 className="w-3 h-3 animate-spin" />
+                                    ) : isAssigned ? (
+                                      <Check className="w-3 h-3" />
+                                    ) : null}
+                                    {MACHINE_LABELS[mid].name}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                            {assignedMachines.size === 0 && (
+                              <p className="text-[10px] text-amber-400/70 mt-1 italic">No machines assigned — operator won&apos;t receive auto-assignments</p>
+                            )}
+                          </div>
                         </div>
-                        <div className="flex flex-col gap-0.5">
-                          <button
-                            onClick={() => moveOperator(index, 'up')}
-                            disabled={index === 0}
-                            className="p-1 text-slate-400 hover:text-white disabled:opacity-20 disabled:cursor-not-allowed cursor-pointer transition-colors"
-                          >
-                            <ChevronUp className="w-3.5 h-3.5" />
-                          </button>
-                          <button
-                            onClick={() => moveOperator(index, 'down')}
-                            disabled={index === operators.length - 1}
-                            className="p-1 text-slate-400 hover:text-white disabled:opacity-20 disabled:cursor-not-allowed cursor-pointer transition-colors"
-                          >
-                            <ChevronDown className="w-3.5 h-3.5" />
-                          </button>
-                        </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                     <button
                       onClick={saveOperatorPriority}
                       disabled={savingPriority}

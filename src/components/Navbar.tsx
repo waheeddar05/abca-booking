@@ -5,7 +5,7 @@ import Image from 'next/image';
 import { useSession, signOut } from 'next-auth/react';
 import { usePathname } from 'next/navigation';
 import { useState, useEffect } from 'react';
-import { Menu, X, Calendar, ClipboardList, Shield, LogOut, LogIn, Package, Bell, Wrench } from 'lucide-react';
+import { Menu, X, Calendar, ClipboardList, Shield, LogOut, LogIn, Package, Bell, Wrench, Wallet } from 'lucide-react';
 
 export default function Navbar() {
   const { data: session } = useSession();
@@ -28,6 +28,7 @@ export default function Navbar() {
     { href: '/slots', label: 'Book Slots', icon: Calendar, show: !!session },
     { href: '/bookings', label: 'My Bookings', icon: ClipboardList, show: !!session },
     { href: '/packages', label: 'Packages', icon: Package, show: !!session },
+    { href: '/wallet', label: 'Wallet', icon: Wallet, show: !!session },
     { href: '/notifications', label: 'Notifications', icon: Bell, show: !!session },
     { href: '/operator', label: 'Operator', icon: Wrench, show: session?.user?.role === 'OPERATOR' },
     { href: '/admin', label: 'Admin', icon: Shield, show: session?.user?.role === 'ADMIN' },

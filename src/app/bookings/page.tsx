@@ -12,6 +12,12 @@ import {
   PITCH_LABELS,
 } from '@/lib/client-constants';
 
+interface BookingRefund {
+  method: 'WALLET' | 'RAZORPAY';
+  amount: number;
+  refundedAt: string | null;
+}
+
 interface Booking {
   id: string;
   date: string;
@@ -30,6 +36,9 @@ interface Booking {
   machineId: string | null;
   createdAt: string | null;
   isPackageBooking: boolean;
+  paymentMethod: string | null;
+  paymentStatus: string | null;
+  refund: BookingRefund | null;
 }
 
 type BookingTab = 'all' | 'upcoming' | 'inProgress' | 'completed' | 'cancelled';
@@ -104,7 +113,13 @@ export default function BookingsPage() {
         throw new Error(data.error || 'Cancellation failed');
       }
 
-      toast.success('Booking cancelled successfully');
+      const data = await res.json();
+      if (data.refund) {
+        const method = data.refund.method === 'WALLET' ? 'wallet' : 'bank account';
+        toast.success(`Booking cancelled. ₹${data.refund.amount} refunded to ${method}`);
+      } else {
+        toast.success('Booking cancelled successfully');
+      }
       fetchBookings();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'An error occurred');
@@ -290,6 +305,29 @@ export default function BookingsPage() {
                     </div>
                   )}
                 </div>
+
+                {/* Refund Info (for cancelled bookings) */}
+                {booking.status === 'CANCELLED' && booking.refund && (
+                  <div className="mt-2 pt-2 border-t border-white/[0.04]">
+                    <div className="flex items-center gap-2">
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-green-500/10 text-green-400">
+                        <span className="w-1 h-1 rounded-full bg-green-400"></span>
+                        Refund: ₹{booking.refund.amount}
+                      </span>
+                      <span className="text-[10px] text-slate-500">
+                        via {booking.refund.method === 'WALLET' ? 'Wallet' : 'Bank (5-7 days)'}
+                      </span>
+                    </div>
+                  </div>
+                )}
+                {booking.status === 'CANCELLED' && !booking.refund && booking.price && booking.price > 0 && booking.paymentStatus === 'PAID' && (
+                  <div className="mt-2 pt-2 border-t border-white/[0.04]">
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-500/10 text-amber-400">
+                      <span className="w-1 h-1 rounded-full bg-amber-400 animate-pulse"></span>
+                      Refund pending
+                    </span>
+                  </div>
+                )}
 
                 {/* Booked on */}
                 {booking.createdAt && (

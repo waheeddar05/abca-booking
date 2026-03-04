@@ -87,6 +87,61 @@ export async function GET(req: NextRequest) {
     }
     const packageBookingSet = new Set(packageBookings.map((pb: any) => pb.bookingId));
 
+    // Fetch refund info for cancelled bookings
+    const cancelledIds = bookings.filter((b: any) => b.status === 'CANCELLED').map((b: any) => b.id);
+    let refundMap: Record<string, { method: string; amount: number; refundedAt: string | null }> = {};
+    if (cancelledIds.length > 0) {
+      try {
+        const payments = await prisma.payment.findMany({
+          where: {
+            bookingIds: { hasSome: cancelledIds },
+            status: { in: ['REFUNDED', 'PARTIALLY_REFUNDED'] },
+          },
+          select: {
+            bookingIds: true,
+            refundAmount: true,
+            refundMethod: true,
+            refundedAt: true,
+          },
+        });
+        for (const p of payments) {
+          for (const bid of p.bookingIds) {
+            if (cancelledIds.includes(bid)) {
+              refundMap[bid] = {
+                method: p.refundMethod || 'RAZORPAY',
+                amount: p.bookingIds.length > 1 ? (p.refundAmount || 0) / p.bookingIds.length : (p.refundAmount || 0),
+                refundedAt: p.refundedAt ? p.refundedAt.toISOString() : null,
+              };
+            }
+          }
+        }
+
+        // Also check wallet transactions for wallet-paid refunds
+        const walletRefunds = await prisma.walletTransaction.findMany({
+          where: {
+            referenceId: { in: cancelledIds },
+            type: 'CREDIT_REFUND',
+          },
+          select: {
+            referenceId: true,
+            amount: true,
+            createdAt: true,
+          },
+        });
+        for (const wt of walletRefunds) {
+          if (wt.referenceId && !refundMap[wt.referenceId]) {
+            refundMap[wt.referenceId] = {
+              method: 'WALLET',
+              amount: wt.amount,
+              refundedAt: wt.createdAt.toISOString(),
+            };
+          }
+        }
+      } catch {
+        // ignore if columns don't exist yet
+      }
+    }
+
     const mappedBookings = bookings.map((b: any) => ({
       id: b.id,
       date: b.date.toISOString(),
@@ -106,6 +161,9 @@ export async function GET(req: NextRequest) {
       createdBy: b.createdBy ?? null,
       cancelledBy: b.cancelledBy ?? null,
       cancellationReason: b.cancellationReason ?? null,
+      paymentMethod: b.paymentMethod ?? null,
+      paymentStatus: b.paymentStatus ?? null,
+      refund: refundMap[b.id] || null,
       createdAt: b.createdAt ? b.createdAt.toISOString() : null,
       isPackageBooking: packageBookingSet.has(b.id),
     }));
