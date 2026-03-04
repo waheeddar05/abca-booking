@@ -284,7 +284,7 @@ export async function POST(req: NextRequest) {
         where: {
           date: sourceBooking.date,
           startTime: nextStartTime,
-          ballType: sourceBooking.ballType,
+          machineId: sourceBooking.machineId,
           pitchType: sourceBooking.pitchType,
           status: 'BOOKED',
         },
@@ -339,6 +339,7 @@ export async function POST(req: NextRequest) {
             status: 'BOOKED',
             ballType: sourceBooking.ballType,
             pitchType: sourceBooking.pitchType,
+            machineId: sourceBooking.machineId,
             playerName: sourceBooking.playerName,
             operationMode: sourceBooking.operationMode,
             createdBy: createdBy,
