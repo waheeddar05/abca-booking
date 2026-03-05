@@ -180,8 +180,12 @@ export function isValidIndianMobile(mobile: string): boolean {
 }
 
 /**
- * Send OTP via WhatsApp template message.
- * Falls back to logging a warning if WhatsApp is not configured.
+ * Send OTP via WhatsApp.
+ *
+ * Strategy (in order):
+ *   1. If a named template is configured and not "text", use it (works for verified businesses).
+ *   2. If template is "text" or sending fails, fall back to plain text (requires 24h window).
+ *   3. If WhatsApp is not configured, log a warning and fake success (dev mode).
  */
 export async function sendWhatsAppOTP(
   mobileNumber: string,
@@ -195,18 +199,26 @@ export async function sendWhatsAppOTP(
   }
 
   const to = formatIndianMobile(mobileNumber);
+  const ttl = process.env.OTP_TTL_MINUTES || '5';
+  const textBody = `Your PlayOrbit verification code is: ${otp}. It expires in ${ttl} minutes. Do not share this code.`;
 
-  // Use plain text message when template is set to "text" (useful for Test WABA)
-  if (OTP_TEMPLATE_NAME === 'text') {
-    return provider.sendText(to, `Your PlayOrbit verification code is: ${otp}. It expires in ${process.env.OTP_TTL_MINUTES || '10'} minutes.`);
+  // Try template first if one is configured (not "text" mode)
+  if (OTP_TEMPLATE_NAME !== 'text') {
+    const templateResult = await provider.sendTemplate(to, OTP_TEMPLATE_NAME, TEMPLATE_LANGUAGE, [
+      {
+        type: 'body',
+        parameters: [{ type: 'text', text: otp }],
+      },
+    ]);
+
+    if (templateResult.success) return templateResult;
+
+    // Template failed — fall through to text
+    console.warn('[WhatsApp] Template send failed, falling back to text:', templateResult.error);
   }
 
-  return provider.sendTemplate(to, OTP_TEMPLATE_NAME, TEMPLATE_LANGUAGE, [
-    {
-      type: 'body',
-      parameters: [{ type: 'text', text: otp }],
-    },
-  ]);
+  // Plain text fallback (requires user to have messaged the business first)
+  return provider.sendText(to, textBody);
 }
 
 /**

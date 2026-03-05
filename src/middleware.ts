@@ -13,6 +13,7 @@ export async function middleware(req: NextRequest) {
     pathname === "/otp" ||
     pathname === "/maintenance" ||
     pathname.startsWith("/api/auth") ||
+    pathname.startsWith("/api/webhooks/") ||
     pathname.startsWith("/api/maintenance") ||
     pathname.startsWith("/_next") ||
     pathname === "/favicon.ico" ||
@@ -115,6 +116,6 @@ export const config = {
      * - favicon.ico (favicon file)
      * - images (public images)
      */
-    "/((?!api/auth|api/maintenance|login|otp|maintenance|_next/static|_next/image|favicon.ico|images|icons|sw\\.js|manifest\\.json|\\.well-known|privacy-policy).*)",
+    "/((?!api/auth|api/webhooks|api/maintenance|login|otp|maintenance|_next/static|_next/image|favicon.ico|images|icons|sw\\.js|manifest\\.json|\\.well-known|privacy-policy).*)",
   ],
 };
