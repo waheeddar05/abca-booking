@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { Settings, Save, Pencil, Trash2, Loader2, HelpCircle } from 'lucide-react';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
+import { AdminPageHeader } from '@/components/admin/AdminPageHeader';
 
 export default function PolicyManagement() {
   const [policies, setPolicies] = useState<any[]>([]);
@@ -80,16 +81,15 @@ export default function PolicyManagement() {
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-5">
-        <h1 className="text-xl font-bold text-white">Policies</h1>
+      <AdminPageHeader icon={Settings} title="Policies" description="System configuration">
         <button
           onClick={() => setShowHelp(!showHelp)}
-          className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-400 hover:bg-white/[0.06] rounded-lg transition-colors cursor-pointer"
+          className="flex items-center gap-1.5 px-3 py-2 text-xs font-medium text-slate-400 hover:bg-white/[0.06] rounded-xl transition-colors cursor-pointer"
         >
           <HelpCircle className="w-3.5 h-3.5" />
           Help
         </button>
-      </div>
+      </AdminPageHeader>
 
       {/* Help Panel */}
       {showHelp && (
@@ -131,7 +131,7 @@ export default function PolicyManagement() {
       )}
 
       {/* Create/Update Form */}
-      <div className="bg-white/[0.04] backdrop-blur-sm rounded-xl border border-white/[0.08] p-5 mb-5">
+      <div className="bg-white/[0.03] backdrop-blur-sm rounded-2xl border border-white/[0.07] p-5 mb-5">
         <h2 className="text-sm font-semibold text-white mb-3">
           {newPolicy.key ? 'Update Policy' : 'Create Policy'}
         </h2>
@@ -193,7 +193,7 @@ export default function PolicyManagement() {
       ) : (
         <div className="space-y-2">
           {policies.map((policy) => (
-            <div key={policy.id} className="bg-white/[0.04] backdrop-blur-sm rounded-xl border border-white/[0.08] p-4 flex items-center justify-between gap-2">
+            <div key={policy.id} className="bg-white/[0.03] backdrop-blur-sm rounded-2xl border border-white/[0.07] p-4 flex items-center justify-between gap-2">
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2 mb-0.5">
                   <code className="text-sm font-semibold text-white break-all">{policy.key}</code>

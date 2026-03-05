@@ -3,8 +3,12 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useSession } from 'next-auth/react';
-import { CalendarCheck, Activity, UserPlus, CalendarDays, Settings, Clock, IndianRupee, TrendingUp, Save, Loader2, Zap, Wrench, CalendarPlus, Check, ChevronUp, ChevronDown, Users, CreditCard, Banknote, Wallet } from 'lucide-react';
+import { CalendarCheck, Activity, UserPlus, CalendarDays, Settings, Clock, IndianRupee, TrendingUp, Save, Loader2, Zap, Wrench, CalendarPlus, Check, ChevronUp, ChevronDown, Users, CreditCard, Banknote, Wallet, LayoutDashboard } from 'lucide-react';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
+import { AdminPageHeader } from '@/components/admin/AdminPageHeader';
+import { AdminCard } from '@/components/admin/AdminCard';
+import { AdminStatCard } from '@/components/admin/AdminStatCard';
+import { AdminToggle } from '@/components/admin/AdminToggle';
 
 interface Stats {
   totalBookings: number;
@@ -175,7 +179,15 @@ const PITCH_TYPE_LABELS: Record<PitchType, string> = {
 const ALL_MACHINE_IDS: MachineId[] = ['GRAVITY', 'YANTRA', 'LEVERAGE_INDOOR', 'LEVERAGE_OUTDOOR'];
 const ALL_PITCH_TYPES: PitchType[] = ['ASTRO', 'CEMENT', 'NATURAL'];
 
-const priceInputClass = "w-full bg-white/[0.04] border border-white/[0.1] text-white placeholder:text-slate-500 rounded-lg pl-7 pr-2 py-2 text-[16px] sm:text-sm outline-none focus:border-accent focus:ring-1 focus:ring-accent/20";
+const PRICING_TABS = [
+  { key: 'leather', label: 'Gravity · Leather' },
+  { key: 'yantra', label: 'Yantra · Leather' },
+  { key: 'machine', label: 'Gravity · Machine' },
+  { key: 'yantra_machine', label: 'Yantra · Machine' },
+  { key: 'tennis', label: 'Tennis' },
+] as const;
+
+const priceInputClass = "w-full bg-white/[0.04] border border-white/[0.1] text-white placeholder:text-slate-500 rounded-lg pl-7 pr-2 py-2 text-[16px] sm:text-sm outline-none focus:border-accent focus:ring-1 focus:ring-accent/20 transition-colors";
 
 function PriceField({ label, value, onChange }: { label: string; value: number; onChange: (v: number) => void }) {
   const [localValue, setLocalValue] = useState<string>(String(value));
@@ -239,6 +251,7 @@ export default function AdminDashboard() {
   const [operators, setOperators] = useState<{ id: string; name: string | null; email: string | null; mobileNumber: string | null; operatorPriority: number; operatorAssignments?: { id: string; machineId: string; createdAt: string }[] }[]>([]);
   const [savingPriority, setSavingPriority] = useState(false);
   const [togglingAssignment, setTogglingAssignment] = useState<string | null>(null);
+  const [activePricingTab, setActivePricingTab] = useState<string>('leather');
 
   // Payment settings
   const [paymentSettings, setPaymentSettings] = useState({
@@ -275,7 +288,6 @@ export default function AdminDashboard() {
         if (response.ok) {
           const data = await response.json();
           const pc = data.pricingConfig || DEFAULT_PRICING;
-          // Ensure yantra tiers exist (backward compat with old configs)
           if (!pc.yantra) {
             pc.yantra = JSON.parse(JSON.stringify(pc.leather || DEFAULT_PRICING.leather));
           }
@@ -429,8 +441,6 @@ export default function AdminDashboard() {
   const saveOperatorPriority = async () => {
     setSavingPriority(true);
     try {
-      // Assign priority: highest index in array = lowest priority value
-      // First in array = highest priority
       const payload = operators.map((op, i) => ({
         userId: op.id,
         priority: operators.length - i,
@@ -481,7 +491,6 @@ export default function AdminDashboard() {
         }
       }
 
-      // Refresh operators list
       const refreshRes = await fetch('/api/admin/operators');
       if (refreshRes.ok) {
         const data = await refreshRes.json();
@@ -495,263 +504,242 @@ export default function AdminDashboard() {
   };
 
   const statCards = [
-    { label: 'Total Bookings', value: stats?.totalBookings ?? 0, icon: CalendarCheck, color: 'text-primary', bg: 'bg-accent/10', href: '/admin/bookings' },
-    { label: 'Today', value: stats?.todayBookings ?? 0, icon: CalendarDays, color: 'text-orange-600', bg: 'bg-orange-500/10', href: '/admin/bookings?category=today' },
-    { label: 'Upcoming', value: stats?.upcomingBookings ?? 0, icon: TrendingUp, color: 'text-blue-600', bg: 'bg-blue-500/10', href: '/admin/bookings?category=upcoming' },
-    { label: 'Revenue', value: stats?.totalRevenue ? `₹${stats.totalRevenue.toLocaleString()}` : '₹0', icon: IndianRupee, color: 'text-green-600', bg: 'bg-green-500/10', isText: true, href: '/admin/bookings' },
-    { label: 'System Status', value: stats?.systemStatus ?? 'Healthy', icon: Activity, color: 'text-green-600', bg: 'bg-green-500/10', isText: true, href: '/admin/policies' },
+    { label: 'Total Bookings', value: stats?.totalBookings ?? 0, icon: CalendarCheck, gradient: 'bg-gradient-to-br from-accent/15 to-accent/5', iconColor: 'text-accent', href: '/admin/bookings' },
+    { label: 'Today', value: stats?.todayBookings ?? 0, icon: CalendarDays, gradient: 'bg-gradient-to-br from-orange-500/15 to-orange-500/5', iconColor: 'text-orange-400', href: '/admin/bookings?category=today' },
+    { label: 'Upcoming', value: stats?.upcomingBookings ?? 0, icon: TrendingUp, gradient: 'bg-gradient-to-br from-blue-500/15 to-blue-500/5', iconColor: 'text-blue-400', href: '/admin/bookings?category=upcoming' },
+    { label: 'Revenue', value: stats?.totalRevenue ? `₹${stats.totalRevenue.toLocaleString()}` : '₹0', icon: IndianRupee, gradient: 'bg-gradient-to-br from-emerald-500/15 to-emerald-500/5', iconColor: 'text-emerald-400', isText: true, prefix: '', href: '/admin/bookings' },
+    { label: 'System Status', value: stats?.systemStatus ?? 'Healthy', icon: Activity, gradient: 'bg-gradient-to-br from-green-500/15 to-green-500/5', iconColor: 'text-green-400', isText: true, href: '/admin/policies' },
   ];
 
-  const inputClass = "w-full bg-white/[0.04] border border-white/[0.1] text-white placeholder:text-slate-500 rounded-lg px-3 py-2.5 text-sm outline-none focus:border-accent focus:ring-1 focus:ring-accent/20";
-  return (
-    <div>
-      <h1 className="text-xl font-bold text-white mb-5">Dashboard</h1>
+  const quickActions = [
+    ...(isSuperAdmin ? [{ href: '/admin/users', label: 'Invite Admin', icon: UserPlus, variant: 'accent' as const }] : []),
+    { href: '/admin/bookings', label: 'View Bookings', icon: CalendarDays, variant: 'default' as const },
+    { href: '/admin/slots', label: 'Manage Slots', icon: Clock, variant: 'default' as const },
+    { href: '/admin/policies', label: 'Policies', icon: Settings, variant: 'default' as const },
+    ...(isSuperAdmin ? [{ href: '/admin/maintenance', label: 'Maintenance', icon: Wrench, variant: 'warning' as const }] : []),
+  ];
 
-      {/* Stats Grid */}
+  const paymentItems = [
+    { key: 'PAYMENT_GATEWAY_ENABLED', label: 'Payment Gateway', desc: 'Enable Razorpay online payments', icon: CreditCard },
+    { key: 'SLOT_PAYMENT_REQUIRED', label: 'Require Payment for Slots', desc: 'Users must pay before booking slots', icon: IndianRupee },
+    { key: 'PACKAGE_PAYMENT_REQUIRED', label: 'Require Payment for Packages', desc: 'Users must pay when purchasing packages', icon: IndianRupee },
+    { key: 'CASH_PAYMENT_ENABLED', label: 'Cash Payment', desc: 'Allow users to pay at center', icon: Banknote },
+    { key: 'WALLET_ENABLED', label: 'Wallet', desc: 'Allow wallet balance for payments', icon: Wallet },
+  ];
+
+  const inputClass = "w-full bg-white/[0.04] border border-white/[0.1] text-white placeholder:text-slate-500 rounded-lg px-3 py-2.5 text-sm outline-none focus:border-accent focus:ring-1 focus:ring-accent/20 transition-colors";
+
+  return (
+    <div className="space-y-5">
+      <AdminPageHeader
+        icon={LayoutDashboard}
+        title="Dashboard"
+        description="Overview & configuration"
+      />
+
+      {/* Welcome / Empty state banner */}
       {stats?.totalBookings === 0 && (
-        <div className="bg-accent/10 border border-accent/20 rounded-xl p-4 mb-6 flex flex-col sm:flex-row items-center justify-between gap-4">
+        <div className="animate-card-entrance bg-gradient-to-r from-accent/10 via-accent/5 to-transparent border border-accent/20 rounded-2xl p-5 flex flex-col sm:flex-row items-center justify-between gap-4">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-full bg-accent flex items-center justify-center">
+            <div className="w-11 h-11 rounded-2xl bg-accent flex items-center justify-center shadow-lg shadow-accent/20">
               <CalendarPlus className="w-5 h-5 text-primary" />
             </div>
             <div>
               <p className="text-sm font-semibold text-white">No bookings yet!</p>
-              <p className="text-xs text-slate-400">Start by booking your first slot to see statistics.</p>
+              <p className="text-xs text-slate-400 mt-0.5">Start by booking your first slot to see statistics.</p>
             </div>
           </div>
           <Link
             href="/slots"
-            className="inline-flex items-center gap-2 px-4 py-2 bg-accent hover:bg-accent-light text-primary rounded-lg text-sm font-medium transition-colors"
+            className="inline-flex items-center gap-2 px-4 py-2.5 bg-accent hover:bg-accent-light text-primary rounded-xl text-sm font-semibold transition-colors shadow-sm"
           >
             Book Your First Slot
           </Link>
         </div>
       )}
 
-      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mb-6">
+      {/* ─── Stats Grid ───────────────────────────── */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
         {statCards.map((card, idx) => (
-          <Link
+          <AdminStatCard
             key={card.label}
+            label={card.label}
+            value={card.isText ? (card.value as string) : (card.value as number)}
+            icon={card.icon}
             href={card.href}
-            className={`bg-white/[0.04] backdrop-blur-sm rounded-xl border border-white/[0.08] p-4 hover:bg-white/[0.08] transition-colors group ${
-              idx === statCards.length - 1 && statCards.length % 2 !== 0 ? 'col-span-2 sm:col-span-1' : ''
-            }`}
-          >
-            <div className="flex items-center gap-3">
-              <div className={`w-10 h-10 rounded-xl ${card.bg} flex items-center justify-center group-hover:scale-110 transition-transform flex-shrink-0`}>
-                <card.icon className={`w-5 h-5 ${card.color}`} />
-              </div>
-              <div className="min-w-0 flex-1">
-                <p className="text-[10px] font-medium text-slate-400 uppercase tracking-wider truncate">{card.label}</p>
-                <p className={`text-base sm:text-xl font-bold ${card.isText ? card.color : 'text-white'} truncate`}>
-                  {loading ? '...' : card.value}
-                </p>
-              </div>
-            </div>
-          </Link>
+            gradient={card.gradient}
+            iconColor={card.iconColor}
+            loading={loading}
+            isText={card.isText}
+            prefix={card.prefix}
+            delay={idx * 60}
+          />
         ))}
       </div>
 
-      {/* Quick Actions */}
-      <div className="bg-white/[0.04] backdrop-blur-sm rounded-xl border border-white/[0.08] p-5 mb-6">
-        <h2 className="text-sm font-semibold text-white mb-3">Quick Actions</h2>
-        <div className="flex flex-wrap gap-2">
-          {isSuperAdmin && (
-            <Link href="/admin/users" className="inline-flex items-center gap-2 px-4 py-2.5 bg-accent hover:bg-accent-light text-primary rounded-lg text-sm font-medium transition-colors">
-              <UserPlus className="w-4 h-4" />
-              Invite Admin
+      {/* ─── Quick Actions ────────────────────────── */}
+      <AdminCard title="Quick Actions" icon={<Zap className="w-4 h-4 text-accent" />}>
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
+          {quickActions.map(action => (
+            <Link
+              key={action.href + action.label}
+              href={action.href}
+              className={`flex flex-col items-center gap-2 px-3 py-4 rounded-xl text-center transition-all duration-200 group ${action.variant === 'accent'
+                  ? 'bg-accent/10 border border-accent/20 hover:bg-accent/20 hover:shadow-sm hover:shadow-accent/10'
+                  : action.variant === 'warning'
+                    ? 'bg-amber-500/8 border border-amber-500/15 hover:bg-amber-500/15'
+                    : 'bg-white/[0.03] border border-white/[0.06] hover:bg-white/[0.06] hover:border-white/[0.12]'
+                }`}
+            >
+              <div className={`w-9 h-9 rounded-xl flex items-center justify-center transition-transform duration-200 group-hover:scale-110 ${action.variant === 'accent'
+                  ? 'bg-accent/15'
+                  : action.variant === 'warning'
+                    ? 'bg-amber-500/15'
+                    : 'bg-white/[0.06]'
+                }`}>
+                <action.icon className={`w-4 h-4 ${action.variant === 'accent'
+                    ? 'text-accent'
+                    : action.variant === 'warning'
+                      ? 'text-amber-400'
+                      : 'text-slate-400'
+                  }`} />
+              </div>
+              <span className={`text-[11px] font-semibold ${action.variant === 'accent'
+                  ? 'text-accent'
+                  : action.variant === 'warning'
+                    ? 'text-amber-300'
+                    : 'text-slate-300'
+                }`}>
+                {action.label}
+              </span>
             </Link>
-          )}
-          <Link href="/admin/bookings" className="inline-flex items-center gap-2 px-4 py-2.5 bg-white/[0.06] text-slate-300 rounded-lg text-sm font-medium hover:bg-white/[0.1] transition-colors">
-            <CalendarDays className="w-4 h-4" />
-            View Bookings
-          </Link>
-          <Link href="/admin/slots" className="inline-flex items-center gap-2 px-4 py-2.5 bg-white/[0.06] text-slate-300 rounded-lg text-sm font-medium hover:bg-white/[0.1] transition-colors">
-            <Clock className="w-4 h-4" />
-            Manage Slots
-          </Link>
-          <Link href="/admin/policies" className="inline-flex items-center gap-2 px-4 py-2.5 bg-white/[0.06] text-slate-300 rounded-lg text-sm font-medium hover:bg-white/[0.1] transition-colors">
-            <Settings className="w-4 h-4" />
-            Manage Policies
-          </Link>
-          {isSuperAdmin && (
-            <Link href="/admin/maintenance" className="inline-flex items-center gap-2 px-4 py-2.5 bg-amber-500/10 text-amber-300 rounded-lg text-sm font-medium hover:bg-amber-500/20 transition-colors">
-              <Wrench className="w-4 h-4" />
-              Maintenance Mode
-            </Link>
-          )}
+          ))}
         </div>
-      </div>
+      </AdminCard>
 
-      {/* Payment Settings */}
-      <div className="bg-white/[0.04] backdrop-blur-sm rounded-xl border border-white/[0.08] p-5 mb-6">
-        <div className="flex items-center gap-2 mb-4">
-          <CreditCard className="w-5 h-5 text-accent" />
-          <h2 className="text-sm font-semibold text-white">Payment Settings</h2>
-          {paymentMessage.text && (
-            <span className={`ml-auto text-xs font-medium ${paymentMessage.type === 'success' ? 'text-green-400' : 'text-red-400'}`}>
+      {/* ─── Payment Settings ─────────────────────── */}
+      <AdminCard
+        title="Payment Settings"
+        icon={<CreditCard className="w-4 h-4 text-accent" />}
+        collapsible
+        defaultOpen={true}
+        headerRight={
+          paymentMessage.text ? (
+            <span className={`text-xs font-medium ${paymentMessage.type === 'success' ? 'text-green-400' : 'text-red-400'}`}>
               {paymentMessage.text}
             </span>
-          )}
-        </div>
-
+          ) : undefined
+        }
+      >
         {paymentLoading ? (
           <div className="flex items-center gap-2 py-4 text-slate-400">
             <Loader2 className="w-4 h-4 animate-spin" />
             <span className="text-sm">Loading payment settings...</span>
           </div>
         ) : (
-          <div className="space-y-1">
-            {[
-              { key: 'PAYMENT_GATEWAY_ENABLED', label: 'Payment Gateway', desc: 'Enable Razorpay online payments', icon: CreditCard },
-              { key: 'SLOT_PAYMENT_REQUIRED', label: 'Require Payment for Slots', desc: 'Users must pay before booking slots', icon: IndianRupee },
-              { key: 'PACKAGE_PAYMENT_REQUIRED', label: 'Require Payment for Packages', desc: 'Users must pay when purchasing packages', icon: IndianRupee },
-              { key: 'CASH_PAYMENT_ENABLED', label: 'Cash Payment', desc: 'Allow users to pay at center', icon: Banknote },
-              { key: 'WALLET_ENABLED', label: 'Wallet', desc: 'Allow wallet balance for payments', icon: Wallet },
-            ].map(({ key, label, desc, icon: Icon }) => (
-              <div
+          <div className="space-y-0.5">
+            {paymentItems.map(({ key, label, desc, icon }) => (
+              <AdminToggle
                 key={key}
-                className="flex items-center gap-3 px-3 py-3 rounded-lg hover:bg-white/[0.03] transition-colors"
-              >
-                <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${
-                  paymentSettings[key as keyof typeof paymentSettings] ? 'bg-accent/15' : 'bg-white/[0.04]'
-                }`}>
-                  <Icon className={`w-4 h-4 ${paymentSettings[key as keyof typeof paymentSettings] ? 'text-accent' : 'text-slate-500'}`} />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className={`text-sm font-medium ${paymentSettings[key as keyof typeof paymentSettings] ? 'text-white' : 'text-slate-400'}`}>
-                    {label}
-                  </p>
-                  <p className="text-[10px] text-slate-500">{desc}</p>
-                </div>
-                <button
-                  disabled={savingPayment}
-                  onClick={() => handleSavePayment(key, !paymentSettings[key as keyof typeof paymentSettings])}
-                  className={`w-11 h-6 rounded-full transition-colors relative flex-shrink-0 cursor-pointer disabled:opacity-50 ${
-                    paymentSettings[key as keyof typeof paymentSettings] ? 'bg-accent' : 'bg-white/10'
-                  }`}
-                >
-                  <div
-                    className={`absolute top-0.5 w-5 h-5 rounded-full bg-white shadow-sm transition-transform ${
-                      paymentSettings[key as keyof typeof paymentSettings] ? 'translate-x-[22px]' : 'translate-x-0.5'
-                    }`}
-                  />
-                </button>
-              </div>
+                enabled={paymentSettings[key as keyof typeof paymentSettings]}
+                onToggle={() => handleSavePayment(key, !paymentSettings[key as keyof typeof paymentSettings])}
+                label={label}
+                description={desc}
+                icon={icon}
+                disabled={savingPayment}
+              />
             ))}
           </div>
         )}
-      </div>
+      </AdminCard>
 
-      {/* Machine Configuration */}
-      <div className="bg-white/[0.04] backdrop-blur-sm rounded-xl border border-white/[0.08] p-5 mb-6">
-        <div className="flex items-center gap-2 mb-4">
-          <Zap className="w-5 h-5 text-primary" />
-          <h2 className="text-sm font-semibold text-white">Machine Configuration</h2>
-        </div>
-
+      {/* ─── Machine Configuration ────────────────── */}
+      <AdminCard
+        title="Machine Configuration"
+        icon={<Zap className="w-4 h-4 text-accent" />}
+        collapsible
+        defaultOpen={false}
+      >
         {machineLoading ? (
           <div className="flex items-center justify-center py-8 text-slate-400">
             <Loader2 className="w-5 h-5 animate-spin mr-2" />
             <span className="text-sm">Loading configuration...</span>
           </div>
         ) : (
-          <div className="space-y-6">
+          <div className="space-y-4">
             {/* Leather Ball Machine */}
-            <div>
-              <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">Leather Ball Machine</h3>
-              <div className="flex items-center justify-between mb-3">
-                <div>
-                  <p className="text-sm font-medium text-slate-300">Enable Ball Type Selection</p>
-                  <p className="text-xs text-slate-400">Users choose between Leather Ball and Machine Ball</p>
-                </div>
-                <button
-                  onClick={() => setMachineConfig(prev => ({
+            <div className="bg-white/[0.02] rounded-xl border border-white/[0.05] p-4">
+              <h3 className="text-xs font-bold text-slate-300 uppercase tracking-wider mb-3 flex items-center gap-2">
+                <span className="w-2 h-2 rounded-full bg-red-400" />
+                Leather Ball Machine
+              </h3>
+              <div className="space-y-0.5">
+                <AdminToggle
+                  enabled={machineConfig.leatherMachine.ballTypeSelectionEnabled}
+                  onToggle={() => setMachineConfig(prev => ({
                     ...prev,
                     leatherMachine: { ...prev.leatherMachine, ballTypeSelectionEnabled: !prev.leatherMachine.ballTypeSelectionEnabled },
                   }))}
-                  className={`relative w-12 h-7 rounded-full transition-colors cursor-pointer ${
-                    machineConfig.leatherMachine.ballTypeSelectionEnabled ? 'bg-primary' : 'bg-white/[0.1]'
-                  }`}
-                >
-                  <span className={`absolute top-1 w-5 h-5 rounded-full bg-white shadow transition-transform ${
-                    machineConfig.leatherMachine.ballTypeSelectionEnabled ? 'left-6' : 'left-1'
-                  }`} />
-                </button>
-              </div>
-
-              <div className="flex items-center justify-between mb-3">
-                <div>
-                  <p className="text-sm font-medium text-slate-300">Enable Pitch Type Selection</p>
-                  <p className="text-xs text-slate-400">Users can select between Astro Turf, Cement, and Natural Turf</p>
-                </div>
-                <button
-                  onClick={() => setMachineConfig(prev => ({
+                  label="Ball Type Selection"
+                  description="Users choose between Leather Ball and Machine Ball"
+                  size="sm"
+                />
+                <AdminToggle
+                  enabled={machineConfig.leatherMachine.pitchTypeSelectionEnabled}
+                  onToggle={() => setMachineConfig(prev => ({
                     ...prev,
                     leatherMachine: { ...prev.leatherMachine, pitchTypeSelectionEnabled: !prev.leatherMachine.pitchTypeSelectionEnabled },
                   }))}
-                  className={`relative w-12 h-7 rounded-full transition-colors cursor-pointer ${
-                    machineConfig.leatherMachine.pitchTypeSelectionEnabled ? 'bg-primary' : 'bg-white/[0.1]'
-                  }`}
-                >
-                  <span className={`absolute top-1 w-5 h-5 rounded-full bg-white shadow transition-transform ${
-                    machineConfig.leatherMachine.pitchTypeSelectionEnabled ? 'left-6' : 'left-1'
-                  }`} />
-                </button>
+                  label="Pitch Type Selection"
+                  description="Select between Astro Turf, Cement, and Natural Turf"
+                  size="sm"
+                />
               </div>
             </div>
 
             {/* Tennis Ball Machine */}
-            <div className="pt-4 border-t border-white/[0.06]">
-              <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">Tennis Ball Machine</h3>
-              <div className="flex items-center justify-between mb-3">
-                <div>
-                  <p className="text-sm font-medium text-slate-300">Enable Pitch Type Selection</p>
-                  <p className="text-xs text-slate-400">Users can select between Astro Turf, Cement, and Natural Turf</p>
-                </div>
-                <button
-                  onClick={() => setMachineConfig(prev => ({
-                    ...prev,
-                    tennisMachine: { ...prev.tennisMachine, pitchTypeSelectionEnabled: !prev.tennisMachine.pitchTypeSelectionEnabled },
-                  }))}
-                  className={`relative w-12 h-7 rounded-full transition-colors cursor-pointer ${
-                    machineConfig.tennisMachine.pitchTypeSelectionEnabled ? 'bg-primary' : 'bg-white/[0.1]'
-                  }`}
-                >
-                  <span className={`absolute top-1 w-5 h-5 rounded-full bg-white shadow transition-transform ${
-                    machineConfig.tennisMachine.pitchTypeSelectionEnabled ? 'left-6' : 'left-1'
-                  }`} />
-                </button>
-              </div>
+            <div className="bg-white/[0.02] rounded-xl border border-white/[0.05] p-4">
+              <h3 className="text-xs font-bold text-slate-300 uppercase tracking-wider mb-3 flex items-center gap-2">
+                <span className="w-2 h-2 rounded-full bg-green-400" />
+                Tennis Ball Machine
+              </h3>
+              <AdminToggle
+                enabled={machineConfig.tennisMachine.pitchTypeSelectionEnabled}
+                onToggle={() => setMachineConfig(prev => ({
+                  ...prev,
+                  tennisMachine: { ...prev.tennisMachine, pitchTypeSelectionEnabled: !prev.tennisMachine.pitchTypeSelectionEnabled },
+                }))}
+                label="Pitch Type Selection"
+                description="Select between Astro Turf, Cement, and Natural Turf"
+                size="sm"
+              />
             </div>
 
             {/* Machine-Pitch Compatibility */}
-            <div className="pt-4 border-t border-white/[0.06]">
-              <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">Machine &mdash; Pitch Compatibility</h3>
-              <p className="text-xs text-slate-400 mb-3">Toggle which pitch types are available for each machine</p>
+            <div className="bg-white/[0.02] rounded-xl border border-white/[0.05] p-4">
+              <h3 className="text-xs font-bold text-slate-300 uppercase tracking-wider mb-1">Machine — Pitch Compatibility</h3>
+              <p className="text-[10px] text-slate-500 mb-3">Toggle which pitch types are available for each machine</p>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 {ALL_MACHINE_IDS.map(machineId => {
                   const label = MACHINE_LABELS[machineId];
                   const enabled = machineConfig.machinePitchConfig?.[machineId] || [];
                   return (
-                    <div key={machineId} className="bg-white/[0.02] rounded-lg p-3 border border-white/[0.06]">
-                      <div className="flex items-center gap-2 mb-2">
+                    <div key={machineId} className="bg-white/[0.02] rounded-xl p-3 border border-white/[0.05]">
+                      <div className="flex items-center gap-2 mb-2.5">
                         <span className={`w-2 h-2 rounded-full ${label.category === 'Leather' ? 'bg-red-400' : 'bg-green-400'}`} />
-                        <p className="text-xs font-semibold text-slate-300">{label.name}</p>
-                        <span className="text-[10px] text-slate-500">({label.category})</span>
+                        <p className="text-[11px] font-bold text-slate-300">{label.name}</p>
                       </div>
-                      <div className="flex flex-wrap gap-2">
+                      <div className="flex flex-wrap gap-1.5">
                         {ALL_PITCH_TYPES.map(pt => {
                           const isOn = enabled.includes(pt);
                           return (
                             <button
                               key={pt}
                               onClick={() => togglePitchType(machineId, pt)}
-                              className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors cursor-pointer ${
-                                isOn
+                              className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11px] font-medium transition-all cursor-pointer ${isOn
                                   ? 'bg-accent/15 text-accent border border-accent/30'
                                   : 'bg-white/[0.04] text-slate-500 border border-white/[0.08] hover:bg-white/[0.08]'
-                              }`}
+                                }`}
                             >
                               {isOn && <Check className="w-3 h-3" />}
                               {PITCH_TYPE_LABELS[pt]}
@@ -766,11 +754,11 @@ export default function AdminDashboard() {
             </div>
 
             {/* Operator Configuration */}
-            <div className="pt-4 border-t border-white/[0.06]">
-              <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">Operator Configuration</h3>
-              <div className="mb-3">
+            <div className="bg-white/[0.02] rounded-xl border border-white/[0.05] p-4">
+              <h3 className="text-xs font-bold text-slate-300 uppercase tracking-wider mb-3">Operator Configuration</h3>
+              <div className="mb-4">
                 <p className="text-sm font-medium text-slate-300">Number of Operators</p>
-                <p className="text-xs text-slate-400 mb-2">How many parallel operator-assisted bookings are allowed per time slot</p>
+                <p className="text-[10px] text-slate-500 mb-2">Parallel operator-assisted bookings per time slot</p>
                 <input
                   type="number"
                   value={machineConfig.numberOfOperators}
@@ -779,18 +767,18 @@ export default function AdminDashboard() {
                     numberOfOperators: Math.max(1, Math.floor(Number(e.target.value))),
                   }))}
                   min="1"
-                  className="w-32 bg-white/[0.04] border border-white/[0.1] text-white placeholder:text-slate-500 rounded-lg px-3 py-2.5 text-sm outline-none focus:border-accent focus:ring-1 focus:ring-accent/20"
+                  className="w-32 bg-white/[0.04] border border-white/[0.1] text-white placeholder:text-slate-500 rounded-lg px-3 py-2.5 text-sm outline-none focus:border-accent focus:ring-1 focus:ring-accent/20 transition-colors"
                 />
               </div>
 
               {/* Operator Priority */}
               <div className="mt-4">
                 <p className="text-sm font-medium text-slate-300">Operator Priority</p>
-                <p className="text-xs text-slate-400 mb-3">First operator gets booking preference. Reorder to change priority.</p>
+                <p className="text-[10px] text-slate-500 mb-3">First operator gets booking preference. Reorder to change priority.</p>
                 {operators.length === 0 ? (
                   <p className="text-xs text-slate-500 italic">No operators found. Assign OPERATOR role to users first.</p>
                 ) : (
-                  <div className="space-y-3">
+                  <div className="space-y-2.5">
                     {operators.map((op, index) => {
                       const assignedMachines = new Set(
                         (op.operatorAssignments || []).map(a => a.machineId)
@@ -799,10 +787,10 @@ export default function AdminDashboard() {
                       return (
                         <div
                           key={op.id}
-                          className="bg-white/[0.03] border border-white/[0.08] rounded-lg px-3 py-3"
+                          className="bg-white/[0.03] border border-white/[0.07] rounded-xl px-3 py-3 hover:border-white/[0.12] transition-colors"
                         >
                           <div className="flex items-center gap-3 mb-2">
-                            <span className="w-5 h-5 rounded-full bg-accent/15 flex items-center justify-center text-[10px] font-bold text-accent flex-shrink-0">
+                            <span className="w-6 h-6 rounded-lg bg-accent/15 flex items-center justify-center text-[10px] font-bold text-accent flex-shrink-0">
                               {index + 1}
                             </span>
                             <div className="flex-1 min-w-0">
@@ -828,7 +816,7 @@ export default function AdminDashboard() {
                           </div>
 
                           {/* Machine Assignments */}
-                          <div className="ml-8">
+                          <div className="ml-9">
                             <p className="text-[10px] text-slate-500 uppercase tracking-wider mb-1.5">Assigned Machines</p>
                             <div className="flex flex-wrap gap-1.5">
                               {ALL_MACHINE_IDS.map(mid => {
@@ -839,11 +827,10 @@ export default function AdminDashboard() {
                                     key={mid}
                                     onClick={() => toggleMachineAssignment(op.id, mid, isAssigned)}
                                     disabled={!!togglingAssignment}
-                                    className={`flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-medium transition-all cursor-pointer disabled:opacity-60 ${
-                                      isAssigned
+                                    className={`flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-medium transition-all cursor-pointer disabled:opacity-60 ${isAssigned
                                         ? 'bg-accent/15 text-accent border border-accent/30'
                                         : 'bg-white/[0.04] text-slate-500 border border-white/[0.08] hover:bg-white/[0.08]'
-                                    }`}
+                                      }`}
                                   >
                                     {isToggling ? (
                                       <Loader2 className="w-3 h-3 animate-spin" />
@@ -876,11 +863,14 @@ export default function AdminDashboard() {
             </div>
 
             {/* Time Slab Configuration */}
-            <div className="pt-4 border-t border-white/[0.06]">
-              <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">Slot Timing Configuration</h3>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div className="bg-white/[0.02] rounded-lg p-3 border border-white/[0.06]">
-                  <p className="text-xs font-semibold text-slate-300 mb-2">Morning Slab</p>
+            <div className="bg-white/[0.02] rounded-xl border border-white/[0.05] p-4">
+              <h3 className="text-xs font-bold text-slate-300 uppercase tracking-wider mb-3">Slot Timing Configuration</h3>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="bg-white/[0.02] rounded-xl p-3 border border-white/[0.05]">
+                  <p className="text-[11px] font-bold text-slate-300 mb-2 flex items-center gap-1.5">
+                    <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
+                    Morning Slab
+                  </p>
                   <div className="grid grid-cols-2 gap-2">
                     <div>
                       <label className="block text-[10px] font-medium text-slate-400 mb-1">Start</label>
@@ -904,8 +894,11 @@ export default function AdminDashboard() {
                     </div>
                   </div>
                 </div>
-                <div className="bg-white/[0.02] rounded-lg p-3 border border-white/[0.06]">
-                  <p className="text-xs font-semibold text-slate-300 mb-2">Evening Slab</p>
+                <div className="bg-white/[0.02] rounded-xl p-3 border border-white/[0.05]">
+                  <p className="text-[11px] font-bold text-slate-300 mb-2 flex items-center gap-1.5">
+                    <span className="w-1.5 h-1.5 rounded-full bg-indigo-400" />
+                    Evening Slab
+                  </p>
                   <div className="grid grid-cols-2 gap-2">
                     <div>
                       <label className="block text-[10px] font-medium text-slate-400 mb-1">Start</label>
@@ -932,76 +925,82 @@ export default function AdminDashboard() {
               </div>
             </div>
 
-            {/* Pricing Configuration */}
-            <div className="pt-4 border-t border-white/[0.06]">
-              <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">Slot Pricing Configuration</h3>
+            {/* Pricing Configuration - Tabbed */}
+            <div className="bg-white/[0.02] rounded-xl border border-white/[0.05] p-4">
+              <h3 className="text-xs font-bold text-slate-300 uppercase tracking-wider mb-3">Slot Pricing Configuration</h3>
 
-              {(['leather', 'yantra', 'machine', 'yantra_machine', 'tennis'] as const).map(category => (
-                <div key={category} className="mb-6">
-                  <h4 className="text-[11px] font-bold text-accent uppercase tracking-widest mb-3 px-1 break-words">
-                    {category === 'leather' ? 'Gravity (Leather) - Leather Balls' :
-                     category === 'yantra' ? 'Yantra (Premium Leather) - Leather Balls' :
-                     category === 'machine' ? 'Gravity (Leather) - Machine Balls' :
-                     category === 'yantra_machine' ? 'Yantra (Premium Leather) - Machine Balls' :
-                     'Tennis Ball Machine'}
-                  </h4>
-                  
-                  {(['ASTRO', 'CEMENT', 'NATURAL'] as const).map(pitch => {
-                    const pitchPricing = machineConfig.pricingConfig?.[category]?.[pitch];
-                    if (!pitchPricing) return null;
-                    
-                    return (
-                      <div key={`${category}-${pitch}`} className="bg-white/[0.02] rounded-lg p-3 border border-white/[0.06] mb-3">
-                        <p className="text-xs font-semibold text-slate-300 mb-2">
-                          {pitch === 'ASTRO' ? 'Astro Turf' : pitch === 'CEMENT' ? 'Cement Wicket' : 'Natural Turf'}
-                        </p>
-                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                          <PriceField
-                            label="Morn / Slot"
-                            value={pitchPricing.morning.single}
-                            onChange={v => updatePricing([category, pitch, 'morning', 'single'], v)}
-                          />
-                          <PriceField
-                            label="Morn / 2 Cons."
-                            value={pitchPricing.morning.consecutive}
-                            onChange={v => updatePricing([category, pitch, 'morning', 'consecutive'], v)}
-                          />
-                          <PriceField
-                            label="Eve / Slot"
-                            value={pitchPricing.evening.single}
-                            onChange={v => updatePricing([category, pitch, 'evening', 'single'], v)}
-                          />
-                          <PriceField
-                            label="Eve / 2 Cons."
-                            value={pitchPricing.evening.consecutive}
-                            onChange={v => updatePricing([category, pitch, 'evening', 'consecutive'], v)}
-                          />
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              ))}
+              {/* Tab Selector */}
+              <div className="flex gap-1 overflow-x-auto pb-3 mb-3 scrollbar-hide">
+                {PRICING_TABS.map(tab => (
+                  <button
+                    key={tab.key}
+                    onClick={() => setActivePricingTab(tab.key)}
+                    className={`flex-shrink-0 px-3 py-2 rounded-lg text-[11px] font-semibold transition-all cursor-pointer whitespace-nowrap ${activePricingTab === tab.key
+                        ? 'bg-accent/15 text-accent border border-accent/30'
+                        : 'bg-white/[0.03] text-slate-500 border border-white/[0.06] hover:text-slate-300'
+                      }`}
+                  >
+                    {tab.label}
+                  </button>
+                ))}
+              </div>
+
+              {/* Active Tab Content */}
+              {(['ASTRO', 'CEMENT', 'NATURAL'] as const).map(pitch => {
+                const pitchPricing = machineConfig.pricingConfig?.[activePricingTab as keyof PricingConfig]?.[pitch];
+                if (!pitchPricing) return null;
+
+                return (
+                  <div key={`${activePricingTab}-${pitch}`} className="bg-white/[0.02] rounded-xl p-3 border border-white/[0.05] mb-2.5">
+                    <p className="text-[11px] font-bold text-slate-300 mb-2">
+                      {pitch === 'ASTRO' ? 'Astro Turf' : pitch === 'CEMENT' ? 'Cement Wicket' : 'Natural Turf'}
+                    </p>
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                      <PriceField
+                        label="Morn / Slot"
+                        value={pitchPricing.morning.single}
+                        onChange={v => updatePricing([activePricingTab, pitch, 'morning', 'single'], v)}
+                      />
+                      <PriceField
+                        label="Morn / 2 Cons."
+                        value={pitchPricing.morning.consecutive}
+                        onChange={v => updatePricing([activePricingTab, pitch, 'morning', 'consecutive'], v)}
+                      />
+                      <PriceField
+                        label="Eve / Slot"
+                        value={pitchPricing.evening.single}
+                        onChange={v => updatePricing([activePricingTab, pitch, 'evening', 'single'], v)}
+                      />
+                      <PriceField
+                        label="Eve / 2 Cons."
+                        value={pitchPricing.evening.consecutive}
+                        onChange={v => updatePricing([activePricingTab, pitch, 'evening', 'consecutive'], v)}
+                      />
+                    </div>
+                  </div>
+                );
+              })}
             </div>
 
-            <div className="flex items-center gap-3 pt-3">
+            {/* Save Button */}
+            <div className="flex items-center gap-3 pt-2">
               <button
                 onClick={() => setShowMachineConfigConfirm(true)}
                 disabled={savingMachine}
-                className="inline-flex items-center gap-2 bg-accent hover:bg-accent-light text-primary px-5 py-2.5 rounded-lg text-sm font-medium transition-colors cursor-pointer disabled:opacity-50"
+                className="inline-flex items-center gap-2 bg-accent hover:bg-accent-light text-primary px-5 py-2.5 rounded-xl text-sm font-semibold transition-all cursor-pointer disabled:opacity-50 shadow-sm shadow-accent/20 hover:shadow-accent/30"
               >
                 {savingMachine ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
                 Save Machine Config
               </button>
               {machineMessage.text && (
-                <span className={`text-sm ${machineMessage.type === 'success' ? 'text-green-400' : 'text-red-400'}`}>
+                <span className={`text-sm font-medium ${machineMessage.type === 'success' ? 'text-green-400' : 'text-red-400'}`}>
                   {machineMessage.text}
                 </span>
               )}
             </div>
           </div>
         )}
-      </div>
+      </AdminCard>
 
       {/* Machine Config Save Confirmation */}
       <ConfirmDialog

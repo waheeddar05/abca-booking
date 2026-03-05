@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useSession } from 'next-auth/react';
-import { LayoutDashboard, CalendarCheck, Users, Settings, Clock, Wrench, Package } from 'lucide-react';
+import { LayoutDashboard, CalendarCheck, Users, Settings, Clock, Wrench, Package, Zap } from 'lucide-react';
 
 const SUPER_ADMIN_EMAIL = 'waheeddar8@gmail.com';
 
@@ -32,21 +32,21 @@ export default function AdminLayout({
   return (
     <div className="min-h-[calc(100vh-56px)] overflow-x-hidden">
       {/* Background gradient */}
-      <div className="fixed inset-0 -z-10 bg-gradient-to-br from-[#0a1628] via-[#132240] to-[#0d1f3c]"></div>
-      <div className="fixed inset-0 -z-10 bg-[radial-gradient(ellipse_at_top,rgba(212,168,67,0.05),transparent_60%)]"></div>
+      <div className="fixed inset-0 -z-10 bg-gradient-to-br from-[#0a1628] via-[#0f1d35] to-[#0d1f3c]"></div>
+      <div className="fixed inset-0 -z-10 bg-[radial-gradient(ellipse_at_top,rgba(56,189,248,0.04),transparent_60%)]"></div>
+      <div className="fixed inset-0 -z-10 bg-[radial-gradient(ellipse_at_bottom_right,rgba(139,92,246,0.03),transparent_60%)]"></div>
 
       {/* Mobile: Horizontal tabs */}
-      <div className="md:hidden sticky top-14 z-30 bg-[#0f1d2f]/95 backdrop-blur-md border-b border-white/[0.06]">
-        <div className="flex overflow-x-auto px-2 py-1 gap-1">
+      <div className="md:hidden sticky top-14 z-30 bg-[#0b1726]/95 backdrop-blur-xl border-b border-white/[0.06]">
+        <div className="flex overflow-x-auto px-2 py-1.5 gap-1 scrollbar-hide">
           {links.map(({ href, label, icon: Icon }) => (
             <Link
               key={href}
               href={href}
-              className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium whitespace-nowrap transition-colors ${
-                isActive(href)
-                  ? 'bg-accent/15 text-accent'
-                  : 'text-slate-400 hover:bg-white/[0.04]'
-              }`}
+              className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-medium whitespace-nowrap transition-all duration-200 ${isActive(href)
+                  ? 'bg-accent/15 text-accent shadow-sm shadow-accent/10'
+                  : 'text-slate-500 hover:text-slate-300 hover:bg-white/[0.04]'
+                }`}
             >
               <Icon className="w-3.5 h-3.5" />
               {label}
@@ -57,26 +57,50 @@ export default function AdminLayout({
 
       <div className="flex">
         {/* Desktop: Sidebar */}
-        <aside className="hidden md:block w-56 bg-[#0f1d2f]/60 backdrop-blur-sm border-r border-white/[0.06] min-h-[calc(100vh-64px)] p-4">
-          <h2 className="text-[10px] font-semibold text-slate-500 uppercase tracking-widest mb-3 px-3">
-            Admin Panel
-          </h2>
-          <nav className="space-y-0.5">
-            {links.map(({ href, label, icon: Icon }) => (
-              <Link
-                key={href}
-                href={href}
-                className={`flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-sm font-medium transition-all ${
-                  isActive(href)
-                    ? 'bg-accent/15 text-accent'
-                    : 'text-slate-400 hover:bg-white/[0.04] hover:text-slate-200'
-                }`}
-              >
-                <Icon className="w-4 h-4" />
-                {label}
-              </Link>
-            ))}
+        <aside className="hidden md:flex md:flex-col w-56 bg-[#0b1726]/80 backdrop-blur-xl border-r border-white/[0.06] min-h-[calc(100vh-64px)]">
+          {/* Sidebar Header */}
+          <div className="px-5 pt-5 pb-3">
+            <div className="flex items-center gap-2.5">
+              <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-accent/20 to-purple-500/20 flex items-center justify-center">
+                <Zap className="w-4 h-4 text-accent" />
+              </div>
+              <div>
+                <h2 className="text-[11px] font-bold text-white tracking-wide">Admin Panel</h2>
+                <p className="text-[9px] text-slate-600 font-medium">PlayOrbit</p>
+              </div>
+            </div>
+          </div>
+
+          {/* Nav Links */}
+          <nav className="flex-1 px-3 py-2 space-y-0.5">
+            {links.map(({ href, label, icon: Icon }) => {
+              const active = isActive(href);
+              return (
+                <Link
+                  key={href}
+                  href={href}
+                  className={`relative flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-sm font-medium transition-all duration-200 group ${active
+                      ? 'bg-accent/10 text-accent'
+                      : 'text-slate-500 hover:bg-white/[0.04] hover:text-slate-300'
+                    }`}
+                >
+                  {/* Active indicator bar */}
+                  {active && (
+                    <div className="absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-5 bg-accent rounded-r-full" />
+                  )}
+                  <Icon className={`w-[18px] h-[18px] transition-transform duration-200 ${active ? '' : 'group-hover:scale-110'}`} />
+                  {label}
+                </Link>
+              );
+            })}
           </nav>
+
+          {/* Sidebar Footer */}
+          <div className="px-4 py-3 border-t border-white/[0.04]">
+            <p className="text-[9px] text-slate-700 text-center">
+              © PlayOrbit {new Date().getFullYear()}
+            </p>
+          </div>
         </aside>
 
         {/* Main Content */}

@@ -7,6 +7,7 @@ import {
   CalendarRange, Repeat, CalendarClock, CheckCircle2, Info,
 } from 'lucide-react';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
+import { AdminPageHeader } from '@/components/admin/AdminPageHeader';
 
 // ─── Types ───────────────────────────────────────────────
 interface BlockedSlot {
@@ -273,15 +274,7 @@ export default function SlotManagement() {
   return (
     <div>
       {/* Header */}
-      <div className="flex items-center gap-3 mb-6">
-        <div className="w-10 h-10 rounded-xl bg-accent/10 flex items-center justify-center">
-          <Clock className="w-5 h-5 text-accent" />
-        </div>
-        <div>
-          <h1 className="text-xl font-bold text-white">Slot Management</h1>
-          <p className="text-xs text-slate-400">Block time slots & manage availability</p>
-        </div>
-      </div>
+      <AdminPageHeader icon={Clock} title="Slot Management" description="Block time slots & manage availability" />
 
       {/* Tabs */}
       <div className="flex gap-1 mb-5 bg-white/[0.03] p-1 rounded-xl border border-white/[0.06]">
@@ -292,18 +285,16 @@ export default function SlotManagement() {
           <button
             key={tab.id}
             onClick={() => setActiveTab(tab.id)}
-            className={`flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium transition-all cursor-pointer ${
-              activeTab === tab.id
+            className={`flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold transition-all cursor-pointer ${activeTab === tab.id
                 ? 'bg-white/[0.08] text-white shadow-sm'
                 : 'text-slate-400 hover:text-slate-300'
-            }`}
+              }`}
           >
             <tab.icon className="w-4 h-4" />
             {tab.label}
             {tab.count !== undefined && tab.count > 0 && (
-              <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-bold ${
-                activeTab === tab.id ? 'bg-red-500/20 text-red-400' : 'bg-white/[0.06] text-slate-500'
-              }`}>
+              <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-bold ${activeTab === tab.id ? 'bg-red-500/20 text-red-400' : 'bg-white/[0.06] text-slate-500'
+                }`}>
                 {tab.count}
               </span>
             )}
@@ -313,11 +304,10 @@ export default function SlotManagement() {
 
       {/* Message Toast */}
       {message.text && (
-        <div className={`mb-4 px-4 py-3 rounded-xl text-sm flex items-center gap-2 ${
-          message.type === 'success'
+        <div className={`mb-4 px-4 py-3 rounded-xl text-sm flex items-center gap-2 ${message.type === 'success'
             ? 'bg-green-500/10 border border-green-500/20 text-green-400'
             : 'bg-red-500/10 border border-red-500/20 text-red-400'
-        }`}>
+          }`}>
           {message.type === 'success' ? <CheckCircle2 className="w-4 h-4 flex-shrink-0" /> : <AlertTriangle className="w-4 h-4 flex-shrink-0" />}
           {message.text}
         </div>
@@ -349,11 +339,10 @@ export default function SlotManagement() {
               <button
                 type="button"
                 onClick={() => setScheduleType('dateRange')}
-                className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-md text-xs font-medium transition-all cursor-pointer ${
-                  scheduleType === 'dateRange'
+                className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-md text-xs font-medium transition-all cursor-pointer ${scheduleType === 'dateRange'
                     ? 'bg-accent/15 text-accent'
                     : 'text-slate-400 hover:text-slate-300'
-                }`}
+                  }`}
               >
                 <CalendarRange className="w-3.5 h-3.5" />
                 Date Range
@@ -361,11 +350,10 @@ export default function SlotManagement() {
               <button
                 type="button"
                 onClick={() => setScheduleType('recurring')}
-                className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-md text-xs font-medium transition-all cursor-pointer ${
-                  scheduleType === 'recurring'
+                className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-md text-xs font-medium transition-all cursor-pointer ${scheduleType === 'recurring'
                     ? 'bg-accent/15 text-accent'
                     : 'text-slate-400 hover:text-slate-300'
-                }`}
+                  }`}
               >
                 <Repeat className="w-3.5 h-3.5" />
                 Recurring Days
@@ -414,11 +402,10 @@ export default function SlotManagement() {
                       key={day.key}
                       type="button"
                       onClick={() => toggleRecurringDay(day.key)}
-                      className={`py-2 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
-                        recurringDays.includes(day.key)
+                      className={`py-2 rounded-lg text-xs font-semibold transition-all cursor-pointer ${recurringDays.includes(day.key)
                           ? 'bg-accent/20 text-accent ring-1 ring-accent/30'
                           : 'bg-white/[0.04] text-slate-400 hover:bg-white/[0.06]'
-                      }`}
+                        }`}
                     >
                       {day.label}
                     </button>
@@ -444,11 +431,10 @@ export default function SlotManagement() {
               <button
                 type="button"
                 onClick={() => setIsFullDay(!isFullDay)}
-                className={`px-3 py-1.5 rounded-lg text-[11px] font-semibold transition-all cursor-pointer ${
-                  isFullDay
+                className={`px-3 py-1.5 rounded-lg text-[11px] font-semibold transition-all cursor-pointer ${isFullDay
                     ? 'bg-accent/15 text-accent'
                     : 'bg-white/[0.04] text-slate-400 hover:bg-white/[0.06]'
-                }`}
+                  }`}
               >
                 {isFullDay ? 'Full Day' : 'Custom Hours'}
               </button>
@@ -495,11 +481,10 @@ export default function SlotManagement() {
                   setAllMachines(!allMachines);
                   if (!allMachines) setSelectedMachines([]);
                 }}
-                className={`px-3 py-1.5 rounded-lg text-[11px] font-semibold transition-all cursor-pointer ${
-                  allMachines
+                className={`px-3 py-1.5 rounded-lg text-[11px] font-semibold transition-all cursor-pointer ${allMachines
                     ? 'bg-red-500/15 text-red-400'
                     : 'bg-white/[0.04] text-slate-400 hover:bg-white/[0.06]'
-                }`}
+                  }`}
               >
                 {allMachines ? 'All Machines' : 'Select Specific'}
               </button>
@@ -516,11 +501,10 @@ export default function SlotManagement() {
                       key={m.id}
                       type="button"
                       onClick={() => toggleMachine(m.id)}
-                      className={`flex items-center gap-2.5 p-2.5 rounded-xl transition-all cursor-pointer text-left ${
-                        isSelected
+                      className={`flex items-center gap-2.5 p-2.5 rounded-xl transition-all cursor-pointer text-left ${isSelected
                           ? 'bg-red-500/10 ring-1.5 ring-red-500/40'
                           : 'bg-white/[0.03] border border-white/[0.06] hover:border-white/[0.12]'
-                      }`}
+                        }`}
                     >
                       {/* eslint-disable-next-line @next/next/no-img-element */}
                       <img
@@ -536,9 +520,8 @@ export default function SlotManagement() {
                           {m.sub}
                         </span>
                       </div>
-                      <span className={`w-4 h-4 rounded border flex items-center justify-center flex-shrink-0 ${
-                        isSelected ? 'bg-red-500 border-red-500' : 'border-slate-600'
-                      }`}>
+                      <span className={`w-4 h-4 rounded border flex items-center justify-center flex-shrink-0 ${isSelected ? 'bg-red-500 border-red-500' : 'border-slate-600'
+                        }`}>
                         {isSelected && <span className="text-white text-[8px] font-bold">✓</span>}
                       </span>
                     </button>

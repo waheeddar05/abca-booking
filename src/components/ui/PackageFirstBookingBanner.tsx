@@ -17,7 +17,7 @@ export function PackageFirstBookingBanner({ packageName }: PackageFirstBookingBa
           Package: {packageName}
         </p>
         <p className="text-xs text-purple-400/80 mt-0.5">
-          Your package will be activated after your first booking. Book a session to get started!
+          Package activation begins with your first booking.
         </p>
       </div>
     </div>

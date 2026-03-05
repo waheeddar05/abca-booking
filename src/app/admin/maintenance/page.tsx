@@ -15,6 +15,7 @@ import {
   Check,
   Search,
 } from 'lucide-react';
+import { AdminPageHeader } from '@/components/admin/AdminPageHeader';
 
 interface AdminUser {
   id: string;
@@ -149,13 +150,16 @@ export default function MaintenanceManagement() {
 
   return (
     <div>
-      <div className="flex items-center gap-3 mb-5">
-        <Wrench className="w-5 h-5 text-amber-400" />
-        <h1 className="text-xl font-bold text-white">Maintenance Mode</h1>
-      </div>
+      <AdminPageHeader
+        icon={Wrench}
+        title="Maintenance Mode"
+        description="Control site access during maintenance"
+        iconColor="text-amber-400"
+        iconBg="bg-amber-500/10"
+      />
 
       {/* Enable/Disable Toggle */}
-      <div className="bg-white/[0.04] backdrop-blur-sm rounded-xl border border-white/[0.08] p-5 mb-4">
+      <div className="bg-white/[0.03] backdrop-blur-sm rounded-2xl border border-white/[0.07] p-5 mb-4">
         <div className="flex items-center justify-between">
           <div>
             <p className="text-sm font-medium text-white">Enable Maintenance Mode</p>
@@ -165,13 +169,11 @@ export default function MaintenanceManagement() {
           </div>
           <button
             onClick={() => setSettings(prev => ({ ...prev, enabled: !prev.enabled }))}
-            className={`relative w-14 h-8 rounded-full transition-colors cursor-pointer ${
-              settings.enabled ? 'bg-amber-500' : 'bg-white/[0.1]'
-            }`}
+            className={`relative w-14 h-8 rounded-full transition-colors cursor-pointer ${settings.enabled ? 'bg-amber-500' : 'bg-white/[0.1]'
+              }`}
           >
-            <span className={`absolute top-1.5 w-5 h-5 rounded-full bg-white shadow transition-transform ${
-              settings.enabled ? 'left-7' : 'left-1.5'
-            }`} />
+            <span className={`absolute top-1.5 w-5 h-5 rounded-full bg-white shadow transition-transform ${settings.enabled ? 'left-7' : 'left-1.5'
+              }`} />
           </button>
         </div>
 
@@ -188,7 +190,7 @@ export default function MaintenanceManagement() {
       </div>
 
       {/* Maintenance Message */}
-      <div className="bg-white/[0.04] backdrop-blur-sm rounded-xl border border-white/[0.08] p-5 mb-4">
+      <div className="bg-white/[0.03] backdrop-blur-sm rounded-2xl border border-white/[0.07] p-5 mb-4">
         <h2 className="text-sm font-semibold text-white mb-3">Maintenance Message</h2>
         <p className="text-xs text-slate-400 mb-2">This message will be shown to users on the maintenance page</p>
         <textarea
@@ -201,7 +203,7 @@ export default function MaintenanceManagement() {
       </div>
 
       {/* Access Control */}
-      <div className="bg-white/[0.04] backdrop-blur-sm rounded-xl border border-white/[0.08] p-5 mb-4">
+      <div className="bg-white/[0.03] backdrop-blur-sm rounded-2xl border border-white/[0.07] p-5 mb-4">
         <h2 className="text-sm font-semibold text-white mb-4">Access Control</h2>
 
         {/* Super Admin Notice */}
@@ -227,13 +229,11 @@ export default function MaintenanceManagement() {
           </div>
           <button
             onClick={() => setSettings(prev => ({ ...prev, allowAllAdmins: !prev.allowAllAdmins }))}
-            className={`relative w-12 h-7 rounded-full transition-colors cursor-pointer ${
-              settings.allowAllAdmins ? 'bg-primary' : 'bg-white/[0.1]'
-            }`}
+            className={`relative w-12 h-7 rounded-full transition-colors cursor-pointer ${settings.allowAllAdmins ? 'bg-primary' : 'bg-white/[0.1]'
+              }`}
           >
-            <span className={`absolute top-1 w-5 h-5 rounded-full bg-white shadow transition-transform ${
-              settings.allowAllAdmins ? 'left-6' : 'left-1'
-            }`} />
+            <span className={`absolute top-1 w-5 h-5 rounded-full bg-white shadow transition-transform ${settings.allowAllAdmins ? 'left-6' : 'left-1'
+              }`} />
           </button>
         </div>
 
@@ -266,11 +266,10 @@ export default function MaintenanceManagement() {
                   <button
                     key={admin.id}
                     onClick={() => admin.email && toggleEmailAccess(admin.email)}
-                    className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors cursor-pointer text-left ${
-                      isAllowed
+                    className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors cursor-pointer text-left ${isAllowed
                         ? 'bg-primary/10 border border-primary/20'
                         : 'bg-white/[0.02] border border-transparent hover:bg-white/[0.04]'
-                    }`}
+                      }`}
                   >
                     <div className="w-8 h-8 rounded-full bg-white/[0.06] flex items-center justify-center shrink-0 overflow-hidden">
                       {admin.image ? (
@@ -285,9 +284,8 @@ export default function MaintenanceManagement() {
                       <p className="text-sm font-medium text-slate-300 truncate">{admin.name || 'Unnamed'}</p>
                       <p className="text-xs text-slate-500 truncate">{admin.email}</p>
                     </div>
-                    <div className={`w-5 h-5 rounded border flex items-center justify-center shrink-0 ${
-                      isAllowed ? 'bg-primary border-primary' : 'border-white/[0.15]'
-                    }`}>
+                    <div className={`w-5 h-5 rounded border flex items-center justify-center shrink-0 ${isAllowed ? 'bg-primary border-primary' : 'border-white/[0.15]'
+                      }`}>
                       {isAllowed && <Check className="w-3 h-3 text-white" />}
                     </div>
                   </button>
@@ -303,7 +301,7 @@ export default function MaintenanceManagement() {
 
       {/* Select Specific Users */}
       {users.length > 0 && (
-        <div className="bg-white/[0.04] backdrop-blur-sm rounded-xl border border-white/[0.08] p-5 mb-4">
+        <div className="bg-white/[0.03] backdrop-blur-sm rounded-2xl border border-white/[0.07] p-5 mb-4">
           <div className="flex items-center gap-2 mb-3">
             <Users className="w-4 h-4 text-slate-400" />
             <h2 className="text-sm font-semibold text-white">Allow Specific Users</h2>
@@ -330,11 +328,10 @@ export default function MaintenanceManagement() {
                 <button
                   key={user.id}
                   onClick={() => user.email && toggleEmailAccess(user.email)}
-                  className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors cursor-pointer text-left ${
-                    isAllowed
+                  className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors cursor-pointer text-left ${isAllowed
                       ? 'bg-primary/10 border border-primary/20'
                       : 'bg-white/[0.02] border border-transparent hover:bg-white/[0.04]'
-                  }`}
+                    }`}
                 >
                   <div className="w-8 h-8 rounded-full bg-white/[0.06] flex items-center justify-center shrink-0 overflow-hidden">
                     {user.image ? (
@@ -349,9 +346,8 @@ export default function MaintenanceManagement() {
                     <p className="text-sm font-medium text-slate-300 truncate">{user.name || 'Unnamed'}</p>
                     <p className="text-xs text-slate-500 truncate">{user.email}</p>
                   </div>
-                  <div className={`w-5 h-5 rounded border flex items-center justify-center shrink-0 ${
-                    isAllowed ? 'bg-primary border-primary' : 'border-white/[0.15]'
-                  }`}>
+                  <div className={`w-5 h-5 rounded border flex items-center justify-center shrink-0 ${isAllowed ? 'bg-primary border-primary' : 'border-white/[0.15]'
+                    }`}>
                     {isAllowed && <Check className="w-3 h-3 text-white" />}
                   </div>
                 </button>
@@ -365,7 +361,7 @@ export default function MaintenanceManagement() {
       )}
 
       {/* Save Button */}
-      <div className="bg-white/[0.04] backdrop-blur-sm rounded-xl border border-white/[0.08] p-5">
+      <div className="bg-white/[0.03] backdrop-blur-sm rounded-2xl border border-white/[0.07] p-5">
         <div className="flex items-center gap-3">
           <button
             onClick={handleSave}

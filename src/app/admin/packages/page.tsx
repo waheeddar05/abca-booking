@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { Package, Plus, Pencil, ToggleLeft, ToggleRight, Loader2, Users, BarChart3 } from 'lucide-react';
 import { NumberInputDialog } from '@/components/ui/NumberInputDialog';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
+import { AdminPageHeader } from '@/components/admin/AdminPageHeader';
 
 interface PackageData {
   id: string;
@@ -240,16 +241,14 @@ export default function AdminPackages() {
 
   return (
     <div>
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-5">
-        <h1 className="text-xl font-bold text-white">Packages</h1>
+      <AdminPageHeader icon={Package} title="Packages" description="Manage subscription packages">
         <div className="flex gap-1 sm:gap-2">
           {(['packages', 'users', 'reports'] as const).map(t => (
             <button
               key={t}
               onClick={() => setTab(t)}
-              className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-colors cursor-pointer ${
-                tab === t ? 'bg-accent/15 text-accent' : 'text-slate-400 hover:bg-white/[0.06]'
-              }`}
+              className={`px-3 py-2 text-xs font-semibold rounded-xl transition-all cursor-pointer ${tab === t ? 'bg-accent/15 text-accent border border-accent/30' : 'text-slate-500 hover:bg-white/[0.06] border border-transparent'
+                }`}
             >
               {t === 'packages' && <Package className="w-3.5 h-3.5 inline mr-1" />}
               {t === 'users' && <Users className="w-3.5 h-3.5 inline mr-1" />}
@@ -258,7 +257,7 @@ export default function AdminPackages() {
             </button>
           ))}
         </div>
-      </div>
+      </AdminPageHeader>
 
       {message.text && (
         <p className={`mb-4 text-sm ${message.type === 'success' ? 'text-green-400' : 'text-red-400'}`}>
@@ -280,7 +279,7 @@ export default function AdminPackages() {
           </div>
 
           {showForm && !editingId && (
-            <div className="bg-white/[0.04] backdrop-blur-sm rounded-xl border border-white/[0.08] p-5 mb-5">
+            <div className="bg-white/[0.03] backdrop-blur-sm rounded-2xl border border-white/[0.07] p-5 mb-5">
               <h2 className="text-sm font-semibold text-white mb-3">
                 New Package
               </h2>
@@ -340,11 +339,10 @@ export default function AdminPackages() {
                           key={t}
                           type="button"
                           onClick={() => setForm({ ...form, wicketType: t })}
-                          className={`flex-1 px-2 py-2 rounded-lg text-[11px] font-semibold transition-all cursor-pointer text-center ${
-                            form.wicketType === t
+                          className={`flex-1 px-2 py-2 rounded-lg text-[11px] font-semibold transition-all cursor-pointer text-center ${form.wicketType === t
                               ? 'bg-accent text-primary shadow-sm'
                               : 'bg-white/[0.04] text-slate-400 border border-white/[0.08] hover:border-accent/20'
-                          }`}
+                            }`}
                         >
                           {labelMap[t]}
                         </button>
@@ -359,11 +357,10 @@ export default function AdminPackages() {
                           key={t}
                           type="button"
                           onClick={() => setForm({ ...form, timingType: t })}
-                          className={`flex-1 px-3 py-2.5 rounded-lg text-xs font-semibold transition-all cursor-pointer text-center ${
-                            form.timingType === t
+                          className={`flex-1 px-3 py-2.5 rounded-lg text-xs font-semibold transition-all cursor-pointer text-center ${form.timingType === t
                               ? 'bg-accent text-primary shadow-sm'
                               : 'bg-white/[0.04] text-slate-400 border border-white/[0.08] hover:border-accent/20'
-                          }`}
+                            }`}
                         >
                           <div>{t === 'DAY' ? 'Day' : 'Evening/Night'}</div>
                           <div className={`text-[9px] mt-0.5 ${form.timingType === t ? 'text-primary/70' : 'text-slate-500'}`}>
@@ -540,9 +537,8 @@ export default function AdminPackages() {
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center gap-2 mb-1">
                           <span className="text-sm font-semibold text-white">{pkg.name}</span>
-                          <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${
-                            pkg.isActive ? 'bg-green-500/15 text-green-400' : 'bg-red-500/15 text-red-400'
-                          }`}>
+                          <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${pkg.isActive ? 'bg-green-500/15 text-green-400' : 'bg-red-500/15 text-red-400'
+                            }`}>
                             {pkg.isActive ? 'Active' : 'Inactive'}
                           </span>
                         </div>
@@ -758,16 +754,15 @@ export default function AdminPackages() {
         ) : (
           <div className="space-y-2">
             {userPackages.map((up: any) => (
-              <div key={up.id} className="bg-white/[0.04] backdrop-blur-sm rounded-xl border border-white/[0.08] p-4">
+              <div key={up.id} className="bg-white/[0.03] backdrop-blur-sm rounded-2xl border border-white/[0.07] p-4">
                 <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
                   <div className="min-w-0">
                     <div className="flex items-center gap-2 mb-1">
                       <span className="text-sm font-semibold text-white truncate">{up.user?.name || up.user?.email || 'Unknown'}</span>
-                      <span className={`flex-shrink-0 text-[10px] px-2 py-0.5 rounded-full font-medium ${
-                        up.status === 'ACTIVE' ? 'bg-green-500/15 text-green-400' :
-                        up.status === 'EXPIRED' ? 'bg-red-500/15 text-red-400' :
-                        'bg-slate-500/15 text-slate-400'
-                      }`}>
+                      <span className={`flex-shrink-0 text-[10px] px-2 py-0.5 rounded-full font-medium ${up.status === 'ACTIVE' ? 'bg-green-500/15 text-green-400' :
+                          up.status === 'EXPIRED' ? 'bg-red-500/15 text-red-400' :
+                            'bg-slate-500/15 text-slate-400'
+                        }`}>
                         {up.status}
                       </span>
                     </div>
@@ -868,7 +863,7 @@ export default function AdminPackages() {
               { label: 'Extra Charges', value: `₹${reports.extraChargesCollected || 0}` },
               { label: 'Total Revenue', value: `₹${reports.totalRevenue || 0}` },
             ].map(stat => (
-              <div key={stat.label} className="bg-white/[0.04] backdrop-blur-sm rounded-xl border border-white/[0.08] p-4">
+              <div key={stat.label} className="bg-white/[0.03] backdrop-blur-sm rounded-2xl border border-white/[0.07] p-4">
                 <p className="text-[11px] text-slate-400 mb-1">{stat.label}</p>
                 <p className="text-lg font-bold text-white">{stat.value}</p>
               </div>

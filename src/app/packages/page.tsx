@@ -8,6 +8,7 @@ import { differenceInDays, startOfDay } from 'date-fns';
 import { useRazorpay, usePaymentConfig } from '@/lib/useRazorpay';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { LABEL_MAP } from '@/lib/client-constants';
+import { PackageFirstBookingBanner } from '@/components/ui/PackageFirstBookingBanner';
 
 interface PackageInfo {
   id: string;
@@ -286,9 +287,14 @@ export default function PackagesPage() {
                   const today = startOfDay(new Date());
                   const expiry = startOfDay(new Date(up.expiryDate));
                   const daysRemaining = differenceInDays(expiry, today);
+                  const isFirstBookingPending = isActive && up.usedSessions === 0;
 
                   return (
-                    <div key={up.id} className="bg-white/[0.04] backdrop-blur-sm rounded-xl border border-white/[0.08] p-5">
+                    <div key={up.id}>
+                    {isFirstBookingPending && (
+                      <PackageFirstBookingBanner packageName={up.packageName} />
+                    )}
+                    <div className="bg-white/[0.04] backdrop-blur-sm rounded-xl border border-white/[0.08] p-5">
                       <div className="flex items-start justify-between mb-3">
                         <div>
                           <div className="flex items-center gap-2 mb-1">
@@ -336,6 +342,7 @@ export default function PackagesPage() {
                           />
                         </div>
                       </div>
+                    </div>
                     </div>
                   );
                 })}

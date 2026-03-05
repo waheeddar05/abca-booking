@@ -6,6 +6,7 @@ import { useSession } from 'next-auth/react';
 import { UserPlus, Trash2, Loader2, Search, Shield, Users, ChevronDown, ChevronUp, CalendarCheck, Mail, Phone, Clock, X, XCircle, Check, CalendarPlus, History } from 'lucide-react';
 import Link from 'next/link';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
+import { AdminPageHeader } from '@/components/admin/AdminPageHeader';
 import { useToast } from '@/components/ui/Toast';
 
 interface UserData {
@@ -270,58 +271,45 @@ export default function AdminUsers() {
 
   return (
     <div>
-      <div className="flex items-center justify-between gap-3 mb-5">
-        <div className="flex items-center gap-3 min-w-0">
-          <div className="w-10 h-10 rounded-xl bg-accent/10 flex items-center justify-center flex-shrink-0">
-            <Users className="w-5 h-5 text-accent" />
-          </div>
-          <div className="min-w-0">
-            <h1 className="text-xl font-bold text-white truncate">Manage Users</h1>
-            <p className="text-xs text-slate-400">{totalUsers} total users</p>
-          </div>
-        </div>
+      <AdminPageHeader icon={Users} title="Manage Users" description={`${totalUsers} total users`}>
         <button
           onClick={() => setShowAddForm(!showAddForm)}
-          className="inline-flex items-center gap-2 bg-accent hover:bg-accent-light text-primary px-4 py-2.5 rounded-lg text-sm font-medium transition-colors cursor-pointer"
+          className="inline-flex items-center gap-2 bg-accent hover:bg-accent-light text-primary px-4 py-2.5 rounded-xl text-sm font-semibold transition-all cursor-pointer shadow-sm shadow-accent/20"
         >
           {showAddForm ? <X className="w-4 h-4" /> : <UserPlus className="w-4 h-4" />}
           <span className="hidden sm:inline">{showAddForm ? 'Close' : 'Add User'}</span>
         </button>
-      </div>
+      </AdminPageHeader>
 
       <div className="grid grid-cols-4 gap-2 mb-5">
         <button
           onClick={() => setRoleFilter('')}
-          className={`rounded-xl p-3 text-center cursor-pointer transition-all ${
-            roleFilter === '' ? 'bg-accent/15 ring-1 ring-accent/30' : 'bg-white/[0.04] border border-white/[0.08]'
-          }`}
+          className={`rounded-xl p-3 text-center cursor-pointer transition-all ${roleFilter === '' ? 'bg-accent/15 ring-1 ring-accent/30' : 'bg-white/[0.04] border border-white/[0.08]'
+            }`}
         >
           <div className="text-lg font-bold text-white">{totalUsers}</div>
           <div className="text-[10px] font-medium text-slate-400 uppercase tracking-wider">All</div>
         </button>
         <button
           onClick={() => setRoleFilter(roleFilter === 'ADMIN' ? '' : 'ADMIN')}
-          className={`rounded-xl p-3 text-center cursor-pointer transition-all ${
-            roleFilter === 'ADMIN' ? 'bg-blue-500/10 ring-1 ring-blue-500/30' : 'bg-white/[0.04] border border-white/[0.08]'
-          }`}
+          className={`rounded-xl p-3 text-center cursor-pointer transition-all ${roleFilter === 'ADMIN' ? 'bg-blue-500/10 ring-1 ring-blue-500/30' : 'bg-white/[0.04] border border-white/[0.08]'
+            }`}
         >
           <div className="text-lg font-bold text-blue-600">{adminCount}</div>
           <div className="text-[10px] font-medium text-blue-500 uppercase tracking-wider">Admins</div>
         </button>
         <button
           onClick={() => setRoleFilter(roleFilter === 'OPERATOR' ? '' : 'OPERATOR')}
-          className={`rounded-xl p-3 text-center cursor-pointer transition-all ${
-            roleFilter === 'OPERATOR' ? 'bg-purple-500/10 ring-1 ring-purple-500/30' : 'bg-white/[0.04] border border-white/[0.08]'
-          }`}
+          className={`rounded-xl p-3 text-center cursor-pointer transition-all ${roleFilter === 'OPERATOR' ? 'bg-purple-500/10 ring-1 ring-purple-500/30' : 'bg-white/[0.04] border border-white/[0.08]'
+            }`}
         >
           <div className="text-lg font-bold text-purple-600">{operatorCount}</div>
           <div className="text-[10px] font-medium text-purple-500 uppercase tracking-wider">Operators</div>
         </button>
         <button
           onClick={() => setRoleFilter(roleFilter === 'USER' ? '' : 'USER')}
-          className={`rounded-xl p-3 text-center cursor-pointer transition-all ${
-            roleFilter === 'USER' ? 'bg-green-500/10 ring-1 ring-green-500/30' : 'bg-white/[0.04] border border-white/[0.08]'
-          }`}
+          className={`rounded-xl p-3 text-center cursor-pointer transition-all ${roleFilter === 'USER' ? 'bg-green-500/10 ring-1 ring-green-500/30' : 'bg-white/[0.04] border border-white/[0.08]'
+            }`}
         >
           <div className="text-lg font-bold text-green-600">{userCount}</div>
           <div className="text-[10px] font-medium text-green-500 uppercase tracking-wider">Users</div>
@@ -329,7 +317,7 @@ export default function AdminUsers() {
       </div>
 
       {showAddForm && (
-        <div className="bg-white/[0.04] backdrop-blur-sm rounded-xl border border-white/[0.08] p-5 mb-5">
+        <div className="bg-white/[0.03] backdrop-blur-sm rounded-2xl border border-white/[0.07] hover:border-white/[0.12] transition-colors p-5 mb-5">
           <h2 className="text-sm font-semibold text-white mb-3">Add New User</h2>
           <form onSubmit={handleAddUser} className="space-y-3">
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -416,7 +404,7 @@ export default function AdminUsers() {
             const initial = user.name ? user.name.charAt(0).toUpperCase() : (user.email?.charAt(0).toUpperCase() || '?');
 
             return (
-              <div key={user.id} className="bg-white/[0.04] backdrop-blur-sm rounded-xl border border-white/[0.08] overflow-hidden">
+              <div key={user.id} className="bg-white/[0.03] backdrop-blur-sm rounded-2xl border border-white/[0.07] hover:border-white/[0.12] transition-colors overflow-hidden">
                 <button
                   onClick={() => setExpandedUser(isExpanded ? null : user.id)}
                   className="w-full flex items-center gap-3 p-4 text-left cursor-pointer hover:bg-white/[0.04] transition-colors"
@@ -449,11 +437,10 @@ export default function AdminUsers() {
                           Blocked
                         </span>
                       )}
-                      <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider ${
-                        user.role === 'ADMIN' ? 'bg-blue-500/10 text-blue-400' :
+                      <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider ${user.role === 'ADMIN' ? 'bg-blue-500/10 text-blue-400' :
                         user.role === 'OPERATOR' ? 'bg-purple-500/10 text-purple-400' :
-                        'bg-white/[0.04] text-slate-400'
-                      }`}>
+                          'bg-white/[0.04] text-slate-400'
+                        }`}>
                         {user.role}
                       </span>
                     </div>
@@ -516,11 +503,10 @@ export default function AdminUsers() {
                         </div>
                         <button
                           onClick={() => handleToggleBlacklist(user)}
-                          className={`flex items-center justify-center gap-1 py-2 text-xs font-medium rounded-lg transition-colors cursor-pointer ${
-                            user.isBlacklisted
-                              ? 'text-green-400 bg-green-500/10 hover:bg-green-500/20'
-                              : 'text-red-400 bg-red-500/10 hover:bg-red-500/20'
-                          }`}
+                          className={`flex items-center justify-center gap-1 py-2 text-xs font-medium rounded-lg transition-colors cursor-pointer ${user.isBlacklisted
+                            ? 'text-green-400 bg-green-500/10 hover:bg-green-500/20'
+                            : 'text-red-400 bg-red-500/10 hover:bg-red-500/20'
+                            }`}
                         >
                           {user.isBlacklisted ? (
                             <>
@@ -560,11 +546,10 @@ export default function AdminUsers() {
                         {isSuperAdmin && (
                           <button
                             onClick={() => handleToggleFreeUser(user)}
-                            className={`flex items-center justify-center gap-1.5 py-2 text-xs font-medium rounded-lg transition-colors cursor-pointer ${
-                              user.isFreeUser
-                                ? 'text-orange-400 bg-orange-500/10 hover:bg-orange-500/20'
-                                : 'text-green-400 bg-green-500/10 hover:bg-green-500/20'
-                            }`}
+                            className={`flex items-center justify-center gap-1.5 py-2 text-xs font-medium rounded-lg transition-colors cursor-pointer ${user.isFreeUser
+                              ? 'text-orange-400 bg-orange-500/10 hover:bg-orange-500/20'
+                              : 'text-green-400 bg-green-500/10 hover:bg-green-500/20'
+                              }`}
                           >
                             {user.isFreeUser ? (
                               <span className="truncate">Remove Free Booking</span>
@@ -631,11 +616,10 @@ export default function AdminUsers() {
                     return (
                       <div
                         key={booking.id}
-                        className={`rounded-xl border p-3.5 ${
-                          isCancelled
-                            ? 'bg-white/[0.02] border-white/[0.04] opacity-70'
-                            : 'bg-white/[0.04] border-white/[0.08]'
-                        }`}
+                        className={`rounded-xl border p-3.5 ${isCancelled
+                          ? 'bg-white/[0.02] border-white/[0.04] opacity-70'
+                          : 'bg-white/[0.04] border-white/[0.08]'
+                          }`}
                       >
                         <div className="flex items-start justify-between gap-2">
                           <div className="min-w-0 flex-1">
@@ -646,11 +630,10 @@ export default function AdminUsers() {
                               <span className="text-[10px] text-slate-400">
                                 {formatBookingTime(booking.startTime)} - {formatBookingTime(booking.endTime)}
                               </span>
-                              <span className={`text-[9px] px-1.5 py-0.5 rounded-full font-bold uppercase ${
-                                isBooked ? 'bg-green-500/15 text-green-400' :
+                              <span className={`text-[9px] px-1.5 py-0.5 rounded-full font-bold uppercase ${isBooked ? 'bg-green-500/15 text-green-400' :
                                 isDone ? 'bg-blue-500/15 text-blue-400' :
-                                'bg-red-500/15 text-red-400'
-                              }`}>
+                                  'bg-red-500/15 text-red-400'
+                                }`}>
                                 {booking.status}
                               </span>
                             </div>
@@ -658,10 +641,10 @@ export default function AdminUsers() {
                               {booking.machineId && (
                                 <span className="bg-white/[0.06] px-1.5 py-0.5 rounded">
                                   {booking.machineId === 'GRAVITY' ? 'Gravity' :
-                                   booking.machineId === 'YANTRA' ? 'Yantra' :
-                                   booking.machineId === 'LEVERAGE_INDOOR' ? 'Tennis Indoor' :
-                                   booking.machineId === 'LEVERAGE_OUTDOOR' ? 'Tennis Outdoor' :
-                                   booking.machineId}
+                                    booking.machineId === 'YANTRA' ? 'Yantra' :
+                                      booking.machineId === 'LEVERAGE_INDOOR' ? 'Tennis Indoor' :
+                                        booking.machineId === 'LEVERAGE_OUTDOOR' ? 'Tennis Outdoor' :
+                                          booking.machineId}
                                 </span>
                               )}
                               {booking.ballType && (
