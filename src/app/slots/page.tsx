@@ -44,7 +44,7 @@ function SlotsContent() {
   const [bookingLoading, setBookingLoading] = useState(false);
   const [machineConfig, setMachineConfig] = useState<MachineConfig | null>(null);
   const [showBookingConfirm, setShowBookingConfirm] = useState(false);
-  const [paymentMethod, setPaymentMethod] = useState<'ONLINE' | 'CASH'>('ONLINE');
+  const [paymentMethod, setPaymentMethod] = useState<'ONLINE' | 'CASH' | 'WALLET'>('ONLINE');
 
   const { data: session } = useSession();
   const toast = useToast();
@@ -243,13 +243,16 @@ function SlotsContent() {
 
     const requiresOnlinePayment = paymentConfig?.paymentEnabled
       && paymentConfig?.slotPaymentRequired
-      && !isPackageBooking
+      && (!isPackageBooking || (isPackageBooking && total > 0))
       && !isBookingForOther
       && !isFreeBooking
       && !isCashPayment
+      && paymentMethod !== 'WALLET'
       && total > 0;
 
-    const confirmLabel = requiresOnlinePayment ? `Pay ₹${total.toLocaleString()}` : 'Confirm Booking';
+    const confirmLabel = requiresOnlinePayment
+      ? (isPackageBooking ? `Pay Extra ₹${total.toLocaleString()}` : `Pay ₹${total.toLocaleString()}`)
+      : 'Confirm Booking';
 
     return { message, warning, confirmLabel };
   };
@@ -272,12 +275,14 @@ function SlotsContent() {
 
     const isPackageBooking = !!pkg.selectedPackageId;
     const isCashPayment = paymentMethod === 'CASH';
+    const isWalletPayment = paymentMethod === 'WALLET';
     const requiresOnlinePayment = paymentConfig?.paymentEnabled
       && paymentConfig?.slotPaymentRequired
-      && !isPackageBooking
+      && (!isPackageBooking || (isPackageBooking && total > 0))
       && !isBookingForOther
       && !isFreeBooking
       && !isCashPayment
+      && !isWalletPayment
       && total > 0;
 
     const bookingPayload = selectedSlots.map(slot => ({
@@ -291,7 +296,7 @@ function SlotsContent() {
       userId: isBookingForOther ? userId : undefined,
       playerName: isBookingForOther ? userName : undefined,
       ...(pitchType ? { pitchType } : {}),
-      ...(isCashPayment ? { paymentMethod: 'CASH' as const } : {}),
+      ...(isCashPayment ? { paymentMethod: 'CASH' as const } : isWalletPayment ? { paymentMethod: 'WALLET' as const } : {}),
     }));
 
     // If online payment is required, go through Razorpay first
@@ -354,7 +359,7 @@ function SlotsContent() {
     try {
       await api.post('/api/slots/book', bookingPayload);
 
-      toast.success(isCashPayment ? 'Booking confirmed! Pay at center when you arrive.' : 'Booking confirmed! Check My Bookings for details.');
+      toast.success(isCashPayment ? 'Booking confirmed! Pay at center when you arrive.' : isWalletPayment ? 'Booking confirmed! Payment deducted from wallet.' : 'Booking confirmed! Check My Bookings for details.');
       setSelectedSlots([]);
       pkg.reset();
       fetchSlots(selectedDate, selectedMachineId, ballType, pitchType);
@@ -436,6 +441,17 @@ function SlotsContent() {
 
       <hr className="border-white/[0.06] my-4" />
 
+      {/* Package Selection */}
+      {session && (
+        <PackageSelector
+          packages={pkg.packages}
+          selectedPackageId={pkg.selectedPackageId}
+          onSelect={pkg.setSelectedPackageId}
+          validation={pkg.validation}
+          isValidating={pkg.isValidating}
+        />
+      )}
+
       <SlotGrid
         slots={slots}
         selectedSlots={selectedSlots}
@@ -475,22 +491,11 @@ function SlotsContent() {
 
       <hr className="border-white/[0.06] my-4" />
 
-      {/* Package Selection */}
-      {session && (
-        <PackageSelector
-          packages={pkg.packages}
-          selectedPackageId={pkg.selectedPackageId}
-          onSelect={pkg.setSelectedPackageId}
-          validation={pkg.validation}
-          isValidating={pkg.isValidating}
-        />
-      )}
-
       {/* Payment Method Selection */}
       {selectedSlots.length > 0
         && paymentConfig?.paymentEnabled
         && paymentConfig?.slotPaymentRequired
-        && paymentConfig?.cashPaymentEnabled
+        && (paymentConfig?.cashPaymentEnabled || paymentConfig?.walletEnabled)
         && !isBookingForOther
         && !isFreeBooking
         && !pkg.selectedPackageId
@@ -501,6 +506,7 @@ function SlotsContent() {
             selected={paymentMethod}
             onChange={setPaymentMethod}
             disabled={bookingLoading || paymentProcessing}
+            showWallet={paymentConfig?.walletEnabled}
           />
         </div>
       )}

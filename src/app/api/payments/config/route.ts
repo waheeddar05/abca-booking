@@ -17,6 +17,7 @@ export async function GET(req: NextRequest) {
         'SLOT_PAYMENT_REQUIRED',
         'PACKAGE_PAYMENT_REQUIRED',
         'CASH_PAYMENT_ENABLED',
+        'WALLET_ENABLED',
       ]),
       getAuthenticatedUser(req),
     ]);
@@ -40,6 +41,7 @@ export async function GET(req: NextRequest) {
       packagePaymentRequired: config['PACKAGE_PAYMENT_REQUIRED'] === 'true',
       razorpayKeyId: paymentEnabled ? RAZORPAY_PUBLIC_KEY : '',
       cashPaymentEnabled: globalCashEnabled || userHasCashAccess,
+      walletEnabled: config['WALLET_ENABLED'] === 'true',
     });
   } catch (error) {
     console.error('Payment config error:', error);
