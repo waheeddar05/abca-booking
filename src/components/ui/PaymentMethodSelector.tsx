@@ -23,8 +23,8 @@ export function PaymentMethodSelector({ selected, onChange, disabled, showWallet
   }, [showWallet]);
 
   return (
-    <div className="flex flex-col gap-3">
-      <div className="flex gap-3">
+    <div className="flex flex-col gap-2.5">
+      <div className="flex flex-col sm:flex-row gap-2.5">
         {/* Pay Online */}
         <button
           type="button"
