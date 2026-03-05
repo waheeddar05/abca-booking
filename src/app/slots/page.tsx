@@ -44,7 +44,9 @@ function SlotsContent() {
   const [bookingLoading, setBookingLoading] = useState(false);
   const [machineConfig, setMachineConfig] = useState<MachineConfig | null>(null);
   const [showBookingConfirm, setShowBookingConfirm] = useState(false);
-  const [paymentMethod, setPaymentMethod] = useState<'ONLINE' | 'CASH' | 'WALLET'>('ONLINE');
+  const [paymentMethod, setPaymentMethod] = useState<'ONLINE' | 'CASH'>('ONLINE');
+  const [useWallet, setUseWallet] = useState(false);
+  const [walletBalance, setWalletBalance] = useState<number>(0);
 
   const { data: session } = useSession();
   const toast = useToast();
@@ -219,6 +221,8 @@ function SlotsContent() {
   // Build booking details for confirm dialog
   const getBookingConfirmDetails = () => {
     const total = pkg.selectedPackageId && pkg.validation ? (pkg.validation.extraCharge || 0) : pricing.totalPrice;
+    const walletDeduction = useWallet && walletBalance > 0 ? Math.min(walletBalance, total) : 0;
+    const amountAfterWallet = total - walletDeduction;
     const selfOperateSlots = !isLeatherMachine
       ? selectedSlots.filter(s => getSlotOperationMode(s) === 'SELF_OPERATE').length
       : 0;
@@ -226,15 +230,24 @@ function SlotsContent() {
 
     const isCashPayment = paymentMethod === 'CASH';
 
-    const message = isFreeBooking
-      ? `Book ${selectedSlots.length} slot(s) for FREE?${isBookingForOther ? ` For: ${userName}` : ''}`
-      : isBookingForOther
-        ? `Book ${selectedSlots.length} slot(s) for ${userName}?`
-        : isPackageBooking
-          ? `Book ${selectedSlots.length} slot(s) using package?${total > 0 ? ` Extra charge: ₹${total}` : ''}`
-          : isCashPayment
-            ? `Book ${selectedSlots.length} slot(s)? Pay ₹${total.toLocaleString()} at center.`
-            : `Book ${selectedSlots.length} slot(s) for ₹${total.toLocaleString()}?`;
+    let message = '';
+    if (isFreeBooking) {
+      message = `Book ${selectedSlots.length} slot(s) for FREE?${isBookingForOther ? ` For: ${userName}` : ''}`;
+    } else if (isBookingForOther) {
+      message = `Book ${selectedSlots.length} slot(s) for ${userName}?`;
+    } else if (isPackageBooking && total === 0) {
+      message = `Book ${selectedSlots.length} slot(s) using package?`;
+    } else if (walletDeduction > 0 && amountAfterWallet > 0) {
+      message = `Book ${selectedSlots.length} slot(s)? ₹${walletDeduction} from wallet + ₹${amountAfterWallet.toLocaleString()} ${isCashPayment ? 'at center' : 'online'}.`;
+    } else if (walletDeduction > 0 && amountAfterWallet === 0) {
+      message = `Book ${selectedSlots.length} slot(s)? ₹${walletDeduction} will be deducted from wallet.`;
+    } else if (isPackageBooking) {
+      message = `Book ${selectedSlots.length} slot(s) using package? Extra charge: ₹${total}`;
+    } else if (isCashPayment) {
+      message = `Book ${selectedSlots.length} slot(s)? Pay ₹${total.toLocaleString()} at center.`;
+    } else {
+      message = `Book ${selectedSlots.length} slot(s) for ₹${total.toLocaleString()}?`;
+    }
 
     let warning = '';
     if (selfOperateSlots > 0) {
@@ -247,12 +260,13 @@ function SlotsContent() {
       && !isBookingForOther
       && !isFreeBooking
       && !isCashPayment
-      && paymentMethod !== 'WALLET'
-      && total > 0;
+      && amountAfterWallet > 0;
 
     const confirmLabel = requiresOnlinePayment
-      ? (isPackageBooking ? `Pay Extra ₹${total.toLocaleString()}` : `Pay ₹${total.toLocaleString()}`)
-      : 'Confirm Booking';
+      ? (isPackageBooking ? `Pay Extra ₹${amountAfterWallet.toLocaleString()}` : `Pay ₹${amountAfterWallet.toLocaleString()}`)
+      : walletDeduction > 0 && amountAfterWallet === 0
+        ? 'Confirm (Wallet)'
+        : 'Confirm Booking';
 
     return { message, warning, confirmLabel };
   };
@@ -272,18 +286,20 @@ function SlotsContent() {
     setShowBookingConfirm(false);
 
     const total = pkg.selectedPackageId && pkg.validation ? (pkg.validation.extraCharge || 0) : pricing.totalPrice;
+    const walletDeduction = useWallet && walletBalance > 0 ? Math.min(walletBalance, total) : 0;
+    const amountAfterWallet = total - walletDeduction;
 
     const isPackageBooking = !!pkg.selectedPackageId;
     const isCashPayment = paymentMethod === 'CASH';
-    const isWalletPayment = paymentMethod === 'WALLET';
+    const walletCoversAll = walletDeduction > 0 && amountAfterWallet === 0;
     const requiresOnlinePayment = paymentConfig?.paymentEnabled
       && paymentConfig?.slotPaymentRequired
       && (!isPackageBooking || (isPackageBooking && total > 0))
       && !isBookingForOther
       && !isFreeBooking
       && !isCashPayment
-      && !isWalletPayment
-      && total > 0;
+      && !walletCoversAll
+      && amountAfterWallet > 0;
 
     const bookingPayload = selectedSlots.map(slot => ({
       date: format(selectedDate, 'yyyy-MM-dd'),
@@ -296,7 +312,8 @@ function SlotsContent() {
       userId: isBookingForOther ? userId : undefined,
       playerName: isBookingForOther ? userName : undefined,
       ...(pitchType ? { pitchType } : {}),
-      ...(isCashPayment ? { paymentMethod: 'CASH' as const } : isWalletPayment ? { paymentMethod: 'WALLET' as const } : {}),
+      ...(isCashPayment ? { paymentMethod: 'CASH' as const } : walletCoversAll ? { paymentMethod: 'WALLET' as const } : {}),
+      ...(walletDeduction > 0 ? { walletDeduction } : {}),
     }));
 
     // If online payment is required, go through Razorpay first
@@ -305,7 +322,7 @@ function SlotsContent() {
       try {
         const paymentResult = await initiatePayment({
           type: 'SLOT_BOOKING',
-          amount: total,
+          amount: amountAfterWallet,
           slots: selectedSlots.map(s => ({
             date: format(selectedDate, 'yyyy-MM-dd'),
             startTime: s.startTime,
@@ -359,7 +376,15 @@ function SlotsContent() {
     try {
       await api.post('/api/slots/book', bookingPayload);
 
-      toast.success(isCashPayment ? 'Booking confirmed! Pay at center when you arrive.' : isWalletPayment ? 'Booking confirmed! Payment deducted from wallet.' : 'Booking confirmed! Check My Bookings for details.');
+      toast.success(
+        isCashPayment
+          ? walletDeduction > 0
+            ? `Booking confirmed! ₹${walletDeduction} from wallet. Pay ₹${amountAfterWallet} at center.`
+            : 'Booking confirmed! Pay at center when you arrive.'
+          : walletCoversAll
+            ? 'Booking confirmed! Payment deducted from wallet.'
+            : 'Booking confirmed! Check My Bookings for details.'
+      );
       setSelectedSlots([]);
       pkg.reset();
       fetchSlots(selectedDate, selectedMachineId, ballType, pitchType);
@@ -498,15 +523,18 @@ function SlotsContent() {
         && (paymentConfig?.cashPaymentEnabled || paymentConfig?.walletEnabled)
         && !isBookingForOther
         && !isFreeBooking
-        && !pkg.selectedPackageId
         && (
         <div className="mb-4">
-          <p className="text-xs font-medium text-slate-400 mb-2 uppercase tracking-wider">Payment Method</p>
+          <p className="text-xs font-medium text-slate-400 mb-2 uppercase tracking-wider">Payment</p>
           <PaymentMethodSelector
             selected={paymentMethod}
             onChange={setPaymentMethod}
             disabled={bookingLoading || paymentProcessing}
             showWallet={paymentConfig?.walletEnabled}
+            totalAmount={pkg.selectedPackageId && pkg.validation ? (pkg.validation.extraCharge || 0) : pricing.totalPrice}
+            useWallet={useWallet}
+            onUseWalletChange={setUseWallet}
+            onWalletBalanceLoaded={setWalletBalance}
           />
         </div>
       )}
