@@ -2,12 +2,13 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { format } from 'date-fns';
-import { ClipboardList, Loader2, X, IndianRupee, ChevronLeft, ChevronRight } from 'lucide-react';
-import { ContactFooter } from '@/components/ContactFooter';
+import { ClipboardList, Loader2, X, Calendar, Clock, IndianRupee, Phone, Instagram, ChevronLeft, ChevronRight } from 'lucide-react';
 import { CancellationDialog } from '@/components/ui/CancellationDialog';
 import { useToast } from '@/components/ui/Toast';
 import {
   BOOKING_STATUS_CONFIG,
+  BALL_TYPE_CONFIG,
+  MACHINE_LABELS,
   PITCH_LABELS,
 } from '@/lib/client-constants';
 
@@ -128,6 +129,8 @@ export default function BookingsPage() {
   };
 
   const statusConfig = BOOKING_STATUS_CONFIG;
+  const ballTypeConfig = BALL_TYPE_CONFIG;
+  const machineLabels = MACHINE_LABELS;
   const pitchLabels = PITCH_LABELS;
 
   const getDisplayStatus = (booking: Booking): string => {
@@ -197,118 +200,146 @@ export default function BookingsPage() {
           <p className="text-xs text-slate-400">Book your first practice session to get started</p>
         </div>
       ) : (
-        <div>
+        <div className="space-y-3">
           {/* Motivational quote banner */}
-          <div className="py-3 px-4 rounded-xl bg-gradient-to-r from-accent/5 via-accent/10 to-accent/5 border border-accent/10 mb-4">
+          <div className="py-3 px-4 rounded-xl bg-gradient-to-r from-accent/5 via-accent/10 to-accent/5 border border-accent/10 mb-1">
             <p className="text-center text-xs md:text-sm font-semibold text-accent italic">
               &ldquo;Sweat in Practice. Shine in Matches.&rdquo;
             </p>
           </div>
 
-          {/* Tile-style card grid */}
-          <div className="grid grid-cols-2 gap-2.5">
-            {bookings.map((booking) => {
-              const displayStatus = getDisplayStatus(booking);
-              const status = statusConfig[displayStatus as keyof typeof statusConfig];
-              const canCancel = booking.status === 'BOOKED' && new Date(booking.startTime) > new Date();
-              const hasDiscount = booking.discountAmount && booking.discountAmount > 0;
-              const machineName = booking.machineId
-                ? (booking.machineId === 'GRAVITY' ? 'Gravity' : booking.machineId === 'YANTRA' ? 'Yantra' : booking.machineId === 'LEVERAGE_INDOOR' ? 'Indoor' : 'Outdoor')
-                : booking.ballType;
+          {bookings.map((booking) => {
+            const displayStatus = getDisplayStatus(booking);
+            const status = statusConfig[displayStatus as keyof typeof statusConfig];
+            const ballInfo = ballTypeConfig[booking.ballType] || { color: 'bg-gray-400', label: booking.ballType };
+            const canCancel = booking.status === 'BOOKED' && new Date(booking.startTime) > new Date();
+            const hasDiscount = booking.discountAmount && booking.discountAmount > 0;
 
-              return (
-                <div key={booking.id} className="bg-white/[0.04] backdrop-blur-sm rounded-xl border border-white/[0.08] p-3 transition-all hover:bg-white/[0.06] flex flex-col">
-                  {/* Status badge */}
-                  <div className="flex items-center justify-between mb-2">
-                    <div className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-semibold ${status.bg} ${status.text}`}>
+            return (
+              <div key={booking.id} className="bg-white/[0.04] backdrop-blur-sm rounded-xl border border-white/[0.08] p-4 transition-all hover:bg-white/[0.06]">
+                {/* Top Row: Status + Cancel */}
+                <div className="flex items-center justify-between mb-3">
+                  <div className="flex items-center gap-2">
+                    <div className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold ${status.bg} ${status.text}`}>
                       <span className={`w-1.5 h-1.5 rounded-full ${status.dot}`}></span>
                       {status.label}
                     </div>
-                    {booking.isPackageBooking && (
-                      <span className="text-[8px] px-1.5 py-0.5 rounded-full bg-purple-500/10 text-purple-400 font-medium">Pkg</span>
+                    {booking.status === 'CANCELLED' && booking.cancelledBy && (
+                      <span className="text-[10px] text-red-400/70 italic">by {booking.cancelledBy}</span>
                     )}
                   </div>
-
-                  {/* Time (prominent) */}
-                  <div className="mb-1">
-                    <span className="text-sm font-bold text-white leading-tight">
-                      {new Date(booking.startTime).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit' })}
-                    </span>
-                    <span className="text-[10px] text-slate-500 mx-0.5">&ndash;</span>
-                    <span className="text-sm font-bold text-white leading-tight">
-                      {new Date(booking.endTime).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit' })}
-                    </span>
-                  </div>
-
-                  {/* Date */}
-                  <p className="text-[10px] text-slate-400 mb-2">
-                    {format(new Date(booking.date), 'EEE, MMM d')}
-                  </p>
-
-                  {/* Machine & Pitch tags */}
-                  <div className="flex flex-wrap gap-1 mb-2">
-                    <span className={`text-[8px] px-1.5 py-0.5 rounded font-semibold ${
-                      booking.ballType === 'LEATHER' ? 'bg-red-500/10 text-red-400' :
-                      booking.ballType === 'TENNIS' ? 'bg-green-500/10 text-green-400' :
-                      'bg-blue-500/10 text-blue-400'
-                    }`}>
-                      {machineName}
-                    </span>
-                    {booking.pitchType && (
-                      <span className="text-[8px] px-1.5 py-0.5 rounded bg-white/[0.06] text-slate-400 font-medium">
-                        {pitchLabels[booking.pitchType] || booking.pitchType}
-                      </span>
-                    )}
-                  </div>
-
-                  {/* Price */}
-                  <div className="mt-auto pt-2 border-t border-white/[0.04]">
-                    {booking.price != null ? (
-                      <div className="flex items-center gap-1">
-                        <IndianRupee className="w-2.5 h-2.5 text-slate-500" />
-                        <span className="text-xs font-bold text-white">{booking.price}</span>
-                        {hasDiscount && (
-                          <span className="text-[9px] text-green-400 line-through">₹{booking.originalPrice}</span>
-                        )}
-                      </div>
-                    ) : (
-                      <span className="text-[10px] text-slate-500">Free</span>
-                    )}
-                  </div>
-
-                  {/* Refund Info */}
-                  {booking.status === 'CANCELLED' && booking.refund && (
-                    <div className="mt-1.5">
-                      <span className="inline-flex items-center gap-0.5 text-[8px] font-semibold text-green-400">
-                        <span className="w-1 h-1 rounded-full bg-green-400"></span>
-                        Refund: ₹{booking.refund.amount}
-                      </span>
-                    </div>
-                  )}
-                  {booking.status === 'CANCELLED' && !booking.refund && booking.price && booking.price > 0 && booking.paymentStatus === 'PAID' && (
-                    <div className="mt-1.5">
-                      <span className="inline-flex items-center gap-0.5 text-[8px] font-semibold text-amber-400">
-                        <span className="w-1 h-1 rounded-full bg-amber-400 animate-pulse"></span>
-                        Refund pending
-                      </span>
-                    </div>
-                  )}
-
-                  {/* Cancel action */}
                   {canCancel && (
                     <button
                       disabled={!!cancellingId}
                       onClick={() => handleCancelRequest(booking.id)}
-                      className="mt-2 w-full flex items-center justify-center gap-1 py-1.5 text-[10px] font-medium text-red-400 bg-red-500/10 rounded-lg hover:bg-red-500/20 transition-colors disabled:opacity-50 cursor-pointer"
+                      className="flex items-center gap-1 px-3 py-1.5 text-[11px] font-medium text-red-400 hover:bg-red-500/10 rounded-lg transition-colors disabled:opacity-50 cursor-pointer"
                     >
                       <X className="w-3 h-3" />
                       {cancellingId === booking.id ? 'Cancelling...' : 'Cancel'}
                     </button>
                   )}
                 </div>
-              );
-            })}
-          </div>
+
+                {/* Time */}
+                <div className="flex items-center gap-2 mb-2">
+                  <Clock className="w-4 h-4 text-slate-500" />
+                  <span className="text-base font-bold text-white">
+                    {new Date(booking.startTime).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit' })}
+                    {' - '}
+                    {new Date(booking.endTime).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit' })}
+                  </span>
+                </div>
+
+                {/* Date */}
+                <div className="flex items-center gap-2 mb-3">
+                  <Calendar className="w-4 h-4 text-slate-500" />
+                  <span className="text-sm text-slate-300">
+                    {format(new Date(booking.date), 'EEEE, MMM d, yyyy')}
+                  </span>
+                </div>
+
+                {/* Booking Details */}
+                <div className="flex flex-wrap gap-1.5 pt-3 border-t border-white/[0.06] mb-2">
+                  {booking.machineId && (
+                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-white/[0.06] text-slate-300 font-medium">
+                      {machineLabels[booking.machineId] || booking.machineId}
+                    </span>
+                  )}
+                  <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${
+                    booking.ballType === 'LEATHER' ? 'bg-red-500/10 text-red-400' :
+                    booking.ballType === 'TENNIS' ? 'bg-green-500/10 text-green-400' :
+                    'bg-blue-500/10 text-blue-400'
+                  }`}>
+                    {ballInfo.label}
+                  </span>
+                  {booking.pitchType && (
+                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-white/[0.06] text-slate-300 font-medium">
+                      {pitchLabels[booking.pitchType] || booking.pitchType}
+                    </span>
+                  )}
+                  <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${
+                    booking.operationMode === 'SELF_OPERATE' ? 'bg-orange-500/10 text-orange-400' : 'bg-blue-500/10 text-blue-400'
+                  }`}>
+                    {booking.operationMode === 'SELF_OPERATE' ? 'Self Operate' : 'With Operator'}
+                  </span>
+                  {booking.isPackageBooking && (
+                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-purple-500/10 text-purple-400 font-medium">
+                      Package
+                    </span>
+                  )}
+                </div>
+
+                {/* Player + Price Row */}
+                <div className="flex items-center justify-between gap-3">
+                  <span className="text-xs text-slate-400 truncate">{booking.playerName}</span>
+                  {booking.price != null && (
+                    <div className="flex items-center gap-1 shrink-0">
+                      <IndianRupee className="w-3 h-3 text-slate-500" />
+                      <span className="text-sm font-semibold text-white">{booking.price}</span>
+                      {hasDiscount && (
+                        <span className="text-[10px] text-green-400 line-through ml-1">₹{booking.originalPrice}</span>
+                      )}
+                      {booking.extraCharge != null && booking.extraCharge > 0 && (
+                        <span className="text-[10px] text-amber-400 ml-1">+₹{booking.extraCharge}</span>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                {/* Refund Info (for cancelled bookings) */}
+                {booking.status === 'CANCELLED' && booking.refund && (
+                  <div className="mt-2 pt-2 border-t border-white/[0.04]">
+                    <div className="flex items-center gap-2">
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-green-500/10 text-green-400">
+                        <span className="w-1 h-1 rounded-full bg-green-400"></span>
+                        Refund: ₹{booking.refund.amount}
+                      </span>
+                      <span className="text-[10px] text-slate-500">
+                        via {booking.refund.method === 'WALLET' ? 'Wallet' : 'Bank (5-7 days)'}
+                      </span>
+                    </div>
+                  </div>
+                )}
+                {booking.status === 'CANCELLED' && !booking.refund && booking.price && booking.price > 0 && booking.paymentStatus === 'PAID' && (
+                  <div className="mt-2 pt-2 border-t border-white/[0.04]">
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-500/10 text-amber-400">
+                      <span className="w-1 h-1 rounded-full bg-amber-400 animate-pulse"></span>
+                      Refund pending
+                    </span>
+                  </div>
+                )}
+
+                {/* Booked on */}
+                {booking.createdAt && (
+                  <div className="mt-2 pt-2 border-t border-white/[0.04]">
+                    <span className="text-[10px] text-slate-400">
+                      Booked on {format(new Date(booking.createdAt), 'MMM d, yyyy')} at {new Date(booking.createdAt).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit' })}
+                    </span>
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </div>
       )}
 
@@ -348,7 +379,32 @@ export default function BookingsPage() {
       />
 
       {/* Contact Section */}
-      <ContactFooter quote="Champions Train When Others Rest." showInstagram />
+      <div className="mt-8 pt-6 border-t border-white/[0.06]">
+        <p className="text-center text-xs text-slate-400 mb-4 italic">&ldquo;Champions Train When Others Rest.&rdquo;</p>
+        <div className="flex flex-col sm:flex-row items-center justify-center gap-3 text-xs text-slate-400">
+          <a href="tel:7058683664" className="flex items-center gap-1.5 hover:text-accent transition-colors">
+            <Phone className="w-3.5 h-3.5" />
+            Pratyush: 7058683664
+          </a>
+          <a href="tel:7774077995" className="flex items-center gap-1.5 hover:text-accent transition-colors">
+            <Phone className="w-3.5 h-3.5" />
+            Rahul: 7774077995
+          </a>
+          <a href="tel:9975011081" className="flex items-center gap-1.5 hover:text-accent transition-colors">
+            <Phone className="w-3.5 h-3.5" />
+            Raj: 9975011081
+          </a>
+          <a
+            href="https://www.instagram.com/playorbit.in/"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center gap-1.5 hover:text-accent transition-colors"
+          >
+            <Instagram className="w-3.5 h-3.5" />
+            @playorbit.in
+          </a>
+        </div>
+      </div>
     </div>
   );
 }

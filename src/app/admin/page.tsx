@@ -237,7 +237,6 @@ export default function AdminDashboard() {
   const [operators, setOperators] = useState<{ id: string; name: string | null; email: string | null; mobileNumber: string | null; operatorPriority: number; operatorAssignments?: { id: string; machineId: string; createdAt: string }[] }[]>([]);
   const [savingPriority, setSavingPriority] = useState(false);
   const [togglingAssignment, setTogglingAssignment] = useState<string | null>(null);
-  const [showSaveConfirm, setShowSaveConfirm] = useState(false);
 
   const isSuperAdmin = session?.user?.email === 'waheeddar8@gmail.com';
 
@@ -870,7 +869,7 @@ export default function AdminDashboard() {
 
             <div className="flex items-center gap-3 pt-3">
               <button
-                onClick={() => setShowSaveConfirm(true)}
+                onClick={handleSaveMachine}
                 disabled={savingMachine}
                 className="inline-flex items-center gap-2 bg-accent hover:bg-accent-light text-primary px-5 py-2.5 rounded-lg text-sm font-medium transition-colors cursor-pointer disabled:opacity-50"
               >
@@ -883,30 +882,6 @@ export default function AdminDashboard() {
                 </span>
               )}
             </div>
-
-            {/* Save Confirmation Dialog */}
-            {showSaveConfirm && (
-              <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4" onClick={() => setShowSaveConfirm(false)}>
-                <div className="bg-[#1a1a2e] rounded-2xl border border-white/[0.1] w-full max-w-sm p-5 shadow-2xl" onClick={e => e.stopPropagation()}>
-                  <h3 className="text-sm font-bold text-white mb-2">Confirm Save</h3>
-                  <p className="text-xs text-slate-400 mb-5">Are you sure you want to save the machine configuration? This will affect pricing, pitch types, and operator settings for all users.</p>
-                  <div className="flex gap-3">
-                    <button
-                      onClick={() => setShowSaveConfirm(false)}
-                      className="flex-1 px-4 py-2.5 bg-white/[0.06] text-slate-300 rounded-lg text-sm font-medium hover:bg-white/[0.1] transition-colors cursor-pointer border border-white/[0.08]"
-                    >
-                      Cancel
-                    </button>
-                    <button
-                      onClick={() => { setShowSaveConfirm(false); handleSaveMachine(); }}
-                      className="flex-1 px-4 py-2.5 bg-accent hover:bg-accent-light text-primary rounded-lg text-sm font-medium transition-colors cursor-pointer"
-                    >
-                      Yes, Save
-                    </button>
-                  </div>
-                </div>
-              </div>
-            )}
           </div>
         )}
       </div>
