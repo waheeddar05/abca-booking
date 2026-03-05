@@ -44,7 +44,9 @@ function SlotsContent() {
   const [bookingLoading, setBookingLoading] = useState(false);
   const [machineConfig, setMachineConfig] = useState<MachineConfig | null>(null);
   const [showBookingConfirm, setShowBookingConfirm] = useState(false);
-  const [paymentMethod, setPaymentMethod] = useState<'ONLINE' | 'CASH'>('ONLINE');
+  const [paymentMethod, setPaymentMethod] = useState<'ONLINE' | 'CASH' | 'WALLET'>('ONLINE');
+  const [walletBalance, setWalletBalance] = useState<number | null>(null);
+  const [walletEnabled, setWalletEnabled] = useState(false);
 
   const { data: session } = useSession();
   const toast = useToast();
@@ -103,6 +105,24 @@ function SlotsContent() {
       pkg.fetchPackages(isBookingForOther, userId);
     }
   }, [session, isBookingForOther, userId]);
+
+  // ─── Fetch wallet balance ──────────────────────────────
+  useEffect(() => {
+    if (session && !isBookingForOther) {
+      fetch('/api/wallet')
+        .then(res => {
+          if (res.ok) return res.json();
+          return null;
+        })
+        .then(data => {
+          if (data) {
+            setWalletBalance(data.balance ?? 0);
+            setWalletEnabled(true);
+          }
+        })
+        .catch(() => {});
+    }
+  }, [session, isBookingForOther]);
 
   // ─── Fetch slots when filters change ───────────────────
   useEffect(() => {
@@ -243,7 +263,6 @@ function SlotsContent() {
 
     const requiresOnlinePayment = paymentConfig?.paymentEnabled
       && paymentConfig?.slotPaymentRequired
-      && !isPackageBooking
       && !isBookingForOther
       && !isFreeBooking
       && !isCashPayment
@@ -272,12 +291,13 @@ function SlotsContent() {
 
     const isPackageBooking = !!pkg.selectedPackageId;
     const isCashPayment = paymentMethod === 'CASH';
+    const isWalletPayment = paymentMethod === 'WALLET';
     const requiresOnlinePayment = paymentConfig?.paymentEnabled
       && paymentConfig?.slotPaymentRequired
-      && !isPackageBooking
       && !isBookingForOther
       && !isFreeBooking
       && !isCashPayment
+      && !isWalletPayment
       && total > 0;
 
     const bookingPayload = selectedSlots.map(slot => ({
@@ -292,6 +312,7 @@ function SlotsContent() {
       playerName: isBookingForOther ? userName : undefined,
       ...(pitchType ? { pitchType } : {}),
       ...(isCashPayment ? { paymentMethod: 'CASH' as const } : {}),
+      ...(isWalletPayment ? { paymentMethod: 'WALLET' as const } : {}),
     }));
 
     // If online payment is required, go through Razorpay first
@@ -354,11 +375,22 @@ function SlotsContent() {
     try {
       await api.post('/api/slots/book', bookingPayload);
 
-      toast.success(isCashPayment ? 'Booking confirmed! Pay at center when you arrive.' : 'Booking confirmed! Check My Bookings for details.');
+      const successMsg = isCashPayment
+        ? 'Booking confirmed! Pay at center when you arrive.'
+        : isWalletPayment
+        ? 'Booking confirmed! Amount deducted from wallet.'
+        : 'Booking confirmed! Check My Bookings for details.';
+      toast.success(successMsg);
       setSelectedSlots([]);
       pkg.reset();
       fetchSlots(selectedDate, selectedMachineId, ballType, pitchType);
       pkg.fetchPackages(isBookingForOther, userId);
+      // Refresh wallet balance after wallet payment
+      if (isWalletPayment) {
+        fetch('/api/wallet').then(r => r.ok ? r.json() : null).then(d => {
+          if (d) setWalletBalance(d.balance ?? 0);
+        }).catch(() => {});
+      }
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Booking failed. Please try again.');
     } finally {
@@ -434,6 +466,17 @@ function SlotsContent() {
 
       <DateSelector selectedDate={selectedDate} onSelect={setSelectedDate} />
 
+      {/* Package Selection — below date */}
+      {session && (
+        <PackageSelector
+          packages={pkg.packages}
+          selectedPackageId={pkg.selectedPackageId}
+          onSelect={pkg.setSelectedPackageId}
+          validation={pkg.validation}
+          isValidating={pkg.isValidating}
+        />
+      )}
+
       <hr className="border-white/[0.06] my-4" />
 
       <SlotGrid
@@ -475,17 +518,6 @@ function SlotsContent() {
 
       <hr className="border-white/[0.06] my-4" />
 
-      {/* Package Selection */}
-      {session && (
-        <PackageSelector
-          packages={pkg.packages}
-          selectedPackageId={pkg.selectedPackageId}
-          onSelect={pkg.setSelectedPackageId}
-          validation={pkg.validation}
-          isValidating={pkg.isValidating}
-        />
-      )}
-
       {/* Payment Method Selection */}
       {selectedSlots.length > 0
         && paymentConfig?.paymentEnabled
@@ -501,11 +533,13 @@ function SlotsContent() {
             selected={paymentMethod}
             onChange={setPaymentMethod}
             disabled={bookingLoading || paymentProcessing}
+            walletBalance={walletBalance}
+            walletEnabled={walletEnabled}
           />
         </div>
       )}
 
-      <ContactFooter />
+      <ContactFooter showInstagram />
 
       {/* Booking Confirm Dialog */}
       {(() => {

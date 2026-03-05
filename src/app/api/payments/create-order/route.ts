@@ -58,9 +58,6 @@ export async function POST(req: NextRequest) {
       if (!required) {
         return NextResponse.json({ error: 'Payment not required for slot bookings' }, { status: 400 });
       }
-      if (!slots || slots.length === 0) {
-        return NextResponse.json({ error: 'Slot details required for booking payment' }, { status: 400 });
-      }
     }
 
     // Generate receipt ID
