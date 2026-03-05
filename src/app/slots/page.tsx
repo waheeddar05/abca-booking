@@ -136,6 +136,20 @@ function SlotsContent() {
     }
   }, [selectedSlots, pkg.selectedPackageId, selectedMachineId]);
 
+  // ─── Auto-select package if user has one ────────────────
+  useEffect(() => {
+    if (pkg.userDeclinedPackage) return;
+    if (pkg.packages.length === 0 || pkg.selectedPackageId) return;
+
+    // Find first active package with remaining sessions
+    const firstActive = pkg.packages.find(
+      up => up.status === 'ACTIVE' && up.remainingSessions > 0
+    );
+    if (firstActive) {
+      pkg.setSelectedPackageId(firstActive.id);
+    }
+  }, [pkg.packages]);
+
   // ─── Auto-select compatible package ────────────────────
   useEffect(() => {
     // Don't auto-select if user explicitly chose "Don't use package"
@@ -411,7 +425,7 @@ function SlotsContent() {
 
   // ─── Render ────────────────────────────────────────────
   return (
-    <div className="max-w-2xl mx-auto px-4 py-5 pb-28">
+    <div className="max-w-2xl mx-auto px-4 py-5 pb-40 md:pb-28">
       <PageBackground />
 
       {/* Admin Mode Banner */}
@@ -462,11 +476,7 @@ function SlotsContent() {
         onOperationModeChange={(m) => { setOperationMode(m); setSelectedSlots([]); }}
       />
 
-      <DateSelector selectedDate={selectedDate} onSelect={setSelectedDate} />
-
-      <hr className="border-white/[0.06] my-4" />
-
-      {/* Package Selection */}
+      {/* Package Selection - before date */}
       {session && (
         <PackageSelector
           packages={pkg.packages}
@@ -476,6 +486,10 @@ function SlotsContent() {
           isValidating={pkg.isValidating}
         />
       )}
+
+      <DateSelector selectedDate={selectedDate} onSelect={setSelectedDate} />
+
+      <hr className="border-white/[0.06] my-4" />
 
       <SlotGrid
         slots={slots}

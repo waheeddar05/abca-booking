@@ -310,7 +310,9 @@ export default function PackagesPage() {
                           <div className="flex flex-col gap-1 text-[11px] text-slate-400">
                             <span className="flex items-center gap-1">
                               <Clock className="w-3 h-3" />
-                              {isExpired ? (
+                              {(up as any).pendingActivation ? (
+                                'Pending activation — starts on first booking'
+                              ) : isExpired ? (
                                 `Expired on ${new Date(up.expiryDate).toLocaleDateString()}`
                               ) : daysRemaining <= 0 ? (
                                 "Expires today"

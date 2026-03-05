@@ -489,6 +489,12 @@ export async function POST(req: NextRequest) {
 
     // If package booking, deduct sessions and create PackageBooking records
     if (userPackageId && packageValidation) {
+      // Check if this is the first booking for this package (activates validity)
+      const currentUserPackage = await prisma.userPackage.findUnique({
+        where: { id: userPackageId },
+        include: { package: true },
+      });
+
       const extraChargePerSlot = (packageValidation.extraCharge || 0) / validatedSlots.length;
       for (const result of results) {
         await prisma.packageBooking.upsert({
@@ -504,11 +510,23 @@ export async function POST(req: NextRequest) {
         });
       }
 
+      // If first booking (usedSessions was 0), activate validity period now
+      const isFirstBooking = currentUserPackage && currentUserPackage.usedSessions === 0;
+      const updateData: any = {
+        usedSessions: { increment: validatedSlots.length },
+      };
+
+      if (isFirstBooking && currentUserPackage.package) {
+        const now = new Date();
+        const expiry = new Date(now);
+        expiry.setDate(expiry.getDate() + currentUserPackage.package.validityDays);
+        updateData.activationDate = now;
+        updateData.expiryDate = expiry;
+      }
+
       await prisma.userPackage.update({
         where: { id: userPackageId },
-        data: {
-          usedSessions: { increment: validatedSlots.length },
-        },
+        data: updateData,
       });
     }
 

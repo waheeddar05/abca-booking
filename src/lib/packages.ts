@@ -167,8 +167,10 @@ export function calculatePackageExtraCharge(
  */
 export async function getUserActivePackages(userId: string) {
   const now = new Date();
+  const farFutureThreshold = new Date('2099-01-01T00:00:00.000Z');
 
   // First, auto-expire any packages past their expiry date
+  // Skip packages with far-future expiry (pending activation - validity starts on first booking)
   await prisma.userPackage.updateMany({
     where: {
       userId,
@@ -182,7 +184,10 @@ export async function getUserActivePackages(userId: string) {
     where: {
       userId,
       status: 'ACTIVE',
-      expiryDate: { gte: now },
+      OR: [
+        { expiryDate: { gte: now } },
+        { expiryDate: { gte: farFutureThreshold } }, // Pending activation packages
+      ],
     },
     include: {
       package: true,

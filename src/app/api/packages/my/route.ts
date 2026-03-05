@@ -70,6 +70,9 @@ function formatUserPackage(up: any) {
     0
   ) || 0;
 
+  // Check if package is pending activation (not yet used, far-future dates)
+  const isPendingActivation = up.usedSessions === 0 && up.activationDate && new Date(up.activationDate).getFullYear() >= 2099;
+
   return {
     id: up.id,
     packageName: up.package.name,
@@ -81,8 +84,9 @@ function formatUserPackage(up: any) {
     totalSessions: up.totalSessions,
     usedSessions: up.usedSessions,
     remainingSessions: remaining,
-    activationDate: up.activationDate,
-    expiryDate: up.expiryDate,
+    activationDate: isPendingActivation ? null : up.activationDate,
+    expiryDate: isPendingActivation ? null : up.expiryDate,
+    pendingActivation: isPendingActivation,
     status: up.status,
     amountPaid: up.amountPaid,
     totalExtraPayments,

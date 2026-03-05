@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { GeistSans } from "geist/font/sans";
 import { GeistMono } from "geist/font/mono";
 import Navbar from "@/components/Navbar";
+import BottomNav from "@/components/BottomNav";
 import { Providers } from "@/components/Providers";
 import { ErrorBoundary } from "@/components/ui/ErrorBoundary";
 import { ToastProvider } from "@/components/ui/Toast";
@@ -62,7 +63,8 @@ export default function RootLayout({
             <ErrorBoundary>
               <Navbar />
               <MobileNumberCheck />
-              <main className="safe-bottom">{children}</main>
+              <main className="pb-20 md:pb-0">{children}</main>
+              <BottomNav />
             </ErrorBoundary>
           </ToastProvider>
           <PWARegister />
