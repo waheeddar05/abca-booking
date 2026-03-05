@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useSession } from 'next-auth/react';
-import { CalendarCheck, Activity, UserPlus, CalendarDays, Settings, Clock, IndianRupee, TrendingUp, Save, Loader2, Zap, Wrench, CalendarPlus, Check, ChevronUp, ChevronDown, Users } from 'lucide-react';
+import { CalendarCheck, Activity, UserPlus, CalendarDays, Settings, Clock, IndianRupee, TrendingUp, Save, Loader2, Zap, Wrench, CalendarPlus, Check, ChevronUp, ChevronDown, Users, CreditCard, Banknote, Wallet } from 'lucide-react';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 
 interface Stats {
@@ -240,6 +240,18 @@ export default function AdminDashboard() {
   const [savingPriority, setSavingPriority] = useState(false);
   const [togglingAssignment, setTogglingAssignment] = useState<string | null>(null);
 
+  // Payment settings
+  const [paymentSettings, setPaymentSettings] = useState({
+    PAYMENT_GATEWAY_ENABLED: false,
+    SLOT_PAYMENT_REQUIRED: false,
+    PACKAGE_PAYMENT_REQUIRED: false,
+    CASH_PAYMENT_ENABLED: false,
+    WALLET_ENABLED: false,
+  });
+  const [paymentLoading, setPaymentLoading] = useState(true);
+  const [savingPayment, setSavingPayment] = useState(false);
+  const [paymentMessage, setPaymentMessage] = useState({ text: '', type: '' });
+
   const isSuperAdmin = session?.user?.email === 'waheeddar8@gmail.com';
 
   useEffect(() => {
@@ -296,11 +308,54 @@ export default function AdminDashboard() {
       }
     }
 
+    async function fetchPaymentSettings() {
+      try {
+        const res = await fetch('/api/admin/policies');
+        if (res.ok) {
+          const data = await res.json();
+          const policies: Record<string, string> = {};
+          (data.policies || []).forEach((p: { key: string; value: string }) => { policies[p.key] = p.value; });
+          setPaymentSettings({
+            PAYMENT_GATEWAY_ENABLED: policies['PAYMENT_GATEWAY_ENABLED'] === 'true',
+            SLOT_PAYMENT_REQUIRED: policies['SLOT_PAYMENT_REQUIRED'] === 'true',
+            PACKAGE_PAYMENT_REQUIRED: policies['PACKAGE_PAYMENT_REQUIRED'] === 'true',
+            CASH_PAYMENT_ENABLED: policies['CASH_PAYMENT_ENABLED'] === 'true',
+            WALLET_ENABLED: policies['WALLET_ENABLED'] === 'true',
+          });
+        }
+      } catch (error) {
+        console.error('Failed to fetch payment settings:', error);
+      } finally {
+        setPaymentLoading(false);
+      }
+    }
+
     fetchStats();
     fetchMachineConfig();
     fetchOperators();
+    fetchPaymentSettings();
   }, []);
 
+
+  const handleSavePayment = async (key: string, value: boolean) => {
+    setSavingPayment(true);
+    setPaymentMessage({ text: '', type: '' });
+    try {
+      const res = await fetch('/api/admin/policies', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ key, value: String(value) }),
+      });
+      if (!res.ok) throw new Error('Failed to save');
+      setPaymentSettings(prev => ({ ...prev, [key]: value }));
+      setPaymentMessage({ text: 'Saved', type: 'success' });
+      setTimeout(() => setPaymentMessage({ text: '', type: '' }), 2000);
+    } catch {
+      setPaymentMessage({ text: 'Failed to save', type: 'error' });
+    } finally {
+      setSavingPayment(false);
+    }
+  };
 
   const handleSaveMachine = async () => {
     setSavingMachine(true);
@@ -526,6 +581,66 @@ export default function AdminDashboard() {
             </Link>
           )}
         </div>
+      </div>
+
+      {/* Payment Settings */}
+      <div className="bg-white/[0.04] backdrop-blur-sm rounded-xl border border-white/[0.08] p-5 mb-6">
+        <div className="flex items-center gap-2 mb-4">
+          <CreditCard className="w-5 h-5 text-accent" />
+          <h2 className="text-sm font-semibold text-white">Payment Settings</h2>
+          {paymentMessage.text && (
+            <span className={`ml-auto text-xs font-medium ${paymentMessage.type === 'success' ? 'text-green-400' : 'text-red-400'}`}>
+              {paymentMessage.text}
+            </span>
+          )}
+        </div>
+
+        {paymentLoading ? (
+          <div className="flex items-center gap-2 py-4 text-slate-400">
+            <Loader2 className="w-4 h-4 animate-spin" />
+            <span className="text-sm">Loading payment settings...</span>
+          </div>
+        ) : (
+          <div className="space-y-1">
+            {[
+              { key: 'PAYMENT_GATEWAY_ENABLED', label: 'Payment Gateway', desc: 'Enable Razorpay online payments', icon: CreditCard },
+              { key: 'SLOT_PAYMENT_REQUIRED', label: 'Require Payment for Slots', desc: 'Users must pay before booking slots', icon: IndianRupee },
+              { key: 'PACKAGE_PAYMENT_REQUIRED', label: 'Require Payment for Packages', desc: 'Users must pay when purchasing packages', icon: IndianRupee },
+              { key: 'CASH_PAYMENT_ENABLED', label: 'Cash Payment', desc: 'Allow users to pay at center', icon: Banknote },
+              { key: 'WALLET_ENABLED', label: 'Wallet', desc: 'Allow wallet balance for payments', icon: Wallet },
+            ].map(({ key, label, desc, icon: Icon }) => (
+              <div
+                key={key}
+                className="flex items-center gap-3 px-3 py-3 rounded-lg hover:bg-white/[0.03] transition-colors"
+              >
+                <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${
+                  paymentSettings[key as keyof typeof paymentSettings] ? 'bg-accent/15' : 'bg-white/[0.04]'
+                }`}>
+                  <Icon className={`w-4 h-4 ${paymentSettings[key as keyof typeof paymentSettings] ? 'text-accent' : 'text-slate-500'}`} />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className={`text-sm font-medium ${paymentSettings[key as keyof typeof paymentSettings] ? 'text-white' : 'text-slate-400'}`}>
+                    {label}
+                  </p>
+                  <p className="text-[10px] text-slate-500">{desc}</p>
+                </div>
+                <button
+                  disabled={savingPayment}
+                  onClick={() => handleSavePayment(key, !paymentSettings[key as keyof typeof paymentSettings])}
+                  className={`w-11 h-6 rounded-full transition-colors relative flex-shrink-0 cursor-pointer disabled:opacity-50 ${
+                    paymentSettings[key as keyof typeof paymentSettings] ? 'bg-accent' : 'bg-white/10'
+                  }`}
+                >
+                  <div
+                    className={`absolute top-0.5 w-5 h-5 rounded-full bg-white shadow-sm transition-transform ${
+                      paymentSettings[key as keyof typeof paymentSettings] ? 'translate-x-[22px]' : 'translate-x-0.5'
+                    }`}
+                  />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Machine Configuration */}
