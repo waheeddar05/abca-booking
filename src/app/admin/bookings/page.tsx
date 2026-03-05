@@ -322,8 +322,9 @@ function AdminBookingsContent() {
   };
 
   const statusConfig: Record<string, { label: string; bg: string; text: string; dot: string }> = {
-    BOOKED: { label: 'Booked', bg: 'bg-green-500/10', text: 'text-green-400', dot: 'bg-green-500' },
-    DONE: { label: 'Done', bg: 'bg-blue-500/10', text: 'text-blue-400', dot: 'bg-blue-500' },
+    BOOKED: { label: 'Upcoming', bg: 'bg-green-500/10', text: 'text-green-400', dot: 'bg-green-500' },
+    IN_PROGRESS: { label: 'In Progress', bg: 'bg-emerald-500/10', text: 'text-emerald-400', dot: 'bg-emerald-500 animate-pulse' },
+    DONE: { label: 'Completed', bg: 'bg-blue-500/10', text: 'text-blue-400', dot: 'bg-blue-500' },
     CANCELLED: { label: 'Cancelled', bg: 'bg-white/[0.04]', text: 'text-slate-400', dot: 'bg-gray-400' },
   };
 
@@ -497,7 +498,9 @@ function AdminBookingsContent() {
               className="w-full bg-white/[0.06] border border-white/[0.15] text-white rounded-lg px-3 py-2.5 text-sm outline-none focus:border-accent focus:ring-1 focus:ring-accent/20 cursor-pointer"
             >
               <option value="">All</option>
-              <option value="BOOKED">Booked</option>
+              <option value="BOOKED">Upcoming</option>
+              <option value="IN_PROGRESS">In Progress</option>
+              <option value="DONE">Completed</option>
               <option value="CANCELLED">Cancelled</option>
             </select>
           </div>
