@@ -25,14 +25,17 @@ export default function Navbar() {
   }, [pathname]);
 
   const navLinks = [
-    { href: '/slots', label: 'Book Slots', icon: Calendar, show: !!session },
-    { href: '/bookings', label: 'My Bookings', icon: ClipboardList, show: !!session },
-    { href: '/packages', label: 'Packages', icon: Package, show: !!session },
-    { href: '/wallet', label: 'Wallet', icon: Wallet, show: !!session },
-    { href: '/notifications', label: 'Notifications', icon: Bell, show: !!session },
+    { href: '/slots', label: 'Book Slots', icon: Calendar, show: !!session, hideOnMobile: true },
+    { href: '/bookings', label: 'My Bookings', icon: ClipboardList, show: !!session, hideOnMobile: true },
+    { href: '/packages', label: 'Packages', icon: Package, show: !!session, hideOnMobile: true },
     { href: '/operator', label: 'Operator', icon: Wrench, show: session?.user?.role === 'OPERATOR' },
     { href: '/admin', label: 'Admin', icon: Shield, show: session?.user?.role === 'ADMIN' },
   ].filter(link => link.show);
+
+  const profileLinks = [
+    { href: '/wallet', label: 'Wallet', icon: Wallet },
+    { href: '/notifications', label: 'Notifications', icon: Bell },
+  ];
 
   const isActive = (href: string) => pathname === href || pathname.startsWith(href + '/');
 
@@ -76,8 +79,21 @@ export default function Navbar() {
             ))}
 
             {session ? (
-              <div className="flex items-center ml-2 pl-2 border-l border-white/10">
-                <div className="flex items-center gap-2 mr-3">
+              <div className="flex items-center ml-2 pl-2 border-l border-white/10 gap-1">
+                {profileLinks.map(({ href, label, icon: Icon }) => (
+                  <Link
+                    key={href}
+                    href={href}
+                    className={`flex items-center gap-1.5 px-2 py-2 rounded-lg text-sm font-medium transition-all ${isActive(href)
+                      ? 'bg-white/15 text-accent'
+                      : 'text-white/70 hover:text-white hover:bg-white/10'
+                    }`}
+                    title={label}
+                  >
+                    <Icon className="w-4 h-4" />
+                  </Link>
+                ))}
+                <div className="flex items-center gap-2 ml-1 mr-2">
                   {userImage ? (
                     <Image
                       src={userImage}
@@ -155,7 +171,21 @@ export default function Navbar() {
             </div>
           )}
 
-          {navLinks.map(({ href, label, icon: Icon }) => (
+          {navLinks.filter(l => !(l as any).hideOnMobile).map(({ href, label, icon: Icon }) => (
+            <Link
+              key={href}
+              href={href}
+              className={`flex items-center gap-3 px-3 py-3 rounded-lg text-sm font-medium transition-colors ${isActive(href)
+                ? 'bg-accent/15 text-accent'
+                : 'text-white/70 hover:bg-white/5'
+                }`}
+            >
+              <Icon className="w-5 h-5" />
+              {label}
+            </Link>
+          ))}
+
+          {session && profileLinks.map(({ href, label, icon: Icon }) => (
             <Link
               key={href}
               href={href}

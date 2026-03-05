@@ -46,9 +46,9 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const activation = activationDate ? new Date(activationDate) : new Date();
-    const expiry = new Date(activation);
-    expiry.setDate(expiry.getDate() + pkg.validityDays);
+    // Validity starts from first booking, not purchase date
+    // Set a far-future expiry as placeholder (will be recalculated on first booking)
+    const farFuture = new Date('2099-12-31T23:59:59.999Z');
 
     const userPackage = await prisma.userPackage.create({
       data: {
@@ -56,8 +56,8 @@ export async function POST(req: NextRequest) {
         packageId: pkg.id,
         totalSessions: pkg.totalSessions,
         usedSessions: 0,
-        activationDate: activation,
-        expiryDate: expiry,
+        activationDate: farFuture,
+        expiryDate: farFuture,
         status: 'ACTIVE',
         amountPaid: pkg.price,
       },

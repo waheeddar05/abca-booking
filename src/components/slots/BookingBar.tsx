@@ -42,7 +42,7 @@ export function BookingBar({
   const savings = originalTotal - totalPrice;
 
   return (
-    <div className="fixed bottom-0 left-0 right-0 bg-[#0f1d2f]/95 backdrop-blur-md border-t border-white/[0.08] p-4 z-40 safe-bottom">
+    <div className="fixed bottom-0 md:bottom-0 left-0 right-0 bg-[#0f1d2f]/95 backdrop-blur-md border-t border-white/[0.08] p-4 z-40 mb-[60px] md:mb-0 safe-bottom">
       <div className="max-w-2xl mx-auto flex items-center justify-between gap-4">
         <div>
           <p className="text-sm font-bold text-white">
