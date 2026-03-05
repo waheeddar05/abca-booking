@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useSession } from 'next-auth/react';
 import { CalendarCheck, Activity, UserPlus, CalendarDays, Settings, Clock, IndianRupee, TrendingUp, Save, Loader2, Zap, Wrench, CalendarPlus, Check, ChevronUp, ChevronDown, Users } from 'lucide-react';
+import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 
 interface Stats {
   totalBookings: number;
@@ -234,6 +235,7 @@ export default function AdminDashboard() {
   const [machineLoading, setMachineLoading] = useState(true);
   const [savingMachine, setSavingMachine] = useState(false);
   const [machineMessage, setMachineMessage] = useState({ text: '', type: '' });
+  const [showMachineConfigConfirm, setShowMachineConfigConfirm] = useState(false);
   const [operators, setOperators] = useState<{ id: string; name: string | null; email: string | null; mobileNumber: string | null; operatorPriority: number; operatorAssignments?: { id: string; machineId: string; createdAt: string }[] }[]>([]);
   const [savingPriority, setSavingPriority] = useState(false);
   const [togglingAssignment, setTogglingAssignment] = useState<string | null>(null);
@@ -869,7 +871,7 @@ export default function AdminDashboard() {
 
             <div className="flex items-center gap-3 pt-3">
               <button
-                onClick={handleSaveMachine}
+                onClick={() => setShowMachineConfigConfirm(true)}
                 disabled={savingMachine}
                 className="inline-flex items-center gap-2 bg-accent hover:bg-accent-light text-primary px-5 py-2.5 rounded-lg text-sm font-medium transition-colors cursor-pointer disabled:opacity-50"
               >
@@ -886,6 +888,20 @@ export default function AdminDashboard() {
         )}
       </div>
 
+      {/* Machine Config Save Confirmation */}
+      <ConfirmDialog
+        open={showMachineConfigConfirm}
+        title="Save Machine Configuration"
+        message="Are you sure you want to save these configuration changes?"
+        confirmLabel="Save"
+        cancelLabel="Cancel"
+        loading={savingMachine}
+        onConfirm={() => {
+          setShowMachineConfigConfirm(false);
+          handleSaveMachine();
+        }}
+        onCancel={() => setShowMachineConfigConfirm(false)}
+      />
     </div>
   );
 }

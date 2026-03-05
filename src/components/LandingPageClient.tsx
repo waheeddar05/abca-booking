@@ -1,9 +1,10 @@
 'use client';
 
-import { useState } from 'react';
+import React, { useState } from 'react';
 import Image from 'next/image';
 import { Calendar, Zap, Clock, Instagram, Phone, Target, Shield, Users, Star, ArrowRight, MapPin } from 'lucide-react';
 import LoginModal from './LoginModal';
+import { CONTACT_NUMBERS, INSTAGRAM_URL, LOCATION_URL } from '@/lib/client-constants';
 
 export default function LandingPageClient() {
   const [loginOpen, setLoginOpen] = useState(false);
@@ -280,32 +281,21 @@ export default function LandingPageClient() {
           <p className="text-slate-500 text-[10px] md:text-sm mb-3 md:mb-6 max-w-xl mx-auto leading-relaxed">Reach out via phone or Social Media.</p>
 
           <div className="grid grid-cols-4 gap-1.5 md:flex md:flex-row md:items-start md:justify-center md:gap-8 w-full">
-            <a href="tel:7058683664" className="flex flex-col items-center gap-0.5 md:gap-1.5 group active:scale-95 transition-transform min-w-0">
-              <div className="w-9 h-9 md:w-12 md:h-12 rounded-xl md:rounded-xl bg-white/[0.04] border border-white/[0.08] flex items-center justify-center group-hover:bg-accent group-hover:text-primary group-hover:border-accent/40 transition-all group-hover:shadow-[0_0_24px_rgba(56,189,248,0.25)] mb-0.5 md:mb-1 flex-shrink-0">
-                <Phone className="w-3.5 h-3.5 md:w-5 md:h-5" />
-              </div>
-              <span className="text-[8px] md:text-[11px] uppercase font-bold tracking-wider text-slate-600 truncate w-full">Pratyush</span>
-              <span className="text-white font-bold text-[9px] md:text-sm truncate w-full tabular-nums">7058683664</span>
-            </a>
-            <div className="hidden md:block w-px h-16 bg-white/[0.06]"></div>
-            <a href="tel:7774077995" className="flex flex-col items-center gap-0.5 md:gap-1.5 group active:scale-95 transition-transform min-w-0">
-              <div className="w-9 h-9 md:w-12 md:h-12 rounded-xl md:rounded-xl bg-white/[0.04] border border-white/[0.08] flex items-center justify-center group-hover:bg-accent group-hover:text-primary group-hover:border-accent/40 transition-all group-hover:shadow-[0_0_24px_rgba(56,189,248,0.25)] mb-0.5 md:mb-1 flex-shrink-0">
-                <Phone className="w-3.5 h-3.5 md:w-5 md:h-5" />
-              </div>
-              <span className="text-[8px] md:text-[11px] uppercase font-bold tracking-wider text-slate-600 truncate w-full">Rahul</span>
-              <span className="text-white font-bold text-[9px] md:text-sm truncate w-full tabular-nums">7774077995</span>
-            </a>
-            <div className="hidden md:block w-px h-16 bg-white/[0.06]"></div>
-            <a href="tel:9975011081" className="flex flex-col items-center gap-0.5 md:gap-1.5 group active:scale-95 transition-transform min-w-0">
-              <div className="w-9 h-9 md:w-12 md:h-12 rounded-xl md:rounded-xl bg-white/[0.04] border border-white/[0.08] flex items-center justify-center group-hover:bg-accent group-hover:text-primary group-hover:border-accent/40 transition-all group-hover:shadow-[0_0_24px_rgba(56,189,248,0.25)] mb-0.5 md:mb-1 flex-shrink-0">
-                <Phone className="w-3.5 h-3.5 md:w-5 md:h-5" />
-              </div>
-              <span className="text-[8px] md:text-[11px] uppercase font-bold tracking-wider text-slate-600 truncate w-full">Raj</span>
-              <span className="text-white font-bold text-[9px] md:text-sm truncate w-full tabular-nums">9975011081</span>
-            </a>
+            {CONTACT_NUMBERS.map((contact, idx) => (
+              <React.Fragment key={contact.number}>
+                {idx > 0 && <div className="hidden md:block w-px h-16 bg-white/[0.06]"></div>}
+                <a href={`tel:${contact.number}`} className="flex flex-col items-center gap-0.5 md:gap-1.5 group active:scale-95 transition-transform min-w-0">
+                  <div className="w-9 h-9 md:w-12 md:h-12 rounded-xl md:rounded-xl bg-white/[0.04] border border-white/[0.08] flex items-center justify-center group-hover:bg-accent group-hover:text-primary group-hover:border-accent/40 transition-all group-hover:shadow-[0_0_24px_rgba(56,189,248,0.25)] mb-0.5 md:mb-1 flex-shrink-0">
+                    <Phone className="w-3.5 h-3.5 md:w-5 md:h-5" />
+                  </div>
+                  <span className="text-[8px] md:text-[11px] uppercase font-bold tracking-wider text-slate-600 truncate w-full">{contact.name}</span>
+                  <span className="text-white font-bold text-[9px] md:text-sm truncate w-full tabular-nums">{contact.number}</span>
+                </a>
+              </React.Fragment>
+            ))}
             <div className="hidden md:block w-px h-16 bg-white/[0.06]"></div>
             <a
-              href="https://www.instagram.com/playorbit.in/"
+              href={INSTAGRAM_URL}
               target="_blank"
               rel="noopener noreferrer"
               className="flex flex-col items-center gap-0.5 md:gap-1.5 group active:scale-95 transition-transform min-w-0"

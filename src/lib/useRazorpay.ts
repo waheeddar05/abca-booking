@@ -8,6 +8,7 @@ interface PaymentConfig {
   packagePaymentRequired: boolean;
   razorpayKeyId: string;
   cashPaymentEnabled: boolean;
+  walletEnabled: boolean;
 }
 
 interface RazorpayOrderResponse {
