@@ -90,7 +90,7 @@ export async function POST(req: NextRequest) {
       },
     });
 
-    // Send via WhatsApp
+    // Send OTP via WhatsApp
     const result = await sendWhatsAppOTP(cleaned, otp);
 
     if (!result.success) {
