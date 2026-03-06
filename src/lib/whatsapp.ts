@@ -1,15 +1,20 @@
 /**
  * WhatsApp BSP Provider — BSP-agnostic service for sending WhatsApp messages.
  *
- * Currently supports the Meta Cloud API (WhatsApp Business Platform).
- * To switch BSPs (Gupshup, Twilio, ValueFirst, etc.) implement the
- * `WhatsAppProvider` interface and swap in `getProvider()`.
+ * Supports two providers (selected automatically based on env vars):
+ *   1. Twilio WhatsApp API (recommended — simple setup, reliable delivery)
+ *   2. Meta Cloud API (legacy fallback)
  *
- * Environment variables:
- *   WHATSAPP_PHONE_NUMBER_ID  – Meta Cloud API phone number ID
- *   WHATSAPP_ACCESS_TOKEN     – Bearer token for the Cloud API
- *   WHATSAPP_API_URL          – (optional) override for the Graph API base URL
- *   WHATSAPP_OTP_TEMPLATE     – (optional) template name for OTP messages (default: "otp_login")
+ * Twilio env vars:
+ *   TWILIO_ACCOUNT_SID      – Twilio Account SID
+ *   TWILIO_AUTH_TOKEN        – Twilio Auth Token
+ *   TWILIO_WHATSAPP_FROM     – Twilio WhatsApp sender (e.g. "whatsapp:+14155238886")
+ *
+ * Meta env vars (legacy):
+ *   WHATSAPP_PHONE_NUMBER_ID – Meta Cloud API phone number ID
+ *   WHATSAPP_ACCESS_TOKEN    – Bearer token for the Cloud API
+ *   WHATSAPP_API_URL         – (optional) override for the Graph API base URL
+ *   WHATSAPP_OTP_TEMPLATE    – (optional) template name (default: "otp_login")
  */
 
 // ─── Types ──────────────────────────────────────────────────────────
@@ -40,14 +45,118 @@ export interface TemplateComponent {
 
 // ─── Configuration ──────────────────────────────────────────────────
 
-function isConfigured(): boolean {
-  return !!(process.env.WHATSAPP_PHONE_NUMBER_ID && process.env.WHATSAPP_ACCESS_TOKEN);
+type ProviderType = 'twilio' | 'meta' | null;
+
+function detectProvider(): ProviderType {
+  if (
+    process.env.TWILIO_ACCOUNT_SID &&
+    process.env.TWILIO_AUTH_TOKEN &&
+    process.env.TWILIO_WHATSAPP_FROM
+  ) {
+    return 'twilio';
+  }
+  if (process.env.WHATSAPP_PHONE_NUMBER_ID && process.env.WHATSAPP_ACCESS_TOKEN) {
+    return 'meta';
+  }
+  return null;
 }
 
 const OTP_TEMPLATE_NAME = process.env.WHATSAPP_OTP_TEMPLATE || 'otp_login';
 const TEMPLATE_LANGUAGE = 'en';
 
-// ─── Meta Cloud API Provider ────────────────────────────────────────
+// ─── Twilio WhatsApp Provider ───────────────────────────────────────
+
+class TwilioWhatsAppProvider implements WhatsAppProvider {
+  private accountSid: string;
+  private authToken: string;
+  private from: string;
+
+  constructor() {
+    this.accountSid = process.env.TWILIO_ACCOUNT_SID || '';
+    this.authToken = process.env.TWILIO_AUTH_TOKEN || '';
+    this.from = process.env.TWILIO_WHATSAPP_FROM || '';
+  }
+
+  /**
+   * Twilio doesn't have a separate "template" API — for WhatsApp,
+   * pre-approved content templates are sent as regular messages.
+   * Twilio handles the template matching automatically when the
+   * message body matches an approved template.
+   *
+   * For OTP, we just send a plain text message containing the code.
+   */
+  async sendTemplate(
+    to: string,
+    _templateName: string,
+    _language: string,
+    components: TemplateComponent[],
+  ): Promise<WhatsAppSendResult> {
+    // Extract the OTP from template components
+    const otp = components?.[0]?.parameters?.[0]?.text || '';
+    const ttl = process.env.OTP_TTL_MINUTES || '5';
+    const body = `Your PlayOrbit verification code is: ${otp}. It expires in ${ttl} minutes. Do not share this code.`;
+    return this.sendText(to, body);
+  }
+
+  async sendText(to: string, body: string): Promise<WhatsAppSendResult> {
+    try {
+      const whatsappTo = `whatsapp:+${to}`;
+      const url = `https://api.twilio.com/2010-04-01/Accounts/${this.accountSid}/Messages.json`;
+
+      console.log('[WhatsApp/Twilio] Sending message to:', to);
+
+      const credentials = Buffer.from(`${this.accountSid}:${this.authToken}`).toString('base64');
+
+      const params = new URLSearchParams({
+        From: this.from,
+        To: whatsappTo,
+        Body: body,
+      });
+
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: {
+          Authorization: `Basic ${credentials}`,
+          'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body: params.toString(),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        console.error('[WhatsApp/Twilio] API error:', {
+          status: res.status,
+          code: data?.code,
+          message: data?.message,
+          moreInfo: data?.more_info,
+          to,
+        });
+        return {
+          success: false,
+          error: data?.message || `HTTP ${res.status}`,
+        };
+      }
+
+      console.log('[WhatsApp/Twilio] Message sent:', {
+        sid: data?.sid,
+        status: data?.status,
+        to,
+      });
+
+      return {
+        success: true,
+        messageId: data?.sid,
+      };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Unknown error';
+      console.error('[WhatsApp/Twilio] sendText error:', message);
+      return { success: false, error: message };
+    }
+  }
+}
+
+// ─── Meta Cloud API Provider (legacy) ──────────────────────────────
 
 class MetaCloudAPIProvider implements WhatsAppProvider {
   private phoneNumberId: string;
@@ -70,7 +179,7 @@ class MetaCloudAPIProvider implements WhatsAppProvider {
   ): Promise<WhatsAppSendResult> {
     try {
       const url = `${this.baseUrl}/messages`;
-      console.log('[WhatsApp] Sending template:', { url, to, templateName, language });
+      console.log('[WhatsApp/Meta] Sending template:', { url, to, templateName, language });
 
       const res = await fetch(url, {
         method: 'POST',
@@ -93,7 +202,7 @@ class MetaCloudAPIProvider implements WhatsAppProvider {
       const data = await res.json();
 
       if (!res.ok) {
-        console.error('[WhatsApp] API error:', {
+        console.error('[WhatsApp/Meta] API error:', {
           status: res.status,
           error: data?.error,
           to,
@@ -111,7 +220,7 @@ class MetaCloudAPIProvider implements WhatsAppProvider {
       };
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Unknown error';
-      console.error('WhatsApp sendTemplate error:', message);
+      console.error('[WhatsApp/Meta] sendTemplate error:', message);
       return { success: false, error: message };
     }
   }
@@ -119,7 +228,7 @@ class MetaCloudAPIProvider implements WhatsAppProvider {
   async sendText(to: string, body: string): Promise<WhatsAppSendResult> {
     try {
       const url = `${this.baseUrl}/messages`;
-      console.log('[WhatsApp] Sending text to:', to);
+      console.log('[WhatsApp/Meta] Sending text to:', to);
 
       const res = await fetch(url, {
         method: 'POST',
@@ -138,7 +247,7 @@ class MetaCloudAPIProvider implements WhatsAppProvider {
       const data = await res.json();
 
       if (!res.ok) {
-        console.error('[WhatsApp] API error (text):', {
+        console.error('[WhatsApp/Meta] API error (text):', {
           status: res.status,
           error: data?.error,
           to,
@@ -155,7 +264,7 @@ class MetaCloudAPIProvider implements WhatsAppProvider {
       };
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Unknown error';
-      console.error('WhatsApp sendText error:', message);
+      console.error('[WhatsApp/Meta] sendText error:', message);
       return { success: false, error: message };
     }
   }
@@ -163,13 +272,11 @@ class MetaCloudAPIProvider implements WhatsAppProvider {
 
 // ─── Provider factory ───────────────────────────────────────────────
 
-/**
- * Returns a fresh provider each call so env-var changes (e.g. token
- * rotation on Vercel) are picked up without redeploying.
- */
 function getProvider(): WhatsAppProvider | null {
-  if (!isConfigured()) return null;
-  return new MetaCloudAPIProvider();
+  const type = detectProvider();
+  if (type === 'twilio') return new TwilioWhatsAppProvider();
+  if (type === 'meta') return new MetaCloudAPIProvider();
+  return null;
 }
 
 // ─── Public API ─────────────────────────────────────────────────────
@@ -190,7 +297,6 @@ export function formatIndianMobile(mobile: string): string {
  */
 export function isValidIndianMobile(mobile: string): boolean {
   const digits = mobile.replace(/\D/g, '');
-  // 10 digits or 12 with 91 prefix
   const cleaned = digits.length === 12 && digits.startsWith('91') ? digits.slice(2) : digits;
   return /^[6-9]\d{9}$/.test(cleaned);
 }
@@ -198,10 +304,10 @@ export function isValidIndianMobile(mobile: string): boolean {
 /**
  * Send OTP via WhatsApp.
  *
- * Strategy (in order):
- *   1. If a named template is configured and not "text", use it (works for verified businesses).
- *   2. If template is "text" or sending fails, fall back to plain text (requires 24h window).
- *   3. If WhatsApp is not configured, log a warning and fake success (dev mode).
+ * Strategy:
+ *   1. Twilio: sends as plain text (Twilio auto-matches templates).
+ *   2. Meta: tries template first, falls back to text.
+ *   3. If not configured: dev mode fakes success, prod returns error.
  */
 export async function sendWhatsAppOTP(
   mobileNumber: string,
@@ -215,17 +321,26 @@ export async function sendWhatsAppOTP(
       return { success: true, messageId: `dev-${Date.now()}` };
     }
     console.error(
-      '[WhatsApp] CRITICAL: Not configured in production. Set WHATSAPP_PHONE_NUMBER_ID and WHATSAPP_ACCESS_TOKEN.',
-      { hasPhoneId: !!process.env.WHATSAPP_PHONE_NUMBER_ID, hasToken: !!process.env.WHATSAPP_ACCESS_TOKEN },
+      '[WhatsApp] CRITICAL: Not configured in production. Set TWILIO_* or WHATSAPP_* env vars.',
+      {
+        hasTwilio: !!(process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN),
+        hasMeta: !!(process.env.WHATSAPP_PHONE_NUMBER_ID && process.env.WHATSAPP_ACCESS_TOKEN),
+      },
     );
     return { success: false, error: 'WhatsApp is not configured on the server' };
   }
 
+  const providerType = detectProvider();
   const to = formatIndianMobile(mobileNumber);
   const ttl = process.env.OTP_TTL_MINUTES || '5';
   const textBody = `Your PlayOrbit verification code is: ${otp}. It expires in ${ttl} minutes. Do not share this code.`;
 
-  // Try template first if one is configured (not "text" mode)
+  // Twilio: just send text directly (no template API needed)
+  if (providerType === 'twilio') {
+    return provider.sendText(to, textBody);
+  }
+
+  // Meta: try template first, fall back to text
   if (OTP_TEMPLATE_NAME !== 'text') {
     const templateResult = await provider.sendTemplate(to, OTP_TEMPLATE_NAME, TEMPLATE_LANGUAGE, [
       {
@@ -235,12 +350,9 @@ export async function sendWhatsAppOTP(
     ]);
 
     if (templateResult.success) return templateResult;
-
-    // Template failed — fall through to text
     console.warn('[WhatsApp] Template send failed, falling back to text:', templateResult.error);
   }
 
-  // Plain text fallback (requires user to have messaged the business first)
   return provider.sendText(to, textBody);
 }
 
