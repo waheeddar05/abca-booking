@@ -94,11 +94,21 @@ export async function POST(req: NextRequest) {
     const result = await sendWhatsAppOTP(cleaned, otp);
 
     if (!result.success) {
+      console.error('[send-otp] WhatsApp OTP send failed:', {
+        userId: user.id,
+        mobile: cleaned.slice(0, 4) + '****' + cleaned.slice(-2),
+        error: result.error,
+      });
       return NextResponse.json(
-        { error: 'Failed to send WhatsApp OTP. Please try again.' },
+        { error: result.error || 'Failed to send WhatsApp OTP. Please try again.' },
         { status: 502 },
       );
     }
+
+    console.log('[send-otp] WhatsApp OTP sent successfully:', {
+      userId: user.id,
+      messageId: result.messageId,
+    });
 
     return NextResponse.json({
       message: 'OTP sent to your WhatsApp',

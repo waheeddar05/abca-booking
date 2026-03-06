@@ -69,7 +69,10 @@ class MetaCloudAPIProvider implements WhatsAppProvider {
     components: TemplateComponent[],
   ): Promise<WhatsAppSendResult> {
     try {
-      const res = await fetch(`${this.baseUrl}/messages`, {
+      const url = `${this.baseUrl}/messages`;
+      console.log('[WhatsApp] Sending template:', { url, to, templateName, language });
+
+      const res = await fetch(url, {
         method: 'POST',
         headers: {
           Authorization: `Bearer ${this.accessToken}`,
@@ -90,7 +93,12 @@ class MetaCloudAPIProvider implements WhatsAppProvider {
       const data = await res.json();
 
       if (!res.ok) {
-        console.error('WhatsApp API error:', JSON.stringify(data));
+        console.error('[WhatsApp] API error:', {
+          status: res.status,
+          error: data?.error,
+          to,
+          templateName,
+        });
         return {
           success: false,
           error: data?.error?.message || `HTTP ${res.status}`,
@@ -110,7 +118,10 @@ class MetaCloudAPIProvider implements WhatsAppProvider {
 
   async sendText(to: string, body: string): Promise<WhatsAppSendResult> {
     try {
-      const res = await fetch(`${this.baseUrl}/messages`, {
+      const url = `${this.baseUrl}/messages`;
+      console.log('[WhatsApp] Sending text to:', to);
+
+      const res = await fetch(url, {
         method: 'POST',
         headers: {
           Authorization: `Bearer ${this.accessToken}`,
@@ -127,7 +138,11 @@ class MetaCloudAPIProvider implements WhatsAppProvider {
       const data = await res.json();
 
       if (!res.ok) {
-        console.error('WhatsApp API error:', JSON.stringify(data));
+        console.error('[WhatsApp] API error (text):', {
+          status: res.status,
+          error: data?.error,
+          to,
+        });
         return {
           success: false,
           error: data?.error?.message || `HTTP ${res.status}`,
@@ -146,14 +161,15 @@ class MetaCloudAPIProvider implements WhatsAppProvider {
   }
 }
 
-// ─── Provider singleton ─────────────────────────────────────────────
+// ─── Provider factory ───────────────────────────────────────────────
 
-let _provider: WhatsAppProvider | null = null;
-
+/**
+ * Returns a fresh provider each call so env-var changes (e.g. token
+ * rotation on Vercel) are picked up without redeploying.
+ */
 function getProvider(): WhatsAppProvider | null {
   if (!isConfigured()) return null;
-  if (!_provider) _provider = new MetaCloudAPIProvider();
-  return _provider;
+  return new MetaCloudAPIProvider();
 }
 
 // ─── Public API ─────────────────────────────────────────────────────
@@ -193,9 +209,16 @@ export async function sendWhatsAppOTP(
 ): Promise<WhatsAppSendResult> {
   const provider = getProvider();
   if (!provider) {
-    console.warn('[WhatsApp] Not configured — OTP would be:', otp, 'to', mobileNumber);
-    // In dev/unconfigured mode, we still return success so the flow doesn't break
-    return { success: true, messageId: `dev-${Date.now()}` };
+    const isDev = process.env.NODE_ENV === 'development';
+    if (isDev) {
+      console.warn('[WhatsApp] Not configured (dev mode) — OTP:', otp, 'to', mobileNumber);
+      return { success: true, messageId: `dev-${Date.now()}` };
+    }
+    console.error(
+      '[WhatsApp] CRITICAL: Not configured in production. Set WHATSAPP_PHONE_NUMBER_ID and WHATSAPP_ACCESS_TOKEN.',
+      { hasPhoneId: !!process.env.WHATSAPP_PHONE_NUMBER_ID, hasToken: !!process.env.WHATSAPP_ACCESS_TOKEN },
+    );
+    return { success: false, error: 'WhatsApp is not configured on the server' };
   }
 
   const to = formatIndianMobile(mobileNumber);
