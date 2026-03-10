@@ -1,0 +1,25 @@
+src/app/api/admin/bookings/route.ts
+  537db54d17d724b7 75-86
+src/app/api/payments/config/route.ts
+  537db54d17d724b7 9,15-16,18,21-23,27-28
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.10",
+  "base_commit_sha": "69fd63f197a3fa7a4ab377fa4eea879dc5c988c8",
+  "prompts": {
+    "537db54d17d724b7": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "1eae2fdc-2247-497f-9b6b-75d6df33200f",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Waheed <waheeddar8@gmail.com>",
+      "messages": [],
+      "total_additions": 27,
+      "total_deletions": 11,
+      "accepted_lines": 22,
+      "overriden_lines": 0
+    }
+  }
+}
