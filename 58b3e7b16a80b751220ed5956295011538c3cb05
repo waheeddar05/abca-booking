@@ -1,0 +1,43 @@
+src/app/packages/page.tsx
+  537db54d17d724b7 12,226
+src/app/verify-mobile/page.tsx
+  537db54d17d724b7 246
+src/app/admin/configuration/page.tsx
+  537db54d17d724b7 1-839
+src/components/ContactFooter.tsx
+  537db54d17d724b7 20
+src/app/slots/page.tsx
+  537db54d17d724b7 16,449
+src/app/bookings/page.tsx
+  537db54d17d724b7 15-16,146
+src/lib/booking-utils.ts
+  537db54d17d724b7 1-25
+src/app/admin/page.tsx
+  537db54d17d724b7 6,59,69
+src/app/admin/layout.tsx
+  537db54d17d724b7 6,25
+src/components/ui/BackButton.tsx
+  537db54d17d724b7 1-18
+src/app/admin/bookings/page.tsx
+  537db54d17d724b7 14,618-619,784-785
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.8",
+  "base_commit_sha": "58b3e7b16a80b751220ed5956295011538c3cb05",
+  "prompts": {
+    "537db54d17d724b7": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "1eae2fdc-2247-497f-9b6b-75d6df33200f",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Waheed <waheeddar8@gmail.com>",
+      "messages": [],
+      "total_additions": 905,
+      "total_deletions": 892,
+      "accepted_lines": 901,
+      "overriden_lines": 0
+    }
+  }
+}
