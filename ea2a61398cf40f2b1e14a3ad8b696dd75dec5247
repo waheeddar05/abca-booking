@@ -1,0 +1,31 @@
+src/app/api/slots/book/route.ts
+  537db54d17d724b7 128-139
+src/components/ui/PaymentMethodSelector.tsx
+  537db54d17d724b7 10,23,156-157,197
+src/app/api/admin/bookings/route.ts
+  537db54d17d724b7 75-80,88-98,158,160-176
+src/app/slots/page.tsx
+  537db54d17d724b7 96-102,556
+src/components/LandingPageClient.tsx
+  537db54d17d724b7 307
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.10",
+  "base_commit_sha": "ea2a61398cf40f2b1e14a3ad8b696dd75dec5247",
+  "prompts": {
+    "537db54d17d724b7": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "1eae2fdc-2247-497f-9b6b-75d6df33200f",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Waheed <waheeddar8@gmail.com>",
+      "messages": [],
+      "total_additions": 61,
+      "total_deletions": 11,
+      "accepted_lines": 61,
+      "overriden_lines": 0
+    }
+  }
+}
