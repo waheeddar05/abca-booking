@@ -304,7 +304,7 @@ export default function LandingPageClient() {
                 <Instagram className="w-3.5 h-3.5 md:w-5 md:h-5" />
               </div>
               <span className="text-[8px] md:text-[11px] uppercase font-bold tracking-wider text-slate-600 truncate w-full">Instagram</span>
-              <span className="text-white font-bold text-[9px] md:text-sm truncate w-full">@playorbit</span>
+              <span className="text-white font-bold text-[9px] md:text-sm truncate w-full">@playorbit.in</span>
             </a>
           </div>
         </div>

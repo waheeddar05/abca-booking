@@ -125,6 +125,18 @@ export async function POST(req: NextRequest) {
     const isCashPayment = requestedPaymentMethod === 'CASH';
     const isWalletPayment = requestedPaymentMethod === 'WALLET';
 
+    // Server-side: reject cash payment if disabled globally and user has no cash access
+    if (isCashPayment) {
+      const [cashPolicy, cashPaymentUser] = await Promise.all([
+        prisma.policy.findUnique({ where: { key: 'CASH_PAYMENT_ENABLED' } }),
+        prisma.cashPaymentUser.findUnique({ where: { userId: user.id } }),
+      ]);
+      const globalCashEnabled = cashPolicy?.value === 'true';
+      if (!globalCashEnabled && !cashPaymentUser) {
+        return NextResponse.json({ error: 'Cash payment is not available.' }, { status: 400 });
+      }
+    }
+
     // Fetch configs in parallel
     const [machineConfig, pricingConfig, timeSlabConfig] = await Promise.all([
       getMachineConfig(),

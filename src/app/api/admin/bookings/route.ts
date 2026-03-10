@@ -72,17 +72,30 @@ export async function GET(req: NextRequest) {
       };
     }
 
+    // Save base where for summary counts (before status-derived time constraints)
+    const summaryBaseWhere = JSON.parse(JSON.stringify(where));
+    const now = new Date();
+
+    // Status filter: IN_PROGRESS, DONE, BOOKED(Upcoming) are derived statuses
+    // not stored in DB — computed from BOOKED + current time via getDisplayStatus()
     if (status === 'IN_PROGRESS') {
-      // IN_PROGRESS is a derived status: BOOKED bookings whose session is currently active
-      const now = new Date();
       where.status = 'BOOKED';
       where.startTime = { lte: now };
       where.endTime = { gt: now };
     } else if (status === 'BOOKED') {
-      // "Upcoming" = BOOKED bookings that haven't started yet
-      const now = new Date();
       where.status = 'BOOKED';
       where.startTime = { gt: now };
+    } else if (status === 'DONE') {
+      // Completed = BOOKED sessions that have ended, OR explicitly marked DONE in DB
+      where.AND = [
+        ...(where.AND || []),
+        {
+          OR: [
+            { status: 'DONE' },
+            { status: 'BOOKED', endTime: { lte: now } },
+          ],
+        },
+      ];
     } else if (status) {
       where.status = status;
     }
@@ -142,12 +155,25 @@ export async function GET(req: NextRequest) {
       ]);
     }
 
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    const { status: _statusFilter, ...whereWithoutStatus } = where;
+    // Summary counts use baseWhere (without status time constraints) + derived status logic
     const [bookedCount, doneCount, cancelledCount] = await Promise.all([
-      prisma.booking.count({ where: { ...whereWithoutStatus, status: 'BOOKED' } }),
-      prisma.booking.count({ where: { ...whereWithoutStatus, status: 'DONE' } }),
-      prisma.booking.count({ where: { ...whereWithoutStatus, status: 'CANCELLED' } }),
+      // "Upcoming" = BOOKED bookings that haven't started yet
+      prisma.booking.count({ where: { ...summaryBaseWhere, status: 'BOOKED', startTime: { gt: now } } }),
+      // "Completed" = BOOKED sessions that ended + any explicitly DONE
+      prisma.booking.count({
+        where: {
+          AND: [
+            summaryBaseWhere,
+            {
+              OR: [
+                { status: 'DONE' },
+                { status: 'BOOKED', endTime: { lte: now } },
+              ],
+            },
+          ],
+        },
+      }),
+      prisma.booking.count({ where: { ...summaryBaseWhere, status: 'CANCELLED' } }),
     ]);
 
     return NextResponse.json({

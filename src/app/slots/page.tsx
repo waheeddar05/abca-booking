@@ -93,6 +93,13 @@ function SlotsContent() {
     pitchType,
   });
 
+  // Reset payment method to ONLINE if cash is disabled
+  useEffect(() => {
+    if (paymentConfig && !paymentConfig.cashPaymentEnabled && paymentMethod === 'CASH') {
+      setPaymentMethod('ONLINE');
+    }
+  }, [paymentConfig, paymentMethod]);
+
   // ─── Fetch machine config on mount ─────────────────────
   useEffect(() => {
     api.get<MachineConfig>('/api/machine-config')
@@ -546,6 +553,7 @@ function SlotsContent() {
             selected={paymentMethod}
             onChange={setPaymentMethod}
             disabled={bookingLoading || paymentProcessing}
+            showCash={paymentConfig?.cashPaymentEnabled}
             showWallet={paymentConfig?.walletEnabled}
             totalAmount={pkg.selectedPackageId && pkg.validation ? (pkg.validation.extraCharge || 0) : pricing.totalPrice}
             useWallet={useWallet}

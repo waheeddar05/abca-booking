@@ -7,6 +7,7 @@ interface PaymentMethodSelectorProps {
   selected: 'ONLINE' | 'CASH';
   onChange: (method: 'ONLINE' | 'CASH') => void;
   disabled?: boolean;
+  showCash?: boolean;
   showWallet?: boolean;
   totalAmount?: number;
   useWallet?: boolean;
@@ -19,6 +20,7 @@ export function PaymentMethodSelector({
   selected,
   onChange,
   disabled,
+  showCash = true,
   showWallet,
   totalAmount = 0,
   useWallet = false,
@@ -151,7 +153,8 @@ export function PaymentMethodSelector({
               </div>
             </button>
 
-            {/* Pay at Center */}
+            {/* Pay at Center — only shown when cash payment is enabled */}
+            {showCash && (
             <button
               type="button"
               disabled={disabled}
@@ -191,6 +194,7 @@ export function PaymentMethodSelector({
                 </div>
               </div>
             </button>
+            )}
           </div>
         </>
       )}
