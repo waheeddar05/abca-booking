@@ -1,26 +1,31 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { getAuthenticatedUser } from '@/lib/auth';
-import { getCachedPolicies } from '@/lib/policy-cache';
 
 const RAZORPAY_PUBLIC_KEY = process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID
   || process.env.RAZORPAY_KEY_ID
   || '';
 
+const PAYMENT_POLICY_KEYS = [
+  'PAYMENT_GATEWAY_ENABLED',
+  'SLOT_PAYMENT_REQUIRED',
+  'PACKAGE_PAYMENT_REQUIRED',
+  'CASH_PAYMENT_ENABLED',
+  'WALLET_ENABLED',
+];
+
 // GET /api/payments/config - Payment config (includes cash payment eligibility)
+// NOTE: Queries DB directly (no cache) so admin changes take effect immediately.
 export async function GET(req: NextRequest) {
   try {
-    // Parallelize: fetch policies (cached) and authenticate user at the same time
-    const [config, user] = await Promise.all([
-      getCachedPolicies([
-        'PAYMENT_GATEWAY_ENABLED',
-        'SLOT_PAYMENT_REQUIRED',
-        'PACKAGE_PAYMENT_REQUIRED',
-        'CASH_PAYMENT_ENABLED',
-        'WALLET_ENABLED',
-      ]),
+    // Parallelize: fetch policies from DB directly and authenticate user
+    const [policies, user] = await Promise.all([
+      prisma.policy.findMany({ where: { key: { in: PAYMENT_POLICY_KEYS } } }),
       getAuthenticatedUser(req),
     ]);
+
+    const config: Record<string, string> = {};
+    for (const p of policies) config[p.key] = p.value;
 
     const globalCashEnabled = config['CASH_PAYMENT_ENABLED'] === 'true';
 

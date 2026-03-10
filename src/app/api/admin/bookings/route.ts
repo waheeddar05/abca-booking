@@ -72,7 +72,18 @@ export async function GET(req: NextRequest) {
       };
     }
 
-    if (status) {
+    if (status === 'IN_PROGRESS') {
+      // IN_PROGRESS is a derived status: BOOKED bookings whose session is currently active
+      const now = new Date();
+      where.status = 'BOOKED';
+      where.startTime = { lte: now };
+      where.endTime = { gt: now };
+    } else if (status === 'BOOKED') {
+      // "Upcoming" = BOOKED bookings that haven't started yet
+      const now = new Date();
+      where.status = 'BOOKED';
+      where.startTime = { gt: now };
+    } else if (status) {
       where.status = status;
     }
 
