@@ -17,7 +17,7 @@ export function ContactFooter({
       <p className="text-center text-xs text-slate-500 italic mb-3">
         &ldquo;{quote}&rdquo;
       </p>
-      <div className="flex flex-col sm:flex-row items-center justify-center gap-3 text-[11px] text-slate-500">
+      <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-2 text-[11px] text-slate-500">
         {CONTACT_NUMBERS.map((contact) => (
           <a
             key={contact.number}

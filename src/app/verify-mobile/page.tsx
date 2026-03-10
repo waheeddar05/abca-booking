@@ -62,7 +62,6 @@ export default function VerifyMobilePage() {
         setError(data.error || 'Failed to send OTP');
         return;
       }
-      setOtpSent(true);
       setStep('otp');
       setCountdown(60);
       // Focus first OTP input after transition
@@ -244,7 +243,7 @@ export default function VerifyMobilePage() {
                 <div className="flex items-center justify-between mb-1">
                   <span className="text-xs text-slate-500">+91 {mobileNumber}</span>
                   <button
-                    onClick={() => { setStep('mobile'); setOtp(['', '', '', '', '', '']); setError(''); setOtpSent(false); }}
+                    onClick={() => { setStep('mobile'); setOtp(['', '', '', '', '', '']); setError(''); }}
                     className="text-xs text-accent hover:text-accent/80 cursor-pointer"
                   >
                     Change

@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useSession } from 'next-auth/react';
-import { LayoutDashboard, CalendarCheck, Users, Settings, Clock, Wrench, Package, Zap } from 'lucide-react';
+import { LayoutDashboard, CalendarCheck, Users, Settings, Clock, Wrench, Package, Zap, SlidersHorizontal } from 'lucide-react';
 
 const SUPER_ADMIN_EMAIL = 'waheeddar8@gmail.com';
 
@@ -22,6 +22,7 @@ export default function AdminLayout({
     { href: '/admin/slots', label: 'Slots', icon: Clock },
     { href: '/admin/users', label: 'Users', icon: Users },
     { href: '/admin/packages', label: 'Packages', icon: Package },
+    { href: '/admin/configuration', label: 'Configuration', icon: SlidersHorizontal },
     { href: '/admin/policies', label: 'Policies', icon: Settings },
     ...(isSuperAdmin ? [{ href: '/admin/maintenance', label: 'Maintenance', icon: Wrench }] : []),
   ];

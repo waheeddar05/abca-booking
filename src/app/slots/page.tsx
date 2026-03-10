@@ -13,6 +13,7 @@ import { SlotGrid } from '@/components/slots/SlotGrid';
 import { PackageSelector } from '@/components/slots/PackageSelector';
 import { BookingBar } from '@/components/slots/BookingBar';
 import { ContactFooter } from '@/components/ContactFooter';
+import { BackButton } from '@/components/ui/BackButton';
 import { PackageFirstBookingBanner } from '@/components/ui/PackageFirstBookingBanner';
 import { PaymentMethodSelector } from '@/components/ui/PaymentMethodSelector';
 import { useSlots } from '@/hooks/useSlots';
@@ -445,6 +446,7 @@ function SlotsContent() {
       )}
 
       {/* Page Header */}
+      <BackButton />
       <div className="flex items-center gap-3 mb-5">
         <div className="w-9 h-9 rounded-lg bg-accent/10 flex items-center justify-center">
           <Calendar className="w-4 h-4 text-accent" />

@@ -11,6 +11,7 @@ import { AdminPageHeader } from '@/components/admin/AdminPageHeader';
 import { CancellationDialog } from '@/components/ui/CancellationDialog';
 import { TextInputDialog } from '@/components/ui/TextInputDialog';
 import { useToast } from '@/components/ui/Toast';
+import { getDisplayStatus } from '@/lib/booking-utils';
 
 type Category = 'all' | 'today' | 'upcoming' | 'previous' | 'lastMonth';
 
@@ -614,7 +615,8 @@ function AdminBookingsContent() {
             {/* Mobile Cards */}
             <div className="md:hidden space-y-2.5">
               {bookings.map((booking) => {
-                const status = statusConfig[booking.status] || statusConfig.BOOKED;
+                const displayStatus = getDisplayStatus(booking);
+                const status = statusConfig[displayStatus] || statusConfig.BOOKED;
                 const isEditing = editingPriceId === booking.id;
                 const isActionLoading = actionLoading === booking.id;
                 return (
@@ -779,7 +781,8 @@ function AdminBookingsContent() {
                 </thead>
                 <tbody className="divide-y divide-white/[0.04]">
                   {bookings.map((booking) => {
-                    const status = statusConfig[booking.status] || statusConfig.BOOKED;
+                    const displayStatus = getDisplayStatus(booking);
+                    const status = statusConfig[displayStatus] || statusConfig.BOOKED;
                     const isEditing = editingPriceId === booking.id;
                     const isActionLoading = actionLoading === booking.id;
                     return (
