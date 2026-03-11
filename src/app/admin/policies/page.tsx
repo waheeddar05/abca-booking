@@ -93,7 +93,7 @@ export default function PolicyManagement() {
 
       {/* Help Panel */}
       {showHelp && (
-        <div className="bg-blue-500/10 border border-blue-500/20 rounded-xl p-4 mb-5 text-sm overflow-x-hidden">
+        <div className="bg-blue-500/10 border border-blue-500/20 rounded-xl p-3 sm:p-4 mb-5 text-sm overflow-x-auto">
           <h3 className="font-semibold text-blue-300 mb-2">Available Policy Keys</h3>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-blue-300">
             <div>
@@ -193,29 +193,29 @@ export default function PolicyManagement() {
       ) : (
         <div className="space-y-2">
           {policies.map((policy) => (
-            <div key={policy.id} className="bg-white/[0.03] backdrop-blur-sm rounded-2xl border border-white/[0.07] p-4 flex items-center justify-between gap-2">
-              <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-2 mb-0.5">
+            <div key={policy.id} className="bg-white/[0.03] backdrop-blur-sm rounded-2xl border border-white/[0.07] p-4">
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0 flex-1">
                   <code className="text-sm font-semibold text-white break-all">{policy.key}</code>
+                  <p className="text-sm text-slate-400 mt-1 break-all">{policy.value}</p>
+                  <p className="text-[11px] text-slate-500 mt-1">
+                    Updated {new Date(policy.updatedAt).toLocaleString()}
+                  </p>
                 </div>
-                <p className="text-sm text-slate-400 truncate">{policy.value}</p>
-                <p className="text-[11px] text-slate-500 mt-0.5">
-                  Updated {new Date(policy.updatedAt).toLocaleString()}
-                </p>
-              </div>
-              <div className="flex items-center gap-1 ml-3">
-                <button
-                  onClick={() => setNewPolicy({ key: policy.key, value: policy.value })}
-                  className="p-2 text-slate-400 hover:text-accent hover:bg-accent/10 rounded-lg transition-colors cursor-pointer"
-                >
-                  <Pencil className="w-4 h-4" />
-                </button>
-                <button
-                  onClick={() => handleDeleteClick(policy.key)}
-                  className="p-2 text-slate-500 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-colors cursor-pointer"
-                >
-                  <Trash2 className="w-4 h-4" />
-                </button>
+                <div className="flex items-center gap-1 flex-shrink-0">
+                  <button
+                    onClick={() => setNewPolicy({ key: policy.key, value: policy.value })}
+                    className="p-2.5 text-slate-400 hover:text-accent hover:bg-accent/10 rounded-lg transition-colors cursor-pointer"
+                  >
+                    <Pencil className="w-4 h-4" />
+                  </button>
+                  <button
+                    onClick={() => handleDeleteClick(policy.key)}
+                    className="p-2.5 text-slate-500 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-colors cursor-pointer"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </div>
               </div>
             </div>
           ))}

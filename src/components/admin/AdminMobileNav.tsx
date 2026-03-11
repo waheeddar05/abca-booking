@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { LayoutDashboard, CalendarCheck, Clock, Menu } from 'lucide-react';
+import { LayoutDashboard, CalendarCheck, Clock, Menu, Home } from 'lucide-react';
 import { useState } from 'react';
 import { AdminMobileMenu } from './AdminMobileMenu';
 
@@ -11,6 +11,7 @@ export function AdminMobileNav() {
     const [isMenuOpen, setIsMenuOpen] = useState(false);
 
     const tabs = [
+        { href: '/slots', label: 'App', icon: Home },
         { href: '/admin', label: 'Dashboard', icon: LayoutDashboard },
         { href: '/admin/bookings', label: 'Bookings', icon: CalendarCheck },
         { href: '/admin/slots', label: 'Slots', icon: Clock },
@@ -19,7 +20,7 @@ export function AdminMobileNav() {
 
     const isActive = (href: string) => {
         if (href === '/admin') return pathname === '/admin';
-        if (href === '#') return false;
+        if (href === '#' || href === '/slots') return false;
         return pathname.startsWith(href);
     };
 

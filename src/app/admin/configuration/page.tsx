@@ -634,18 +634,19 @@ export default function ConfigurationPage() {
                           </div>
 
                           {/* Machine Assignments */}
-                          <div className="ml-9">
+                          <div className="ml-0 sm:ml-9 mt-2 sm:mt-0">
                             <p className="text-[10px] text-slate-500 uppercase tracking-wider mb-1.5">Assigned Machines</p>
-                            <div className="flex flex-wrap gap-1.5">
+                            <div className="grid grid-cols-2 sm:flex sm:flex-wrap gap-1.5">
                               {ALL_MACHINE_IDS.map(mid => {
                                 const isAssigned = assignedMachines.has(mid);
                                 const isToggling = togglingAssignment === `${op.id}-${mid}`;
+                                const shortName = mid === 'GRAVITY' ? 'Gravity' : mid === 'YANTRA' ? 'Yantra' : mid === 'LEVERAGE_INDOOR' ? 'Lev. Indoor' : 'Lev. Outdoor';
                                 return (
                                   <button
                                     key={mid}
                                     onClick={() => toggleMachineAssignment(op.id, mid, isAssigned)}
                                     disabled={!!togglingAssignment}
-                                    className={`flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-medium transition-all cursor-pointer disabled:opacity-60 ${isAssigned
+                                    className={`flex items-center justify-center gap-1 px-2 py-2 sm:py-1 rounded-lg text-[11px] font-medium transition-all cursor-pointer disabled:opacity-60 ${isAssigned
                                         ? 'bg-accent/15 text-accent border border-accent/30'
                                         : 'bg-white/[0.04] text-slate-500 border border-white/[0.08] hover:bg-white/[0.08]'
                                       }`}
@@ -655,7 +656,8 @@ export default function ConfigurationPage() {
                                     ) : isAssigned ? (
                                       <Check className="w-3 h-3" />
                                     ) : null}
-                                    {MACHINE_LABELS[mid].name}
+                                    <span className="sm:hidden">{shortName}</span>
+                                    <span className="hidden sm:inline">{MACHINE_LABELS[mid].name}</span>
                                   </button>
                                 );
                               })}

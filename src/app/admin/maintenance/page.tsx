@@ -362,11 +362,11 @@ export default function MaintenanceManagement() {
 
       {/* Save Button */}
       <div className="bg-white/[0.03] backdrop-blur-sm rounded-2xl border border-white/[0.07] p-5">
-        <div className="flex items-center gap-3">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3">
           <button
             onClick={handleSave}
             disabled={saving}
-            className="inline-flex items-center gap-2 bg-accent hover:bg-accent-light text-primary px-5 py-2.5 rounded-lg text-sm font-medium transition-colors cursor-pointer disabled:opacity-50"
+            className="w-full sm:w-auto inline-flex items-center justify-center gap-2 bg-accent hover:bg-accent-light text-primary px-5 py-3 sm:py-2.5 rounded-xl text-sm font-medium transition-colors cursor-pointer disabled:opacity-50 min-h-[44px]"
           >
             {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
             Save Settings

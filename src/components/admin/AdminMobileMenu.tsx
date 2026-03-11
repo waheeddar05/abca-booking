@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useSession } from 'next-auth/react';
-import { X, Users, Package, Settings, SlidersHorizontal, Wrench, CalendarPlus, ChevronRight } from 'lucide-react';
+import { X, Users, Package, Settings, SlidersHorizontal, Wrench, CalendarPlus, ChevronRight, ArrowLeft } from 'lucide-react';
 import { useEffect } from 'react';
 
 const SUPER_ADMIN_EMAIL = 'waheeddar8@gmail.com';
@@ -56,7 +56,22 @@ export function AdminMobileMenu({ isOpen, onClose }: { isOpen: boolean; onClose:
                     </button>
                 </div>
 
-                {/* Quick action: "Book a Slot" directly prominent in the Admin mobile menu */}
+                {/* Back to App - prominent escape hatch */}
+                <Link
+                    href="/slots"
+                    onClick={onClose}
+                    className="flex items-center gap-4 bg-gradient-to-r from-emerald-500/15 to-emerald-500/5 border border-emerald-500/20 rounded-2xl p-4 mb-4"
+                >
+                    <div className="w-12 h-12 rounded-xl bg-emerald-500 flex items-center justify-center shadow-lg shadow-emerald-500/20 shrink-0">
+                        <ArrowLeft className="w-6 h-6 text-white" />
+                    </div>
+                    <div className="flex-1">
+                        <h3 className="text-[15px] font-semibold text-white">Back to App</h3>
+                        <p className="text-xs text-slate-400 mt-1">Return to Book Slot, My Bookings, Packages</p>
+                    </div>
+                </Link>
+
+                {/* Quick action: "Book a Slot" */}
                 <Link
                     href="/slots"
                     onClick={onClose}
