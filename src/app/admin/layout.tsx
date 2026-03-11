@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useSession } from 'next-auth/react';
 import { LayoutDashboard, CalendarCheck, Users, Settings, Clock, Wrench, Package, Zap, SlidersHorizontal } from 'lucide-react';
+import { AdminMobileNav } from '@/components/admin/AdminMobileNav';
 
 const SUPER_ADMIN_EMAIL = 'waheeddar8@gmail.com';
 
@@ -36,25 +37,8 @@ export default function AdminLayout({
       <div className="fixed inset-0 -z-10 bg-gradient-to-br from-[#0a1628] via-[#0f1d35] to-[#0d1f3c]"></div>
       <div className="fixed inset-0 -z-10 bg-[radial-gradient(ellipse_at_top,rgba(56,189,248,0.04),transparent_60%)]"></div>
       <div className="fixed inset-0 -z-10 bg-[radial-gradient(ellipse_at_bottom_right,rgba(139,92,246,0.03),transparent_60%)]"></div>
-
-      {/* Mobile: Horizontal tabs */}
-      <div className="md:hidden sticky top-14 z-30 bg-[#0b1726]/95 backdrop-blur-xl border-b border-white/[0.06]">
-        <div className="flex overflow-x-auto px-2 py-1.5 gap-1 scrollbar-hide">
-          {links.map(({ href, label, icon: Icon }) => (
-            <Link
-              key={href}
-              href={href}
-              className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-medium whitespace-nowrap transition-all duration-200 ${isActive(href)
-                  ? 'bg-accent/15 text-accent shadow-sm shadow-accent/10'
-                  : 'text-slate-500 hover:text-slate-300 hover:bg-white/[0.04]'
-                }`}
-            >
-              <Icon className="w-3.5 h-3.5" />
-              {label}
-            </Link>
-          ))}
-        </div>
-      </div>
+      {/* Admin Mobile App-like Bottom Navigation */}
+      <AdminMobileNav />
 
       <div className="flex">
         {/* Desktop: Sidebar */}
@@ -81,8 +65,8 @@ export default function AdminLayout({
                   key={href}
                   href={href}
                   className={`relative flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-sm font-medium transition-all duration-200 group ${active
-                      ? 'bg-accent/10 text-accent'
-                      : 'text-slate-500 hover:bg-white/[0.04] hover:text-slate-300'
+                    ? 'bg-accent/10 text-accent'
+                    : 'text-slate-500 hover:bg-white/[0.04] hover:text-slate-300'
                     }`}
                 >
                   {/* Active indicator bar */}
@@ -105,7 +89,7 @@ export default function AdminLayout({
         </aside>
 
         {/* Main Content */}
-        <main className="flex-1 min-w-0 p-4 md:p-6">
+        <main className="flex-1 min-w-0 p-4 pb-24 md:p-6 md:pb-6">
           <div className="max-w-5xl mx-auto overflow-x-hidden">
             {children}
           </div>

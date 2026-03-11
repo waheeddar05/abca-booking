@@ -87,7 +87,7 @@ export default function Navbar() {
                     className={`flex items-center gap-1.5 px-2 py-2 rounded-lg text-sm font-medium transition-all ${isActive(href)
                       ? 'bg-white/15 text-accent'
                       : 'text-white/70 hover:text-white hover:bg-white/10'
-                    }`}
+                      }`}
                     title={label}
                   >
                     <Icon className="w-4 h-4" />
@@ -148,7 +148,7 @@ export default function Navbar() {
       <div
         id="mobile-nav-menu"
         className={`md:hidden overflow-hidden transition-all duration-300 ease-in-out ${isMenuOpen ? 'max-h-96 opacity-100' : 'max-h-0 opacity-0'
-        }`}
+          }`}
       >
         <div className="px-4 pb-4 pt-1 space-y-1 bg-[#030712]/98 backdrop-blur-md">
           {session && (
@@ -171,7 +171,10 @@ export default function Navbar() {
             </div>
           )}
 
-          {navLinks.filter(l => !(l as any).hideOnMobile).map(({ href, label, icon: Icon }) => (
+          {navLinks.filter(l => {
+            const isAppPage = !(pathname.startsWith('/admin') || pathname.startsWith('/operator'));
+            return l.hideOnMobile ? !isAppPage : true;
+          }).map(({ href, label, icon: Icon }) => (
             <Link
               key={href}
               href={href}
@@ -179,6 +182,7 @@ export default function Navbar() {
                 ? 'bg-accent/15 text-accent'
                 : 'text-white/70 hover:bg-white/5'
                 }`}
+              onClick={() => setIsMenuOpen(false)}
             >
               <Icon className="w-5 h-5" />
               {label}

@@ -1,6 +1,7 @@
 'use client';
 
-import { type LucideIcon } from 'lucide-react';
+import { type LucideIcon, ArrowLeft } from 'lucide-react';
+import { useRouter, usePathname } from 'next/navigation';
 
 interface AdminPageHeaderProps {
   icon: LucideIcon;
@@ -19,9 +20,22 @@ export function AdminPageHeader({
   iconColor = 'text-accent',
   iconBg = 'bg-accent/10',
 }: AdminPageHeaderProps) {
+  const router = useRouter();
+  const pathname = usePathname();
+  const isRoot = pathname === '/admin';
+
   return (
     <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6 animate-fade-in">
       <div className="flex items-center gap-3">
+        {!isRoot && (
+          <button
+            onClick={() => router.back()}
+            className="md:hidden p-2 -ml-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/[0.05] transition-colors"
+            aria-label="Go back"
+          >
+            <ArrowLeft className="w-5 h-5" />
+          </button>
+        )}
         <div className={`w-11 h-11 rounded-2xl ${iconBg} flex items-center justify-center shadow-lg shadow-accent/5`}>
           <Icon className={`w-5 h-5 ${iconColor}`} />
         </div>
