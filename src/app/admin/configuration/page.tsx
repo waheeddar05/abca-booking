@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useSession } from 'next-auth/react';
-import { Settings, Clock, IndianRupee, Save, Loader2, Zap, Check, ChevronUp, ChevronDown, CreditCard, Banknote, Wallet } from 'lucide-react';
+import { Settings, Clock, IndianRupee, Save, Loader2, Zap, Check, ChevronUp, ChevronDown, CreditCard, Banknote, Wallet, Plus, Trash2, Edit2, Tag, CalendarDays, Users } from 'lucide-react';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { AdminPageHeader } from '@/components/admin/AdminPageHeader';
 import { AdminCard } from '@/components/admin/AdminCard';
@@ -179,10 +179,41 @@ export default function ConfigurationPage() {
   const [savingMachine, setSavingMachine] = useState(false);
   const [machineMessage, setMachineMessage] = useState({ text: '', type: '' });
   const [showMachineConfigConfirm, setShowMachineConfigConfirm] = useState(false);
-  const [operators, setOperators] = useState<{ id: string; name: string | null; email: string | null; mobileNumber: string | null; operatorPriority: number; operatorAssignments?: { id: string; machineId: string; createdAt: string }[] }[]>([]);
+  const [operators, setOperators] = useState<{ id: string; name: string | null; email: string | null; mobileNumber: string | null; operatorPriority: number; operatorMorningPriority: number; operatorEveningPriority: number; operatorAssignments?: { id: string; machineId: string; createdAt: string }[] }[]>([]);
   const [savingPriority, setSavingPriority] = useState(false);
   const [togglingAssignment, setTogglingAssignment] = useState<string | null>(null);
   const [activePricingTab, setActivePricingTab] = useState<string>('leather');
+
+  // Operator Schedule Config (Feature 3)
+  const [operatorSchedule, setOperatorSchedule] = useState<Record<string, number>>({});
+  const [operatorScheduleDefault, setOperatorScheduleDefault] = useState(1);
+  const [savingSchedule, setSavingSchedule] = useState(false);
+
+  // Recurring Slot Discounts (Feature 1)
+  interface RecurringDiscountRule {
+    id: string;
+    enabled: boolean;
+    days: number[];
+    slotStartTime: string;
+    slotEndTime: string;
+    machineId: string | null;
+    oneSlotDiscount: number;
+    twoSlotDiscount: number;
+  }
+  const [recurringRules, setRecurringRules] = useState<RecurringDiscountRule[]>([]);
+  const [recurringLoading, setRecurringLoading] = useState(true);
+  const [showAddRule, setShowAddRule] = useState(false);
+  const [editingRule, setEditingRule] = useState<RecurringDiscountRule | null>(null);
+  const [ruleForm, setRuleForm] = useState({
+    days: [] as number[],
+    slotStartTime: '08:00',
+    slotEndTime: '08:30',
+    machineId: '',
+    oneSlotDiscount: 0,
+    twoSlotDiscount: 0,
+    enabled: true,
+  });
+  const [savingRule, setSavingRule] = useState(false);
 
   // Payment settings state
   const [paymentSettings, setPaymentSettings] = useState({
@@ -261,7 +292,49 @@ export default function ConfigurationPage() {
     fetchMachineConfig();
     fetchOperators();
     fetchPaymentSettings();
+    fetchRecurringRules();
+    fetchOperatorSchedule();
   }, []);
+
+  // Fetch recurring discount rules
+  async function fetchRecurringRules() {
+    try {
+      const res = await fetch('/api/admin/recurring-discounts');
+      if (res.ok) {
+        const data = await res.json();
+        setRecurringRules(data.rules || []);
+      }
+    } catch (error) {
+      console.error('Failed to fetch recurring rules:', error);
+    } finally {
+      setRecurringLoading(false);
+    }
+  }
+
+  // Fetch operator schedule config
+  async function fetchOperatorSchedule() {
+    try {
+      const res = await fetch('/api/admin/policies');
+      if (res.ok) {
+        const data = await res.json();
+        const policyArray: { key: string; value: string }[] = Array.isArray(data) ? data : (data.policies || []);
+        const configPolicy = policyArray.find(p => p.key === 'OPERATOR_SCHEDULE_CONFIG');
+        if (configPolicy) {
+          const parsed = JSON.parse(configPolicy.value);
+          setOperatorScheduleDefault(parsed.default || 1);
+          const scheduleMap: Record<string, number> = {};
+          for (const entry of (parsed.schedule || [])) {
+            for (const day of entry.days) {
+              scheduleMap[`${day}-${entry.slab}`] = entry.count;
+            }
+          }
+          setOperatorSchedule(scheduleMap);
+        }
+      }
+    } catch (error) {
+      console.error('Failed to fetch operator schedule:', error);
+    }
+  }
 
   const handleSavePayment = async (key: string, value: boolean) => {
     setSavingPayment(true);
@@ -358,6 +431,8 @@ export default function ConfigurationPage() {
       const payload = operators.map((op, i) => ({
         userId: op.id,
         priority: operators.length - i,
+        morningPriority: op.operatorMorningPriority,
+        eveningPriority: op.operatorEveningPriority,
       }));
       const res = await fetch('/api/admin/operators', {
         method: 'PATCH',
@@ -426,6 +501,148 @@ export default function ConfigurationPage() {
   ];
 
   const inputClass = "w-full bg-white/[0.04] border border-white/[0.1] text-white placeholder:text-slate-500 rounded-lg px-3 py-2.5 text-sm outline-none focus:border-accent focus:ring-1 focus:ring-accent/20 transition-colors";
+
+  const DAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  const DAY_NUMBERS = [0, 1, 2, 3, 4, 5, 6];
+
+  // ─── Operator Schedule Helpers ──────────────────
+  const getScheduleCount = (day: number, slab: string) => {
+    return operatorSchedule[`${day}-${slab}`] ?? operatorScheduleDefault;
+  };
+
+  const setScheduleCount = (day: number, slab: string, count: number) => {
+    setOperatorSchedule(prev => ({ ...prev, [`${day}-${slab}`]: Math.max(0, count) }));
+  };
+
+  const saveOperatorSchedule = async () => {
+    setSavingSchedule(true);
+    try {
+      // Build schedule entries from the grid
+      const morningDays: Record<number, number[]> = {};
+      const eveningDays: Record<number, number[]> = {};
+      for (const day of DAY_NUMBERS) {
+        const mc = getScheduleCount(day, 'morning');
+        const ec = getScheduleCount(day, 'evening');
+        if (!morningDays[mc]) morningDays[mc] = [];
+        morningDays[mc].push(day);
+        if (!eveningDays[ec]) eveningDays[ec] = [];
+        eveningDays[ec].push(day);
+      }
+      const schedule: { days: number[]; slab: string; count: number }[] = [];
+      for (const [count, days] of Object.entries(morningDays)) {
+        if (Number(count) !== operatorScheduleDefault) {
+          schedule.push({ days, slab: 'morning', count: Number(count) });
+        }
+      }
+      for (const [count, days] of Object.entries(eveningDays)) {
+        if (Number(count) !== operatorScheduleDefault) {
+          schedule.push({ days, slab: 'evening', count: Number(count) });
+        }
+      }
+      const config = { default: operatorScheduleDefault, schedule };
+      const res = await fetch('/api/admin/policies', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ key: 'OPERATOR_SCHEDULE_CONFIG', value: JSON.stringify(config) }),
+      });
+      if (res.ok) {
+        setMachineMessage({ text: 'Operator schedule saved', type: 'success' });
+      } else {
+        setMachineMessage({ text: 'Failed to save schedule', type: 'error' });
+      }
+    } catch {
+      setMachineMessage({ text: 'Failed to save schedule', type: 'error' });
+    } finally {
+      setSavingSchedule(false);
+    }
+  };
+
+  // ─── Recurring Discount Helpers ─────────────────
+  const resetRuleForm = () => {
+    setRuleForm({ days: [], slotStartTime: '08:00', slotEndTime: '08:30', machineId: '', oneSlotDiscount: 0, twoSlotDiscount: 0, enabled: true });
+    setEditingRule(null);
+    setShowAddRule(false);
+  };
+
+  const handleSaveRule = async () => {
+    setSavingRule(true);
+    try {
+      const payload = {
+        days: ruleForm.days,
+        slotStartTime: ruleForm.slotStartTime,
+        slotEndTime: ruleForm.slotEndTime,
+        machineId: ruleForm.machineId || null,
+        oneSlotDiscount: Number(ruleForm.oneSlotDiscount),
+        twoSlotDiscount: Number(ruleForm.twoSlotDiscount),
+        enabled: ruleForm.enabled,
+      };
+      let res;
+      if (editingRule) {
+        res = await fetch(`/api/admin/recurring-discounts/${editingRule.id}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+      } else {
+        res = await fetch('/api/admin/recurring-discounts', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+      }
+      if (res.ok) {
+        resetRuleForm();
+        fetchRecurringRules();
+        setMachineMessage({ text: editingRule ? 'Rule updated' : 'Rule created', type: 'success' });
+      } else {
+        const data = await res.json();
+        setMachineMessage({ text: data.error || 'Failed to save rule', type: 'error' });
+      }
+    } catch {
+      setMachineMessage({ text: 'Failed to save rule', type: 'error' });
+    } finally {
+      setSavingRule(false);
+    }
+  };
+
+  const handleDeleteRule = async (id: string) => {
+    try {
+      const res = await fetch(`/api/admin/recurring-discounts/${id}`, { method: 'DELETE' });
+      if (res.ok) {
+        fetchRecurringRules();
+        setMachineMessage({ text: 'Rule deleted', type: 'success' });
+      }
+    } catch {
+      setMachineMessage({ text: 'Failed to delete rule', type: 'error' });
+    }
+  };
+
+  const handleToggleRule = async (rule: RecurringDiscountRule) => {
+    try {
+      await fetch(`/api/admin/recurring-discounts/${rule.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enabled: !rule.enabled }),
+      });
+      fetchRecurringRules();
+    } catch {
+      setMachineMessage({ text: 'Failed to toggle rule', type: 'error' });
+    }
+  };
+
+  const startEditRule = (rule: RecurringDiscountRule) => {
+    setRuleForm({
+      days: rule.days,
+      slotStartTime: rule.slotStartTime,
+      slotEndTime: rule.slotEndTime,
+      machineId: rule.machineId || '',
+      oneSlotDiscount: rule.oneSlotDiscount,
+      twoSlotDiscount: rule.twoSlotDiscount,
+      enabled: rule.enabled,
+    });
+    setEditingRule(rule);
+    setShowAddRule(true);
+  };
 
   return (
     <div className="space-y-5">
@@ -574,25 +791,74 @@ export default function ConfigurationPage() {
             {/* Operator Configuration */}
             <div className="bg-white/[0.02] rounded-xl border border-white/[0.05] p-4">
               <h3 className="text-xs font-bold text-slate-300 uppercase tracking-wider mb-3">Operator Configuration</h3>
+
+              {/* Operator Schedule Grid (Feature 3) */}
               <div className="mb-4">
-                <p className="text-sm font-medium text-slate-300">Number of Operators</p>
-                <p className="text-[10px] text-slate-500 mb-2">Parallel operator-assisted bookings per time slot</p>
-                <input
-                  type="number"
-                  value={machineConfig.numberOfOperators}
-                  onChange={e => setMachineConfig(prev => ({
-                    ...prev,
-                    numberOfOperators: Math.max(1, Math.floor(Number(e.target.value))),
-                  }))}
-                  min="1"
-                  className="w-32 bg-white/[0.04] border border-white/[0.1] text-white placeholder:text-slate-500 rounded-lg px-3 py-2.5 text-sm outline-none focus:border-accent focus:ring-1 focus:ring-accent/20 transition-colors"
-                />
+                <p className="text-sm font-medium text-slate-300">Operator Schedule</p>
+                <p className="text-[10px] text-slate-500 mb-3">Set how many operators are needed per day and time slab</p>
+                
+                <div className="mb-3">
+                  <label className="block text-[10px] font-medium text-slate-400 mb-1">Default Count</label>
+                  <input
+                    type="number"
+                    value={operatorScheduleDefault}
+                    onChange={e => setOperatorScheduleDefault(Math.max(1, Math.floor(Number(e.target.value))))}
+                    min="1"
+                    className="w-24 bg-white/[0.04] border border-white/[0.1] text-white rounded-lg px-3 py-2 text-sm outline-none focus:border-accent focus:ring-1 focus:ring-accent/20 transition-colors"
+                  />
+                </div>
+
+                <div className="overflow-x-auto">
+                  <table className="w-full text-[11px]">
+                    <thead>
+                      <tr>
+                        <th className="text-left text-slate-500 font-medium pb-2 pr-2">Day</th>
+                        <th className="text-center text-amber-400 font-medium pb-2 px-2">☀ Morning</th>
+                        <th className="text-center text-indigo-400 font-medium pb-2 px-2">🌙 Evening</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {DAY_NUMBERS.map(day => (
+                        <tr key={day} className="border-t border-white/[0.04]">
+                          <td className="text-slate-300 font-medium py-1.5 pr-2">{DAY_LABELS[day]}</td>
+                          <td className="text-center py-1.5 px-2">
+                            <input
+                              type="number"
+                              value={getScheduleCount(day, 'morning')}
+                              onChange={e => setScheduleCount(day, 'morning', Number(e.target.value))}
+                              min="0"
+                              className="w-14 bg-white/[0.04] border border-white/[0.1] text-white text-center rounded-lg px-1 py-1 text-[11px] outline-none focus:border-accent"
+                            />
+                          </td>
+                          <td className="text-center py-1.5 px-2">
+                            <input
+                              type="number"
+                              value={getScheduleCount(day, 'evening')}
+                              onChange={e => setScheduleCount(day, 'evening', Number(e.target.value))}
+                              min="0"
+                              className="w-14 bg-white/[0.04] border border-white/[0.1] text-white text-center rounded-lg px-1 py-1 text-[11px] outline-none focus:border-accent"
+                            />
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                <button
+                  onClick={saveOperatorSchedule}
+                  disabled={savingSchedule}
+                  className="mt-2 inline-flex items-center gap-1.5 bg-accent/10 hover:bg-accent/20 text-accent px-3 py-1.5 rounded-lg text-xs font-medium transition-colors cursor-pointer disabled:opacity-50"
+                >
+                  {savingSchedule ? <Loader2 className="w-3 h-3 animate-spin" /> : <Save className="w-3 h-3" />}
+                  Save Schedule
+                </button>
               </div>
 
-              {/* Operator Priority */}
+              {/* Operator Priority (Feature 2 — Morning/Evening) */}
               <div className="mt-4">
                 <p className="text-sm font-medium text-slate-300">Operator Priority</p>
-                <p className="text-[10px] text-slate-500 mb-3">First operator gets booking preference. Reorder to change priority.</p>
+                <p className="text-[10px] text-slate-500 mb-1">Set separate priorities for morning and evening sessions. Higher = gets booking first.</p>
+                <p className="text-[9px] text-slate-600 mb-3">Morning: {machineConfig.timeSlabConfig.morning.start}–{machineConfig.timeSlabConfig.morning.end} | Evening: {machineConfig.timeSlabConfig.evening.start}–{machineConfig.timeSlabConfig.evening.end}</p>
                 {operators.length === 0 ? (
                   <p className="text-xs text-slate-500 italic">No operators found. Assign OPERATOR role to users first.</p>
                 ) : (
@@ -630,6 +896,36 @@ export default function ConfigurationPage() {
                               >
                                 <ChevronDown className="w-3.5 h-3.5" />
                               </button>
+                            </div>
+                          </div>
+
+                          {/* Morning/Evening Priority Inputs */}
+                          <div className="ml-0 sm:ml-9 grid grid-cols-2 gap-2 mb-2">
+                            <div>
+                              <label className="block text-[9px] font-medium text-amber-400 mb-0.5">☀ Morning Priority</label>
+                              <input
+                                type="number"
+                                value={op.operatorMorningPriority}
+                                onChange={e => {
+                                  const val = Number(e.target.value);
+                                  setOperators(prev => prev.map(o => o.id === op.id ? { ...o, operatorMorningPriority: val } : o));
+                                }}
+                                min="0"
+                                className="w-full bg-white/[0.04] border border-white/[0.1] text-white rounded-lg px-2 py-1.5 text-[11px] outline-none focus:border-accent"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-[9px] font-medium text-indigo-400 mb-0.5">🌙 Evening Priority</label>
+                              <input
+                                type="number"
+                                value={op.operatorEveningPriority}
+                                onChange={e => {
+                                  const val = Number(e.target.value);
+                                  setOperators(prev => prev.map(o => o.id === op.id ? { ...o, operatorEveningPriority: val } : o));
+                                }}
+                                min="0"
+                                className="w-full bg-white/[0.04] border border-white/[0.1] text-white rounded-lg px-2 py-1.5 text-[11px] outline-none focus:border-accent"
+                              />
                             </div>
                           </div>
 
@@ -836,6 +1132,153 @@ export default function ConfigurationPage() {
         }}
         onCancel={() => setShowMachineConfigConfirm(false)}
       />
+
+      {/* ─── Recurring Slot Discounts (Feature 1) ──── */}
+      <AdminCard
+        title="Recurring Slot Discounts"
+        icon={<Tag className="w-4 h-4 text-emerald-400" />}
+        collapsible
+        defaultOpen={false}
+        subtitle="Fixed discounts for specific day + time combinations"
+      >
+        {recurringLoading ? (
+          <div className="flex items-center gap-2 py-4 text-slate-400">
+            <Loader2 className="w-4 h-4 animate-spin" />
+            <span className="text-sm">Loading discount rules...</span>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {/* Existing Rules */}
+            {recurringRules.length === 0 && !showAddRule && (
+              <p className="text-xs text-slate-500 italic">No recurring discount rules configured.</p>
+            )}
+            {recurringRules.map(rule => (
+              <div key={rule.id} className={`bg-white/[0.02] rounded-xl border p-3 ${rule.enabled ? 'border-emerald-500/20' : 'border-white/[0.05] opacity-60'}`}>
+                <div className="flex items-start justify-between gap-2">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex flex-wrap gap-1 mb-1">
+                      {rule.days.map(d => (
+                        <span key={d} className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-accent/10 text-accent">{DAY_LABELS[d]}</span>
+                      ))}
+                    </div>
+                    <p className="text-xs text-slate-300">
+                      {rule.slotStartTime} – {rule.slotEndTime}
+                      {rule.machineId && <span className="text-slate-500 ml-2">({MACHINE_LABELS[rule.machineId as MachineId]?.name || rule.machineId})</span>}
+                    </p>
+                    <div className="flex gap-3 mt-1">
+                      <span className="text-[10px] text-emerald-400">1 slot: -₹{rule.oneSlotDiscount}</span>
+                      <span className="text-[10px] text-emerald-400">2 slots: -₹{rule.twoSlotDiscount}</span>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-1 flex-shrink-0">
+                    <button
+                      onClick={() => handleToggleRule(rule)}
+                      className={`p-1.5 rounded-lg text-[10px] font-medium cursor-pointer ${rule.enabled ? 'text-emerald-400 bg-emerald-400/10' : 'text-slate-500 bg-white/[0.04]'}`}
+                    >{rule.enabled ? 'ON' : 'OFF'}</button>
+                    <button onClick={() => startEditRule(rule)} className="p-1.5 rounded-lg text-slate-400 hover:text-accent hover:bg-accent/10 cursor-pointer"><Edit2 className="w-3 h-3" /></button>
+                    <button onClick={() => handleDeleteRule(rule.id)} className="p-1.5 rounded-lg text-slate-400 hover:text-red-400 hover:bg-red-400/10 cursor-pointer"><Trash2 className="w-3 h-3" /></button>
+                  </div>
+                </div>
+              </div>
+            ))}
+
+            {/* Add/Edit Rule Form */}
+            {showAddRule ? (
+              <div className="bg-white/[0.03] rounded-xl border border-accent/20 p-4 space-y-3">
+                <h4 className="text-xs font-bold text-accent">{editingRule ? 'Edit Rule' : 'New Rule'}</h4>
+
+                {/* Days Multi-Select */}
+                <div>
+                  <label className="block text-[10px] font-medium text-slate-400 mb-1">Days of Week</label>
+                  <div className="flex flex-wrap gap-1">
+                    {DAY_NUMBERS.map(d => (
+                      <button
+                        key={d}
+                        onClick={() => {
+                          setRuleForm(prev => ({
+                            ...prev,
+                            days: prev.days.includes(d) ? prev.days.filter(x => x !== d) : [...prev.days, d],
+                          }));
+                        }}
+                        className={`px-2.5 py-1.5 rounded-lg text-[11px] font-medium transition-all cursor-pointer ${
+                          ruleForm.days.includes(d)
+                            ? 'bg-accent/15 text-accent border border-accent/30'
+                            : 'bg-white/[0.04] text-slate-500 border border-white/[0.08] hover:bg-white/[0.08]'
+                        }`}
+                      >{DAY_LABELS[d]}</button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Time */}
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="block text-[10px] font-medium text-slate-400 mb-1">Start Time</label>
+                    <input type="time" value={ruleForm.slotStartTime} onChange={e => setRuleForm(prev => ({ ...prev, slotStartTime: e.target.value }))} step="1800" className={inputClass} />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-medium text-slate-400 mb-1">End Time</label>
+                    <input type="time" value={ruleForm.slotEndTime} onChange={e => setRuleForm(prev => ({ ...prev, slotEndTime: e.target.value }))} step="1800" className={inputClass} />
+                  </div>
+                </div>
+
+                {/* Machine */}
+                <div>
+                  <label className="block text-[10px] font-medium text-slate-400 mb-1">Machine (optional)</label>
+                  <select
+                    value={ruleForm.machineId}
+                    onChange={e => setRuleForm(prev => ({ ...prev, machineId: e.target.value }))}
+                    className={inputClass}
+                  >
+                    <option value="">All Machines</option>
+                    {ALL_MACHINE_IDS.map(mid => (
+                      <option key={mid} value={mid}>{MACHINE_LABELS[mid].name}</option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Discount Amounts */}
+                <div className="grid grid-cols-2 gap-2">
+                  <PriceField
+                    label="Discount for 1 Slot (₹)"
+                    value={ruleForm.oneSlotDiscount}
+                    onChange={v => setRuleForm(prev => ({ ...prev, oneSlotDiscount: v }))}
+                  />
+                  <PriceField
+                    label="Discount for 2 Cons. Slots (₹)"
+                    value={ruleForm.twoSlotDiscount}
+                    onChange={v => setRuleForm(prev => ({ ...prev, twoSlotDiscount: v }))}
+                  />
+                </div>
+
+                {/* Actions */}
+                <div className="flex items-center gap-2 pt-1">
+                  <button
+                    onClick={handleSaveRule}
+                    disabled={savingRule || ruleForm.days.length === 0}
+                    className="inline-flex items-center gap-1.5 bg-accent/10 hover:bg-accent/20 text-accent px-3 py-1.5 rounded-lg text-xs font-medium transition-colors cursor-pointer disabled:opacity-50"
+                  >
+                    {savingRule ? <Loader2 className="w-3 h-3 animate-spin" /> : <Save className="w-3 h-3" />}
+                    {editingRule ? 'Update' : 'Save Rule'}
+                  </button>
+                  <button
+                    onClick={resetRuleForm}
+                    className="text-xs text-slate-500 hover:text-slate-300 px-3 py-1.5 cursor-pointer"
+                  >Cancel</button>
+                </div>
+              </div>
+            ) : (
+              <button
+                onClick={() => setShowAddRule(true)}
+                className="inline-flex items-center gap-1.5 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 px-3 py-2 rounded-lg text-xs font-medium transition-colors cursor-pointer"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                Add Discount Rule
+              </button>
+            )}
+          </div>
+        )}
+      </AdminCard>
     </div>
   );
 }

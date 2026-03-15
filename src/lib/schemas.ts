@@ -25,6 +25,10 @@ export const SlotSchema = z.object({
 
 export const AvailableSlotSchema = SlotSchema.extend({
   status: z.enum(['Available', 'Booked', 'OperatorUnavailable', 'Blocked']),
+  recurringDiscount: z.object({
+    oneSlotDiscount: z.number(),
+    twoSlotDiscount: z.number(),
+  }).optional(),
 });
 
 // ─── Booking Request ─────────────────────────────────────

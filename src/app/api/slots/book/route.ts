@@ -9,11 +9,11 @@ import {
 } from '@/lib/constants';
 import { dateStringToUTC, formatIST } from '@/lib/time';
 import { notifyBookingConfirmed } from '@/lib/notifications';
-import { getPricingConfig, getTimeSlabConfig, calculateNewPricing } from '@/lib/pricing';
+import { getPricingConfig, getTimeSlabConfig, calculateNewPricing, getTimeSlab } from '@/lib/pricing';
 import { getCachedPolicies } from '@/lib/policy-cache';
 import { validatePackageBooking } from '@/lib/packages';
 import { debitWallet, rollbackWalletDebit, isWalletEnabled, getWalletBalance } from '@/lib/wallet';
-import { autoAssignOperator } from '@/lib/operatorAssign';
+import { autoAssignOperator, getOperatorCount } from '@/lib/operatorAssign';
 
 async function getMachineConfig() {
   const config = await getCachedPolicies([
@@ -33,7 +33,6 @@ async function getMachineConfig() {
     pitchTypeSelectionEnabled: config['PITCH_TYPE_SELECTION_ENABLED'] === 'true',
     astroPitchPrice: parseFloat(config['ASTRO_PITCH_PRICE'] || '600'),
     turfPitchPrice: parseFloat(config['TURF_PITCH_PRICE'] || '700'),
-    numberOfOperators: parseInt(config['NUMBER_OF_OPERATORS'] || '1', 10),
   };
 }
 
@@ -264,8 +263,51 @@ export async function POST(req: NextRequest) {
       firstMachineId
     );
 
+    // ── Recurring Slot Discount (Feature 1) ──────────────────────────
+    // After consecutive pricing, check for recurring slot discounts and apply as additional flat reduction.
+    const recurringDiscountRules = await prisma.recurringSlotDiscount.findMany({
+      where: { enabled: true },
+    }).catch(() => []);
+
+    let totalRecurringDiscount = 0;
+    const isConsecutive = validatedSlots.length >= 2;
+
+    for (let i = 0; i < pricing.length; i++) {
+      const slot = validatedSlots[i];
+      const dayOfWeek = (() => {
+        const istDay = slot.startTime.toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', weekday: 'short' });
+        const dayMap: Record<string, number> = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
+        return dayMap[istDay] ?? slot.startTime.getUTCDay();
+      })();
+      const istTimeStr = slot.startTime.toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour12: false, hour: '2-digit', minute: '2-digit' });
+
+      for (const rule of recurringDiscountRules) {
+        if (!rule.days.includes(dayOfWeek)) continue;
+        if (rule.slotStartTime !== istTimeStr) continue;
+        if (rule.machineId && rule.machineId !== firstMachineId) continue;
+
+        // Apply the appropriate discount (only once per batch, not per-slot)
+        if (i === 0) {
+          const discountAmount = isConsecutive ? rule.twoSlotDiscount : rule.oneSlotDiscount;
+          totalRecurringDiscount = discountAmount;
+        }
+        break;
+      }
+    }
+
+    // Distribute recurring discount across slots (spread evenly)
+    if (totalRecurringDiscount > 0) {
+      const perSlotRecurringDiscount = totalRecurringDiscount / pricing.length;
+      for (const p of pricing) {
+        const maxReduction = Math.min(perSlotRecurringDiscount, p.price);
+        p.price = Math.max(0, p.price - maxReduction);
+        p.discountAmount += maxReduction;
+      }
+    }
+
     // If wallet payment, validate balance upfront
     const totalPrice = isFreeBooking ? 0 : pricing.reduce((sum, p) => sum + p.price, 0);
+    const totalRecurringDiscountDisplay = totalRecurringDiscount; // For notification display
     if (isWalletPayment && !isFreeBooking && !userPackageId) {
       const walletEnabled = await isWalletEnabled();
       if (!walletEnabled) {
@@ -346,8 +388,11 @@ export async function POST(req: NextRequest) {
               throw new BookingConflictError(`Slot at ${slotTime} is already booked`);
             }
 
-            // Operator constraint check
+            // Operator constraint check — use per-day/slab operator count
             if (requiresOperator) {
+              const slotTimeSlab = getTimeSlab(slot.startTime, timeSlabConfig);
+              const numberOfOperators = await getOperatorCount(slot.date, slot.startTime, timeSlabConfig);
+
               const operatorWhere: Prisma.BookingWhereInput = {
                 date: slot.date,
                 startTime: slot.startTime,
@@ -364,9 +409,9 @@ export async function POST(req: NextRequest) {
               });
               const operatorsUsed = operatorBookings.length;
 
-              if (operatorsUsed >= machineConfig.numberOfOperators) {
+              if (operatorsUsed >= numberOfOperators) {
                 throw new OperatorUnavailableError(
-                  `Operator not available for slot at ${slotTime}. All ${machineConfig.numberOfOperators} operator(s) are already booked.`
+                  `Operator not available for slot at ${slotTime}. All ${numberOfOperators} operator(s) are already booked.`
                 );
               }
             }
@@ -405,10 +450,11 @@ export async function POST(req: NextRequest) {
                   : { paymentMethod: 'ONLINE' as const, paymentStatus: 'PAID' as const }
               : {};
 
-            // Auto-assign operator for WITH_OPERATOR bookings
+            // Auto-assign operator for WITH_OPERATOR bookings (pass timeSlab for Feature 2)
             let assignedOperatorId: string | null = null;
             if (requiresOperator) {
-              assignedOperatorId = await autoAssignOperator(slot.date, slot.startTime, tx, slot.machineId);
+              const slotTimeSlab = getTimeSlab(slot.startTime, timeSlabConfig);
+              assignedOperatorId = await autoAssignOperator(slot.date, slot.startTime, tx, slot.machineId, slotTimeSlab);
             }
 
             const bookingData: Prisma.BookingUncheckedCreateInput = {

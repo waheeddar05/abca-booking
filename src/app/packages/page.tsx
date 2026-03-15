@@ -8,6 +8,7 @@ import { differenceInDays, startOfDay } from 'date-fns';
 import { useRazorpay, usePaymentConfig } from '@/lib/useRazorpay';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { LABEL_MAP } from '@/lib/client-constants';
+import { ContactFooter } from '@/components/ContactFooter';
 import { PackageFirstBookingBanner } from '@/components/ui/PackageFirstBookingBanner';
 import { BackButton } from '@/components/ui/BackButton';
 
@@ -625,10 +626,10 @@ export default function PackagesPage() {
           </div>
         </div>
       )}
+      <ContactFooter />
     </div>
   );
 }
-
 // ─── Package Section (Leather or Tennis) ────────────────
 function PackageSection({
   title, dotColor, count, packages, showBallType, purchasing, onPurchase, onSelect, getTimingLabel,

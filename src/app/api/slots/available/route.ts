@@ -12,6 +12,7 @@ import type { MachinePitchConfig } from '@/lib/constants';
 import { getPricingConfig, getTimeSlabConfig, getSlotPrice, getTimeSlab } from '@/lib/pricing';
 import { getCachedPolicies } from '@/lib/policy-cache';
 import { getAuthenticatedUser } from '@/lib/auth';
+import { getOperatorCount } from '@/lib/operatorAssign';
 
 function isValidPitchTypeValue(val: string): val is PitchType {
   return ['ASTRO', 'CEMENT', 'NATURAL', 'TURF'].includes(val);
@@ -75,7 +76,7 @@ export async function GET(req: NextRequest) {
     }
 
     // Fetch all data in parallel: policies (cached), pricing, time slabs, blocked slots, and ALL bookings
-    const [policyMap, pricingConfig, timeSlabConfig, blockedSlots, allBookings] = await Promise.all([
+    const [policyMap, pricingConfig, timeSlabConfig, blockedSlots, allBookings, recurringDiscounts] = await Promise.all([
       getCachedPolicies(['SLOT_DURATION', 'DISABLED_DATES', 'NUMBER_OF_OPERATORS', 'MACHINE_PITCH_CONFIG']),
       getPricingConfig(),
       getTimeSlabConfig(),
@@ -96,6 +97,10 @@ export async function GET(req: NextRequest) {
         },
         select: { startTime: true, ballType: true, operationMode: true, machineId: true, pitchType: true },
       }),
+      // Fetch active recurring slot discounts for badge display
+      prisma.recurringSlotDiscount.findMany({
+        where: { enabled: true },
+      }).catch(() => []),
     ]);
 
     // Check if date is disabled
@@ -119,7 +124,8 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    const numberOfOperators = parseInt(policyMap['NUMBER_OF_OPERATORS'] || '1', 10);
+    // Legacy fallback — getOperatorCount() already reads the policy cache
+    const legacyNumberOfOperators = parseInt(policyMap['NUMBER_OF_OPERATORS'] || '1', 10);
     const duration = policyMap['SLOT_DURATION'] ? parseInt(policyMap['SLOT_DURATION']) : undefined;
 
     // Generate slots using dual time windows
@@ -166,6 +172,34 @@ export async function GET(req: NextRequest) {
       }
     }
 
+    // Pre-compute operator counts per slot (async)
+    const operatorCountsMap = new Map<number, number>();
+    for (const slot of slots) {
+      const timeKey = slot.startTime.getTime();
+      if (!operatorCountsMap.has(timeKey)) {
+        const count = await getOperatorCount(dateUTC, slot.startTime, timeSlabConfig);
+        operatorCountsMap.set(timeKey, count);
+      }
+    }
+
+    // Helper to find recurring discount for a slot
+    function getRecurringDiscount(slotStart: Date): { oneSlotDiscount: number; twoSlotDiscount: number } | null {
+      const dayOfWeek = (() => {
+        const istDay = slotStart.toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', weekday: 'short' });
+        const dayMap: Record<string, number> = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
+        return dayMap[istDay] ?? slotStart.getUTCDay();
+      })();
+      const istTimeStr = slotStart.toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour12: false, hour: '2-digit', minute: '2-digit' });
+
+      for (const rule of recurringDiscounts) {
+        if (!rule.days.includes(dayOfWeek)) continue;
+        if (rule.slotStartTime !== istTimeStr) continue;
+        if (rule.machineId && rule.machineId !== machineId) continue;
+        return { oneSlotDiscount: rule.oneSlotDiscount, twoSlotDiscount: rule.twoSlotDiscount };
+      }
+      return null;
+    }
+
     const availableSlots = slots.map(slot => {
       const timeKey = slot.startTime.getTime();
       const isOccupied = occupiedTimeKeys.has(timeKey);
@@ -203,11 +237,15 @@ export async function GET(req: NextRequest) {
       });
 
       const operatorsUsed = operatorUsageMap.get(timeKey) || 0;
+      const numberOfOperators = operatorCountsMap.get(timeKey) || legacyNumberOfOperators;
       const operatorAvailable = operatorsUsed < numberOfOperators;
 
       // Calculate price using pricing config
       const timeSlab = getTimeSlab(slot.startTime, timeSlabConfig);
       const finalPrice = getSlotPrice(category, ballType, validatedPitchType, timeSlab, pricingConfig, machineId);
+
+      // Check for recurring slot discount badge
+      const recurringDiscount = getRecurringDiscount(slot.startTime);
 
       // Determine slot status
       let status: string;
@@ -228,6 +266,7 @@ export async function GET(req: NextRequest) {
         price: finalPrice,
         operatorAvailable,
         timeSlab,
+        ...(recurringDiscount ? { recurringDiscount } : {}),
       };
     });
 

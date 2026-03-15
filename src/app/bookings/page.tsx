@@ -2,8 +2,8 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { format } from 'date-fns';
-import { ClipboardList, Loader2, X, Calendar, Clock, IndianRupee, Phone, Instagram, ChevronLeft, ChevronRight } from 'lucide-react';
-import { CONTACT_NUMBERS, INSTAGRAM_URL } from '@/lib/client-constants';
+import { ClipboardList, Loader2, X, Calendar, Clock, IndianRupee, ChevronLeft, ChevronRight } from 'lucide-react';
+import { ContactFooter } from '@/components/ContactFooter';
 import { CancellationDialog } from '@/components/ui/CancellationDialog';
 import { useToast } from '@/components/ui/Toast';
 import {
@@ -366,27 +366,7 @@ export default function BookingsPage() {
         onCancel={() => setConfirmCancelId(null)}
       />
 
-      {/* Contact Section */}
-      <div className="mt-8 pt-6 border-t border-white/[0.06]">
-        <p className="text-center text-xs text-slate-400 mb-4 italic">&ldquo;Champions Train When Others Rest.&rdquo;</p>
-        <div className="flex flex-col sm:flex-row items-center justify-center gap-3 text-xs text-slate-400">
-          {CONTACT_NUMBERS.map(contact => (
-            <a key={contact.number} href={`tel:${contact.number}`} className="flex items-center gap-1.5 hover:text-accent transition-colors">
-              <Phone className="w-3.5 h-3.5" />
-              {contact.name}: {contact.number}
-            </a>
-          ))}
-          <a
-            href={INSTAGRAM_URL}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="flex items-center gap-1.5 hover:text-accent transition-colors"
-          >
-            <Instagram className="w-3.5 h-3.5" />
-            @playorbit.in
-          </a>
-        </div>
-      </div>
+      <ContactFooter quote="Champions Train When Others Rest." />
     </div>
   );
 }

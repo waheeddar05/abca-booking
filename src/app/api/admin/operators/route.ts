@@ -18,6 +18,8 @@ export async function GET(req: NextRequest) {
         email: true,
         mobileNumber: true,
         operatorPriority: true,
+        operatorMorningPriority: true,
+        operatorEveningPriority: true,
         operatorAssignments: {
           select: {
             id: true,
@@ -125,12 +127,16 @@ export async function PATCH(req: NextRequest) {
       );
     }
 
-    // Update each operator's priority in a transaction
+    // Update each operator's priorities in a transaction
     await prisma.$transaction(
-      operators.map((op: { userId: string; priority: number }) =>
+      operators.map((op: { userId: string; priority: number; morningPriority?: number; eveningPriority?: number }) =>
         prisma.user.update({
           where: { id: op.userId },
-          data: { operatorPriority: op.priority },
+          data: {
+            operatorPriority: op.priority,
+            ...(op.morningPriority !== undefined ? { operatorMorningPriority: op.morningPriority } : {}),
+            ...(op.eveningPriority !== undefined ? { operatorEveningPriority: op.eveningPriority } : {}),
+          },
         })
       )
     );
@@ -144,6 +150,8 @@ export async function PATCH(req: NextRequest) {
         email: true,
         mobileNumber: true,
         operatorPriority: true,
+        operatorMorningPriority: true,
+        operatorEveningPriority: true,
         operatorAssignments: {
           select: {
             id: true,

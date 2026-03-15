@@ -166,6 +166,14 @@ function SlotCard({
           </span>
         )}
       </div>
+      {/* Recurring Discount Badge */}
+      {slot.recurringDiscount && !isUnavailable && (
+        <div className={`mt-1 text-[8px] font-bold px-1.5 py-0.5 rounded-full text-center ${
+          isSelected ? 'bg-primary/20 text-primary/80' : 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/20'
+        }`}>
+          Extra ₹{slot.recurringDiscount.oneSlotDiscount} off
+        </div>
+      )}
     </button>
   );
 }

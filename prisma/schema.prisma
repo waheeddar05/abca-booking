@@ -26,8 +26,10 @@ model User {
   otps                 Otp[]
   userPackages         UserPackage[]
   payments             Payment[]
-  operatorPriority     Int                  @default(0)
-  operatorAssignments  OperatorAssignment[]
+  operatorPriority          Int                  @default(0)
+  operatorMorningPriority   Int                  @default(0)
+  operatorEveningPriority   Int                  @default(0)
+  operatorAssignments       OperatorAssignment[]
   operatedBookings     Booking[]            @relation("OperatorBookings")
   cashPaymentUser      CashPaymentUser?
   wallet               Wallet?
@@ -395,4 +397,17 @@ model CashPaymentUser {
   enabledBy String
   createdAt DateTime @default(now())
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model RecurringSlotDiscount {
+  id              String    @id @default(cuid())
+  enabled         Boolean   @default(true)
+  days            Int[]     // Array of day-of-week numbers: 0=Sun, 1=Mon, ..., 6=Sat
+  slotStartTime   String    // HH:MM format e.g. "08:00"
+  slotEndTime     String    // HH:MM format e.g. "08:30"
+  machineId       MachineId?
+  oneSlotDiscount   Float   // flat ₹ discount for 1 matching slot
+  twoSlotDiscount   Float   // flat ₹ discount for 2 consecutive matching slots
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
 }
