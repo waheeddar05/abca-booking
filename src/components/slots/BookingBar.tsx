@@ -14,6 +14,7 @@ interface BookingBarProps {
   totalPrice: number;
   originalTotal: number;
   hasSavings: boolean;
+  recurringDiscount?: number;
   selectedPackageId: string;
   packageValidation: PackageValidationResponse | null;
   bookingLoading: boolean;
@@ -31,6 +32,7 @@ export function BookingBar({
   totalPrice,
   originalTotal,
   hasSavings,
+  recurringDiscount = 0,
   selectedPackageId,
   packageValidation,
   bookingLoading,
@@ -95,6 +97,11 @@ export function BookingBar({
                           Save ₹{savings.toLocaleString()}
                         </span>
                       </>
+                    )}
+                    {recurringDiscount > 0 && (
+                      <span className="text-[10px] text-emerald-400 ml-1">
+                        (incl. Slot Discount: -₹{recurringDiscount})
+                      </span>
                     )}
                   </>
                 )}

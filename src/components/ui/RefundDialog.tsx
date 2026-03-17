@@ -14,7 +14,8 @@ interface RefundDialogProps {
     machineId?: string;
     price?: number;
     paymentAmount: number; // Original payment amount
-    alreadyRefunded: number; // Sum of previous refunds
+    alreadyRefunded: number; // Sum of ALL previous refunds
+    alreadyRefundedViaRazorpay: number; // Sum of only Razorpay refunds
     razorpayPortion: number; // Max refundable via Razorpay
   } | null;
   onConfirm: (data: { bookingId: string; refundAmount: number; refundMethod: 'razorpay' | 'wallet'; reason: string }) => Promise<void>;
@@ -30,7 +31,8 @@ export function RefundDialog({ open, booking, onConfirm, onCancel }: RefundDialo
   const dialogRef = useRef<HTMLDivElement>(null);
 
   const remainingRefundable = booking ? booking.paymentAmount - booking.alreadyRefunded : 0;
-  const razorpayMax = booking ? Math.min(remainingRefundable, booking.razorpayPortion - booking.alreadyRefunded) : 0;
+  // Razorpay max should only subtract Razorpay refunds, not wallet refunds
+  const razorpayMax = booking ? Math.min(remainingRefundable, booking.razorpayPortion - booking.alreadyRefundedViaRazorpay) : 0;
 
   useEffect(() => {
     if (open && booking) {

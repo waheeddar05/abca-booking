@@ -593,6 +593,7 @@ function SlotsContent() {
         totalPrice={pricing.totalPrice}
         originalTotal={pricing.originalTotal}
         hasSavings={pricing.hasSavings}
+        recurringDiscount={pricing.recurringDiscount}
         selectedPackageId={pkg.selectedPackageId}
         packageValidation={pkg.validation}
         bookingLoading={bookingLoading || paymentProcessing}

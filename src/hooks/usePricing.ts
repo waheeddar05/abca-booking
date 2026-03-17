@@ -20,6 +20,7 @@ interface UsePricingReturn {
   totalPrice: number;
   hasSavings: boolean;
   savings: number;
+  recurringDiscount: number;
   getSlotDisplayPrice: (slot: AvailableSlot) => number;
 }
 
@@ -101,8 +102,21 @@ export function usePricing({
       0
     );
 
-    const totalPrice = consecutiveTotal ?? originalTotal;
-    const hasSavings = consecutiveTotal !== null && consecutiveTotal < originalTotal;
+    // Calculate recurring slot discount from matched slots
+    let recurringDiscount = 0;
+    if (selectedSlots.length > 0) {
+      // Find the first slot that has a recurring discount match
+      const matchedSlot = selectedSlots.find(s => s.recurringDiscount);
+      if (matchedSlot?.recurringDiscount) {
+        recurringDiscount = isConsecutive && selectedSlots.length >= 2
+          ? matchedSlot.recurringDiscount.twoSlotDiscount
+          : matchedSlot.recurringDiscount.oneSlotDiscount;
+      }
+    }
+
+    const priceAfterConsecutive = consecutiveTotal ?? originalTotal;
+    const totalPrice = Math.max(0, priceAfterConsecutive - recurringDiscount);
+    const hasSavings = totalPrice < originalTotal;
     const savings = hasSavings ? originalTotal - totalPrice : 0;
 
     return {
@@ -112,6 +126,7 @@ export function usePricing({
       totalPrice,
       hasSavings,
       savings,
+      recurringDiscount,
       getSlotDisplayPrice,
     };
   }, [selectedSlots, machineConfig, selectedMachineId, isLeatherMachine, ballType, pitchType]);

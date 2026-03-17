@@ -299,8 +299,8 @@ export async function POST(req: NextRequest) {
         if (ruleTime !== istTimeStr) continue;
         if (rule.machineId && rule.machineId !== firstMachineId) continue;
 
-        // Apply the appropriate discount (only once per batch, not per-slot)
-        if (i === 0) {
+        // Apply the appropriate discount (once per batch, using the first matching slot/rule)
+        if (totalRecurringDiscount === 0) {
           const discountAmount = isConsecutive ? rule.twoSlotDiscount : rule.oneSlotDiscount;
           totalRecurringDiscount = discountAmount;
         }

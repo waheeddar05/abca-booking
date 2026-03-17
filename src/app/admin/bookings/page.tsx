@@ -65,7 +65,7 @@ function AdminBookingsContent() {
   const [customNameDialog, setCustomNameDialog] = useState(false);
   const [refundDialog, setRefundDialog] = useState<{
     id: string; date: string; startTime: string; endTime: string; playerName: string;
-    machineId?: string; price?: number; paymentAmount: number; alreadyRefunded: number; razorpayPortion: number;
+    machineId?: string; price?: number; paymentAmount: number; alreadyRefunded: number; alreadyRefundedViaRazorpay: number; razorpayPortion: number;
   } | null>(null);
 
   const [behalfSearch, setBehalfSearch] = useState('');
@@ -296,10 +296,11 @@ function AdminBookingsContent() {
       const razorpayPortion = payment?.amount || 0;
       const refunds = booking.refunds || [];
       const alreadyRefunded = refunds.reduce((sum: number, r: any) => r.status !== 'FAILED' ? sum + r.amount : sum, 0);
+      const alreadyRefundedViaRazorpay = refunds.reduce((sum: number, r: any) => (r.status !== 'FAILED' && r.method === 'RAZORPAY') ? sum + r.amount : sum, 0);
       setRefundDialog({
         id: booking.id, date: booking.date, startTime: booking.startTime, endTime: booking.endTime,
         playerName: booking.playerName, machineId: booking.machineId, price: booking.price,
-        paymentAmount, alreadyRefunded, razorpayPortion,
+        paymentAmount, alreadyRefunded, alreadyRefundedViaRazorpay, razorpayPortion,
       });
     } catch { toast.error('Failed to fetch payment details'); }
   };
