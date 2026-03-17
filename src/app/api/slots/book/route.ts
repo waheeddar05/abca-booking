@@ -272,18 +272,31 @@ export async function POST(req: NextRequest) {
     let totalRecurringDiscount = 0;
     const isConsecutive = validatedSlots.length >= 2;
 
+    // Helper: get IST hours/minutes from a Date reliably (avoids locale-dependent formatting)
+    const getISTTime = (d: Date): string => {
+      const utcMs = d.getTime();
+      const istMs = utcMs + (5 * 60 + 30) * 60 * 1000;
+      const istDate = new Date(istMs);
+      const h = istDate.getUTCHours().toString().padStart(2, '0');
+      const m = istDate.getUTCMinutes().toString().padStart(2, '0');
+      return `${h}:${m}`;
+    };
+    const getISTDay = (d: Date): number => {
+      const utcMs = d.getTime();
+      const istMs = utcMs + (5 * 60 + 30) * 60 * 1000;
+      return new Date(istMs).getUTCDay();
+    };
+
     for (let i = 0; i < pricing.length; i++) {
       const slot = validatedSlots[i];
-      const dayOfWeek = (() => {
-        const istDay = slot.startTime.toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', weekday: 'short' });
-        const dayMap: Record<string, number> = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
-        return dayMap[istDay] ?? slot.startTime.getUTCDay();
-      })();
-      const istTimeStr = slot.startTime.toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour12: false, hour: '2-digit', minute: '2-digit' });
+      const dayOfWeek = getISTDay(slot.startTime);
+      const istTimeStr = getISTTime(slot.startTime);
 
       for (const rule of recurringDiscountRules) {
         if (!rule.days.includes(dayOfWeek)) continue;
-        if (rule.slotStartTime !== istTimeStr) continue;
+        // Normalize rule time to HH:MM for consistent matching
+        const ruleTime = rule.slotStartTime.padStart(5, '0');
+        if (ruleTime !== istTimeStr) continue;
         if (rule.machineId && rule.machineId !== firstMachineId) continue;
 
         // Apply the appropriate discount (only once per batch, not per-slot)
