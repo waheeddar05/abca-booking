@@ -1,0 +1,31 @@
+src/lib/operatorAssign.ts
+  711c5b392d550bbd 1,9,22-27,30,41,43-44,51-52,58,60-61,63-70,73-75,85,87-88,92,95-100,103,110,112-114,117,119-120
+src/app/api/slots/available/route.ts
+  711c5b392d550bbd 185-195,198-199,203-204
+src/app/admin/bookings/page.tsx
+  711c5b392d550bbd 6,13,66-69,289-341,695-696,698-702,824-832,953-954,956-960,992-1000,1087-1094
+src/app/api/slots/book/route.ts
+  711c5b392d550bbd 275-289,292-293,297-299
+src/app/api/admin/operators/route.ts
+  711c5b392d550bbd 5-8,17-21,25,28,39,42,46-47,50-51,56,67,70,91,102,105,107,111,115-117
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.12",
+  "base_commit_sha": "dbc430f28fe3f81f1fcc48cdc04082d519cf78d1",
+  "prompts": {
+    "711c5b392d550bbd": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "1b62e25c-118b-4dd0-8deb-367cae89545f",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Waheed <waheeddar8@gmail.com>",
+      "messages": [],
+      "total_additions": 228,
+      "total_deletions": 264,
+      "accepted_lines": 210,
+      "overriden_lines": 0
+    }
+  }
+}
