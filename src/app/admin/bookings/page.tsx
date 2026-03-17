@@ -847,7 +847,7 @@ function AdminBookingsContent() {
             </div>
 
             {/* Desktop Table */}
-            <div className="hidden md:block bg-white/[0.03] backdrop-blur-sm rounded-2xl border border-white/[0.07] overflow-hidden">
+            <div className="hidden md:block bg-white/[0.03] backdrop-blur-sm rounded-2xl border border-white/[0.07] overflow-x-auto">
               <table className="w-full text-left">
                 <thead className="bg-white/[0.02] border-b border-white/[0.06]">
                   <tr>
@@ -971,7 +971,7 @@ function AdminBookingsContent() {
                           </div>
                         </td>
                         <td className="px-5 py-3.5 text-right">
-                          <div className="flex gap-1 justify-end">
+                          <div className="flex flex-wrap gap-1 justify-end">
                             {booking.status === 'BOOKED' && (
                               <>
                                 <button
