@@ -133,8 +133,9 @@ export async function GET(req: NextRequest) {
       [bookings, total] = await Promise.all([
         prisma.booking.findMany({
           where,
-          include: { 
-            user: { select: { name: true, email: true, mobileNumber: true } }
+          include: {
+            user: { select: { name: true, email: true, mobileNumber: true } },
+            refunds: { select: { id: true, amount: true, method: true, status: true } },
           },
           orderBy,
           skip,

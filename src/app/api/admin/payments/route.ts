@@ -19,10 +19,13 @@ export async function GET(req: NextRequest) {
     const from = searchParams.get('from');
     const to = searchParams.get('to');
 
+    const bookingId = searchParams.get('bookingId');
+
     const where: Record<string, unknown> = {};
     if (status) where.status = status;
     if (type) where.paymentType = type;
     if (userId) where.userId = userId;
+    if (bookingId) where.bookingIds = { has: bookingId };
     if (from || to) {
       where.createdAt = {
         ...(from ? { gte: new Date(from) } : {}),

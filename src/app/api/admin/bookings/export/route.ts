@@ -74,6 +74,7 @@ export async function GET(req: NextRequest) {
               }
             }
           },
+          refunds: { select: { amount: true, method: true, status: true } },
         },
         orderBy: [{ date: 'desc' }, { startTime: 'asc' }],
       });
@@ -86,6 +87,8 @@ export async function GET(req: NextRequest) {
     }
 
     // Build CSV
+    const isPackage = (b: any) => !!b.packageBooking;
+
     const headers = [
       'Booking ID',
       'Date',
@@ -95,50 +98,87 @@ export async function GET(req: NextRequest) {
       'Player Name',
       'User Email',
       'User Mobile',
+      'Booking Type',
+      'Package Name',
+      'Package ID',
       'Ball Type',
       'Pitch Type',
       'Machine',
       'Operation Mode',
       'Status',
-      'Price',
-      'Extra Charge',
-      'Discount',
+      'Amount',
       'Created By',
       'Cancelled By',
       'Cancelled At',
-      'Booking Type',
-      'Package Name',
-      'Package ID',
       'Payment Method',
       'Payment Status',
+      'Refund Status',
+      'Refund Amount',
+      'Refund Method',
     ];
 
-    const rows = bookings.map((b: any) => [
-      b.id,
-      formatIST(b.date, 'yyyy-MM-dd'),
-      formatIST(b.createdAt, 'yyyy-MM-dd HH:mm:ss'),
-      formatIST(b.startTime, 'HH:mm'),
-      formatIST(b.endTime, 'HH:mm'),
-      `"${(b.playerName || '').replace(/"/g, '""')}"`,
-      b.user?.email || '',
-      b.user?.mobileNumber || '',
-      b.ballType,
-      b.pitchType || '',
-      b.machineId || '',
-      b.operationMode || '',
-      b.status,
-      b.price?.toString() || '',
-      b.extraCharge?.toString() || '',
-      b.discountAmount?.toString() || '',
-      `"${(b.createdBy || '').replace(/"/g, '""')}"`,
-      `"${(b.cancelledBy || '').replace(/"/g, '""')}"`,
-      b.status === 'CANCELLED' && b.updatedAt ? formatIST(b.updatedAt, 'yyyy-MM-dd HH:mm:ss') : '',
-      b.packageBooking ? 'Package' : 'Regular',
-      b.packageBooking?.userPackage?.package?.name || '',
-      b.packageBooking?.userPackageId || '',
-      b.paymentMethod || '',
-      b.paymentStatus || '',
-    ]);
+    const rows = bookings.map((b: any) => {
+      const pkg = isPackage(b);
+
+      // Compute refund columns
+      const refunds: any[] = b.refunds || [];
+      let refundStatus = '';
+      let refundAmount = '';
+      let refundMethodCol = '';
+
+      if (pkg) {
+        refundStatus = 'NA';
+        refundAmount = 'NA';
+        refundMethodCol = 'NA';
+      } else if (refunds.length > 0) {
+        const activeRefunds = refunds.filter((r: any) => r.status !== 'FAILED');
+        const totalRefunded = activeRefunds.reduce((sum: number, r: any) => sum + r.amount, 0);
+        const hasInitiated = activeRefunds.some((r: any) => r.status === 'INITIATED');
+
+        if (totalRefunded > 0) {
+          refundAmount = totalRefunded.toString();
+          if (hasInitiated && totalRefunded < (b.price || Infinity)) {
+            refundStatus = 'Refund Initiated';
+          } else if (totalRefunded >= (b.price || 0) && b.price) {
+            refundStatus = 'Full Refund';
+          } else {
+            refundStatus = 'Partial Refund';
+          }
+          const methods = new Set(activeRefunds.map((r: any) => r.method));
+          if (methods.size > 1) refundMethodCol = 'Mixed';
+          else if (methods.has('RAZORPAY')) refundMethodCol = 'Razorpay';
+          else refundMethodCol = 'Wallet';
+        }
+      }
+
+      return [
+        b.id,
+        formatIST(b.date, 'yyyy-MM-dd'),
+        formatIST(b.createdAt, 'yyyy-MM-dd HH:mm:ss'),
+        formatIST(b.startTime, 'HH:mm'),
+        formatIST(b.endTime, 'HH:mm'),
+        `"${(b.playerName || '').replace(/"/g, '""')}"`,
+        b.user?.email || '',
+        b.user?.mobileNumber || '',
+        pkg ? 'Package' : 'Regular',
+        b.packageBooking?.userPackage?.package?.name || '',
+        b.packageBooking?.userPackageId || '',
+        b.ballType,
+        b.pitchType || '',
+        b.machineId || '',
+        b.operationMode || '',
+        b.status,
+        pkg ? 'NA' : (b.price?.toString() || ''),
+        `"${(b.createdBy || '').replace(/"/g, '""')}"`,
+        `"${(b.cancelledBy || '').replace(/"/g, '""')}"`,
+        b.status === 'CANCELLED' && b.updatedAt ? formatIST(b.updatedAt, 'yyyy-MM-dd HH:mm:ss') : '',
+        pkg ? 'NA' : (b.paymentMethod || ''),
+        pkg ? 'NA' : (b.paymentStatus || ''),
+        refundStatus,
+        refundAmount,
+        refundMethodCol,
+      ];
+    });
 
     const csv = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
 

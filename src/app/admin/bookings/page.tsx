@@ -3,13 +3,14 @@
 import { useState, useEffect, useCallback, Suspense } from 'react';
 import { format } from 'date-fns';
 import { useSearchParams } from 'next/navigation';
-import { Search, Filter, XCircle, RotateCcw, Calendar, Loader2, Download, ChevronLeft, ChevronRight, ArrowUpDown, IndianRupee, Copy, Pencil, X, Check, CalendarPlus, UserPlus } from 'lucide-react';
+import { Search, Filter, XCircle, RotateCcw, Calendar, Loader2, Download, ChevronLeft, ChevronRight, ArrowUpDown, IndianRupee, Copy, Pencil, X, Check, CalendarPlus, UserPlus, Undo2 } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { AdminPageHeader } from '@/components/admin/AdminPageHeader';
 import { CancellationDialog } from '@/components/ui/CancellationDialog';
 import { TextInputDialog } from '@/components/ui/TextInputDialog';
+import { RefundDialog } from '@/components/ui/RefundDialog';
 import { useToast } from '@/components/ui/Toast';
 import { getDisplayStatus } from '@/lib/booking-utils';
 
@@ -61,6 +62,10 @@ function AdminBookingsContent() {
   const [restoreDialog, setRestoreDialog] = useState<{ bookingId: string; playerName: string } | null>(null);
   const [copyDialog, setCopyDialog] = useState<string | null>(null);
   const [customNameDialog, setCustomNameDialog] = useState(false);
+  const [refundDialog, setRefundDialog] = useState<{
+    id: string; date: string; startTime: string; endTime: string; playerName: string;
+    machineId?: string; price?: number; paymentAmount: number; alreadyRefunded: number; razorpayPortion: number;
+  } | null>(null);
 
   const [behalfSearch, setBehalfSearch] = useState('');
   const [behalfResults, setBehalfResults] = useState<any[]>([]);
@@ -278,6 +283,80 @@ function AdminBookingsContent() {
     } finally {
       setActionLoading(null);
     }
+  };
+
+  const handleRefundClick = async (booking: any) => {
+    // Fetch payment info for this booking
+    try {
+      const res = await fetch(`/api/admin/payments?bookingId=${booking.id}`);
+      if (!res.ok) {
+        toast.error('Could not fetch payment info');
+        return;
+      }
+      const data = await res.json();
+      const payment = data.payments?.[0];
+      const paymentAmount = payment?.amount || booking.price || 0;
+      const razorpayPortion = payment?.amount || 0;
+
+      // Calculate already refunded from booking refunds
+      const refunds = booking.refunds || [];
+      const alreadyRefunded = refunds.reduce((sum: number, r: any) => r.status !== 'FAILED' ? sum + r.amount : sum, 0);
+
+      setRefundDialog({
+        id: booking.id,
+        date: booking.date,
+        startTime: booking.startTime,
+        endTime: booking.endTime,
+        playerName: booking.playerName,
+        machineId: booking.machineId,
+        price: booking.price,
+        paymentAmount,
+        alreadyRefunded,
+        razorpayPortion,
+      });
+    } catch {
+      toast.error('Failed to fetch payment details');
+    }
+  };
+
+  const handleRefundConfirm = async (data: { bookingId: string; refundAmount: number; refundMethod: 'razorpay' | 'wallet'; reason: string }) => {
+    const res = await fetch('/api/admin/refund', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    });
+    const result = await res.json();
+    if (!res.ok) {
+      throw new Error(result.error || 'Refund failed');
+    }
+    toast.success(`Refund of ₹${data.refundAmount} initiated via ${data.refundMethod === 'razorpay' ? 'Razorpay' : 'Wallet'}`);
+    setRefundDialog(null);
+    fetchBookings();
+  };
+
+  const getRefundBadge = (booking: any) => {
+    const refunds = booking.refunds || [];
+    if (refunds.length === 0) return null;
+    const hasInitiated = refunds.some((r: any) => r.status === 'INITIATED');
+    const totalRefunded = refunds.reduce((sum: number, r: any) => r.status !== 'FAILED' ? sum + r.amount : sum, 0);
+    if (totalRefunded <= 0) return null;
+    // Check if fully refunded (we approximate by checking if there's no more to refund)
+    if (hasInitiated && totalRefunded < (booking.price || Infinity)) {
+      return { label: 'Refund Initiated', bg: 'bg-blue-500/10', text: 'text-blue-400' };
+    }
+    if (totalRefunded >= (booking.price || 0) && booking.price) {
+      return { label: 'Refunded', bg: 'bg-green-500/10', text: 'text-green-400' };
+    }
+    return { label: 'Partially Refunded', bg: 'bg-yellow-500/10', text: 'text-yellow-400' };
+  };
+
+  const canRefund = (booking: any) => {
+    if (booking.paymentMethod !== 'ONLINE') return false;
+    if (booking.packageBooking) return false;
+    const refunds = booking.refunds || [];
+    const totalRefunded = refunds.reduce((sum: number, r: any) => r.status !== 'FAILED' ? sum + r.amount : sum, 0);
+    // Can refund if there's potentially remaining amount
+    return booking.price == null || totalRefunded < booking.price;
   };
 
   const handleExport = () => {
@@ -634,9 +713,14 @@ function AdminBookingsContent() {
                           </div>
                         )}
                       </div>
-                      <div className={`flex-shrink-0 inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold ${status.bg} ${status.text}`}>
-                        <span className={`w-1.5 h-1.5 rounded-full ${status.dot}`}></span>
-                        {status.label}
+                      <div className="flex flex-col items-end gap-1">
+                        <div className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold ${status.bg} ${status.text}`}>
+                          <span className={`w-1.5 h-1.5 rounded-full ${status.dot}`}></span>
+                          {status.label}
+                        </div>
+                        {(() => { const badge = getRefundBadge(booking); return badge ? (
+                          <span className={`inline-flex px-2 py-0.5 rounded-full text-[9px] font-semibold ${badge.bg} ${badge.text}`}>{badge.label}</span>
+                        ) : null; })()}
                       </div>
                     </div>
 
@@ -756,6 +840,15 @@ function AdminBookingsContent() {
                         >
                           <RotateCcw className="w-3 h-3" />
                           Restore
+                        </button>
+                      )}
+                      {canRefund(booking) && (
+                        <button
+                          onClick={() => handleRefundClick(booking)}
+                          className="flex-1 flex items-center justify-center gap-1.5 py-1.5 text-[11px] font-medium text-purple-400 bg-purple-500/10 rounded-lg hover:bg-purple-500/20 transition-colors cursor-pointer"
+                        >
+                          <Undo2 className="w-3 h-3" />
+                          Refund
                         </button>
                       )}
                     </div>
@@ -878,9 +971,14 @@ function AdminBookingsContent() {
                           )}
                         </td>
                         <td className="px-5 py-3.5">
-                          <div className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold ${status.bg} ${status.text}`}>
-                            <span className={`w-1.5 h-1.5 rounded-full ${status.dot}`}></span>
-                            {status.label}
+                          <div className="flex flex-col gap-1">
+                            <div className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold ${status.bg} ${status.text} w-fit`}>
+                              <span className={`w-1.5 h-1.5 rounded-full ${status.dot}`}></span>
+                              {status.label}
+                            </div>
+                            {(() => { const badge = getRefundBadge(booking); return badge ? (
+                              <span className={`inline-flex px-2 py-0.5 rounded-full text-[10px] font-semibold ${badge.bg} ${badge.text} w-fit`}>{badge.label}</span>
+                            ) : null; })()}
                           </div>
                         </td>
                         <td className="px-5 py-3.5 text-right">
@@ -910,6 +1008,15 @@ function AdminBookingsContent() {
                                 className="px-2.5 py-1.5 text-xs font-medium text-slate-400 hover:bg-white/[0.06] rounded-lg transition-colors cursor-pointer"
                               >
                                 Restore
+                              </button>
+                            )}
+                            {canRefund(booking) && (
+                              <button
+                                onClick={() => handleRefundClick(booking)}
+                                className="px-2.5 py-1.5 text-xs font-medium text-purple-400 hover:bg-purple-500/10 rounded-lg transition-colors cursor-pointer"
+                              >
+                                <Undo2 className="w-3.5 h-3.5 inline mr-1" />
+                                Refund
                               </button>
                             )}
                           </div>
@@ -997,6 +1104,14 @@ function AdminBookingsContent() {
           router.push(`/slots?userName=${encodeURIComponent(name)}`);
         }}
         onCancel={() => setCustomNameDialog(false)}
+      />
+
+      {/* Refund Dialog */}
+      <RefundDialog
+        open={!!refundDialog}
+        booking={refundDialog}
+        onConfirm={handleRefundConfirm}
+        onCancel={() => setRefundDialog(null)}
       />
     </div >
   );
