@@ -21,6 +21,18 @@ const SAFE_BOOKING_SELECT = {
   playerName: true,
   createdAt: true,
   createdBy: true,
+  price: true,
+  originalPrice: true,
+  discountAmount: true,
+  paymentMethod: true,
+  paymentStatus: true,
+  machineId: true,
+  pitchType: true,
+  operationMode: true,
+  operatorId: true,
+  cancelledBy: true,
+  cancellationReason: true,
+  isSuperAdminBooking: true,
   user: { select: { name: true, email: true, mobileNumber: true } },
 } as const;
 
@@ -135,6 +147,7 @@ export async function GET(req: NextRequest) {
           where,
           include: {
             user: { select: { name: true, email: true, mobileNumber: true } },
+            packageBooking: { select: { id: true } },
             refunds: { select: { id: true, amount: true, method: true, status: true } },
           },
           orderBy,

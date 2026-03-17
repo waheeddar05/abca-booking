@@ -53,12 +53,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Cannot refund package bookings individually. Refund the package instead.' }, { status: 400 });
     }
 
-    // Must be an online payment booking
-    if (booking.paymentMethod !== 'ONLINE') {
-      return NextResponse.json({ error: 'Only online-payment bookings can be refunded' }, { status: 400 });
-    }
-
-    // Find the Payment record for this booking
+    // Find the Payment record for this booking (may not exist for cash/wallet bookings)
     const payment = await prisma.payment.findFirst({
       where: {
         bookingIds: { has: bookingId },
@@ -67,17 +62,21 @@ export async function POST(req: NextRequest) {
       include: { refunds: true },
     });
 
-    if (!payment) {
-      return NextResponse.json({ error: 'No completed payment found for this booking' }, { status: 400 });
-    }
-
-    // Calculate already refunded amount
-    const alreadyRefunded = payment.refunds.reduce((sum, r) => {
+    // Calculate already refunded amount from booking's refund records
+    const alreadyRefunded = (booking.refunds || []).reduce((sum: number, r: any) => {
       if (r.status !== 'FAILED') return sum + r.amount;
       return sum;
     }, 0);
 
-    const maxRefundable = payment.amount - alreadyRefunded;
+    // For wallet refunds: max is booking price minus already refunded (works for ANY payment method)
+    // For razorpay refunds: max is the payment amount minus already refunded via razorpay
+    const bookingPrice = booking.price || 0;
+    const maxRefundableWallet = Math.max(0, bookingPrice - alreadyRefunded);
+    const maxRefundableRazorpay = payment
+      ? Math.max(0, payment.amount - payment.refunds.reduce((sum, r) => r.status !== 'FAILED' && r.method === 'RAZORPAY' ? sum + r.amount : sum, 0))
+      : 0;
+
+    const maxRefundable = refundMethod === 'razorpay' ? Math.min(maxRefundableWallet, maxRefundableRazorpay) : maxRefundableWallet;
 
     if (maxRefundable <= 0) {
       return NextResponse.json({ error: 'This booking has already been fully refunded' }, { status: 400 });
@@ -90,19 +89,20 @@ export async function POST(req: NextRequest) {
       }, { status: 400 });
     }
 
-    // For razorpay refunds, cap at the gateway-paid portion
-    // If booking was partially paid via wallet, the Razorpay portion is payment.amount
-    // (wallet debits are separate transactions, not part of this Payment record)
-    if (refundMethod === 'razorpay' && !payment.razorpayPaymentId) {
-      return NextResponse.json({ error: 'No Razorpay payment ID found for this payment' }, { status: 400 });
-    }
-
+    // Razorpay refunds require an online payment with a valid razorpayPaymentId
     if (refundMethod === 'razorpay') {
+      if (!payment) {
+        return NextResponse.json({ error: 'No online payment found for this booking. Use wallet refund instead.' }, { status: 400 });
+      }
+      if (!payment.razorpayPaymentId) {
+        return NextResponse.json({ error: 'No Razorpay payment ID found. Use wallet refund instead.' }, { status: 400 });
+      }
+
       // Call Razorpay refund API first — if it fails, don't create DB records
       let razorpayRefund: any;
       try {
         razorpayRefund = await initiateRefund({
-          paymentId: payment.razorpayPaymentId!,
+          paymentId: payment.razorpayPaymentId,
           amount: refundAmount,
           notes: {
             bookingId,
@@ -134,13 +134,13 @@ export async function POST(req: NextRequest) {
         });
 
         // Update payment status
-        const totalRefunded = alreadyRefunded + refundAmount;
+        const totalPaymentRefunded = payment.refunds.reduce((sum, r) => r.status !== 'FAILED' ? sum + r.amount : sum, 0) + refundAmount;
         await tx.payment.update({
           where: { id: payment.id },
           data: {
-            status: totalRefunded >= payment.amount ? 'REFUNDED' : 'PARTIALLY_REFUNDED',
+            status: totalPaymentRefunded >= payment.amount ? 'REFUNDED' : 'PARTIALLY_REFUNDED',
             refundId: razorpayRefund.id,
-            refundAmount: totalRefunded,
+            refundAmount: totalPaymentRefunded,
             refundedAt: new Date(),
             refundMethod: 'RAZORPAY',
           },
@@ -161,7 +161,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ refund });
     }
 
-    // Wallet refund
+    // Wallet refund — works for ANY booking (online, cash, wallet, free)
     const walletResult = await creditWallet(
       booking.userId,
       refundAmount,
@@ -171,29 +171,36 @@ export async function POST(req: NextRequest) {
     );
 
     const refund = await prisma.$transaction(async (tx) => {
-      const newRefund = await tx.refund.create({
-        data: {
-          bookingId,
-          paymentId: payment.id,
-          amount: refundAmount,
-          method: 'WALLET',
-          status: 'PROCESSED',
-          reason: reason.trim(),
-          walletTransactionId: walletResult.transactionId,
-          initiatedById: user.id,
-        },
-      });
+      const refundData: any = {
+        bookingId,
+        amount: refundAmount,
+        method: 'WALLET',
+        status: 'PROCESSED',
+        reason: reason.trim(),
+        walletTransactionId: walletResult.transactionId,
+        initiatedById: user.id,
+      };
 
-      const totalRefunded = alreadyRefunded + refundAmount;
-      await tx.payment.update({
-        where: { id: payment.id },
-        data: {
-          status: totalRefunded >= payment.amount ? 'REFUNDED' : 'PARTIALLY_REFUNDED',
-          refundAmount: totalRefunded,
-          refundedAt: new Date(),
-          refundMethod: 'WALLET',
-        },
-      });
+      // Link to Payment record if one exists
+      if (payment) {
+        refundData.paymentId = payment.id;
+      }
+
+      const newRefund = await tx.refund.create({ data: refundData });
+
+      // Update payment status if there's a linked payment
+      if (payment) {
+        const totalPaymentRefunded = payment.refunds.reduce((sum, r) => r.status !== 'FAILED' ? sum + r.amount : sum, 0) + refundAmount;
+        await tx.payment.update({
+          where: { id: payment.id },
+          data: {
+            status: totalPaymentRefunded >= payment.amount ? 'REFUNDED' : 'PARTIALLY_REFUNDED',
+            refundAmount: totalPaymentRefunded,
+            refundedAt: new Date(),
+            refundMethod: 'WALLET',
+          },
+        });
+      }
 
       return newRefund;
     });

@@ -393,7 +393,7 @@ model Payment {
 model Refund {
   id                String       @id @default(cuid())
   bookingId         String
-  paymentId         String
+  paymentId         String?      // Optional: null for wallet-only refunds on non-online bookings
   amount            Float        // Amount in rupees
   method            RefundMethod
   status            RefundStatus @default(INITIATED)
@@ -405,7 +405,7 @@ model Refund {
   updatedAt         DateTime     @updatedAt
 
   booking           Booking      @relation(fields: [bookingId], references: [id])
-  payment           Payment      @relation(fields: [paymentId], references: [id])
+  payment           Payment?     @relation(fields: [paymentId], references: [id])
   initiatedBy       User         @relation("AdminRefunds", fields: [initiatedById], references: [id])
 
   @@index([bookingId])

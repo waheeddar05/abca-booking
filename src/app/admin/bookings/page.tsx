@@ -288,21 +288,29 @@ function AdminBookingsContent() {
 
   const handleRefundClick = async (booking: any) => {
     try {
-      const res = await fetch(`/api/admin/payments?bookingId=${booking.id}`);
-      if (!res.ok) { toast.error('Could not fetch payment info'); return; }
-      const data = await res.json();
-      const payment = data.payments?.[0];
-      const paymentAmount = payment?.amount || booking.price || 0;
-      const razorpayPortion = payment?.amount || 0;
       const refunds = booking.refunds || [];
       const alreadyRefunded = refunds.reduce((sum: number, r: any) => r.status !== 'FAILED' ? sum + r.amount : sum, 0);
       const alreadyRefundedViaRazorpay = refunds.reduce((sum: number, r: any) => (r.status !== 'FAILED' && r.method === 'RAZORPAY') ? sum + r.amount : sum, 0);
+
+      // For ONLINE bookings, fetch the Payment record to get the Razorpay portion
+      let razorpayPortion = 0;
+      if (booking.paymentMethod === 'ONLINE') {
+        try {
+          const res = await fetch(`/api/admin/payments?bookingId=${booking.id}`);
+          if (res.ok) {
+            const data = await res.json();
+            const payment = data.payments?.[0];
+            razorpayPortion = payment?.amount || 0;
+          }
+        } catch { /* ignore — Razorpay option just won't be available */ }
+      }
+
       setRefundDialog({
         id: booking.id, date: booking.date, startTime: booking.startTime, endTime: booking.endTime,
         playerName: booking.playerName, machineId: booking.machineId, price: booking.price,
-        paymentAmount, alreadyRefunded, alreadyRefundedViaRazorpay, razorpayPortion,
+        paymentAmount: booking.price || 0, alreadyRefunded, alreadyRefundedViaRazorpay, razorpayPortion,
       });
-    } catch { toast.error('Failed to fetch payment details'); }
+    } catch { toast.error('Failed to load refund details'); }
   };
 
   const handleRefundConfirm = async (data: { bookingId: string; refundAmount: number; refundMethod: 'razorpay' | 'wallet'; reason: string }) => {
@@ -333,11 +341,12 @@ function AdminBookingsContent() {
   };
 
   const canRefund = (booking: any) => {
-    if (booking.paymentMethod !== 'ONLINE') return false;
+    // Admin can refund any booking with a price (wallet credit works for all payment methods)
     if (booking.packageBooking) return false;
+    if (!booking.price || booking.price <= 0) return false;
     const refunds = booking.refunds || [];
     const totalRefunded = refunds.reduce((sum: number, r: any) => r.status !== 'FAILED' ? sum + r.amount : sum, 0);
-    return booking.price == null || totalRefunded < booking.price;
+    return totalRefunded < booking.price;
   };
 
   const handleExport = () => {
