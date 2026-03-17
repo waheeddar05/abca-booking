@@ -317,7 +317,7 @@ export default function AdminUsers() {
       </div>
 
       {showAddForm && (
-        <div className="bg-white/[0.03] backdrop-blur-sm rounded-2xl border border-white/[0.07] hover:border-white/[0.12] transition-colors p-5 mb-5">
+        <div className="bg-white/[0.03] backdrop-blur-sm rounded-xl sm:rounded-2xl border border-white/[0.07] hover:border-white/[0.12] transition-colors p-3.5 sm:p-5 mb-4">
           <h2 className="text-sm font-semibold text-white mb-3">Add New User</h2>
           <form onSubmit={handleAddUser} className="space-y-3">
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -404,10 +404,10 @@ export default function AdminUsers() {
             const initial = user.name ? user.name.charAt(0).toUpperCase() : (user.email?.charAt(0).toUpperCase() || '?');
 
             return (
-              <div key={user.id} className="bg-white/[0.03] backdrop-blur-sm rounded-2xl border border-white/[0.07] hover:border-white/[0.12] transition-colors overflow-hidden">
+              <div key={user.id} className="bg-white/[0.03] backdrop-blur-sm rounded-xl sm:rounded-2xl border border-white/[0.07] hover:border-white/[0.12] transition-colors overflow-hidden">
                 <button
                   onClick={() => setExpandedUser(isExpanded ? null : user.id)}
-                  className="w-full flex items-center gap-3 p-4 text-left cursor-pointer hover:bg-white/[0.04] transition-colors"
+                  className="w-full flex items-center gap-3 p-3 sm:p-4 text-left cursor-pointer hover:bg-white/[0.04] transition-colors"
                 >
                   {user.image ? (
                     <Image

@@ -67,22 +67,22 @@ export function AdminStatCard({
     return (
         <Link
             href={href}
-            className="group relative overflow-hidden rounded-2xl border border-white/[0.07] bg-white/[0.03] backdrop-blur-sm hover:border-white/[0.15] transition-all duration-300 hover:shadow-lg hover:shadow-black/20 hover:-translate-y-0.5"
+            className="group relative overflow-hidden rounded-xl sm:rounded-2xl border border-white/[0.07] bg-white/[0.03] backdrop-blur-sm hover:border-white/[0.15] transition-all duration-300 hover:shadow-lg hover:shadow-black/20 hover:-translate-y-0.5"
             style={{ animationDelay: `${delay}ms` }}
         >
             {/* Gradient overlay on hover */}
             <div className={`absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-500 ${gradient}`} />
 
-            <div className="relative p-4">
-                <div className="flex items-center gap-3">
-                    <div className={`w-10 h-10 rounded-xl ${gradient} flex items-center justify-center group-hover:scale-110 transition-transform duration-300 flex-shrink-0`}>
-                        <Icon className={`w-5 h-5 ${iconColor}`} />
+            <div className="relative p-3 sm:p-4">
+                <div className="flex items-center gap-2.5 sm:gap-3">
+                    <div className={`w-8 h-8 sm:w-10 sm:h-10 rounded-lg sm:rounded-xl ${gradient} flex items-center justify-center group-hover:scale-110 transition-transform duration-300 flex-shrink-0`}>
+                        <Icon className={`w-4 h-4 sm:w-5 sm:h-5 ${iconColor}`} />
                     </div>
                     <div className="min-w-0 flex-1">
-                        <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider truncate">
+                        <p className="text-[9px] sm:text-[10px] font-semibold text-slate-500 uppercase tracking-wider truncate">
                             {label}
                         </p>
-                        <p className="text-lg sm:text-xl font-bold text-white truncate mt-0.5">
+                        <p className="text-base sm:text-xl font-bold text-white truncate mt-0.5">
                             {loading ? (
                                 <span className="inline-block w-12 h-5 bg-white/[0.06] rounded animate-pulse" />
                             ) : isText ? (

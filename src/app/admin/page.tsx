@@ -3,9 +3,8 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useSession } from 'next-auth/react';
-import { CalendarCheck, Activity, UserPlus, CalendarDays, Settings, Clock, IndianRupee, TrendingUp, Zap, Wrench, CalendarPlus, LayoutDashboard, SlidersHorizontal } from 'lucide-react';
+import { CalendarCheck, Activity, CalendarDays, Clock, IndianRupee, TrendingUp, LayoutDashboard, Wrench, SlidersHorizontal, Users, Package, Settings } from 'lucide-react';
 import { AdminPageHeader } from '@/components/admin/AdminPageHeader';
-import { AdminCard } from '@/components/admin/AdminCard';
 import { AdminStatCard } from '@/components/admin/AdminStatCard';
 
 interface Stats {
@@ -49,16 +48,17 @@ export default function AdminDashboard() {
     { label: 'Today', value: stats?.todayBookings ?? 0, icon: CalendarDays, gradient: 'bg-gradient-to-br from-orange-500/15 to-orange-500/5', iconColor: 'text-orange-400', href: '/admin/bookings?category=today' },
     { label: 'Upcoming', value: stats?.upcomingBookings ?? 0, icon: TrendingUp, gradient: 'bg-gradient-to-br from-blue-500/15 to-blue-500/5', iconColor: 'text-blue-400', href: '/admin/bookings?category=upcoming' },
     { label: 'Revenue', value: stats?.totalRevenue ? `₹${stats.totalRevenue.toLocaleString()}` : '₹0', icon: IndianRupee, gradient: 'bg-gradient-to-br from-emerald-500/15 to-emerald-500/5', iconColor: 'text-emerald-400', isText: true, prefix: '', href: '/admin/bookings' },
-    { label: 'System Status', value: stats?.systemStatus ?? 'Healthy', icon: Activity, gradient: 'bg-gradient-to-br from-green-500/15 to-green-500/5', iconColor: 'text-green-400', isText: true, href: '/admin/policies' },
+    { label: 'Status', value: stats?.systemStatus ?? 'Healthy', icon: Activity, gradient: 'bg-gradient-to-br from-green-500/15 to-green-500/5', iconColor: 'text-green-400', isText: true, href: '/admin/policies' },
   ];
 
-  const quickActions = [
-    ...(isSuperAdmin ? [{ href: '/admin/users', label: 'Invite Admin', icon: UserPlus, variant: 'accent' as const }] : []),
-    { href: '/admin/bookings', label: 'View Bookings', icon: CalendarDays, variant: 'default' as const },
-    { href: '/admin/slots', label: 'Manage Slots', icon: Clock, variant: 'default' as const },
-    { href: '/admin/configuration', label: 'Configuration', icon: SlidersHorizontal, variant: 'default' as const },
-    { href: '/admin/policies', label: 'Policies', icon: Settings, variant: 'default' as const },
-    ...(isSuperAdmin ? [{ href: '/admin/maintenance', label: 'Maintenance', icon: Wrench, variant: 'warning' as const }] : []),
+  const manageLinks = [
+    { href: '/admin/bookings', label: 'Bookings', icon: CalendarCheck, color: 'text-accent', bg: 'bg-accent/10' },
+    { href: '/admin/slots', label: 'Slots', icon: Clock, color: 'text-blue-400', bg: 'bg-blue-500/10' },
+    { href: '/admin/users', label: 'Users', icon: Users, color: 'text-purple-400', bg: 'bg-purple-500/10' },
+    { href: '/admin/packages', label: 'Packages', icon: Package, color: 'text-orange-400', bg: 'bg-orange-500/10' },
+    { href: '/admin/configuration', label: 'Settings', icon: SlidersHorizontal, color: 'text-slate-300', bg: 'bg-white/[0.06]' },
+    { href: '/admin/policies', label: 'Policies', icon: Settings, color: 'text-slate-300', bg: 'bg-white/[0.06]' },
+    ...(isSuperAdmin ? [{ href: '/admin/maintenance', label: 'Maintenance', icon: Wrench, color: 'text-amber-400', bg: 'bg-amber-500/10' }] : []),
   ];
 
   return (
@@ -69,29 +69,8 @@ export default function AdminDashboard() {
         description="Overview & quick actions"
       />
 
-      {/* Welcome / Empty state banner */}
-      {stats?.totalBookings === 0 && (
-        <div className="animate-card-entrance bg-gradient-to-r from-accent/10 via-accent/5 to-transparent border border-accent/20 rounded-2xl p-5 flex flex-col sm:flex-row items-center justify-between gap-4">
-          <div className="flex items-center gap-3">
-            <div className="w-11 h-11 rounded-2xl bg-accent flex items-center justify-center shadow-lg shadow-accent/20">
-              <CalendarPlus className="w-5 h-5 text-primary" />
-            </div>
-            <div>
-              <p className="text-sm font-semibold text-white">No bookings yet!</p>
-              <p className="text-xs text-slate-400 mt-0.5">Start by booking your first slot to see statistics.</p>
-            </div>
-          </div>
-          <Link
-            href="/slots"
-            className="inline-flex items-center gap-2 px-4 py-2.5 bg-accent hover:bg-accent-light text-primary rounded-xl text-sm font-semibold transition-colors shadow-sm"
-          >
-            Book Your First Slot
-          </Link>
-        </div>
-      )}
-
-      {/* ─── Stats Grid ───────────────────────────── */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+      {/* Stats Grid */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2.5">
         {statCards.map((card, idx) => (
           <AdminStatCard
             key={card.label}
@@ -109,45 +88,24 @@ export default function AdminDashboard() {
         ))}
       </div>
 
-      {/* ─── Quick Actions ────────────────────────── */}
-      <AdminCard title="Quick Actions" icon={<Zap className="w-4 h-4 text-accent" />}>
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
-          {quickActions.map(action => (
+      {/* Quick Manage Grid - simple flat grid */}
+      <div>
+        <h2 className="text-sm font-semibold text-slate-400 mb-3 px-1">Manage</h2>
+        <div className="grid grid-cols-3 sm:grid-cols-4 lg:grid-cols-7 gap-2">
+          {manageLinks.map(({ href, label, icon: Icon, color, bg }) => (
             <Link
-              key={action.href + action.label}
-              href={action.href}
-              className={`flex flex-col items-center gap-2 px-3 py-4 rounded-xl text-center transition-all duration-200 group ${action.variant === 'accent'
-                  ? 'bg-accent/10 border border-accent/20 hover:bg-accent/20 hover:shadow-sm hover:shadow-accent/10'
-                  : action.variant === 'warning'
-                    ? 'bg-amber-500/8 border border-amber-500/15 hover:bg-amber-500/15'
-                    : 'bg-white/[0.03] border border-white/[0.06] hover:bg-white/[0.06] hover:border-white/[0.12]'
-                }`}
+              key={href}
+              href={href}
+              className="flex flex-col items-center gap-1.5 px-2 py-3 rounded-xl bg-white/[0.03] border border-white/[0.06] hover:bg-white/[0.06] hover:border-white/[0.12] transition-all active:scale-95 group"
             >
-              <div className={`w-9 h-9 rounded-xl flex items-center justify-center transition-transform duration-200 group-hover:scale-110 ${action.variant === 'accent'
-                  ? 'bg-accent/15'
-                  : action.variant === 'warning'
-                    ? 'bg-amber-500/15'
-                    : 'bg-white/[0.06]'
-                }`}>
-                <action.icon className={`w-4 h-4 ${action.variant === 'accent'
-                    ? 'text-accent'
-                    : action.variant === 'warning'
-                      ? 'text-amber-400'
-                      : 'text-slate-400'
-                  }`} />
+              <div className={`w-9 h-9 rounded-xl ${bg} flex items-center justify-center group-hover:scale-110 transition-transform`}>
+                <Icon className={`w-4 h-4 ${color}`} />
               </div>
-              <span className={`text-[11px] font-semibold ${action.variant === 'accent'
-                  ? 'text-accent'
-                  : action.variant === 'warning'
-                    ? 'text-amber-300'
-                    : 'text-slate-300'
-                }`}>
-                {action.label}
-              </span>
+              <span className="text-[10px] font-medium text-slate-300">{label}</span>
             </Link>
           ))}
         </div>
-      </AdminCard>
+      </div>
     </div>
   );
 }

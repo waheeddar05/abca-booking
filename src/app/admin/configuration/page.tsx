@@ -693,7 +693,7 @@ export default function ConfigurationPage() {
         title="Machine Configuration"
         icon={<Zap className="w-4 h-4 text-accent" />}
         collapsible
-        defaultOpen={true}
+        defaultOpen={false}
       >
         {machineLoading ? (
           <div className="flex items-center justify-center py-8 text-slate-400">

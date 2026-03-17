@@ -3,14 +3,13 @@
 import { useState, useEffect, useCallback, Suspense } from 'react';
 import { format } from 'date-fns';
 import { useSearchParams } from 'next/navigation';
-import { Search, Filter, XCircle, RotateCcw, Calendar, Loader2, Download, ChevronLeft, ChevronRight, ArrowUpDown, IndianRupee, Copy, Pencil, X, Check, CalendarPlus, UserPlus, Undo2 } from 'lucide-react';
+import { Search, Filter, XCircle, RotateCcw, Calendar, Loader2, Download, ChevronLeft, ChevronRight, ChevronDown, ArrowUpDown, IndianRupee, Copy, Pencil, X, Check, CalendarPlus, UserPlus } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { AdminPageHeader } from '@/components/admin/AdminPageHeader';
 import { CancellationDialog } from '@/components/ui/CancellationDialog';
 import { TextInputDialog } from '@/components/ui/TextInputDialog';
-import { RefundDialog } from '@/components/ui/RefundDialog';
 import { useToast } from '@/components/ui/Toast';
 import { getDisplayStatus } from '@/lib/booking-utils';
 
@@ -49,6 +48,7 @@ function AdminBookingsContent() {
     machineId: '',
   });
   const [showDateRange, setShowDateRange] = useState(false);
+  const [showFilters, setShowFilters] = useState(false);
   const [editingPriceId, setEditingPriceId] = useState<string | null>(null);
   const [editPriceValue, setEditPriceValue] = useState('');
   const [actionLoading, setActionLoading] = useState<string | null>(null);
@@ -62,10 +62,6 @@ function AdminBookingsContent() {
   const [restoreDialog, setRestoreDialog] = useState<{ bookingId: string; playerName: string } | null>(null);
   const [copyDialog, setCopyDialog] = useState<string | null>(null);
   const [customNameDialog, setCustomNameDialog] = useState(false);
-  const [refundDialog, setRefundDialog] = useState<{
-    id: string; date: string; startTime: string; endTime: string; playerName: string;
-    machineId?: string; price?: number; paymentAmount: number; alreadyRefunded: number; razorpayPortion: number;
-  } | null>(null);
 
   const [behalfSearch, setBehalfSearch] = useState('');
   const [behalfResults, setBehalfResults] = useState<any[]>([]);
@@ -285,80 +281,6 @@ function AdminBookingsContent() {
     }
   };
 
-  const handleRefundClick = async (booking: any) => {
-    // Fetch payment info for this booking
-    try {
-      const res = await fetch(`/api/admin/payments?bookingId=${booking.id}`);
-      if (!res.ok) {
-        toast.error('Could not fetch payment info');
-        return;
-      }
-      const data = await res.json();
-      const payment = data.payments?.[0];
-      const paymentAmount = payment?.amount || booking.price || 0;
-      const razorpayPortion = payment?.amount || 0;
-
-      // Calculate already refunded from booking refunds
-      const refunds = booking.refunds || [];
-      const alreadyRefunded = refunds.reduce((sum: number, r: any) => r.status !== 'FAILED' ? sum + r.amount : sum, 0);
-
-      setRefundDialog({
-        id: booking.id,
-        date: booking.date,
-        startTime: booking.startTime,
-        endTime: booking.endTime,
-        playerName: booking.playerName,
-        machineId: booking.machineId,
-        price: booking.price,
-        paymentAmount,
-        alreadyRefunded,
-        razorpayPortion,
-      });
-    } catch {
-      toast.error('Failed to fetch payment details');
-    }
-  };
-
-  const handleRefundConfirm = async (data: { bookingId: string; refundAmount: number; refundMethod: 'razorpay' | 'wallet'; reason: string }) => {
-    const res = await fetch('/api/admin/refund', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(data),
-    });
-    const result = await res.json();
-    if (!res.ok) {
-      throw new Error(result.error || 'Refund failed');
-    }
-    toast.success(`Refund of ₹${data.refundAmount} initiated via ${data.refundMethod === 'razorpay' ? 'Razorpay' : 'Wallet'}`);
-    setRefundDialog(null);
-    fetchBookings();
-  };
-
-  const getRefundBadge = (booking: any) => {
-    const refunds = booking.refunds || [];
-    if (refunds.length === 0) return null;
-    const hasInitiated = refunds.some((r: any) => r.status === 'INITIATED');
-    const totalRefunded = refunds.reduce((sum: number, r: any) => r.status !== 'FAILED' ? sum + r.amount : sum, 0);
-    if (totalRefunded <= 0) return null;
-    // Check if fully refunded (we approximate by checking if there's no more to refund)
-    if (hasInitiated && totalRefunded < (booking.price || Infinity)) {
-      return { label: 'Refund Initiated', bg: 'bg-blue-500/10', text: 'text-blue-400' };
-    }
-    if (totalRefunded >= (booking.price || 0) && booking.price) {
-      return { label: 'Refunded', bg: 'bg-green-500/10', text: 'text-green-400' };
-    }
-    return { label: 'Partially Refunded', bg: 'bg-yellow-500/10', text: 'text-yellow-400' };
-  };
-
-  const canRefund = (booking: any) => {
-    if (booking.paymentMethod !== 'ONLINE') return false;
-    if (booking.packageBooking) return false;
-    const refunds = booking.refunds || [];
-    const totalRefunded = refunds.reduce((sum: number, r: any) => r.status !== 'FAILED' ? sum + r.amount : sum, 0);
-    // Can refund if there's potentially remaining amount
-    return booking.price == null || totalRefunded < booking.price;
-  };
-
   const handleExport = () => {
     const params = new URLSearchParams();
     if (category !== 'all') params.set('category', category);
@@ -511,12 +433,12 @@ function AdminBookingsContent() {
       )}
 
       {/* Category Tabs */}
-      <div className="flex gap-1 overflow-x-auto pb-2 mb-4 scrollbar-hide">
+      <div className="flex gap-1 overflow-x-auto pb-1 mb-3 scrollbar-hide">
         {tabs.map(tab => (
           <button
             key={tab.key}
             onClick={() => handleCategoryChange(tab.key)}
-            className={`flex-shrink-0 px-4 py-2.5 rounded-xl text-sm font-semibold transition-all cursor-pointer ${category === tab.key
+            className={`flex-shrink-0 px-3 py-2 rounded-xl text-xs sm:text-sm font-semibold transition-all cursor-pointer ${category === tab.key
               ? 'bg-accent text-primary shadow-sm shadow-accent/20'
               : 'bg-white/[0.03] text-slate-500 border border-white/[0.07] hover:border-white/[0.15] hover:text-slate-300'
               }`}
@@ -526,25 +448,24 @@ function AdminBookingsContent() {
         ))}
       </div>
 
-      {/* Summary Cards */}
-      <div className="grid grid-cols-2 gap-3 mb-5">
-        <div className="bg-gradient-to-br from-green-500/15 to-green-500/5 rounded-2xl p-4 text-center border border-green-500/10">
-          <div className="text-2xl font-bold text-green-400">{summary.booked}</div>
-          <div className="text-[10px] font-semibold text-green-400/70 uppercase tracking-wider mt-0.5">Booked</div>
-        </div>
-        <div className="bg-gradient-to-br from-white/[0.04] to-transparent rounded-2xl p-4 text-center border border-white/[0.06]">
-          <div className="text-2xl font-bold text-slate-400">{summary.cancelled}</div>
-          <div className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mt-0.5">Cancelled</div>
-        </div>
+      {/* Summary - inline on mobile */}
+      <div className="flex items-center gap-3 mb-3 px-1">
+        <span className="text-xs text-slate-400">Showing <span className="text-white font-semibold">{summary.total}</span></span>
+        <span className="text-[10px] text-green-400 font-medium">{summary.booked} booked</span>
+        <span className="text-[10px] text-slate-500 font-medium">{summary.cancelled} cancelled</span>
       </div>
 
-      {/* Filters */}
-      <div className="bg-white/[0.03] backdrop-blur-sm rounded-2xl border border-white/[0.07] p-5 mb-5 hover:border-white/[0.12] transition-colors">
-        <div className="flex items-center justify-between mb-4">
-          <div className="flex items-center gap-2">
+      {/* Filters - collapsible on mobile */}
+      <div className="bg-white/[0.03] backdrop-blur-sm rounded-2xl border border-white/[0.07] p-3 sm:p-5 mb-4 hover:border-white/[0.12] transition-colors">
+        <div className="flex items-center justify-between mb-0 sm:mb-4">
+          <button
+            onClick={() => setShowFilters(!showFilters)}
+            className="flex items-center gap-2 sm:cursor-default"
+          >
             <Filter className="w-4 h-4 text-accent" />
-            <span className="text-sm font-semibold text-white uppercase tracking-wider">Filters</span>
-          </div>
+            <span className="text-xs sm:text-sm font-semibold text-white uppercase tracking-wider">Filters</span>
+            <ChevronDown className={`w-3.5 h-3.5 text-slate-400 sm:hidden transition-transform ${showFilters ? 'rotate-180' : ''}`} />
+          </button>
           <button
             onClick={() => setShowDateRange(!showDateRange)}
             className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold cursor-pointer transition-all ${showDateRange
@@ -556,7 +477,7 @@ function AdminBookingsContent() {
             {showDateRange ? 'Hide Date Range' : 'Date Range Filter'}
           </button>
         </div>
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <div className={`grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3 mt-3 ${showFilters ? '' : 'hidden sm:grid'}`}>
           <div>
             <label className="block text-[11px] font-semibold text-slate-300 mb-1.5">Status</label>
             <select
@@ -615,8 +536,8 @@ function AdminBookingsContent() {
             />
           </div>
         </div>
-        {showDateRange && (
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-4 pt-4 border-t border-white/[0.08]">
+        {showDateRange && showFilters && (
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 sm:gap-3 mt-3 sm:mt-4 pt-3 sm:pt-4 border-t border-white/[0.08]">
             <div>
               <label className="block text-[11px] font-semibold text-slate-300 mb-1.5">From Date</label>
               <input
@@ -648,7 +569,7 @@ function AdminBookingsContent() {
       </div>
 
       {/* Sort Controls */}
-      <div className="flex items-center gap-2 mb-3">
+      <div className="flex items-center gap-2 mb-2">
         <span className="text-[11px] font-medium text-slate-400 uppercase tracking-wider">Sort by:</span>
         <button
           onClick={() => handleSort('date')}
@@ -699,7 +620,7 @@ function AdminBookingsContent() {
                 const isEditing = editingPriceId === booking.id;
                 const isActionLoading = actionLoading === booking.id;
                 return (
-                  <div key={booking.id} className="bg-white/[0.03] backdrop-blur-sm rounded-2xl border border-white/[0.07] p-3.5 hover:border-white/[0.12] transition-colors">
+                  <div key={booking.id} className="bg-white/[0.03] backdrop-blur-sm rounded-xl border border-white/[0.07] p-3 hover:border-white/[0.12] transition-colors">
                     {/* Row 1: Name + Status */}
                     <div className="flex items-start justify-between gap-2 mb-2">
                       <div className="min-w-0 flex-1">
@@ -713,14 +634,9 @@ function AdminBookingsContent() {
                           </div>
                         )}
                       </div>
-                      <div className="flex flex-col items-end gap-1">
-                        <div className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold ${status.bg} ${status.text}`}>
-                          <span className={`w-1.5 h-1.5 rounded-full ${status.dot}`}></span>
-                          {status.label}
-                        </div>
-                        {(() => { const badge = getRefundBadge(booking); return badge ? (
-                          <span className={`inline-flex px-2 py-0.5 rounded-full text-[9px] font-semibold ${badge.bg} ${badge.text}`}>{badge.label}</span>
-                        ) : null; })()}
+                      <div className={`flex-shrink-0 inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold ${status.bg} ${status.text}`}>
+                        <span className={`w-1.5 h-1.5 rounded-full ${status.dot}`}></span>
+                        {status.label}
                       </div>
                     </div>
 
@@ -770,7 +686,7 @@ function AdminBookingsContent() {
                     </div>
 
                     {/* Row 3: Tags */}
-                    <div className="flex flex-wrap items-center gap-1.5 mb-2.5">
+                    <div className="flex flex-wrap items-center gap-1 mb-2">
                       <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${booking.ballType === 'LEATHER' ? 'bg-red-500/10 text-red-400' :
                         booking.ballType === 'TENNIS' ? 'bg-green-500/10 text-green-400' :
                           'bg-blue-500/10 text-blue-400'
@@ -813,7 +729,7 @@ function AdminBookingsContent() {
                     )}
 
                     {/* Row 4: Actions */}
-                    <div className="flex gap-2 pt-2.5 border-t border-white/[0.04]">
+                    <div className="flex gap-1.5 pt-2 border-t border-white/[0.04]">
                       {booking.status === 'BOOKED' && (
                         <>
                           <button
@@ -840,15 +756,6 @@ function AdminBookingsContent() {
                         >
                           <RotateCcw className="w-3 h-3" />
                           Restore
-                        </button>
-                      )}
-                      {canRefund(booking) && (
-                        <button
-                          onClick={() => handleRefundClick(booking)}
-                          className="flex-1 flex items-center justify-center gap-1.5 py-1.5 text-[11px] font-medium text-purple-400 bg-purple-500/10 rounded-lg hover:bg-purple-500/20 transition-colors cursor-pointer"
-                        >
-                          <Undo2 className="w-3 h-3" />
-                          Refund
                         </button>
                       )}
                     </div>
@@ -971,14 +878,9 @@ function AdminBookingsContent() {
                           )}
                         </td>
                         <td className="px-5 py-3.5">
-                          <div className="flex flex-col gap-1">
-                            <div className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold ${status.bg} ${status.text} w-fit`}>
-                              <span className={`w-1.5 h-1.5 rounded-full ${status.dot}`}></span>
-                              {status.label}
-                            </div>
-                            {(() => { const badge = getRefundBadge(booking); return badge ? (
-                              <span className={`inline-flex px-2 py-0.5 rounded-full text-[10px] font-semibold ${badge.bg} ${badge.text} w-fit`}>{badge.label}</span>
-                            ) : null; })()}
+                          <div className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold ${status.bg} ${status.text}`}>
+                            <span className={`w-1.5 h-1.5 rounded-full ${status.dot}`}></span>
+                            {status.label}
                           </div>
                         </td>
                         <td className="px-5 py-3.5 text-right">
@@ -1008,15 +910,6 @@ function AdminBookingsContent() {
                                 className="px-2.5 py-1.5 text-xs font-medium text-slate-400 hover:bg-white/[0.06] rounded-lg transition-colors cursor-pointer"
                               >
                                 Restore
-                              </button>
-                            )}
-                            {canRefund(booking) && (
-                              <button
-                                onClick={() => handleRefundClick(booking)}
-                                className="px-2.5 py-1.5 text-xs font-medium text-purple-400 hover:bg-purple-500/10 rounded-lg transition-colors cursor-pointer"
-                              >
-                                <Undo2 className="w-3.5 h-3.5 inline mr-1" />
-                                Refund
                               </button>
                             )}
                           </div>
@@ -1104,14 +997,6 @@ function AdminBookingsContent() {
           router.push(`/slots?userName=${encodeURIComponent(name)}`);
         }}
         onCancel={() => setCustomNameDialog(false)}
-      />
-
-      {/* Refund Dialog */}
-      <RefundDialog
-        open={!!refundDialog}
-        booking={refundDialog}
-        onConfirm={handleRefundConfirm}
-        onCancel={() => setRefundDialog(null)}
       />
     </div >
   );

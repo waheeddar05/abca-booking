@@ -42,7 +42,7 @@ export function AdminCard({
         >
             {title && (
                 <div
-                    className={`flex items-center gap-3 px-5 py-4 ${collapsible ? 'cursor-pointer select-none' : ''} ${isOpen && !noPadding ? 'border-b border-white/[0.05]' : ''}`}
+                    className={`flex items-center gap-3 px-3.5 py-3 sm:px-5 sm:py-4 ${collapsible ? 'cursor-pointer select-none' : ''} ${isOpen && !noPadding ? 'border-b border-white/[0.05]' : ''}`}
                     onClick={collapsible ? () => setIsOpen(!isOpen) : undefined}
                 >
                     {icon && (
@@ -69,7 +69,7 @@ export function AdminCard({
           ${collapsible && !isOpen ? 'max-h-0 opacity-0' : 'max-h-[5000px] opacity-100'}
         `}
             >
-                <div className={noPadding ? '' : 'p-5'}>
+                <div className={noPadding ? '' : 'p-3.5 sm:p-5'}>
                     {children}
                 </div>
             </div>

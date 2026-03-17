@@ -23,7 +23,7 @@ export default function AdminLayout({
     { href: '/admin/slots', label: 'Slots', icon: Clock },
     { href: '/admin/users', label: 'Users', icon: Users },
     { href: '/admin/packages', label: 'Packages', icon: Package },
-    { href: '/admin/configuration', label: 'Configuration', icon: SlidersHorizontal },
+    { href: '/admin/configuration', label: 'Settings', icon: SlidersHorizontal },
     { href: '/admin/policies', label: 'Policies', icon: Settings },
     ...(isSuperAdmin ? [{ href: '/admin/maintenance', label: 'Maintenance', icon: Wrench }] : []),
   ];
@@ -37,24 +37,25 @@ export default function AdminLayout({
       <div className="fixed inset-0 -z-10 bg-gradient-to-br from-[#0a1628] via-[#0f1d35] to-[#0d1f3c]"></div>
       <div className="fixed inset-0 -z-10 bg-[radial-gradient(ellipse_at_top,rgba(56,189,248,0.04),transparent_60%)]"></div>
       <div className="fixed inset-0 -z-10 bg-[radial-gradient(ellipse_at_bottom_right,rgba(139,92,246,0.03),transparent_60%)]"></div>
-      {/* Mobile: Back to App header bar */}
-      <div className="md:hidden flex items-center justify-between px-4 py-2.5 bg-[#0b1726]/80 backdrop-blur-xl border-b border-white/[0.06]">
-        <Link
-          href="/slots"
-          className="flex items-center gap-2 text-slate-400 hover:text-white transition-colors active:scale-95 min-h-[44px]"
-        >
-          <ArrowLeft className="w-4 h-4" />
-          <span className="text-sm font-medium">Back to App</span>
-        </Link>
+
+      {/* Mobile: Compact header */}
+      <div className="md:hidden flex items-center justify-between px-4 py-2 bg-[#0b1726]/80 backdrop-blur-xl border-b border-white/[0.06]">
         <div className="flex items-center gap-2">
           <div className="w-6 h-6 rounded-lg bg-gradient-to-br from-accent/20 to-purple-500/20 flex items-center justify-center">
             <Zap className="w-3 h-3 text-accent" />
           </div>
           <span className="text-xs font-bold text-white tracking-wide">Admin</span>
         </div>
+        <Link
+          href="/slots"
+          className="flex items-center gap-1.5 text-slate-400 hover:text-white transition-colors text-xs font-medium px-2.5 py-1.5 rounded-lg bg-white/[0.04] active:scale-95"
+        >
+          <ArrowLeft className="w-3 h-3" />
+          App
+        </Link>
       </div>
 
-      {/* Admin Mobile App-like Bottom Navigation */}
+      {/* Admin Mobile Bottom Navigation */}
       <AdminMobileNav />
 
       <div className="flex">
@@ -106,7 +107,7 @@ export default function AdminLayout({
         </aside>
 
         {/* Main Content */}
-        <main className="flex-1 min-w-0 p-4 pb-24 md:p-6 md:pb-6">
+        <main className="flex-1 min-w-0 p-4 pb-20 md:p-6 md:pb-6">
           <div className="max-w-5xl mx-auto overflow-x-hidden">
             {children}
           </div>
