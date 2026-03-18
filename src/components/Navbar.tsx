@@ -5,12 +5,11 @@ import Image from 'next/image';
 import { useSession, signOut } from 'next-auth/react';
 import { usePathname } from 'next/navigation';
 import { useState, useEffect } from 'react';
-import { Menu, X, Calendar, ClipboardList, Shield, LogOut, LogIn, Package, Bell, Wrench, Wallet } from 'lucide-react';
+import { Shield, LogOut, LogIn, ArrowLeft } from 'lucide-react';
 
 export default function Navbar() {
   const { data: session } = useSession();
   const pathname = usePathname();
-  const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
 
   useEffect(() => {
@@ -19,29 +18,8 @@ export default function Navbar() {
     return () => window.removeEventListener('scroll', handleScroll);
   }, []);
 
-  // Close menu on route change
-  useEffect(() => {
-    setIsMenuOpen(false);
-  }, [pathname]);
-
-  const navLinks = [
-    { href: '/slots', label: 'Book Slots', icon: Calendar, show: !!session, hideOnMobile: true },
-    { href: '/bookings', label: 'My Bookings', icon: ClipboardList, show: !!session, hideOnMobile: true },
-    { href: '/packages', label: 'Packages', icon: Package, show: !!session, hideOnMobile: true },
-    { href: '/operator', label: 'Operator', icon: Wrench, show: session?.user?.role === 'OPERATOR' },
-    { href: '/admin', label: 'Admin', icon: Shield, show: session?.user?.role === 'ADMIN' },
-  ].filter(link => link.show);
-
-  const profileLinks = [
-    { href: '/wallet', label: 'Wallet', icon: Wallet },
-    { href: '/notifications', label: 'Notifications', icon: Bell },
-  ];
-
-  const isActive = (href: string) => pathname === href || pathname.startsWith(href + '/');
-
-  const userImage = session?.user?.image;
-  const userName = session?.user?.name;
-  const userInitial = userName ? userName.charAt(0).toUpperCase() : (session?.user?.email?.charAt(0).toUpperCase() || '?');
+  const isAdmin = session?.user?.role === 'ADMIN';
+  const isInAdminMode = pathname.startsWith('/admin');
 
   if (pathname === '/') return null;
 
@@ -62,64 +40,41 @@ export default function Navbar() {
             />
           </Link>
 
-          {/* Desktop Menu */}
-          <div className="hidden md:flex items-center gap-1">
-            {navLinks.map(({ href, label, icon: Icon }) => (
-              <Link
-                key={href}
-                href={href}
-                className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium transition-all ${isActive(href)
-                  ? 'bg-white/15 text-accent'
-                  : 'text-white/70 hover:text-white hover:bg-white/10'
-                  }`}
-              >
-                <Icon className="w-4 h-4" />
-                {label}
-              </Link>
-            ))}
-
+          {/* Right side actions */}
+          <div className="flex items-center gap-1.5">
             {session ? (
-              <div className="flex items-center ml-2 pl-2 border-l border-white/10 gap-1">
-                {profileLinks.map(({ href, label, icon: Icon }) => (
+              <>
+                {/* Admin mode: Switch to User Mode */}
+                {isInAdminMode && (
                   <Link
-                    key={href}
-                    href={href}
-                    className={`flex items-center gap-1.5 px-2 py-2 rounded-lg text-sm font-medium transition-all ${isActive(href)
-                      ? 'bg-white/15 text-accent'
-                      : 'text-white/70 hover:text-white hover:bg-white/10'
-                      }`}
-                    title={label}
+                    href="/slots"
+                    className="hidden md:flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium transition-all text-white/70 hover:text-white hover:bg-white/10"
                   >
-                    <Icon className="w-4 h-4" />
+                    <ArrowLeft className="w-4 h-4" />
+                    User Mode
                   </Link>
-                ))}
-                <div className="flex items-center gap-2 ml-1 mr-2">
-                  {userImage ? (
-                    <Image
-                      src={userImage}
-                      alt={userName || 'Profile'}
-                      width={28}
-                      height={28}
-                      className="rounded-full"
-                      referrerPolicy="no-referrer"
-                    />
-                  ) : (
-                    <div className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold bg-accent text-primary">
-                      {userInitial}
-                    </div>
-                  )}
-                  <span className="text-xs font-medium max-w-[120px] truncate text-white/70">
-                    {session.user?.name || session.user?.email}
-                  </span>
-                </div>
+                )}
+
+                {/* User mode: Admin button for admin users */}
+                {!isInAdminMode && isAdmin && (
+                  <Link
+                    href="/admin"
+                    className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium transition-all text-white/70 hover:text-white hover:bg-white/10"
+                  >
+                    <Shield className="w-4 h-4" />
+                    <span className="hidden md:inline">Admin</span>
+                  </Link>
+                )}
+
+                {/* Logout button */}
                 <button
                   onClick={() => signOut({ callbackUrl: '/login' })}
                   className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium transition-all cursor-pointer text-white/70 hover:text-red-400 hover:bg-white/10"
                 >
                   <LogOut className="w-4 h-4" />
-                  Logout
+                  <span className="hidden md:inline">Logout</span>
                 </button>
-              </div>
+              </>
             ) : pathname !== '/' && (
               <Link
                 href="/login"
@@ -130,96 +85,6 @@ export default function Navbar() {
               </Link>
             )}
           </div>
-
-          {/* Mobile menu button */}
-          <button
-            onClick={() => setIsMenuOpen(!isMenuOpen)}
-            className="md:hidden p-2 rounded-lg transition-colors cursor-pointer text-white/80 hover:bg-white/10"
-            aria-expanded={isMenuOpen}
-            aria-controls="mobile-nav-menu"
-            aria-label={isMenuOpen ? 'Close navigation menu' : 'Open navigation menu'}
-          >
-            {isMenuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
-          </button>
-        </div>
-      </div>
-
-      {/* Mobile Menu - Slide down */}
-      <div
-        id="mobile-nav-menu"
-        className={`md:hidden overflow-hidden transition-all duration-300 ease-in-out ${isMenuOpen ? 'max-h-96 opacity-100' : 'max-h-0 opacity-0'
-          }`}
-      >
-        <div className="px-4 pb-4 pt-1 space-y-1 bg-[#030712]/98 backdrop-blur-md">
-          {session && (
-            <div className="flex items-center gap-3 px-3 py-2.5 mb-2 rounded-lg text-sm font-medium bg-white/5 text-white/80">
-              {userImage ? (
-                <Image
-                  src={userImage}
-                  alt={userName || 'Profile'}
-                  width={32}
-                  height={32}
-                  className="rounded-full"
-                  referrerPolicy="no-referrer"
-                />
-              ) : (
-                <div className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold bg-accent text-primary">
-                  {userInitial}
-                </div>
-              )}
-              <span className="truncate">{session.user?.name || session.user?.email}</span>
-            </div>
-          )}
-
-          {navLinks.filter(l => {
-            const isAppPage = !(pathname.startsWith('/admin') || pathname.startsWith('/operator'));
-            return l.hideOnMobile ? !isAppPage : true;
-          }).map(({ href, label, icon: Icon }) => (
-            <Link
-              key={href}
-              href={href}
-              className={`flex items-center gap-3 px-3 py-3 rounded-lg text-sm font-medium transition-colors ${isActive(href)
-                ? 'bg-accent/15 text-accent'
-                : 'text-white/70 hover:bg-white/5'
-                }`}
-              onClick={() => setIsMenuOpen(false)}
-            >
-              <Icon className="w-5 h-5" />
-              {label}
-            </Link>
-          ))}
-
-          {session && profileLinks.map(({ href, label, icon: Icon }) => (
-            <Link
-              key={href}
-              href={href}
-              className={`flex items-center gap-3 px-3 py-3 rounded-lg text-sm font-medium transition-colors ${isActive(href)
-                ? 'bg-accent/15 text-accent'
-                : 'text-white/70 hover:bg-white/5'
-                }`}
-            >
-              <Icon className="w-5 h-5" />
-              {label}
-            </Link>
-          ))}
-
-          {session ? (
-            <button
-              onClick={() => signOut({ callbackUrl: '/login' })}
-              className="flex items-center gap-3 w-full px-3 py-3 rounded-lg text-sm font-medium transition-colors cursor-pointer text-red-400 hover:bg-white/5"
-            >
-              <LogOut className="w-5 h-5" />
-              Logout
-            </button>
-          ) : pathname !== '/' && (
-            <Link
-              href="/login"
-              className="flex items-center justify-center gap-2 px-4 py-3 rounded-lg text-sm font-semibold transition-all bg-accent text-primary"
-            >
-              <LogIn className="w-5 h-5" />
-              Login
-            </Link>
-          )}
         </div>
       </div>
     </nav>

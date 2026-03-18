@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Package, Plus, Pencil, ToggleLeft, ToggleRight, Loader2, Users, BarChart3 } from 'lucide-react';
+import { Package, Plus, Pencil, ToggleLeft, ToggleRight, Loader2, Users, BarChart3, Download } from 'lucide-react';
 import { NumberInputDialog } from '@/components/ui/NumberInputDialog';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { AdminPageHeader } from '@/components/admin/AdminPageHeader';
@@ -90,6 +90,41 @@ export default function AdminPackages() {
     onConfirm: (value: number) => void;
   } | null>(null);
   const [cancelPackageId, setCancelPackageId] = useState<string | null>(null);
+
+  // CSV filter state
+  const [csvFilters, setCsvFilters] = useState({
+    status: '',
+    packageId: '',
+    fromDate: '',
+    toDate: '',
+  });
+  const [downloadingCsv, setDownloadingCsv] = useState(false);
+
+  const handleDownloadCsv = async () => {
+    setDownloadingCsv(true);
+    try {
+      const params = new URLSearchParams();
+      if (csvFilters.status) params.set('status', csvFilters.status);
+      if (csvFilters.packageId) params.set('packageId', csvFilters.packageId);
+      if (csvFilters.fromDate) params.set('fromDate', csvFilters.fromDate);
+      if (csvFilters.toDate) params.set('toDate', csvFilters.toDate);
+      const res = await fetch(`/api/admin/packages/reports/csv?${params.toString()}`);
+      if (!res.ok) throw new Error('Failed to download');
+      const blob = await res.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `packages-report-${new Date().toISOString().slice(0, 10)}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      window.URL.revokeObjectURL(url);
+    } catch (e) {
+      console.error('CSV download failed', e);
+    } finally {
+      setDownloadingCsv(false);
+    }
+  };
 
   const fetchPackages = async () => {
     setLoading(true);
@@ -854,20 +889,95 @@ export default function AdminPackages() {
             <span className="text-sm">Loading reports...</span>
           </div>
         ) : reports ? (
-          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-            {[
-              { label: 'Active Packages', value: reports.activePackages },
-              { label: 'Expired Packages', value: reports.expiredPackages },
-              { label: 'Total Sessions Sold', value: reports.totalSessionsSold },
-              { label: 'Sessions Consumed', value: reports.totalSessionsConsumed },
-              { label: 'Extra Charges', value: `₹${reports.extraChargesCollected || 0}` },
-              { label: 'Total Revenue', value: `₹${reports.totalRevenue || 0}` },
-            ].map(stat => (
-              <div key={stat.label} className="bg-white/[0.03] backdrop-blur-sm rounded-2xl border border-white/[0.07] p-4">
-                <p className="text-[11px] text-slate-400 mb-1">{stat.label}</p>
-                <p className="text-lg font-bold text-white">{stat.value}</p>
+          <div className="space-y-5">
+            {/* Stats Grid */}
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+              {[
+                { label: 'Active Packages', value: reports.activePackages },
+                { label: 'Expired Packages', value: reports.expiredPackages },
+                { label: 'Total Sessions Sold', value: reports.totalSessionsSold },
+                { label: 'Sessions Consumed', value: reports.totalSessionsConsumed },
+                { label: 'Extra Charges', value: `₹${reports.extraChargesCollected || 0}` },
+                { label: 'Total Revenue', value: `₹${reports.totalRevenue || 0}` },
+              ].map(stat => (
+                <div key={stat.label} className="bg-white/[0.03] backdrop-blur-sm rounded-2xl border border-white/[0.07] p-4">
+                  <p className="text-[11px] text-slate-400 mb-1">{stat.label}</p>
+                  <p className="text-lg font-bold text-white">{stat.value}</p>
+                </div>
+              ))}
+            </div>
+
+            {/* CSV Export with Filters */}
+            <div className="bg-white/[0.03] backdrop-blur-sm rounded-2xl border border-white/[0.07] p-4">
+              <h3 className="text-sm font-bold text-white mb-3 flex items-center gap-2">
+                <Download className="w-4 h-4 text-accent" />
+                Export Packages Report
+              </h3>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-3">
+                <div>
+                  <label className="block text-[10px] font-medium text-slate-400 mb-1">Status</label>
+                  <select
+                    value={csvFilters.status}
+                    onChange={e => setCsvFilters(prev => ({ ...prev, status: e.target.value }))}
+                    className="w-full bg-white/[0.04] border border-white/[0.1] text-white text-sm rounded-lg px-2 py-2 outline-none focus:border-accent"
+                  >
+                    <option value="">All</option>
+                    <option value="ACTIVE">Active</option>
+                    <option value="EXPIRED">Expired</option>
+                    <option value="CANCELLED">Cancelled</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-[10px] font-medium text-slate-400 mb-1">Package</label>
+                  <select
+                    value={csvFilters.packageId}
+                    onChange={e => setCsvFilters(prev => ({ ...prev, packageId: e.target.value }))}
+                    className="w-full bg-white/[0.04] border border-white/[0.1] text-white text-sm rounded-lg px-2 py-2 outline-none focus:border-accent"
+                  >
+                    <option value="">All Packages</option>
+                    {packages.map(p => (
+                      <option key={p.id} value={p.id}>{p.name}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-[10px] font-medium text-slate-400 mb-1">From Date</label>
+                  <input
+                    type="date"
+                    value={csvFilters.fromDate}
+                    onChange={e => setCsvFilters(prev => ({ ...prev, fromDate: e.target.value }))}
+                    className="w-full bg-white/[0.04] border border-white/[0.1] text-white text-sm rounded-lg px-2 py-2 outline-none focus:border-accent"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-medium text-slate-400 mb-1">To Date</label>
+                  <input
+                    type="date"
+                    value={csvFilters.toDate}
+                    onChange={e => setCsvFilters(prev => ({ ...prev, toDate: e.target.value }))}
+                    className="w-full bg-white/[0.04] border border-white/[0.1] text-white text-sm rounded-lg px-2 py-2 outline-none focus:border-accent"
+                  />
+                </div>
               </div>
-            ))}
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={handleDownloadCsv}
+                  disabled={downloadingCsv}
+                  className="inline-flex items-center gap-2 bg-accent hover:bg-accent-light text-primary px-4 py-2 rounded-xl text-sm font-semibold transition-all cursor-pointer disabled:opacity-50"
+                >
+                  {downloadingCsv ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
+                  Download CSV
+                </button>
+                {(csvFilters.status || csvFilters.packageId || csvFilters.fromDate || csvFilters.toDate) && (
+                  <button
+                    onClick={() => setCsvFilters({ status: '', packageId: '', fromDate: '', toDate: '' })}
+                    className="text-xs text-slate-400 hover:text-white px-3 py-2 cursor-pointer"
+                  >
+                    Clear Filters
+                  </button>
+                )}
+              </div>
+            </div>
           </div>
         ) : (
           <p className="text-sm text-slate-400 text-center py-16">No report data</p>

@@ -60,12 +60,18 @@ export async function getOperatorCount(
 type OperatorInfo = { id: string; operatorPriority: number; operatorMorningPriority: number; operatorEveningPriority: number };
 const OPERATOR_SELECT = { id: true, operatorPriority: true, operatorMorningPriority: true, operatorEveningPriority: true } as const;
 
-/** Sort operators by slab-specific priority (DESC), then overall priority as tiebreaker. */
+/** Sort operators by slab-specific priority (ASC — lower number = higher priority), then overall priority as tiebreaker. */
 function sortByPriority(operators: OperatorInfo[], slab: 'morning' | 'evening'): OperatorInfo[] {
   return [...operators].sort((a, b) => {
     const aPri = slab === 'morning' ? a.operatorMorningPriority : a.operatorEveningPriority;
     const bPri = slab === 'morning' ? b.operatorMorningPriority : b.operatorEveningPriority;
-    return bPri !== aPri ? bPri - aPri : b.operatorPriority - a.operatorPriority;
+    // Lower number = higher priority. 0 means unset, push to end.
+    const aEffective = aPri === 0 ? Infinity : aPri;
+    const bEffective = bPri === 0 ? Infinity : bPri;
+    if (aEffective !== bEffective) return aEffective - bEffective;
+    const aOverall = a.operatorPriority === 0 ? Infinity : a.operatorPriority;
+    const bOverall = b.operatorPriority === 0 ? Infinity : b.operatorPriority;
+    return aOverall - bOverall;
   });
 }
 

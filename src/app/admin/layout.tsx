@@ -3,7 +3,8 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useSession } from 'next-auth/react';
-import { LayoutDashboard, CalendarCheck, Users, Settings, Clock, Wrench, Package, Zap, SlidersHorizontal, ArrowLeft } from 'lucide-react';
+import { LayoutDashboard, CalendarCheck, Users, Settings, Clock, Wrench, Package, Zap, SlidersHorizontal, ArrowLeft, LogOut } from 'lucide-react';
+import { signOut } from 'next-auth/react';
 import { AdminMobileNav } from '@/components/admin/AdminMobileNav';
 
 const SUPER_ADMIN_EMAIL = 'waheeddar8@gmail.com';
@@ -46,13 +47,21 @@ export default function AdminLayout({
           </div>
           <span className="text-xs font-bold text-white tracking-wide">Admin</span>
         </div>
-        <Link
-          href="/slots"
-          className="flex items-center gap-1.5 text-slate-400 hover:text-white transition-colors text-xs font-medium px-2.5 py-1.5 rounded-lg bg-white/[0.04] active:scale-95"
-        >
-          <ArrowLeft className="w-3 h-3" />
-          App
-        </Link>
+        <div className="flex items-center gap-1.5">
+          <Link
+            href="/slots"
+            className="flex items-center gap-1.5 text-slate-400 hover:text-white transition-colors text-xs font-medium px-2.5 py-1.5 rounded-lg bg-white/[0.04] active:scale-95"
+          >
+            <ArrowLeft className="w-3 h-3" />
+            User Mode
+          </Link>
+          <button
+            onClick={() => signOut({ callbackUrl: '/login' })}
+            className="flex items-center gap-1.5 text-red-400/70 hover:text-red-400 transition-colors text-xs font-medium px-2.5 py-1.5 rounded-lg bg-white/[0.04] active:scale-95 cursor-pointer"
+          >
+            <LogOut className="w-3 h-3" />
+          </button>
+        </div>
       </div>
 
       {/* Admin Mobile Bottom Navigation */}
@@ -99,10 +108,21 @@ export default function AdminLayout({
           </nav>
 
           {/* Sidebar Footer */}
-          <div className="px-4 py-3 border-t border-white/[0.04]">
-            <p className="text-[9px] text-slate-700 text-center">
-              © PlayOrbit {new Date().getFullYear()}
-            </p>
+          <div className="px-3 py-3 border-t border-white/[0.04] space-y-1.5">
+            <Link
+              href="/slots"
+              className="flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-medium transition-all text-slate-500 hover:bg-white/[0.04] hover:text-slate-300"
+            >
+              <ArrowLeft className="w-4 h-4" />
+              User Mode
+            </Link>
+            <button
+              onClick={() => signOut({ callbackUrl: '/login' })}
+              className="flex items-center gap-2 w-full px-3 py-2 rounded-xl text-sm font-medium transition-all cursor-pointer text-red-400/70 hover:bg-white/[0.04] hover:text-red-400"
+            >
+              <LogOut className="w-4 h-4" />
+              Logout
+            </button>
           </div>
         </aside>
 

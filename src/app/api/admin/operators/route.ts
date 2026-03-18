@@ -16,7 +16,7 @@ const OPERATOR_QUERY = {
     operatorEveningPriority: true,
     operatorAssignments: { select: { id: true, machineId: true, createdAt: true } },
   },
-  orderBy: { operatorPriority: 'desc' as const },
+  orderBy: { operatorPriority: 'asc' as const },
 } as const;
 
 // GET: List all operators with their machine assignments

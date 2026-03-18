@@ -58,6 +58,11 @@ export async function GET(req: NextRequest) {
           orderBy: { startTime: 'desc' },
           skip,
           take: limit,
+          include: {
+            operator: {
+              select: { name: true, mobileNumber: true },
+            },
+          },
         }),
         prisma.booking.count({ where }),
       ]);
@@ -166,6 +171,8 @@ export async function GET(req: NextRequest) {
       refund: refundMap[b.id] || null,
       createdAt: b.createdAt ? b.createdAt.toISOString() : null,
       isPackageBooking: packageBookingSet.has(b.id),
+      operatorName: b.operator?.name || null,
+      operatorMobile: b.operator?.mobileNumber || null,
     }));
 
     return NextResponse.json({

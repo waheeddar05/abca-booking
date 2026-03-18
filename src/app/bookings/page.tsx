@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { format } from 'date-fns';
-import { ClipboardList, Loader2, X, Calendar, Clock, IndianRupee, ChevronLeft, ChevronRight } from 'lucide-react';
+import { ClipboardList, Loader2, X, Calendar, Clock, IndianRupee, ChevronLeft, ChevronRight, User, Phone } from 'lucide-react';
 import { ContactFooter } from '@/components/ContactFooter';
 import { CancellationDialog } from '@/components/ui/CancellationDialog';
 import { useToast } from '@/components/ui/Toast';
@@ -42,6 +42,8 @@ interface Booking {
   paymentMethod: string | null;
   paymentStatus: string | null;
   refund: BookingRefund | null;
+  operatorName: string | null;
+  operatorMobile: string | null;
 }
 
 type BookingTab = 'all' | 'upcoming' | 'inProgress' | 'completed' | 'cancelled';
@@ -270,6 +272,23 @@ export default function BookingsPage() {
                       </span>
                     )}
                   </div>
+
+                  {/* Operator Details */}
+                  {booking.status === 'BOOKED' && booking.operatorName && (
+                    <div className="bg-white/[0.03] rounded-lg px-3 py-2 mb-3 border border-white/[0.06]">
+                      <p className="text-[10px] text-slate-500 uppercase tracking-wider mb-1">Machine Operator</p>
+                      <div className="flex items-center gap-2">
+                        <User className="w-3 h-3 text-accent/60 flex-shrink-0" />
+                        <span className="text-xs text-slate-300 font-medium">{booking.operatorName}</span>
+                      </div>
+                      {booking.operatorMobile && (
+                        <div className="flex items-center gap-2 mt-0.5">
+                          <Phone className="w-3 h-3 text-accent/60 flex-shrink-0" />
+                          <a href={`tel:${booking.operatorMobile}`} className="text-xs text-accent hover:underline">{booking.operatorMobile}</a>
+                        </div>
+                      )}
+                    </div>
+                  )}
 
                   {/* Price Row */}
                   <div className="mt-auto pt-3 border-t border-white/[0.06] flex items-center justify-between">

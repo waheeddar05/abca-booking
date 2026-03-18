@@ -3,12 +3,14 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useSession } from 'next-auth/react';
-import { Calendar, ClipboardList, Package } from 'lucide-react';
+import { Calendar, ClipboardList, Package, Wallet, Bell } from 'lucide-react';
 
 const tabs = [
   { href: '/slots', label: 'Book Slot', icon: Calendar },
-  { href: '/bookings', label: 'My Bookings', icon: ClipboardList },
+  { href: '/bookings', label: 'Bookings', icon: ClipboardList },
   { href: '/packages', label: 'Packages', icon: Package },
+  { href: '/wallet', label: 'Wallet', icon: Wallet },
+  { href: '/notifications', label: 'Alerts', icon: Bell },
 ];
 
 export default function BottomNav() {

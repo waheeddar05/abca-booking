@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useSession } from 'next-auth/react';
-import { Settings, Clock, IndianRupee, Save, Loader2, Zap, Check, ChevronUp, ChevronDown, CreditCard, Banknote, Wallet, Plus, Trash2, Edit2, Tag, CalendarDays, Users } from 'lucide-react';
+import { Settings, IndianRupee, Save, Loader2, Zap, Check, ChevronUp, ChevronDown, CreditCard, Banknote, Wallet, Plus, Trash2, Edit2, Tag } from 'lucide-react';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { AdminPageHeader } from '@/components/admin/AdminPageHeader';
 import { AdminCard } from '@/components/admin/AdminCard';
@@ -164,7 +164,7 @@ function PriceField({ label, value, onChange }: { label: string; value: number; 
 }
 
 export default function ConfigurationPage() {
-  const { data: session } = useSession();
+  useSession(); // ensure auth context is available
 
   // Machine config state
   const [machineConfig, setMachineConfig] = useState<MachineConfig>({
@@ -180,14 +180,13 @@ export default function ConfigurationPage() {
   const [machineMessage, setMachineMessage] = useState({ text: '', type: '' });
   const [showMachineConfigConfirm, setShowMachineConfigConfirm] = useState(false);
   const [operators, setOperators] = useState<{ id: string; name: string | null; email: string | null; mobileNumber: string | null; operatorPriority: number; operatorMorningPriority: number; operatorEveningPriority: number; operatorAssignments?: { id: string; machineId: string; createdAt: string }[] }[]>([]);
-  const [savingPriority, setSavingPriority] = useState(false);
+  // Priority and schedule saves are consolidated into handleSaveMachine
   const [togglingAssignment, setTogglingAssignment] = useState<string | null>(null);
   const [activePricingTab, setActivePricingTab] = useState<string>('leather');
 
   // Operator Schedule Config (Feature 3)
   const [operatorSchedule, setOperatorSchedule] = useState<Record<string, number>>({});
   const [operatorScheduleDefault, setOperatorScheduleDefault] = useState(1);
-  const [savingSchedule, setSavingSchedule] = useState(false);
 
   // Recurring Slot Discounts (Feature 1)
   interface RecurringDiscountRule {
@@ -359,17 +358,76 @@ export default function ConfigurationPage() {
   const handleSaveMachine = async () => {
     setSavingMachine(true);
     setMachineMessage({ text: '', type: '' });
+    const errors: string[] = [];
     try {
-      const res = await fetch('/api/admin/machine-config', {
+      // 1. Save machine config (pricing, time slabs, machine-pitch config)
+      const machineRes = await fetch('/api/admin/machine-config', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(machineConfig),
       });
-      if (res.ok) {
-        setMachineMessage({ text: 'Machine configuration saved', type: 'success' });
+      if (!machineRes.ok) {
+        const data = await machineRes.json();
+        errors.push(data.error || 'Failed to save machine config');
+      }
+
+      // 2. Save operator priority
+      if (operators.length > 0) {
+        const payload = operators.map((op, i) => ({
+          userId: op.id,
+          priority: i + 1,
+          morningPriority: op.operatorMorningPriority,
+          eveningPriority: op.operatorEveningPriority,
+        }));
+        const priRes = await fetch('/api/admin/operators', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ operators: payload }),
+        });
+        if (priRes.ok) {
+          const data = await priRes.json();
+          setOperators(data.operators || []);
+        } else {
+          errors.push('Failed to save operator priority');
+        }
+      }
+
+      // 3. Save operator schedule
+      const morningDays: Record<number, number[]> = {};
+      const eveningDays: Record<number, number[]> = {};
+      for (const day of DAY_NUMBERS) {
+        const mc = getScheduleCount(day, 'morning');
+        const ec = getScheduleCount(day, 'evening');
+        if (!morningDays[mc]) morningDays[mc] = [];
+        morningDays[mc].push(day);
+        if (!eveningDays[ec]) eveningDays[ec] = [];
+        eveningDays[ec].push(day);
+      }
+      const schedule: { days: number[]; slab: string; count: number }[] = [];
+      for (const [count, days] of Object.entries(morningDays)) {
+        if (Number(count) !== operatorScheduleDefault) {
+          schedule.push({ days, slab: 'morning', count: Number(count) });
+        }
+      }
+      for (const [count, days] of Object.entries(eveningDays)) {
+        if (Number(count) !== operatorScheduleDefault) {
+          schedule.push({ days, slab: 'evening', count: Number(count) });
+        }
+      }
+      const scheduleConfig = { default: operatorScheduleDefault, schedule };
+      const schedRes = await fetch('/api/admin/policies', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ key: 'OPERATOR_SCHEDULE_CONFIG', value: JSON.stringify(scheduleConfig) }),
+      });
+      if (!schedRes.ok) {
+        errors.push('Failed to save operator schedule');
+      }
+
+      if (errors.length > 0) {
+        setMachineMessage({ text: errors.join('; '), type: 'error' });
       } else {
-        const data = await res.json();
-        setMachineMessage({ text: data.error || 'Failed to save', type: 'error' });
+        setMachineMessage({ text: 'All configuration saved successfully', type: 'success' });
       }
     } catch {
       setMachineMessage({ text: 'Failed to save configuration', type: 'error' });
@@ -425,34 +483,7 @@ export default function ConfigurationPage() {
     });
   };
 
-  const saveOperatorPriority = async () => {
-    setSavingPriority(true);
-    try {
-      const payload = operators.map((op, i) => ({
-        userId: op.id,
-        priority: operators.length - i,
-        morningPriority: op.operatorMorningPriority,
-        eveningPriority: op.operatorEveningPriority,
-      }));
-      const res = await fetch('/api/admin/operators', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ operators: payload }),
-      });
-      if (res.ok) {
-        const data = await res.json();
-        setOperators(data.operators || []);
-        setMachineMessage({ text: 'Operator priority saved', type: 'success' });
-      } else {
-        const data = await res.json();
-        setMachineMessage({ text: data.error || 'Failed to save priority', type: 'error' });
-      }
-    } catch {
-      setMachineMessage({ text: 'Failed to save operator priority', type: 'error' });
-    } finally {
-      setSavingPriority(false);
-    }
-  };
+  // saveOperatorPriority is now part of handleSaveMachine
 
   const toggleMachineAssignment = async (operatorId: string, machineId: string, isCurrentlyAssigned: boolean) => {
     const key = `${operatorId}-${machineId}`;
@@ -514,48 +545,7 @@ export default function ConfigurationPage() {
     setOperatorSchedule(prev => ({ ...prev, [`${day}-${slab}`]: Math.max(0, count) }));
   };
 
-  const saveOperatorSchedule = async () => {
-    setSavingSchedule(true);
-    try {
-      // Build schedule entries from the grid
-      const morningDays: Record<number, number[]> = {};
-      const eveningDays: Record<number, number[]> = {};
-      for (const day of DAY_NUMBERS) {
-        const mc = getScheduleCount(day, 'morning');
-        const ec = getScheduleCount(day, 'evening');
-        if (!morningDays[mc]) morningDays[mc] = [];
-        morningDays[mc].push(day);
-        if (!eveningDays[ec]) eveningDays[ec] = [];
-        eveningDays[ec].push(day);
-      }
-      const schedule: { days: number[]; slab: string; count: number }[] = [];
-      for (const [count, days] of Object.entries(morningDays)) {
-        if (Number(count) !== operatorScheduleDefault) {
-          schedule.push({ days, slab: 'morning', count: Number(count) });
-        }
-      }
-      for (const [count, days] of Object.entries(eveningDays)) {
-        if (Number(count) !== operatorScheduleDefault) {
-          schedule.push({ days, slab: 'evening', count: Number(count) });
-        }
-      }
-      const config = { default: operatorScheduleDefault, schedule };
-      const res = await fetch('/api/admin/policies', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ key: 'OPERATOR_SCHEDULE_CONFIG', value: JSON.stringify(config) }),
-      });
-      if (res.ok) {
-        setMachineMessage({ text: 'Operator schedule saved', type: 'success' });
-      } else {
-        setMachineMessage({ text: 'Failed to save schedule', type: 'error' });
-      }
-    } catch {
-      setMachineMessage({ text: 'Failed to save schedule', type: 'error' });
-    } finally {
-      setSavingSchedule(false);
-    }
-  };
+  // saveOperatorSchedule is now part of handleSaveMachine
 
   // ─── Recurring Discount Helpers ─────────────────
   const resetRuleForm = () => {
@@ -844,20 +834,13 @@ export default function ConfigurationPage() {
                     </tbody>
                   </table>
                 </div>
-                <button
-                  onClick={saveOperatorSchedule}
-                  disabled={savingSchedule}
-                  className="mt-2 inline-flex items-center gap-1.5 bg-accent/10 hover:bg-accent/20 text-accent px-3 py-1.5 rounded-lg text-xs font-medium transition-colors cursor-pointer disabled:opacity-50"
-                >
-                  {savingSchedule ? <Loader2 className="w-3 h-3 animate-spin" /> : <Save className="w-3 h-3" />}
-                  Save Schedule
-                </button>
+                {/* Schedule save included in unified "Save Machine Configuration" */}
               </div>
 
               {/* Operator Priority (Feature 2 — Morning/Evening) */}
               <div className="mt-4">
                 <p className="text-sm font-medium text-slate-300">Operator Priority</p>
-                <p className="text-[10px] text-slate-500 mb-1">Set separate priorities for morning and evening sessions. Higher = gets booking first.</p>
+                <p className="text-[10px] text-slate-500 mb-1">Set separate priorities for morning and evening sessions. Lower number = higher priority (1 = gets booking first).</p>
                 <p className="text-[9px] text-slate-600 mb-3">Morning: {machineConfig.timeSlabConfig.morning.start}–{machineConfig.timeSlabConfig.morning.end} | Evening: {machineConfig.timeSlabConfig.evening.start}–{machineConfig.timeSlabConfig.evening.end}</p>
                 {operators.length === 0 ? (
                   <p className="text-xs text-slate-500 italic">No operators found. Assign OPERATOR role to users first.</p>
@@ -905,26 +888,30 @@ export default function ConfigurationPage() {
                               <label className="block text-[9px] font-medium text-amber-400 mb-0.5">☀ Morning Priority</label>
                               <input
                                 type="number"
-                                value={op.operatorMorningPriority}
+                                value={op.operatorMorningPriority === 0 ? '' : op.operatorMorningPriority}
                                 onChange={e => {
-                                  const val = Number(e.target.value);
-                                  setOperators(prev => prev.map(o => o.id === op.id ? { ...o, operatorMorningPriority: val } : o));
+                                  const raw = e.target.value;
+                                  const val = raw === '' ? 0 : Number(raw);
+                                  setOperators(prev => prev.map(o => o.id === op.id ? { ...o, operatorMorningPriority: isNaN(val) ? 0 : val } : o));
                                 }}
+                                placeholder="0"
                                 min="0"
-                                className="w-full bg-white/[0.04] border border-white/[0.1] text-white rounded-lg px-2 py-1.5 text-[11px] outline-none focus:border-accent"
+                                className="w-full bg-white/[0.04] border border-white/[0.1] text-white rounded-lg px-2 py-1.5 text-[11px] outline-none focus:border-accent placeholder:text-slate-600"
                               />
                             </div>
                             <div>
                               <label className="block text-[9px] font-medium text-indigo-400 mb-0.5">🌙 Evening Priority</label>
                               <input
                                 type="number"
-                                value={op.operatorEveningPriority}
+                                value={op.operatorEveningPriority === 0 ? '' : op.operatorEveningPriority}
                                 onChange={e => {
-                                  const val = Number(e.target.value);
-                                  setOperators(prev => prev.map(o => o.id === op.id ? { ...o, operatorEveningPriority: val } : o));
+                                  const raw = e.target.value;
+                                  const val = raw === '' ? 0 : Number(raw);
+                                  setOperators(prev => prev.map(o => o.id === op.id ? { ...o, operatorEveningPriority: isNaN(val) ? 0 : val } : o));
                                 }}
+                                placeholder="0"
                                 min="0"
-                                className="w-full bg-white/[0.04] border border-white/[0.1] text-white rounded-lg px-2 py-1.5 text-[11px] outline-none focus:border-accent"
+                                className="w-full bg-white/[0.04] border border-white/[0.1] text-white rounded-lg px-2 py-1.5 text-[11px] outline-none focus:border-accent placeholder:text-slate-600"
                               />
                             </div>
                           </div>
@@ -965,14 +952,7 @@ export default function ConfigurationPage() {
                         </div>
                       );
                     })}
-                    <button
-                      onClick={saveOperatorPriority}
-                      disabled={savingPriority}
-                      className="mt-2 inline-flex items-center gap-1.5 bg-accent/10 hover:bg-accent/20 text-accent px-3 py-1.5 rounded-lg text-xs font-medium transition-colors cursor-pointer disabled:opacity-50"
-                    >
-                      {savingPriority ? <Loader2 className="w-3 h-3 animate-spin" /> : <Save className="w-3 h-3" />}
-                      Save Priority
-                    </button>
+                    {/* Priority save included in unified "Save Machine Configuration" */}
                   </div>
                 )}
               </div>
@@ -1098,22 +1078,7 @@ export default function ConfigurationPage() {
               })}
             </div>
 
-            {/* Save Button */}
-            <div className="flex items-center gap-3 pt-2">
-              <button
-                onClick={() => setShowMachineConfigConfirm(true)}
-                disabled={savingMachine}
-                className="inline-flex items-center gap-2 bg-accent hover:bg-accent-light text-primary px-5 py-2.5 rounded-xl text-sm font-semibold transition-all cursor-pointer disabled:opacity-50 shadow-sm shadow-accent/20 hover:shadow-accent/30"
-              >
-                {savingMachine ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-                Save Machine Config
-              </button>
-              {machineMessage.text && (
-                <span className={`text-sm font-medium ${machineMessage.type === 'success' ? 'text-green-400' : 'text-red-400'}`}>
-                  {machineMessage.text}
-                </span>
-              )}
-            </div>
+            {/* Save button moved to bottom of page */}
           </div>
         )}
       </AdminCard>
@@ -1279,6 +1244,23 @@ export default function ConfigurationPage() {
           </div>
         )}
       </AdminCard>
+
+      {/* ─── Unified Save Button (bottom of page) ─── */}
+      <div className="sticky bottom-4 z-40 flex items-center gap-3 p-4 rounded-2xl bg-[#0b1726]/95 backdrop-blur-xl border border-white/[0.08] shadow-xl shadow-black/30">
+        <button
+          onClick={() => setShowMachineConfigConfirm(true)}
+          disabled={savingMachine}
+          className="inline-flex items-center gap-2 bg-accent hover:bg-accent-light text-primary px-6 py-3 rounded-xl text-sm font-semibold transition-all cursor-pointer disabled:opacity-50 shadow-sm shadow-accent/20 hover:shadow-accent/30"
+        >
+          {savingMachine ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+          Save Machine Configuration
+        </button>
+        {machineMessage.text && (
+          <span className={`text-sm font-medium ${machineMessage.type === 'success' ? 'text-green-400' : 'text-red-400'}`}>
+            {machineMessage.text}
+          </span>
+        )}
+      </div>
     </div>
   );
 }
