@@ -294,9 +294,10 @@ export async function POST(req: NextRequest) {
 
       for (const rule of recurringDiscountRules) {
         if (!rule.days.includes(dayOfWeek)) continue;
-        // Normalize rule time to HH:MM for consistent matching
-        const ruleTime = rule.slotStartTime.padStart(5, '0');
-        if (ruleTime !== istTimeStr) continue;
+        // Check if slot falls within the rule's time range [start, end)
+        const ruleStartTime = rule.slotStartTime.padStart(5, '0');
+        const ruleEndTime = (rule.slotEndTime || rule.slotStartTime).padStart(5, '0');
+        if (istTimeStr < ruleStartTime || istTimeStr >= ruleEndTime) continue;
         if (rule.machineId && rule.machineId !== firstMachineId) continue;
 
         // Apply the appropriate discount (once per batch, using the first matching slot/rule)
