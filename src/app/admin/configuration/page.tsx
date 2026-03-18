@@ -697,6 +697,82 @@ export default function ConfigurationPage() {
     setShowAddRule(true);
   };
 
+  const renderRuleForm = () => (
+    <div className="bg-white/[0.03] rounded-xl border border-accent/20 p-4 space-y-3 mt-2">
+      <h4 className="text-xs font-bold text-accent">{editingRule ? 'Edit Rule' : 'New Rule'}</h4>
+      <div>
+        <label className="block text-[10px] font-medium text-slate-400 mb-1">Days of Week</label>
+        <div className="flex flex-wrap gap-1">
+          {DAY_NUMBERS.map(d => (
+            <button
+              key={d}
+              onClick={() => {
+                setRuleForm(prev => ({
+                  ...prev,
+                  days: prev.days.includes(d) ? prev.days.filter(x => x !== d) : [...prev.days, d],
+                }));
+              }}
+              className={`px-2.5 py-1.5 rounded-lg text-[11px] font-medium transition-all cursor-pointer ${
+                ruleForm.days.includes(d)
+                  ? 'bg-accent/15 text-accent border border-accent/30'
+                  : 'bg-white/[0.04] text-slate-500 border border-white/[0.08] hover:bg-white/[0.08]'
+              }`}
+            >{DAY_LABELS[d]}</button>
+          ))}
+        </div>
+      </div>
+      <div className="grid grid-cols-2 gap-2">
+        <div>
+          <label className="block text-[10px] font-medium text-slate-400 mb-1">Start Time</label>
+          <input type="time" value={ruleForm.slotStartTime} onChange={e => setRuleForm(prev => ({ ...prev, slotStartTime: e.target.value }))} step="1800" className={inputClass} />
+        </div>
+        <div>
+          <label className="block text-[10px] font-medium text-slate-400 mb-1">End Time</label>
+          <input type="time" value={ruleForm.slotEndTime} onChange={e => setRuleForm(prev => ({ ...prev, slotEndTime: e.target.value }))} step="1800" className={inputClass} />
+        </div>
+      </div>
+      <div>
+        <label className="block text-[10px] font-medium text-slate-400 mb-1">Machine (optional)</label>
+        <select
+          value={ruleForm.machineId}
+          onChange={e => setRuleForm(prev => ({ ...prev, machineId: e.target.value }))}
+          className={inputClass}
+        >
+          <option value="">All Machines</option>
+          {ALL_MACHINE_IDS.map(mid => (
+            <option key={mid} value={mid}>{MACHINE_LABELS[mid].name}</option>
+          ))}
+        </select>
+      </div>
+      <div className="grid grid-cols-2 gap-2">
+        <PriceField
+          label="Discount for 1 Slot (₹)"
+          value={ruleForm.oneSlotDiscount}
+          onChange={v => setRuleForm(prev => ({ ...prev, oneSlotDiscount: v }))}
+        />
+        <PriceField
+          label="Discount for 2 Cons. Slots (₹)"
+          value={ruleForm.twoSlotDiscount}
+          onChange={v => setRuleForm(prev => ({ ...prev, twoSlotDiscount: v }))}
+        />
+      </div>
+      <div className="flex items-center gap-2 pt-1">
+        <button
+          onClick={handleSaveRule}
+          disabled={savingRule || ruleForm.days.length === 0}
+          className="inline-flex items-center gap-1.5 bg-accent/10 hover:bg-accent/20 text-accent px-3 py-1.5 rounded-lg text-xs font-medium transition-colors cursor-pointer disabled:opacity-50"
+        >
+          {savingRule ? <Loader2 className="w-3 h-3 animate-spin" /> : <Save className="w-3 h-3" />}
+          {editingRule ? 'Update' : 'Save Rule'}
+        </button>
+        <button
+          onClick={resetRuleForm}
+          className="text-xs text-slate-500 hover:text-slate-300 px-3 py-1.5 cursor-pointer"
+        >Cancel</button>
+      </div>
+    </div>
+  );
+
   return (
     <div className="space-y-5">
       <AdminPageHeader
@@ -1161,121 +1237,42 @@ export default function ConfigurationPage() {
               <p className="text-xs text-slate-500 italic">No recurring discount rules configured.</p>
             )}
             {recurringRules.map(rule => (
-              <div key={rule.id} className={`bg-white/[0.02] rounded-xl border p-3 ${rule.enabled ? 'border-emerald-500/20' : 'border-white/[0.05] opacity-60'}`}>
-                <div className="flex items-start justify-between gap-2">
-                  <div className="flex-1 min-w-0">
-                    <div className="flex flex-wrap gap-1 mb-1">
-                      {rule.days.map(d => (
-                        <span key={d} className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-accent/10 text-accent">{DAY_LABELS[d]}</span>
-                      ))}
+              <div key={rule.id}>
+                <div className={`bg-white/[0.02] rounded-xl border p-3 ${rule.enabled ? 'border-emerald-500/20' : 'border-white/[0.05] opacity-60'}`}>
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex flex-wrap gap-1 mb-1">
+                        {rule.days.map(d => (
+                          <span key={d} className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-accent/10 text-accent">{DAY_LABELS[d]}</span>
+                        ))}
+                      </div>
+                      <p className="text-xs text-slate-300">
+                        {rule.slotStartTime} – {rule.slotEndTime}
+                        {rule.machineId && <span className="text-slate-500 ml-2">({MACHINE_LABELS[rule.machineId as MachineId]?.name || rule.machineId})</span>}
+                      </p>
+                      <div className="flex gap-3 mt-1">
+                        <span className="text-[10px] text-emerald-400">1 slot: -₹{rule.oneSlotDiscount}</span>
+                        <span className="text-[10px] text-emerald-400">2 slots: -₹{rule.twoSlotDiscount}</span>
+                      </div>
                     </div>
-                    <p className="text-xs text-slate-300">
-                      {rule.slotStartTime} – {rule.slotEndTime}
-                      {rule.machineId && <span className="text-slate-500 ml-2">({MACHINE_LABELS[rule.machineId as MachineId]?.name || rule.machineId})</span>}
-                    </p>
-                    <div className="flex gap-3 mt-1">
-                      <span className="text-[10px] text-emerald-400">1 slot: -₹{rule.oneSlotDiscount}</span>
-                      <span className="text-[10px] text-emerald-400">2 slots: -₹{rule.twoSlotDiscount}</span>
+                    <div className="flex items-center gap-1 flex-shrink-0">
+                      <button
+                        onClick={() => handleToggleRule(rule)}
+                        className={`p-1.5 rounded-lg text-[10px] font-medium cursor-pointer ${rule.enabled ? 'text-emerald-400 bg-emerald-400/10' : 'text-slate-500 bg-white/[0.04]'}`}
+                      >{rule.enabled ? 'ON' : 'OFF'}</button>
+                      <button onClick={() => startEditRule(rule)} className="p-1.5 rounded-lg text-slate-400 hover:text-accent hover:bg-accent/10 cursor-pointer"><Edit2 className="w-3 h-3" /></button>
+                      <button onClick={() => handleDeleteRule(rule.id)} className="p-1.5 rounded-lg text-slate-400 hover:text-red-400 hover:bg-red-400/10 cursor-pointer"><Trash2 className="w-3 h-3" /></button>
                     </div>
-                  </div>
-                  <div className="flex items-center gap-1 flex-shrink-0">
-                    <button
-                      onClick={() => handleToggleRule(rule)}
-                      className={`p-1.5 rounded-lg text-[10px] font-medium cursor-pointer ${rule.enabled ? 'text-emerald-400 bg-emerald-400/10' : 'text-slate-500 bg-white/[0.04]'}`}
-                    >{rule.enabled ? 'ON' : 'OFF'}</button>
-                    <button onClick={() => startEditRule(rule)} className="p-1.5 rounded-lg text-slate-400 hover:text-accent hover:bg-accent/10 cursor-pointer"><Edit2 className="w-3 h-3" /></button>
-                    <button onClick={() => handleDeleteRule(rule.id)} className="p-1.5 rounded-lg text-slate-400 hover:text-red-400 hover:bg-red-400/10 cursor-pointer"><Trash2 className="w-3 h-3" /></button>
                   </div>
                 </div>
+                {/* Inline edit form — appears right below the rule being edited */}
+                {showAddRule && editingRule?.id === rule.id && renderRuleForm()}
               </div>
             ))}
 
-            {/* Add/Edit Rule Form */}
-            {showAddRule ? (
-              <div className="bg-white/[0.03] rounded-xl border border-accent/20 p-4 space-y-3">
-                <h4 className="text-xs font-bold text-accent">{editingRule ? 'Edit Rule' : 'New Rule'}</h4>
-
-                {/* Days Multi-Select */}
-                <div>
-                  <label className="block text-[10px] font-medium text-slate-400 mb-1">Days of Week</label>
-                  <div className="flex flex-wrap gap-1">
-                    {DAY_NUMBERS.map(d => (
-                      <button
-                        key={d}
-                        onClick={() => {
-                          setRuleForm(prev => ({
-                            ...prev,
-                            days: prev.days.includes(d) ? prev.days.filter(x => x !== d) : [...prev.days, d],
-                          }));
-                        }}
-                        className={`px-2.5 py-1.5 rounded-lg text-[11px] font-medium transition-all cursor-pointer ${
-                          ruleForm.days.includes(d)
-                            ? 'bg-accent/15 text-accent border border-accent/30'
-                            : 'bg-white/[0.04] text-slate-500 border border-white/[0.08] hover:bg-white/[0.08]'
-                        }`}
-                      >{DAY_LABELS[d]}</button>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Time */}
-                <div className="grid grid-cols-2 gap-2">
-                  <div>
-                    <label className="block text-[10px] font-medium text-slate-400 mb-1">Start Time</label>
-                    <input type="time" value={ruleForm.slotStartTime} onChange={e => setRuleForm(prev => ({ ...prev, slotStartTime: e.target.value }))} step="1800" className={inputClass} />
-                  </div>
-                  <div>
-                    <label className="block text-[10px] font-medium text-slate-400 mb-1">End Time</label>
-                    <input type="time" value={ruleForm.slotEndTime} onChange={e => setRuleForm(prev => ({ ...prev, slotEndTime: e.target.value }))} step="1800" className={inputClass} />
-                  </div>
-                </div>
-
-                {/* Machine */}
-                <div>
-                  <label className="block text-[10px] font-medium text-slate-400 mb-1">Machine (optional)</label>
-                  <select
-                    value={ruleForm.machineId}
-                    onChange={e => setRuleForm(prev => ({ ...prev, machineId: e.target.value }))}
-                    className={inputClass}
-                  >
-                    <option value="">All Machines</option>
-                    {ALL_MACHINE_IDS.map(mid => (
-                      <option key={mid} value={mid}>{MACHINE_LABELS[mid].name}</option>
-                    ))}
-                  </select>
-                </div>
-
-                {/* Discount Amounts */}
-                <div className="grid grid-cols-2 gap-2">
-                  <PriceField
-                    label="Discount for 1 Slot (₹)"
-                    value={ruleForm.oneSlotDiscount}
-                    onChange={v => setRuleForm(prev => ({ ...prev, oneSlotDiscount: v }))}
-                  />
-                  <PriceField
-                    label="Discount for 2 Cons. Slots (₹)"
-                    value={ruleForm.twoSlotDiscount}
-                    onChange={v => setRuleForm(prev => ({ ...prev, twoSlotDiscount: v }))}
-                  />
-                </div>
-
-                {/* Actions */}
-                <div className="flex items-center gap-2 pt-1">
-                  <button
-                    onClick={handleSaveRule}
-                    disabled={savingRule || ruleForm.days.length === 0}
-                    className="inline-flex items-center gap-1.5 bg-accent/10 hover:bg-accent/20 text-accent px-3 py-1.5 rounded-lg text-xs font-medium transition-colors cursor-pointer disabled:opacity-50"
-                  >
-                    {savingRule ? <Loader2 className="w-3 h-3 animate-spin" /> : <Save className="w-3 h-3" />}
-                    {editingRule ? 'Update' : 'Save Rule'}
-                  </button>
-                  <button
-                    onClick={resetRuleForm}
-                    className="text-xs text-slate-500 hover:text-slate-300 px-3 py-1.5 cursor-pointer"
-                  >Cancel</button>
-                </div>
-              </div>
-            ) : (
+            {/* New rule form — appears at bottom only for new rules (not editing) */}
+            {showAddRule && !editingRule ? renderRuleForm() : null}
+            {!showAddRule && (
               <button
                 onClick={() => setShowAddRule(true)}
                 className="inline-flex items-center gap-1.5 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 px-3 py-2 rounded-lg text-xs font-medium transition-colors cursor-pointer"
