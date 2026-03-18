@@ -378,14 +378,14 @@ export default function PackagesPage() {
                   )}
                 </div>
                 {/* Leather Machines */}
-                <div className="grid grid-cols-2 gap-2 mb-2">
+                <div className="grid grid-cols-2 gap-1.5 mb-1.5">
                   {PACKAGE_MACHINE_CARDS.filter(c => c.category === 'LEATHER').map((card) => {
                     const isSelected = machineFilter === card.id;
                     return (
                       <button
                         key={card.id}
                         onClick={() => { setMachineFilter(isSelected ? 'all' : card.id); setTimingFilter(''); }}
-                        className={`flex items-center gap-2 px-2 py-1.5 rounded-lg transition-all cursor-pointer text-left ${
+                        className={`flex items-center gap-1.5 px-1.5 py-1 rounded-lg transition-all cursor-pointer text-left ${
                           isSelected
                             ? 'bg-accent/15 ring-1 ring-accent/50 shadow-sm'
                             : 'bg-white/[0.04] border border-white/[0.08] hover:border-accent/30'
@@ -395,7 +395,7 @@ export default function PackagesPage() {
                         <img
                           src={card.image}
                           alt={card.label}
-                          className="w-8 h-8 rounded-md object-cover flex-shrink-0"
+                          className="w-7 h-7 rounded-md object-cover flex-shrink-0"
                         />
                         <div className="min-w-0">
                           <span className={`text-[10px] font-bold leading-tight ${isSelected ? 'text-accent' : 'text-slate-300'}`}>
@@ -410,14 +410,14 @@ export default function PackagesPage() {
                   })}
                 </div>
                 {/* Tennis Machines */}
-                <div className="grid grid-cols-2 gap-2">
+                <div className="grid grid-cols-2 gap-1.5">
                   {PACKAGE_MACHINE_CARDS.filter(c => c.category === 'TENNIS').map((card) => {
                     const isSelected = machineFilter === card.id;
                     return (
                       <button
                         key={card.id}
                         onClick={() => { setMachineFilter(isSelected ? 'all' : card.id); setTimingFilter(''); }}
-                        className={`flex items-center gap-2 px-2 py-1.5 rounded-lg transition-all cursor-pointer text-left ${
+                        className={`flex items-center gap-1.5 px-1.5 py-1 rounded-lg transition-all cursor-pointer text-left ${
                           isSelected
                             ? 'bg-accent/15 ring-1 ring-accent/50 shadow-sm'
                             : 'bg-white/[0.04] border border-white/[0.08] hover:border-accent/30'
@@ -427,7 +427,7 @@ export default function PackagesPage() {
                         <img
                           src={card.image}
                           alt={card.label}
-                          className="w-8 h-8 rounded-md object-cover flex-shrink-0"
+                          className="w-7 h-7 rounded-md object-cover flex-shrink-0"
                         />
                         <div className="min-w-0">
                           <span className={`text-[10px] font-bold leading-tight ${isSelected ? 'text-accent' : 'text-slate-300'}`}>

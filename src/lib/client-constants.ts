@@ -20,7 +20,7 @@ export const MACHINE_CARDS: MachineCard[] = [
   {
     id: 'GRAVITY',
     label: 'Gravity',
-    shortLabel: 'Leather',
+    shortLabel: 'Leather Ball',
     category: 'LEATHER',
     image: '/images/leathermachine.jpeg',
     dotColor: 'bg-transparent',
@@ -39,7 +39,7 @@ export const MACHINE_CARDS: MachineCard[] = [
   },
   {
     id: 'LEVERAGE_INDOOR',
-    label: 'Leverage High Speed Tennis',
+    label: 'Leverage Tennis',
     shortLabel: 'Indoor',
     category: 'TENNIS',
     image: '/images/tennismachine.jpeg',
@@ -49,7 +49,7 @@ export const MACHINE_CARDS: MachineCard[] = [
   },
   {
     id: 'LEVERAGE_OUTDOOR',
-    label: 'Leverage High Speed Tennis',
+    label: 'Leverage Tennis',
     shortLabel: 'Outdoor',
     category: 'TENNIS',
     image: '/images/tennismachine.jpeg',

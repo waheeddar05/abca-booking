@@ -19,7 +19,7 @@ export function MachineSelector({ selectedMachineId, onSelect }: MachineSelector
       </label>
 
       {/* Leather Machines */}
-      <div className="grid grid-cols-2 gap-2 mb-2">
+      <div className="grid grid-cols-2 gap-1.5 mb-1.5">
         {leatherMachines.map((card) => (
           <MachineCardButton
             key={card.id}
@@ -31,7 +31,7 @@ export function MachineSelector({ selectedMachineId, onSelect }: MachineSelector
       </div>
 
       {/* Tennis Machines */}
-      <div className="grid grid-cols-2 gap-2">
+      <div className="grid grid-cols-2 gap-1.5">
         {tennisMachines.map((card) => (
           <MachineCardButton
             key={card.id}
@@ -60,9 +60,9 @@ function MachineCardButton({
       aria-checked={isSelected}
       aria-label={`${card.label} – ${card.shortLabel}`}
       onClick={() => onSelect(card.id)}
-      className={`flex items-center gap-2.5 px-2.5 py-2 rounded-xl transition-all cursor-pointer text-left ${
+      className={`flex items-center gap-1.5 px-1.5 py-1 rounded-lg transition-all cursor-pointer text-left ${
         isSelected
-          ? 'bg-accent/15 ring-2 ring-accent/50 shadow-sm'
+          ? 'bg-accent/15 ring-1 ring-accent/50 shadow-sm'
           : 'bg-white/[0.04] border border-white/[0.08] hover:border-accent/30'
       }`}
     >
@@ -70,18 +70,13 @@ function MachineCardButton({
       <img
         src={card.image}
         alt={card.label}
-        className="w-9 h-9 rounded-lg object-cover flex-shrink-0"
+        className="w-7 h-7 rounded-md object-cover flex-shrink-0"
       />
       <div className="min-w-0">
-        <div className="flex items-center gap-1.5">
-          <span className={`w-2 h-2 rounded-full flex-shrink-0 ${
-            isSelected ? 'bg-accent' : card.category === 'LEATHER' ? 'bg-red-400' : 'bg-green-400'
-          }`} />
-          <span className={`text-xs font-bold leading-tight ${isSelected ? 'text-accent' : 'text-slate-300'}`}>
-            {card.label}
-          </span>
-        </div>
-        <p className={`text-[9px] ml-3.5 ${isSelected ? 'text-accent/70' : 'text-slate-400'}`}>
+        <span className={`text-[10px] font-bold leading-tight ${isSelected ? 'text-accent' : 'text-slate-300'}`}>
+          {card.label}
+        </span>
+        <p className={`text-[8px] ${isSelected ? 'text-accent/70' : 'text-slate-500'}`}>
           {card.shortLabel}
         </p>
       </div>
