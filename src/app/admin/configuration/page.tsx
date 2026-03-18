@@ -163,25 +163,28 @@ function PriceField({ label, value, onChange }: { label: string; value: number; 
   );
 }
 
-function OperatorNumberField({ label, value, onChange, placeholder, labelColor }: {
-  label: string;
+function OperatorNumberField({ label, value, onChange, placeholder, labelColor, minValue = 0, className: extraClass }: {
+  label?: string;
   value: number;
   onChange: (v: number) => void;
   placeholder?: string;
   labelColor?: string;
+  minValue?: number;
+  className?: string;
 }) {
-  const [localValue, setLocalValue] = useState<string>(value === 0 ? '' : String(value));
+  const emptyValue = minValue > 0 ? minValue : 0;
+  const [localValue, setLocalValue] = useState<string>(value <= emptyValue ? '' : String(value));
   const [isFocused, setIsFocused] = useState(false);
 
   useEffect(() => {
     if (!isFocused) {
-      setLocalValue(value === 0 ? '' : String(value));
+      setLocalValue(value <= emptyValue ? '' : String(value));
     }
-  }, [value, isFocused]);
+  }, [value, isFocused, emptyValue]);
 
   return (
     <div>
-      <label className={`block text-[9px] font-medium mb-0.5 ${labelColor || 'text-slate-400'}`}>{label}</label>
+      {label && <label className={`block text-[9px] font-medium mb-0.5 ${labelColor || 'text-slate-400'}`}>{label}</label>}
       <input
         type="text"
         inputMode="numeric"
@@ -190,22 +193,25 @@ function OperatorNumberField({ label, value, onChange, placeholder, labelColor }
         onFocus={() => setIsFocused(true)}
         onChange={e => {
           const raw = e.target.value;
-          // Only allow digits or empty
           if (raw !== '' && !/^\d+$/.test(raw)) return;
           setLocalValue(raw);
           if (raw !== '') {
-            onChange(Number(raw));
+            onChange(Math.max(minValue, Number(raw)));
           }
         }}
         onBlur={() => {
           setIsFocused(false);
           if (localValue === '' || isNaN(Number(localValue))) {
             setLocalValue('');
-            onChange(0);
+            onChange(emptyValue);
+          } else {
+            const num = Math.max(minValue, Number(localValue));
+            setLocalValue(num <= emptyValue ? '' : String(num));
+            onChange(num);
           }
         }}
-        placeholder={placeholder || '0'}
-        className="w-full bg-white/[0.04] border border-white/[0.1] text-white rounded-lg px-2 py-1.5 text-[11px] outline-none focus:border-accent placeholder:text-slate-600"
+        placeholder={placeholder || String(emptyValue)}
+        className={extraClass || "w-full bg-white/[0.04] border border-white/[0.1] text-white rounded-lg px-2 py-1.5 text-[11px] outline-none focus:border-accent placeholder:text-slate-600"}
       />
     </div>
   );
@@ -837,12 +843,12 @@ export default function ConfigurationPage() {
                 
                 <div className="mb-3">
                   <label className="block text-[10px] font-medium text-slate-400 mb-1">Default Count</label>
-                  <input
-                    type="number"
+                  <OperatorNumberField
                     value={operatorScheduleDefault}
-                    onChange={e => setOperatorScheduleDefault(Math.max(1, Math.floor(Number(e.target.value))))}
-                    min="1"
-                    className="w-24 bg-white/[0.04] border border-white/[0.1] text-white rounded-lg px-3 py-2 text-sm outline-none focus:border-accent focus:ring-1 focus:ring-accent/20 transition-colors"
+                    onChange={val => setOperatorScheduleDefault(val)}
+                    placeholder="1"
+                    minValue={1}
+                    className="w-24 bg-white/[0.04] border border-white/[0.1] text-white rounded-lg px-3 py-2 text-sm outline-none focus:border-accent focus:ring-1 focus:ring-accent/20 transition-colors placeholder:text-slate-600"
                   />
                 </div>
 
@@ -860,21 +866,19 @@ export default function ConfigurationPage() {
                         <tr key={day} className="border-t border-white/[0.04]">
                           <td className="text-slate-300 font-medium py-1.5 pr-2">{DAY_LABELS[day]}</td>
                           <td className="text-center py-1.5 px-2">
-                            <input
-                              type="number"
+                            <OperatorNumberField
                               value={getScheduleCount(day, 'morning')}
-                              onChange={e => setScheduleCount(day, 'morning', Number(e.target.value))}
-                              min="0"
-                              className="w-14 bg-white/[0.04] border border-white/[0.1] text-white text-center rounded-lg px-1 py-1 text-[11px] outline-none focus:border-accent"
+                              onChange={val => setScheduleCount(day, 'morning', val)}
+                              placeholder="0"
+                              className="w-14 bg-white/[0.04] border border-white/[0.1] text-white text-center rounded-lg px-1 py-1 text-[11px] outline-none focus:border-accent placeholder:text-slate-600"
                             />
                           </td>
                           <td className="text-center py-1.5 px-2">
-                            <input
-                              type="number"
+                            <OperatorNumberField
                               value={getScheduleCount(day, 'evening')}
-                              onChange={e => setScheduleCount(day, 'evening', Number(e.target.value))}
-                              min="0"
-                              className="w-14 bg-white/[0.04] border border-white/[0.1] text-white text-center rounded-lg px-1 py-1 text-[11px] outline-none focus:border-accent"
+                              onChange={val => setScheduleCount(day, 'evening', val)}
+                              placeholder="0"
+                              className="w-14 bg-white/[0.04] border border-white/[0.1] text-white text-center rounded-lg px-1 py-1 text-[11px] outline-none focus:border-accent placeholder:text-slate-600"
                             />
                           </td>
                         </tr>
