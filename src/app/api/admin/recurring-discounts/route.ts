@@ -42,6 +42,9 @@ export async function POST(req: NextRequest) {
     if (!slotStartTime || !slotEndTime) {
       return NextResponse.json({ error: 'slotStartTime and slotEndTime are required (HH:MM format)' }, { status: 400 });
     }
+    if (slotEndTime <= slotStartTime) {
+      return NextResponse.json({ error: 'slotEndTime must be after slotStartTime (use 24-hour format, e.g. 15:00 for 3 PM)' }, { status: 400 });
+    }
     if (typeof oneSlotDiscount !== 'number' || typeof twoSlotDiscount !== 'number') {
       return NextResponse.json({ error: 'oneSlotDiscount and twoSlotDiscount must be numbers' }, { status: 400 });
     }

@@ -609,6 +609,15 @@ export default function ConfigurationPage() {
   };
 
   const handleSaveRule = async () => {
+    // Validate end time is after start time
+    if (ruleForm.slotEndTime <= ruleForm.slotStartTime) {
+      setMachineMessage({ text: 'End time must be after start time', type: 'error' });
+      return;
+    }
+    if (ruleForm.days.length === 0) {
+      setMachineMessage({ text: 'Select at least one day', type: 'error' });
+      return;
+    }
     setSavingRule(true);
     try {
       const payload = {
