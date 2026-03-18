@@ -102,15 +102,15 @@ export function usePricing({
       0
     );
 
-    // Calculate recurring slot discount from matched slots
+    // Calculate recurring slot discount — apply per qualifying slot
     let recurringDiscount = 0;
     if (selectedSlots.length > 0) {
-      // Find the first slot that has a recurring discount match
-      const matchedSlot = selectedSlots.find(s => s.recurringDiscount);
-      if (matchedSlot?.recurringDiscount) {
-        recurringDiscount = isConsecutive && selectedSlots.length >= 2
-          ? matchedSlot.recurringDiscount.twoSlotDiscount
-          : matchedSlot.recurringDiscount.oneSlotDiscount;
+      const qualifyingSlots = selectedSlots.filter(s => s.recurringDiscount);
+      if (qualifyingSlots.length > 0) {
+        const perSlot = isConsecutive && selectedSlots.length >= 2
+          ? qualifyingSlots[0].recurringDiscount!.twoSlotDiscount
+          : qualifyingSlots[0].recurringDiscount!.oneSlotDiscount;
+        recurringDiscount = perSlot * qualifyingSlots.length;
       }
     }
 

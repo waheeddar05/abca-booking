@@ -287,6 +287,8 @@ export async function POST(req: NextRequest) {
       return new Date(istMs).getUTCDay();
     };
 
+    // Check each slot against recurring discount rules — apply per qualifying slot
+    const perSlotDiscount = isConsecutive ? 'twoSlotDiscount' : 'oneSlotDiscount';
     for (let i = 0; i < pricing.length; i++) {
       const slot = validatedSlots[i];
       const dayOfWeek = getISTDay(slot.startTime);
@@ -294,28 +296,18 @@ export async function POST(req: NextRequest) {
 
       for (const rule of recurringDiscountRules) {
         if (!rule.days.includes(dayOfWeek)) continue;
-        // Check if slot falls within the rule's time range [start, end)
         const ruleStartTime = rule.slotStartTime.padStart(5, '0');
         const ruleEndTime = (rule.slotEndTime || rule.slotStartTime).padStart(5, '0');
         if (istTimeStr < ruleStartTime || istTimeStr >= ruleEndTime) continue;
         if (rule.machineId && rule.machineId !== firstMachineId) continue;
 
-        // Apply the appropriate discount (once per batch, using the first matching slot/rule)
-        if (totalRecurringDiscount === 0) {
-          const discountAmount = isConsecutive ? rule.twoSlotDiscount : rule.oneSlotDiscount;
-          totalRecurringDiscount = discountAmount;
-        }
-        break;
-      }
-    }
-
-    // Distribute recurring discount across slots (spread evenly)
-    if (totalRecurringDiscount > 0) {
-      const perSlotRecurringDiscount = totalRecurringDiscount / pricing.length;
-      for (const p of pricing) {
-        const maxReduction = Math.min(perSlotRecurringDiscount, p.price);
-        p.price = Math.max(0, p.price - maxReduction);
-        p.discountAmount += maxReduction;
+        // Apply discount to this qualifying slot
+        const discountAmount = rule[perSlotDiscount];
+        const maxReduction = Math.min(discountAmount, pricing[i].price);
+        pricing[i].price = Math.max(0, pricing[i].price - maxReduction);
+        pricing[i].discountAmount += maxReduction;
+        totalRecurringDiscount += maxReduction;
+        break; // first matching rule wins for this slot
       }
     }
 
