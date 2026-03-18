@@ -66,10 +66,10 @@ export default function Navbar() {
                   </Link>
                 )}
 
-                {/* Logout button */}
+                {/* Logout button - hidden on mobile in admin mode since admin layout has its own */}
                 <button
                   onClick={() => signOut({ callbackUrl: '/login' })}
-                  className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium transition-all cursor-pointer text-white/70 hover:text-red-400 hover:bg-white/10"
+                  className={`${isInAdminMode ? 'hidden md:flex' : 'flex'} items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium transition-all cursor-pointer text-white/70 hover:text-red-400 hover:bg-white/10`}
                 >
                   <LogOut className="w-4 h-4" />
                   <span className="hidden md:inline">Logout</span>
