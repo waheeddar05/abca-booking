@@ -183,25 +183,28 @@ function OperatorNumberField({ label, value, onChange, placeholder, labelColor }
     <div>
       <label className={`block text-[9px] font-medium mb-0.5 ${labelColor || 'text-slate-400'}`}>{label}</label>
       <input
-        type="number"
+        type="text"
         inputMode="numeric"
+        pattern="[0-9]*"
         value={localValue}
         onFocus={() => setIsFocused(true)}
         onChange={e => {
-          setLocalValue(e.target.value);
-          const num = Number(e.target.value);
-          if (e.target.value !== '' && !isNaN(num)) {
-            onChange(num);
+          const raw = e.target.value;
+          // Only allow digits or empty
+          if (raw !== '' && !/^\d+$/.test(raw)) return;
+          setLocalValue(raw);
+          if (raw !== '') {
+            onChange(Number(raw));
           }
         }}
         onBlur={() => {
           setIsFocused(false);
           if (localValue === '' || isNaN(Number(localValue))) {
+            setLocalValue('');
             onChange(0);
           }
         }}
         placeholder={placeholder || '0'}
-        min="0"
         className="w-full bg-white/[0.04] border border-white/[0.1] text-white rounded-lg px-2 py-1.5 text-[11px] outline-none focus:border-accent placeholder:text-slate-600"
       />
     </div>
