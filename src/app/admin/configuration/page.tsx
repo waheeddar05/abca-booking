@@ -163,6 +163,51 @@ function PriceField({ label, value, onChange }: { label: string; value: number; 
   );
 }
 
+function OperatorNumberField({ label, value, onChange, placeholder, labelColor }: {
+  label: string;
+  value: number;
+  onChange: (v: number) => void;
+  placeholder?: string;
+  labelColor?: string;
+}) {
+  const [localValue, setLocalValue] = useState<string>(value === 0 ? '' : String(value));
+  const [isFocused, setIsFocused] = useState(false);
+
+  useEffect(() => {
+    if (!isFocused) {
+      setLocalValue(value === 0 ? '' : String(value));
+    }
+  }, [value, isFocused]);
+
+  return (
+    <div>
+      <label className={`block text-[9px] font-medium mb-0.5 ${labelColor || 'text-slate-400'}`}>{label}</label>
+      <input
+        type="number"
+        inputMode="numeric"
+        value={localValue}
+        onFocus={() => setIsFocused(true)}
+        onChange={e => {
+          setLocalValue(e.target.value);
+          const num = Number(e.target.value);
+          if (e.target.value !== '' && !isNaN(num)) {
+            onChange(num);
+          }
+        }}
+        onBlur={() => {
+          setIsFocused(false);
+          if (localValue === '' || isNaN(Number(localValue))) {
+            onChange(0);
+          }
+        }}
+        placeholder={placeholder || '0'}
+        min="0"
+        className="w-full bg-white/[0.04] border border-white/[0.1] text-white rounded-lg px-2 py-1.5 text-[11px] outline-none focus:border-accent placeholder:text-slate-600"
+      />
+    </div>
+  );
+}
+
 export default function ConfigurationPage() {
   useSession(); // ensure auth context is available
 
@@ -884,36 +929,18 @@ export default function ConfigurationPage() {
 
                           {/* Morning/Evening Priority Inputs */}
                           <div className="ml-0 sm:ml-9 grid grid-cols-2 gap-2 mb-2">
-                            <div>
-                              <label className="block text-[9px] font-medium text-amber-400 mb-0.5">☀ Morning Priority</label>
-                              <input
-                                type="number"
-                                value={op.operatorMorningPriority === 0 ? '' : op.operatorMorningPriority}
-                                onChange={e => {
-                                  const raw = e.target.value;
-                                  const val = raw === '' ? 0 : Number(raw);
-                                  setOperators(prev => prev.map(o => o.id === op.id ? { ...o, operatorMorningPriority: isNaN(val) ? 0 : val } : o));
-                                }}
-                                placeholder="0"
-                                min="0"
-                                className="w-full bg-white/[0.04] border border-white/[0.1] text-white rounded-lg px-2 py-1.5 text-[11px] outline-none focus:border-accent placeholder:text-slate-600"
-                              />
-                            </div>
-                            <div>
-                              <label className="block text-[9px] font-medium text-indigo-400 mb-0.5">🌙 Evening Priority</label>
-                              <input
-                                type="number"
-                                value={op.operatorEveningPriority === 0 ? '' : op.operatorEveningPriority}
-                                onChange={e => {
-                                  const raw = e.target.value;
-                                  const val = raw === '' ? 0 : Number(raw);
-                                  setOperators(prev => prev.map(o => o.id === op.id ? { ...o, operatorEveningPriority: isNaN(val) ? 0 : val } : o));
-                                }}
-                                placeholder="0"
-                                min="0"
-                                className="w-full bg-white/[0.04] border border-white/[0.1] text-white rounded-lg px-2 py-1.5 text-[11px] outline-none focus:border-accent placeholder:text-slate-600"
-                              />
-                            </div>
+                            <OperatorNumberField
+                              label="☀ Morning Priority"
+                              labelColor="text-amber-400"
+                              value={op.operatorMorningPriority}
+                              onChange={val => setOperators(prev => prev.map(o => o.id === op.id ? { ...o, operatorMorningPriority: val } : o))}
+                            />
+                            <OperatorNumberField
+                              label="🌙 Evening Priority"
+                              labelColor="text-indigo-400"
+                              value={op.operatorEveningPriority}
+                              onChange={val => setOperators(prev => prev.map(o => o.id === op.id ? { ...o, operatorEveningPriority: val } : o))}
+                            />
                           </div>
 
                           {/* Machine Assignments */}
