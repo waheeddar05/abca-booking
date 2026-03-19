@@ -59,7 +59,9 @@ function calcConsecutiveTotal(
 
     let consecutiveFor2: number;
     if (isLeatherMachine) {
-      const subType = selectedMachineId === 'YANTRA' ? 'yantra' : (ballType === 'LEATHER' ? 'leather' : 'machine');
+      const subType = selectedMachineId === 'YANTRA'
+        ? (ballType === 'LEATHER' ? 'yantra' : 'yantra_machine')
+        : (ballType === 'LEATHER' ? 'leather' : 'machine');
       consecutiveFor2 = pc[subType as keyof PricingConfig][validPType][slab].consecutive;
     } else {
       consecutiveFor2 = pc.tennis[validPType][slab].consecutive;

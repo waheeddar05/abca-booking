@@ -41,7 +41,7 @@ export default function VerifyMobilePage() {
 
   if (status === 'loading') {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-[#060a14]">
+      <div className="min-h-screen flex items-center justify-center bg-[#030712]">
         <div className="animate-spin w-8 h-8 border-2 border-accent/30 border-t-accent rounded-full" />
       </div>
     );
@@ -141,7 +141,7 @@ export default function VerifyMobilePage() {
   const isValidMobile = /^[6-9]\d{9}$/.test(mobileNumber.replace(/\D/g, ''));
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-[#060a14] px-4">
+    <div className="min-h-screen flex items-center justify-center bg-[#030712] px-4">
       {/* Decorative background */}
       <div className="fixed inset-0 overflow-hidden pointer-events-none">
         <div className="absolute top-1/4 -left-1/4 w-96 h-96 bg-accent/5 rounded-full blur-[120px]" />

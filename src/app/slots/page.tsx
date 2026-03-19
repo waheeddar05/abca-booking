@@ -131,6 +131,7 @@ function SlotsContent() {
         numberOfSlots: selectedSlots.length,
         userId: isBookingForOther ? userId : undefined,
         machineId: selectedMachineId,
+        slotTimes: selectedSlots.map(s => s.startTime),
       });
     } else {
       // Reset validation

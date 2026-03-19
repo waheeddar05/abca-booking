@@ -178,7 +178,7 @@ export async function GET(req: NextRequest) {
         b.machineId || '',
         b.operationMode || '',
         b.status,
-        pkg ? 'NA' : (b.price?.toString() || ''),
+        pkg ? (b.packageBooking?.extraCharge ? b.packageBooking.extraCharge.toString() : '0') : (b.price?.toString() || ''),
         `"${(b.createdBy || '').replace(/"/g, '""')}"`,
         `"${(b.cancelledBy || '').replace(/"/g, '""')}"`,
         b.status === 'CANCELLED' && b.updatedAt ? formatIST(b.updatedAt, 'yyyy-MM-dd HH:mm:ss') : '',

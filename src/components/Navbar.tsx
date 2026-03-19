@@ -5,7 +5,7 @@ import Image from 'next/image';
 import { useSession, signOut } from 'next-auth/react';
 import { usePathname } from 'next/navigation';
 import { useState, useEffect } from 'react';
-import { Shield, LogOut, LogIn, ArrowLeft } from 'lucide-react';
+import { Shield, Power, LogIn, ArrowLeft } from 'lucide-react';
 
 export default function Navbar() {
   const { data: session } = useSession();
@@ -71,7 +71,7 @@ export default function Navbar() {
                   onClick={() => signOut({ callbackUrl: '/login' })}
                   className={`${isInAdminMode ? 'hidden md:flex' : 'flex'} items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium transition-all cursor-pointer text-white/70 hover:text-red-400 hover:bg-white/10`}
                 >
-                  <LogOut className="w-4 h-4" />
+                  <Power className="w-4 h-4" />
                   <span className="hidden md:inline">Logout</span>
                 </button>
               </>

@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useSession } from 'next-auth/react';
-import { LayoutDashboard, CalendarCheck, Users, Settings, Clock, Wrench, Package, Zap, SlidersHorizontal, ArrowLeft, LogOut } from 'lucide-react';
+import { LayoutDashboard, CalendarCheck, Users, Settings, Clock, Wrench, Package, Zap, SlidersHorizontal, ArrowLeft, Power } from 'lucide-react';
 import { signOut } from 'next-auth/react';
 import { AdminMobileNav } from '@/components/admin/AdminMobileNav';
 
@@ -59,7 +59,7 @@ export default function AdminLayout({
             onClick={() => signOut({ callbackUrl: '/login' })}
             className="flex items-center gap-1.5 text-red-400/70 hover:text-red-400 transition-colors text-xs font-medium px-2.5 py-1.5 rounded-lg bg-white/[0.04] active:scale-95 cursor-pointer"
           >
-            <LogOut className="w-3 h-3" />
+            <Power className="w-3 h-3" />
           </button>
         </div>
       </div>
@@ -120,7 +120,7 @@ export default function AdminLayout({
               onClick={() => signOut({ callbackUrl: '/login' })}
               className="flex items-center gap-2 w-full px-3 py-2 rounded-xl text-sm font-medium transition-all cursor-pointer text-red-400/70 hover:bg-white/[0.04] hover:text-red-400"
             >
-              <LogOut className="w-4 h-4" />
+              <Power className="w-4 h-4" />
               Logout
             </button>
           </div>

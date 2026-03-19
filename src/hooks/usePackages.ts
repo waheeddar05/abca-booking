@@ -63,6 +63,7 @@ interface UsePackagesReturn {
     numberOfSlots: number;
     userId?: string | null;
     machineId?: string;
+    slotTimes?: string[];
   }) => Promise<void>;
   reset: () => void;
 }
@@ -107,6 +108,7 @@ export function usePackages(): UsePackagesReturn {
     numberOfSlots: number;
     userId?: string | null;
     machineId?: string;
+    slotTimes?: string[];
   }) => {
     if (!params.userPackageId || params.numberOfSlots === 0) {
       setValidation(null);
@@ -123,6 +125,7 @@ export function usePackages(): UsePackagesReturn {
         numberOfSlots: params.numberOfSlots,
         ...(params.userId ? { userId: params.userId } : {}),
         ...(params.machineId ? { machineId: params.machineId } : {}),
+        ...(params.slotTimes && params.slotTimes.length > 1 ? { slotTimes: params.slotTimes } : {}),
       };
       const data = await api.post<PackageValidationResponse>('/api/packages/validate-booking', body);
       setValidation(data);

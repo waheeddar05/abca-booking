@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { format, addDays, parseISO, eachDayOfInterval, getDay } from 'date-fns';
 import {
   Clock, Loader2, Trash2, ShieldBan, Ban, AlertTriangle,
-  CalendarRange, Repeat, CalendarClock, CheckCircle2, Info,
+  CalendarRange, Repeat, CalendarClock, CheckCircle2, Info, Pencil, X,
 } from 'lucide-react';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { AdminPageHeader } from '@/components/admin/AdminPageHeader';
@@ -80,6 +80,9 @@ export default function SlotManagement() {
   const [blockedSlots, setBlockedSlots] = useState<BlockedSlot[]>([]);
   const [blockedLoading, setBlockedLoading] = useState(false);
   const [unblockId, setUnblockId] = useState<string | null>(null);
+  const [editingBlock, setEditingBlock] = useState<BlockedSlot | null>(null);
+  const [editForm, setEditForm] = useState({ startDate: '', endDate: '', startTime: '', endTime: '', isFullDay: true, machineId: '' as string | null, reason: '' });
+  const [editLoading, setEditLoading] = useState(false);
 
   const todayStr = format(new Date(), 'yyyy-MM-dd');
 
@@ -265,6 +268,59 @@ export default function SlotManagement() {
       }
     } catch {
       setMessage({ text: 'Failed to remove block', type: 'error' });
+    }
+  };
+
+  // ─── Edit block ─────────────────────────────────────────
+  const startEditBlock = (block: BlockedSlot) => {
+    setEditingBlock(block);
+    setEditForm({
+      startDate: block.startDate.split('T')[0],
+      endDate: block.endDate.split('T')[0],
+      startTime: formatBlockTime(block.startTime) || '07:00',
+      endTime: formatBlockTime(block.endTime) || '22:30',
+      isFullDay: !block.startTime,
+      machineId: block.machineId,
+      reason: block.reason || '',
+    });
+  };
+
+  const handleEditSave = async () => {
+    if (!editingBlock) return;
+    setEditLoading(true);
+    try {
+      const body: Record<string, unknown> = {
+        id: editingBlock.id,
+        startDate: editForm.startDate,
+        endDate: editForm.endDate,
+        reason: editForm.reason || null,
+      };
+      if (!editForm.isFullDay) {
+        body.startTime = editForm.startTime;
+        body.endTime = editForm.endTime;
+      } else {
+        body.startTime = null;
+        body.endTime = null;
+      }
+      body.machineId = editForm.machineId || null;
+
+      const res = await fetch('/api/admin/slots/block', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      if (res.ok) {
+        setMessage({ text: 'Block updated successfully', type: 'success' });
+        setEditingBlock(null);
+        fetchBlockedSlots();
+      } else {
+        const data = await res.json();
+        setMessage({ text: data.error || 'Failed to update block', type: 'error' });
+      }
+    } catch {
+      setMessage({ text: 'Failed to update block', type: 'error' });
+    } finally {
+      setEditLoading(false);
     }
   };
 
@@ -643,19 +699,108 @@ export default function SlotManagement() {
                       </div>
                     </div>
 
-                    {/* Delete */}
-                    <button
-                      onClick={() => handleUnblockClick(block.id)}
-                      className="flex-shrink-0 p-2 text-slate-600 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-colors cursor-pointer"
-                      title="Remove block"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
+                    {/* Actions */}
+                    <div className="flex items-center gap-1 flex-shrink-0">
+                      <button
+                        onClick={() => startEditBlock(block)}
+                        className="p-2 text-slate-600 hover:text-accent hover:bg-accent/10 rounded-lg transition-colors cursor-pointer"
+                        title="Edit block"
+                      >
+                        <Pencil className="w-4 h-4" />
+                      </button>
+                      <button
+                        onClick={() => handleUnblockClick(block.id)}
+                        className="p-2 text-slate-600 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-colors cursor-pointer"
+                        title="Remove block"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
                   </div>
                 );
               })}
             </div>
           )}
+        </div>
+      )}
+
+      {/* Edit Block Modal */}
+      {editingBlock && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center px-4">
+          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setEditingBlock(null)} />
+          <div className="relative bg-[#0f1729] border border-white/[0.08] rounded-2xl p-5 w-full max-w-md max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-sm font-bold text-white">Edit Block</h3>
+              <button onClick={() => setEditingBlock(null)} className="p-1.5 hover:bg-white/[0.06] rounded-lg cursor-pointer">
+                <X className="w-4 h-4 text-slate-400" />
+              </button>
+            </div>
+
+            <div className="space-y-3">
+              {/* Date Range */}
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-[10px] font-medium text-slate-500 mb-1 uppercase tracking-wider">Start Date</label>
+                  <input type="date" value={editForm.startDate} onChange={e => setEditForm(f => ({ ...f, startDate: e.target.value }))}
+                    className="w-full bg-white/[0.04] border border-white/[0.08] rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-accent/50" />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-medium text-slate-500 mb-1 uppercase tracking-wider">End Date</label>
+                  <input type="date" value={editForm.endDate} onChange={e => setEditForm(f => ({ ...f, endDate: e.target.value }))}
+                    className="w-full bg-white/[0.04] border border-white/[0.08] rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-accent/50" />
+                </div>
+              </div>
+
+              {/* Time */}
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <label className="text-[10px] font-medium text-slate-500 uppercase tracking-wider">Time</label>
+                  <button type="button" onClick={() => setEditForm(f => ({ ...f, isFullDay: !f.isFullDay }))}
+                    className={`px-3 py-1 rounded-lg text-[11px] font-semibold transition-all cursor-pointer ${editForm.isFullDay ? 'bg-accent/15 text-accent' : 'bg-white/[0.04] text-slate-400'}`}>
+                    {editForm.isFullDay ? 'Full Day' : 'Custom Hours'}
+                  </button>
+                </div>
+                {!editForm.isFullDay && (
+                  <div className="grid grid-cols-2 gap-3">
+                    <input type="time" value={editForm.startTime} onChange={e => setEditForm(f => ({ ...f, startTime: e.target.value }))}
+                      className="bg-white/[0.04] border border-white/[0.08] rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-accent/50" />
+                    <input type="time" value={editForm.endTime} onChange={e => setEditForm(f => ({ ...f, endTime: e.target.value }))}
+                      className="bg-white/[0.04] border border-white/[0.08] rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-accent/50" />
+                  </div>
+                )}
+              </div>
+
+              {/* Machine */}
+              <div>
+                <label className="block text-[10px] font-medium text-slate-500 mb-1 uppercase tracking-wider">Machine</label>
+                <select value={editForm.machineId || ''} onChange={e => setEditForm(f => ({ ...f, machineId: e.target.value || null }))}
+                  className="w-full bg-white/[0.04] border border-white/[0.08] rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-accent/50">
+                  <option value="">All Machines</option>
+                  {MACHINES.map(m => <option key={m.id} value={m.id}>{m.label}</option>)}
+                </select>
+              </div>
+
+              {/* Reason */}
+              <div>
+                <label className="block text-[10px] font-medium text-slate-500 mb-1 uppercase tracking-wider">Reason</label>
+                <input type="text" value={editForm.reason} onChange={e => setEditForm(f => ({ ...f, reason: e.target.value }))}
+                  placeholder="e.g., Pitch maintenance..."
+                  className="w-full bg-white/[0.04] border border-white/[0.08] rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-accent/50 placeholder:text-slate-600" />
+              </div>
+            </div>
+
+            <div className="flex gap-2 mt-5">
+              <button onClick={handleEditSave} disabled={editLoading}
+                className="flex-1 inline-flex items-center justify-center gap-2 bg-accent/15 hover:bg-accent/25 text-accent border border-accent/25 px-4 py-2.5 rounded-xl text-sm font-semibold transition-all cursor-pointer disabled:opacity-40">
+                {editLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
+                {editLoading ? 'Saving...' : 'Save Changes'}
+              </button>
+              <button onClick={() => setEditingBlock(null)}
+                className="px-4 py-2.5 bg-white/[0.04] text-slate-400 rounded-xl text-sm font-medium hover:bg-white/[0.08] transition-colors cursor-pointer">
+                Cancel
+              </button>
+            </div>
+          </div>
         </div>
       )}
 

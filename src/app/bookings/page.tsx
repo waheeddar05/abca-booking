@@ -266,6 +266,11 @@ export default function BookingsPage() {
                     }`}>
                       {ballInfo.label}
                     </span>
+                    {booking.operationMode === 'SELF_OPERATE' && (
+                      <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-400 font-medium border border-amber-500/20">
+                        Self Operate
+                      </span>
+                    )}
                     {booking.isPackageBooking && (
                       <span className="text-[10px] px-2 py-0.5 rounded-full bg-purple-500/10 text-purple-400 font-medium border border-purple-500/20">
                         Package

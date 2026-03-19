@@ -221,6 +221,70 @@ export async function POST(req: NextRequest) {
   }
 }
 
+// PUT /api/admin/slots/block - Update a blocked slot
+export async function PUT(req: NextRequest) {
+  try {
+    const admin = await getAuthenticatedUser(req);
+    if (!admin || admin.role !== 'ADMIN') {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    const body = await req.json();
+    const { id, startDate, endDate, startTime, endTime, machineId, reason } = body;
+
+    if (!id) {
+      return NextResponse.json({ error: 'Block id is required' }, { status: 400 });
+    }
+
+    const existing = await prisma.blockedSlot.findUnique({ where: { id } });
+    if (!existing) {
+      return NextResponse.json({ error: 'Blocked slot not found' }, { status: 404 });
+    }
+
+    const updateData: any = {};
+
+    if (startDate && endDate) {
+      updateData.startDate = dateStringToUTC(startDate);
+      updateData.endDate = dateStringToUTC(endDate);
+    }
+
+    if (startTime !== undefined && endTime !== undefined) {
+      if (startTime && endTime) {
+        updateData.startTime = new Date(`1970-01-01T${startTime}:00+05:30`);
+        updateData.endTime = new Date(`1970-01-01T${endTime}:00+05:30`);
+      } else {
+        // Setting to full day
+        updateData.startTime = null;
+        updateData.endTime = null;
+      }
+    }
+
+    if (machineId !== undefined) {
+      if (machineId && isValidMachineId(machineId)) {
+        updateData.machineId = machineId;
+        updateData.machineType = null;
+      } else if (machineId === null) {
+        updateData.machineId = null;
+        updateData.machineType = null;
+      }
+    }
+
+    if (reason !== undefined) {
+      updateData.reason = reason || null;
+    }
+
+    const updated = await prisma.blockedSlot.update({
+      where: { id },
+      data: updateData,
+    });
+
+    return NextResponse.json({ message: 'Block updated successfully', blockedSlot: updated });
+  } catch (error) {
+    console.error('Update blocked slot error:', error);
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+  }
+}
+
 // DELETE /api/admin/slots/block?id=xxx - Remove a blocked slot
 export async function DELETE(req: NextRequest) {
   try {

@@ -327,9 +327,11 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // If package booking, validate the package first
+    // If package booking, validate each slot individually to handle mixed time slabs
     let packageValidation: { valid: boolean; extraCharge?: number; extraChargeType?: string } | null = null;
+    let perSlotExtraCharges: number[] = [];
     if (userPackageId) {
+      // First validate with the first slot for session count and basic compatibility
       const firstSlot = validatedSlots[0];
       packageValidation = await validatePackageBooking(
         userPackageId,
@@ -345,6 +347,26 @@ export async function POST(req: NextRequest) {
       if (!packageValidation.valid) {
         return NextResponse.json({ error: (packageValidation as any).error || 'Package validation failed' }, { status: 400 });
       }
+
+      // Now validate each slot individually to get per-slot extra charges (handles mixed time slabs)
+      let totalExtraCharge = 0;
+      for (const slot of validatedSlots) {
+        const slotValidation = await validatePackageBooking(
+          userPackageId,
+          userId!,
+          slot.ballType,
+          slot.pitchType,
+          slot.startTime,
+          1, // Validate one slot at a time for pricing
+          timeSlabConfig,
+          slot.machineId
+        );
+        const slotExtra = slotValidation.valid ? (slotValidation.extraCharge || 0) : 0;
+        perSlotExtraCharges.push(slotExtra);
+        totalExtraCharge += slotExtra;
+      }
+      // Override the total extra charge with the per-slot sum
+      packageValidation.extraCharge = totalExtraCharge;
     }
 
     // Book all slots in transaction
@@ -559,16 +581,17 @@ export async function POST(req: NextRequest) {
         include: { package: true },
       });
 
-      const extraChargePerSlot = (packageValidation.extraCharge || 0) / validatedSlots.length;
-      for (const result of results) {
+      for (let idx = 0; idx < results.length; idx++) {
+        const result = results[idx];
+        const slotExtra = perSlotExtraCharges[idx] ?? 0;
         await prisma.packageBooking.upsert({
           where: { bookingId: result.id },
           create: {
             userPackageId,
             bookingId: result.id,
             sessionsUsed: 1,
-            extraCharge: extraChargePerSlot,
-            extraChargeType: packageValidation.extraChargeType || null,
+            extraCharge: slotExtra,
+            extraChargeType: slotExtra > 0 ? (packageValidation.extraChargeType || null) : null,
           },
           update: {},
         });
