@@ -5,7 +5,7 @@ import Image from 'next/image';
 import { useSession, signOut } from 'next-auth/react';
 import { usePathname } from 'next/navigation';
 import { useState, useEffect } from 'react';
-import { Shield, Power, LogIn, ArrowLeft } from 'lucide-react';
+import { Shield, Power, LogIn, ArrowLeft, Calendar, ClipboardList, Package, Wallet, Bell } from 'lucide-react';
 
 export default function Navbar() {
   const { data: session } = useSession();
@@ -19,9 +19,21 @@ export default function Navbar() {
   }, []);
 
   const isAdmin = session?.user?.role === 'ADMIN';
+  const isOperator = session?.user?.role === 'OPERATOR';
   const isInAdminMode = pathname.startsWith('/admin');
+  const isInOperatorMode = pathname.startsWith('/operator');
 
   if (pathname === '/') return null;
+
+  const desktopNavLinks = [
+    { href: '/slots', label: 'Book Slot', icon: Calendar },
+    { href: '/bookings', label: 'My Bookings', icon: ClipboardList },
+    { href: '/packages', label: 'Packages', icon: Package },
+    { href: '/wallet', label: 'Wallet', icon: Wallet },
+    { href: '/notifications', label: 'Alerts', icon: Bell },
+  ];
+
+  const isNavActive = (href: string) => pathname === href || pathname.startsWith(href + '/');
 
   return (
     <nav className={`sticky top-0 z-50 transition-all duration-300 ${scrolled ? 'bg-[#030712]/95 backdrop-blur-md shadow-lg shadow-black/20' : 'bg-transparent'
@@ -39,6 +51,29 @@ export default function Navbar() {
               className="h-20 md:h-28 w-auto object-contain flex-shrink-0 drop-shadow-[0_0_8px_rgba(100,140,255,0.3)]"
             />
           </Link>
+
+          {/* Desktop Navigation Links — hidden on mobile (BottomNav handles mobile) */}
+          {session && !isInAdminMode && !isInOperatorMode && (
+            <div className="hidden md:flex items-center gap-1">
+              {desktopNavLinks.map(({ href, label, icon: Icon }) => {
+                const active = isNavActive(href);
+                return (
+                  <Link
+                    key={href}
+                    href={href}
+                    className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium transition-all ${
+                      active
+                        ? 'text-accent bg-accent/10'
+                        : 'text-white/60 hover:text-white hover:bg-white/10'
+                    }`}
+                  >
+                    <Icon className="w-4 h-4" />
+                    {label}
+                  </Link>
+                );
+              })}
+            </div>
+          )}
 
           {/* Right side actions */}
           <div className="flex items-center gap-1.5">
