@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { getAuthenticatedUser } from '@/lib/auth';
+import { debitWallet, isWalletEnabled, getWalletBalance } from '@/lib/wallet';
 
 // POST /api/packages/purchase - Purchase a package
 export async function POST(req: NextRequest) {
@@ -11,7 +12,7 @@ export async function POST(req: NextRequest) {
     }
 
     const body = await req.json();
-    const { packageId, activationDate } = body;
+    const { packageId, paymentMethod, walletDeduction } = body;
 
     if (!packageId) {
       return NextResponse.json({ error: 'packageId is required' }, { status: 400 });
@@ -63,6 +64,36 @@ export async function POST(req: NextRequest) {
       },
       include: { package: true },
     });
+
+    // Handle wallet payment if requested
+    if (paymentMethod === 'WALLET' && walletDeduction && walletDeduction > 0) {
+      const walletEnabled = await isWalletEnabled();
+      if (!walletEnabled) {
+        return NextResponse.json({ error: 'Wallet is not enabled' }, { status: 400 });
+      }
+
+      const balance = await getWalletBalance(user.id);
+      if (balance < walletDeduction) {
+        // Rollback the package creation
+        await prisma.userPackage.delete({ where: { id: userPackage.id } });
+        return NextResponse.json({ error: 'Insufficient wallet balance' }, { status: 400 });
+      }
+
+      try {
+        await debitWallet(
+          user.id,
+          walletDeduction,
+          'DEBIT_BOOKING',
+          `Package purchase: ${pkg.name}`,
+          userPackage.id,
+        );
+      } catch (walletErr) {
+        // Rollback the package creation
+        await prisma.userPackage.delete({ where: { id: userPackage.id } });
+        const msg = walletErr instanceof Error ? walletErr.message : 'Wallet payment failed';
+        return NextResponse.json({ error: msg }, { status: 400 });
+      }
+    }
 
     return NextResponse.json(userPackage, { status: 201 });
   } catch (error) {

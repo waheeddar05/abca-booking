@@ -37,7 +37,9 @@ interface OperatorData {
     cancelled: number;
   };
   machineIds: string[];
+  assignedMachineIds: string[];
   currentOperatorId: string;
+  viewAll: boolean;
 }
 
 function formatTime(dateStr: string): string {
@@ -73,13 +75,15 @@ export default function OperatorBookingsPage() {
   const [dateMode, setDateMode] = useState<'day' | 'all'>('day');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [showOnlyMine, setShowOnlyMine] = useState(false);
+  const [viewAllMachines, setViewAllMachines] = useState(false);
 
-  const fetchBookings = useCallback(async (date: Date, mode: 'day' | 'all' = 'day') => {
+  const fetchBookings = useCallback(async (date: Date, mode: 'day' | 'all' = 'day', viewAll = false) => {
     try {
       setLoading(true);
       setError(null);
       const params = mode === 'all' ? 'date=all' : `date=${toDateString(date)}`;
-      const res = await fetch(`/api/operator/bookings?${params}`);
+      const viewAllParam = viewAll ? '&viewAll=true' : '';
+      const res = await fetch(`/api/operator/bookings?${params}${viewAllParam}`);
       if (!res.ok) {
         if (res.status === 403) {
           setError('Access denied. You need operator permissions.');
@@ -98,8 +102,8 @@ export default function OperatorBookingsPage() {
   }, []);
 
   useEffect(() => {
-    fetchBookings(selectedDate, dateMode);
-  }, [selectedDate, dateMode, fetchBookings]);
+    fetchBookings(selectedDate, dateMode, viewAllMachines);
+  }, [selectedDate, dateMode, viewAllMachines, fetchBookings]);
 
   const goToPreviousDay = () => {
     setSelectedDate(prev => {
@@ -146,12 +150,12 @@ export default function OperatorBookingsPage() {
       <div>
         <h1 className="text-xl md:text-2xl font-bold text-white">Bookings</h1>
         <p className="text-slate-400 text-sm mt-1">
-          View bookings for your assigned machines
+          {viewAllMachines ? 'Viewing bookings across all machines' : 'View bookings for your assigned machines'}
         </p>
       </div>
 
-      {/* Date Mode Toggle */}
-      <div className="flex items-center gap-2">
+      {/* Date Mode Toggle + View All */}
+      <div className="flex items-center gap-2 flex-wrap">
         <button
           onClick={() => { setDateMode('day'); setSelectedDate(new Date()); }}
           className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
@@ -172,6 +176,18 @@ export default function OperatorBookingsPage() {
         >
           All Upcoming
         </button>
+        <div className="ml-auto">
+          <button
+            onClick={() => setViewAllMachines(v => !v)}
+            className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
+              viewAllMachines
+                ? 'bg-purple-500/15 text-purple-400 border border-purple-500/30'
+                : 'bg-[#0f1d2f]/60 text-slate-400 border border-white/[0.08] hover:border-white/[0.15]'
+            }`}
+          >
+            {viewAllMachines ? 'All Machines' : 'All Machines'}
+          </button>
+        </div>
       </div>
 
       {/* Date Navigation (day mode only) */}

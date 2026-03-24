@@ -22,12 +22,13 @@ export async function POST(req: NextRequest) {
     }
 
     const body = await req.json();
-    const { type, amount, packageId, slots, metadata } = body as {
+    const { type, amount, packageId, slots, metadata, walletDeduction } = body as {
       type: 'SLOT_BOOKING' | 'PACKAGE_PURCHASE';
       amount: number;
       packageId?: string;
       slots?: Array<{ date: string; startTime: string; endTime: string }>;
       metadata?: Record<string, string>;
+      walletDeduction?: number;
     };
 
     if (!type || !amount || amount <= 0) {
@@ -43,13 +44,13 @@ export async function POST(req: NextRequest) {
       if (!packageId) {
         return NextResponse.json({ error: 'packageId is required for package purchase' }, { status: 400 });
       }
-      // Verify package exists and price matches
+      // Verify package exists and price matches (amount may be less than pkg.price if wallet is used)
       const pkg = await prisma.package.findUnique({ where: { id: packageId } });
       if (!pkg || !pkg.isActive) {
         return NextResponse.json({ error: 'Package not found or inactive' }, { status: 404 });
       }
-      if (pkg.price !== amount) {
-        return NextResponse.json({ error: 'Amount does not match package price' }, { status: 400 });
+      if (amount > pkg.price) {
+        return NextResponse.json({ error: 'Amount exceeds package price' }, { status: 400 });
       }
     }
 
@@ -93,6 +94,7 @@ export async function POST(req: NextRequest) {
           receipt,
           packageId: packageId || null,
           slots: slots || null,
+          walletDeduction: walletDeduction || 0,
           ...metadata,
         },
       },

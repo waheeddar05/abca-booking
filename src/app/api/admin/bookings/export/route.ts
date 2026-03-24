@@ -99,6 +99,9 @@ export async function GET(req: NextRequest) {
     // Build CSV
     const isPackage = (b: any) => !!b.packageBooking;
 
+    // Check if there are any package bookings to decide whether to show Extra Amount column
+    const hasPackageBookings = bookings.some((b: any) => !!b.packageBooking);
+
     const headers = [
       'Booking ID',
       'Date',
@@ -117,6 +120,7 @@ export async function GET(req: NextRequest) {
       'Operation Mode',
       'Status',
       'Amount',
+      ...(hasPackageBookings ? ['Extra Amount'] : []),
       'Created By',
       'Cancelled By',
       'Cancelled At',
@@ -132,14 +136,12 @@ export async function GET(req: NextRequest) {
 
       // Compute refund columns
       const refunds: any[] = b.refunds || [];
-      let refundStatus = '';
-      let refundAmount = '';
-      let refundMethodCol = '';
+      let refundStatus = 'NA';
+      let refundAmount = 'NA';
+      let refundMethodCol = 'NA';
 
       if (pkg) {
-        refundStatus = 'NA';
-        refundAmount = 'NA';
-        refundMethodCol = 'NA';
+        // Package bookings: refund fields stay NA
       } else if (refunds.length > 0) {
         const activeRefunds = refunds.filter((r: any) => r.status !== 'FAILED');
         const totalRefunded = activeRefunds.reduce((sum: number, r: any) => sum + r.amount, 0);
@@ -171,14 +173,15 @@ export async function GET(req: NextRequest) {
         b.user?.email || '',
         b.user?.mobileNumber || '',
         pkg ? 'Package' : 'Regular',
-        b.packageBooking?.userPackage?.package?.name || '',
-        b.packageBooking?.userPackageId || '',
+        pkg ? (b.packageBooking?.userPackage?.package?.name || '') : 'NA',
+        pkg ? (b.packageBooking?.userPackageId || '') : 'NA',
         b.ballType,
         b.pitchType || '',
         b.machineId || '',
         b.operationMode || '',
         b.status,
-        pkg ? (b.packageBooking?.extraCharge ? b.packageBooking.extraCharge.toString() : '0') : (b.price?.toString() || ''),
+        pkg ? 'NA' : (b.price?.toString() || ''),
+        ...(hasPackageBookings ? [pkg ? (b.packageBooking?.extraCharge ? b.packageBooking.extraCharge.toString() : '0') : 'NA'] : []),
         `"${(b.createdBy || '').replace(/"/g, '""')}"`,
         `"${(b.cancelledBy || '').replace(/"/g, '""')}"`,
         b.status === 'CANCELLED' && b.updatedAt ? formatIST(b.updatedAt, 'yyyy-MM-dd HH:mm:ss') : '',

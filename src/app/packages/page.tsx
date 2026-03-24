@@ -11,6 +11,7 @@ import { LABEL_MAP } from '@/lib/client-constants';
 import { ContactFooter } from '@/components/ContactFooter';
 import { PackageFirstBookingBanner } from '@/components/ui/PackageFirstBookingBanner';
 import { BackButton } from '@/components/ui/BackButton';
+import { Wallet } from 'lucide-react';
 
 interface PackageInfo {
   id: string;
@@ -71,6 +72,8 @@ export default function PackagesPage() {
   const [timingFilter, setTimingFilter] = useState<'DAY' | 'EVENING' | ''>('');
   const [selectedPackage, setSelectedPackage] = useState<PackageInfo | null>(null);
   const [confirmPurchaseId, setConfirmPurchaseId] = useState<string | null>(null);
+  const [useWalletForPkg, setUseWalletForPkg] = useState(false);
+  const [walletBalance, setWalletBalance] = useState<number>(0);
 
   const { config: paymentConfig } = usePaymentConfig();
   const { initiatePayment, processing: paymentProcessing } = useRazorpay({
@@ -112,10 +115,17 @@ export default function PackagesPage() {
     if (session) {
       fetchPackages();
       fetchMyPackages();
+      // Fetch wallet balance
+      if (paymentConfig?.walletEnabled) {
+        fetch('/api/wallet')
+          .then(res => res.json())
+          .then(data => { if (data.balance != null) setWalletBalance(data.balance); })
+          .catch(() => {});
+      }
     } else {
       fetchPackages();
     }
-  }, [session]);
+  }, [session, paymentConfig?.walletEnabled]);
 
   useEffect(() => {
     if (tab === 'my' && session) fetchMyPackages();
@@ -131,21 +141,59 @@ export default function PackagesPage() {
     const pkg = packages.find(p => p.id === packageId);
     if (!pkg) return;
 
-    // If payment is enabled and required for packages, use Razorpay
+    const walletDeduction = useWalletForPkg && walletBalance > 0 ? Math.min(walletBalance, pkg.price) : 0;
+    const amountAfterWallet = pkg.price - walletDeduction;
+
+    // If payment is enabled and required for packages
     if (paymentConfig?.paymentEnabled && paymentConfig?.packagePaymentRequired) {
+      // If wallet covers full amount, do wallet-only purchase
+      if (walletDeduction > 0 && amountAfterWallet === 0) {
+        setPurchasing(packageId);
+        setMessage({ text: '', type: '' });
+        try {
+          const res = await fetch('/api/packages/purchase', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ packageId, paymentMethod: 'WALLET', walletDeduction }),
+          });
+          if (res.ok) {
+            setMessage({ text: 'Package purchased using wallet balance!', type: 'success' });
+            setTab('my');
+            setUseWalletForPkg(false);
+            setWalletBalance(prev => prev - walletDeduction);
+            fetchMyPackages();
+          } else {
+            const data = await res.json();
+            setMessage({ text: data.error || 'Purchase failed', type: 'error' });
+          }
+        } catch {
+          setMessage({ text: 'Internal server error', type: 'error' });
+        } finally {
+          setPurchasing(null);
+        }
+        return;
+      }
+
+      // Razorpay payment (possibly with partial wallet deduction)
       setPurchasing(packageId);
       setMessage({ text: '', type: '' });
 
       await initiatePayment({
         type: 'PACKAGE_PURCHASE',
-        amount: pkg.price,
+        amount: amountAfterWallet,
         packageId,
-        description: `Package: ${pkg.name} (${pkg.totalSessions} sessions)`,
+        description: `Package: ${pkg.name} (${pkg.totalSessions} sessions)${walletDeduction > 0 ? ` | ₹${walletDeduction} from wallet` : ''}`,
         prefill: {
           name: session.user?.name || undefined,
           email: session.user?.email || undefined,
         },
+        walletDeduction: walletDeduction > 0 ? walletDeduction : undefined,
       });
+
+      if (walletDeduction > 0) {
+        setWalletBalance(prev => prev - walletDeduction);
+        setUseWalletForPkg(false);
+      }
 
       setPurchasing(null);
       return;
@@ -602,26 +650,85 @@ export default function PackagesPage() {
                 <DetailItem label="Price" value={`₹${selectedPackage.price}`} highlight />
               </div>
 
+              {/* Wallet Toggle */}
+              {paymentConfig?.walletEnabled && paymentConfig?.paymentEnabled && paymentConfig?.packagePaymentRequired && walletBalance > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setUseWalletForPkg(!useWalletForPkg)}
+                  className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl border transition-all cursor-pointer ${
+                    useWalletForPkg
+                      ? 'border-green-500/50 bg-green-500/10'
+                      : 'border-white/[0.08] bg-white/[0.03] hover:bg-white/[0.06]'
+                  }`}
+                >
+                  <div className={`w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0 ${useWalletForPkg ? 'bg-green-500/20' : 'bg-white/[0.06]'}`}>
+                    <Wallet className={`w-4 h-4 ${useWalletForPkg ? 'text-green-400' : 'text-slate-400'}`} />
+                  </div>
+                  <div className="text-left flex-1">
+                    <p className={`text-sm font-semibold ${useWalletForPkg ? 'text-green-400' : 'text-slate-300'}`}>
+                      Use Wallet Balance
+                    </p>
+                    <p className="text-[10px] text-slate-500">
+                      Available: ₹{walletBalance.toLocaleString()}
+                      {useWalletForPkg && (
+                        <span className="text-green-400 ml-1">
+                          · Deducting ₹{Math.min(walletBalance, selectedPackage.price).toLocaleString()}
+                        </span>
+                      )}
+                    </p>
+                  </div>
+                  <div className="ml-auto flex-shrink-0">
+                    <div className={`w-10 h-6 rounded-full transition-colors relative ${useWalletForPkg ? 'bg-green-500' : 'bg-white/10'}`}>
+                      <div className={`absolute top-0.5 w-5 h-5 rounded-full bg-white shadow-sm transition-transform ${useWalletForPkg ? 'translate-x-[18px]' : 'translate-x-0.5'}`} />
+                    </div>
+                  </div>
+                </button>
+              )}
+
+              {/* Wallet covers full amount info */}
+              {useWalletForPkg && walletBalance >= selectedPackage.price && (
+                <div className="px-4 py-2.5 rounded-xl bg-green-500/5 border border-green-500/20">
+                  <p className="text-xs text-green-400 font-medium">
+                    ✓ Wallet balance covers the full amount. No additional payment needed.
+                  </p>
+                </div>
+              )}
+
               {/* Purchase Button */}
-              <button
-                onClick={() => { handlePurchase(selectedPackage.id); setSelectedPackage(null); }}
-                disabled={purchasing === selectedPackage.id || paymentProcessing}
-                className="w-full bg-accent hover:bg-accent-light text-primary py-3 rounded-xl text-sm font-bold transition-colors disabled:opacity-50 cursor-pointer mt-2 flex items-center justify-center gap-2"
-              >
-                {purchasing === selectedPackage.id || paymentProcessing ? (
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                ) : (
-                  <>
-                    {paymentConfig?.paymentEnabled && paymentConfig?.packagePaymentRequired && (
-                      <CreditCard className="w-4 h-4" />
+              {(() => {
+                const wd = useWalletForPkg && walletBalance > 0 ? Math.min(walletBalance, selectedPackage.price) : 0;
+                const remaining = selectedPackage.price - wd;
+                const isWalletOnly = wd > 0 && remaining === 0;
+                const showPayAmount = paymentConfig?.paymentEnabled && paymentConfig?.packagePaymentRequired;
+
+                return (
+                  <button
+                    onClick={() => { handlePurchase(selectedPackage.id); setSelectedPackage(null); }}
+                    disabled={purchasing === selectedPackage.id || paymentProcessing}
+                    className="w-full bg-accent hover:bg-accent-light text-primary py-3 rounded-xl text-sm font-bold transition-colors disabled:opacity-50 cursor-pointer mt-2 flex items-center justify-center gap-2"
+                  >
+                    {purchasing === selectedPackage.id || paymentProcessing ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <>
+                        {isWalletOnly ? (
+                          <>
+                            <Wallet className="w-4 h-4" />
+                            {`Pay ₹${selectedPackage.price} from Wallet`}
+                          </>
+                        ) : showPayAmount ? (
+                          <>
+                            <CreditCard className="w-4 h-4" />
+                            {wd > 0 ? `Pay ₹${remaining} (₹${wd} from wallet)` : `Pay ₹${selectedPackage.price}`}
+                          </>
+                        ) : (
+                          `Purchase for ₹${selectedPackage.price}`
+                        )}
+                      </>
                     )}
-                    {paymentConfig?.paymentEnabled && paymentConfig?.packagePaymentRequired
-                      ? `Pay ₹${selectedPackage.price}`
-                      : `Purchase for ₹${selectedPackage.price}`
-                    }
-                  </>
-                )}
-              </button>
+                  </button>
+                );
+              })()}
             </div>
           </div>
         </div>

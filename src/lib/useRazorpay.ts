@@ -83,6 +83,7 @@ export function useRazorpay(options: UseRazorpayOptions = {}, paymentEnabled = t
       metadata?: Record<string, string>;
       prefill?: { name?: string; email?: string; contact?: string };
       description?: string;
+      walletDeduction?: number;
     }) => {
       if (!scriptLoaded) {
         options.onFailure?.('Razorpay SDK not loaded. Please refresh and try again.');
@@ -102,6 +103,7 @@ export function useRazorpay(options: UseRazorpayOptions = {}, paymentEnabled = t
             packageId: params.packageId,
             slots: params.slots,
             metadata: params.metadata,
+            walletDeduction: params.walletDeduction,
           }),
         });
 

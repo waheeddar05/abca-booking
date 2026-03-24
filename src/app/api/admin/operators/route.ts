@@ -26,6 +26,35 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 403 });
     }
     const operators = await prisma.user.findMany(OPERATOR_QUERY);
+
+    // Auto-assign priority to new operators (priority 0) so they appear at the end
+    const maxPriority = operators.reduce((max, op) => Math.max(max, op.operatorPriority), 0);
+    let nextPriority = maxPriority;
+    const needsUpdate: { id: string; priority: number }[] = [];
+
+    for (const op of operators) {
+      if (op.operatorPriority === 0) {
+        nextPriority++;
+        op.operatorPriority = nextPriority;
+        needsUpdate.push({ id: op.id, priority: nextPriority });
+      }
+    }
+
+    // Persist auto-assigned priorities so they're stable
+    if (needsUpdate.length > 0) {
+      await prisma.$transaction(
+        needsUpdate.map(({ id, priority }) =>
+          prisma.user.update({
+            where: { id },
+            data: { operatorPriority: priority },
+          })
+        )
+      );
+    }
+
+    // Re-sort after priority assignment
+    operators.sort((a, b) => a.operatorPriority - b.operatorPriority);
+
     return NextResponse.json({ operators });
   } catch (error: any) {
     console.error('Admin operators fetch error:', error);

@@ -12,6 +12,7 @@ export async function GET(req: NextRequest) {
 
     const { searchParams } = new URL(req.url);
     const dateParam = searchParams.get('date');
+    const viewAll = searchParams.get('viewAll') === 'true';
 
     // Determine the target date (or all upcoming)
     const isAllMode = dateParam === 'all';
@@ -20,12 +21,15 @@ export async function GET(req: NextRequest) {
       : null;
 
     // Build booking filter based on role
+    const ALL_MACHINES = ['GRAVITY', 'YANTRA', 'LEVERAGE_INDOOR', 'LEVERAGE_OUTDOOR'];
     let machineIds: string[];
+    let assignedMachineIds: string[] = [];
     let bookingWhere: any;
 
     if (session.isAdmin) {
       // Admins see all bookings
-      machineIds = ['GRAVITY', 'YANTRA', 'LEVERAGE_INDOOR', 'LEVERAGE_OUTDOOR'];
+      machineIds = ALL_MACHINES;
+      assignedMachineIds = ALL_MACHINES;
     } else {
       // Get operator's assigned machines
       const assignments = await prisma.operatorAssignment.findMany({
@@ -33,11 +37,13 @@ export async function GET(req: NextRequest) {
         select: { machineId: true },
       });
 
-      machineIds = assignments.map((a) => a.machineId);
+      assignedMachineIds = assignments.map((a) => a.machineId);
 
-      // Fallback: if no machine assignments, show all machines
-      if (machineIds.length === 0) {
-        machineIds = ['GRAVITY', 'YANTRA', 'LEVERAGE_INDOOR', 'LEVERAGE_OUTDOOR'];
+      // If viewAll is requested, show all machines; otherwise show assigned ones
+      if (viewAll) {
+        machineIds = ALL_MACHINES;
+      } else {
+        machineIds = assignedMachineIds.length > 0 ? assignedMachineIds : ALL_MACHINES;
       }
     }
 
@@ -81,7 +87,9 @@ export async function GET(req: NextRequest) {
         cancelled,
       },
       machineIds,
+      assignedMachineIds,
       currentOperatorId: session.userId,
+      viewAll,
     });
   } catch (error: any) {
     console.error('Operator bookings fetch error:', error);

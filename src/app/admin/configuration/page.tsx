@@ -1001,22 +1001,6 @@ export default function ConfigurationPage() {
                               <p className="text-sm text-white truncate">{op.name || 'Unnamed'}</p>
                               <p className="text-[10px] text-slate-500 truncate">{op.email || op.mobileNumber || op.id.slice(0, 8)}</p>
                             </div>
-                            <div className="flex flex-col gap-0.5">
-                              <button
-                                onClick={() => moveOperator(index, 'up')}
-                                disabled={index === 0}
-                                className="p-1 text-slate-400 hover:text-white disabled:opacity-20 disabled:cursor-not-allowed cursor-pointer transition-colors"
-                              >
-                                <ChevronUp className="w-3.5 h-3.5" />
-                              </button>
-                              <button
-                                onClick={() => moveOperator(index, 'down')}
-                                disabled={index === operators.length - 1}
-                                className="p-1 text-slate-400 hover:text-white disabled:opacity-20 disabled:cursor-not-allowed cursor-pointer transition-colors"
-                              >
-                                <ChevronDown className="w-3.5 h-3.5" />
-                              </button>
-                            </div>
                           </div>
 
                           {/* Morning/Evening Priority Inputs */}
