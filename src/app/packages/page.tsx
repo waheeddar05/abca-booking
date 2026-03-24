@@ -795,7 +795,7 @@ function PackageSection({
                 <div className="flex items-center gap-2 flex-shrink-0">
                   <span className="text-sm font-bold text-accent">₹{pkg.price}</span>
                   <button
-                    onClick={() => onPurchase(pkg.id)}
+                    onClick={() => onSelect(pkg)}
                     disabled={purchasing === pkg.id}
                     className="bg-accent hover:bg-accent-light text-primary px-3 py-1.5 rounded-lg text-[11px] font-bold transition-colors disabled:opacity-50 cursor-pointer"
                   >
