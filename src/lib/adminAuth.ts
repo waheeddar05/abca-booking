@@ -4,19 +4,33 @@ import { verifyToken } from '@/lib/jwt';
 import { prisma } from '@/lib/prisma';
 
 export async function getAdminSession(req: NextRequest) {
-  const token = await getToken({ req, secret: process.env.NEXTAUTH_SECRET });
-  if (token) return { role: token.role as string, email: token.email as string };
+  let email: string | null = null;
 
-  const otpTokenStr = req.cookies.get('token')?.value;
-  if (otpTokenStr) {
-    try {
-      const otpToken = verifyToken(otpTokenStr) as any;
-      return { role: otpToken?.role, email: otpToken?.email };
-    } catch {
-      return null;
+  const token = await getToken({ req, secret: process.env.NEXTAUTH_SECRET });
+  if (token?.email) {
+    email = token.email;
+  } else {
+    const otpTokenStr = req.cookies.get('token')?.value;
+    if (otpTokenStr) {
+      try {
+        const otpToken = verifyToken(otpTokenStr) as any;
+        email = otpToken?.email || null;
+      } catch {
+        return null;
+      }
     }
   }
-  return null;
+
+  if (!email) return null;
+
+  // Always fetch the current role from DB so admin-promoted roles take effect immediately
+  const dbUser = await prisma.user.findUnique({
+    where: { email },
+    select: { role: true },
+  });
+  if (!dbUser) return null;
+
+  return { role: dbUser.role, email };
 }
 
 export async function requireAdmin(req: NextRequest) {

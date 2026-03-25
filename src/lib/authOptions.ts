@@ -23,6 +23,27 @@ export const authOptions: NextAuthOptions = {
         token.mobileVerified = (user as any).mobileVerified || false;
       }
 
+      // Refresh role from DB periodically so admin-promoted roles take effect
+      // without requiring the user to sign out and back in.
+      const now = Date.now();
+      const lastRefresh = (token.roleRefreshedAt as number) || 0;
+      if (now - lastRefresh > 60_000 && token.email) {
+        try {
+          const dbUser = await prisma.user.findUnique({
+            where: { email: token.email },
+            select: { role: true, isFreeUser: true, mobileVerified: true },
+          });
+          if (dbUser) {
+            token.role = dbUser.role;
+            token.isFreeUser = dbUser.isFreeUser || false;
+            token.mobileVerified = dbUser.mobileVerified || false;
+          }
+          token.roleRefreshedAt = now;
+        } catch {
+          // If DB check fails, keep existing token values
+        }
+      }
+
       // For existing sessions where mobileVerified is false,
       // check if WhatsApp login is even enabled — if not, bypass the gate
       if (!token.mobileVerified && token.role !== 'ADMIN' && token.role !== 'OPERATOR') {
