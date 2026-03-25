@@ -158,7 +158,7 @@ export default function OperatorDashboard() {
           <div>
             <p className="text-red-400 text-sm font-medium">{error}</p>
             <button
-              onClick={fetchBookings}
+              onClick={() => fetchBookings(viewAllMachines)}
               className="text-xs text-red-300 underline mt-1 cursor-pointer"
             >
               Try again
