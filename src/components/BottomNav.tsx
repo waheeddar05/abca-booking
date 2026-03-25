@@ -20,7 +20,7 @@ export default function BottomNav() {
   // Only show for logged-in users, hide on landing/login/admin/operator pages
   if (!session) return null;
   if (pathname === '/' || pathname === '/login' || pathname === '/otp') return null;
-  if (pathname.startsWith('/admin') || pathname.startsWith('/operator')) return null;
+  if (pathname.startsWith('/admin')) return null;
 
   const isActive = (href: string) => pathname === href || pathname.startsWith(href + '/');
 

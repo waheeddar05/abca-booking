@@ -2,7 +2,8 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { LayoutDashboard, CalendarCheck } from 'lucide-react';
+import { useSession, signOut } from 'next-auth/react';
+import { LayoutDashboard, CalendarCheck, Wrench, ArrowLeft, Power } from 'lucide-react';
 
 export default function OperatorLayout({
   children,
@@ -10,6 +11,7 @@ export default function OperatorLayout({
   children: React.ReactNode;
 }) {
   const pathname = usePathname();
+  const { data: session } = useSession();
 
   const links = [
     { href: '/operator', label: 'Dashboard', icon: LayoutDashboard },
@@ -25,8 +27,33 @@ export default function OperatorLayout({
       <div className="fixed inset-0 -z-10 bg-gradient-to-br from-[#0a1628] via-[#132240] to-[#0d1f3c]"></div>
       <div className="fixed inset-0 -z-10 bg-[radial-gradient(ellipse_at_top,rgba(212,168,67,0.05),transparent_60%)]"></div>
 
+      {/* Mobile: Compact header */}
+      <div className="md:hidden flex items-center justify-between px-4 py-2 bg-[#0b1726]/80 backdrop-blur-xl border-b border-white/[0.06]">
+        <div className="flex items-center gap-2">
+          <div className="w-6 h-6 rounded-lg bg-gradient-to-br from-accent/20 to-green-500/20 flex items-center justify-center">
+            <Wrench className="w-3 h-3 text-accent" />
+          </div>
+          <span className="text-xs font-bold text-white tracking-wide">Operator</span>
+        </div>
+        <div className="flex items-center gap-1.5">
+          <Link
+            href="/slots"
+            className="flex items-center gap-1.5 text-slate-400 hover:text-white transition-colors text-xs font-medium px-2.5 py-1.5 rounded-lg bg-white/[0.04] active:scale-95"
+          >
+            <ArrowLeft className="w-3 h-3" />
+            User Mode
+          </Link>
+          <button
+            onClick={() => signOut({ callbackUrl: '/login' })}
+            className="flex items-center gap-1.5 text-red-400/70 hover:text-red-400 transition-colors text-xs font-medium px-2.5 py-1.5 rounded-lg bg-white/[0.04] active:scale-95 cursor-pointer"
+          >
+            <Power className="w-3 h-3" />
+          </button>
+        </div>
+      </div>
+
       {/* Mobile: Horizontal tabs */}
-      <div className="md:hidden sticky top-14 z-30 bg-[#0f1d2f]/95 backdrop-blur-md border-b border-white/[0.06]">
+      <div className="md:hidden sticky top-[calc(3.5rem+40px)] z-30 bg-[#0f1d2f]/95 backdrop-blur-md border-b border-white/[0.06]">
         <div className="flex overflow-x-auto px-2 py-1 gap-1">
           {links.map(({ href, label, icon: Icon }) => (
             <Link
@@ -47,30 +74,65 @@ export default function OperatorLayout({
 
       <div className="flex">
         {/* Desktop: Sidebar */}
-        <aside className="hidden md:block w-56 bg-[#0f1d2f]/60 backdrop-blur-sm border-r border-white/[0.06] min-h-[calc(100vh-64px)] p-4">
-          <h2 className="text-[10px] font-semibold text-slate-500 uppercase tracking-widest mb-3 px-3">
-            Operator Panel
-          </h2>
-          <nav className="space-y-0.5">
-            {links.map(({ href, label, icon: Icon }) => (
-              <Link
-                key={href}
-                href={href}
-                className={`flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-sm font-medium transition-all ${
-                  isActive(href)
-                    ? 'bg-accent/15 text-accent'
-                    : 'text-slate-400 hover:bg-white/[0.04] hover:text-slate-200'
-                }`}
-              >
-                <Icon className="w-4 h-4" />
-                {label}
-              </Link>
-            ))}
+        <aside className="hidden md:flex md:flex-col w-56 bg-[#0f1d2f]/60 backdrop-blur-sm border-r border-white/[0.06] min-h-[calc(100vh-64px)]">
+          {/* Sidebar Header */}
+          <div className="px-5 pt-5 pb-3">
+            <div className="flex items-center gap-2.5">
+              <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-accent/20 to-green-500/20 flex items-center justify-center">
+                <Wrench className="w-4 h-4 text-accent" />
+              </div>
+              <div>
+                <h2 className="text-[11px] font-bold text-white tracking-wide">Operator Panel</h2>
+                <p className="text-[9px] text-slate-600 font-medium">PlayOrbit</p>
+              </div>
+            </div>
+          </div>
+
+          {/* Nav Links */}
+          <nav className="flex-1 px-3 py-2 space-y-0.5">
+            {links.map(({ href, label, icon: Icon }) => {
+              const active = isActive(href);
+              return (
+                <Link
+                  key={href}
+                  href={href}
+                  className={`relative flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-sm font-medium transition-all duration-200 group ${
+                    active
+                      ? 'bg-accent/10 text-accent'
+                      : 'text-slate-500 hover:bg-white/[0.04] hover:text-slate-300'
+                  }`}
+                >
+                  {active && (
+                    <div className="absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-5 bg-accent rounded-r-full" />
+                  )}
+                  <Icon className={`w-[18px] h-[18px] transition-transform duration-200 ${active ? '' : 'group-hover:scale-110'}`} />
+                  {label}
+                </Link>
+              );
+            })}
           </nav>
+
+          {/* Sidebar Footer */}
+          <div className="px-3 py-3 border-t border-white/[0.04] space-y-1.5">
+            <Link
+              href="/slots"
+              className="flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-medium transition-all text-slate-500 hover:bg-white/[0.04] hover:text-slate-300"
+            >
+              <ArrowLeft className="w-4 h-4" />
+              User Mode
+            </Link>
+            <button
+              onClick={() => signOut({ callbackUrl: '/login' })}
+              className="flex items-center gap-2 w-full px-3 py-2 rounded-xl text-sm font-medium transition-all cursor-pointer text-red-400/70 hover:bg-white/[0.04] hover:text-red-400"
+            >
+              <Power className="w-4 h-4" />
+              Logout
+            </button>
+          </div>
         </aside>
 
         {/* Main Content */}
-        <main className="flex-1 min-w-0 p-4 md:p-6">
+        <main className="flex-1 min-w-0 p-4 pb-24 md:p-6 md:pb-6">
           <div className="max-w-5xl mx-auto overflow-x-hidden">
             {children}
           </div>

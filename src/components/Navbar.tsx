@@ -5,7 +5,7 @@ import Image from 'next/image';
 import { useSession, signOut } from 'next-auth/react';
 import { usePathname } from 'next/navigation';
 import { useState, useEffect } from 'react';
-import { Shield, Power, LogIn, ArrowLeft } from 'lucide-react';
+import { Shield, Power, LogIn, ArrowLeft, Wrench } from 'lucide-react';
 
 export default function Navbar() {
   const { data: session } = useSession();
@@ -19,7 +19,9 @@ export default function Navbar() {
   }, []);
 
   const isAdmin = session?.user?.role === 'ADMIN';
+  const isOperator = session?.user?.role === 'OPERATOR';
   const isInAdminMode = pathname.startsWith('/admin');
+  const isInOperatorMode = pathname.startsWith('/operator');
 
   if (pathname === '/') return null;
 
@@ -44,8 +46,8 @@ export default function Navbar() {
           <div className="flex items-center gap-1.5">
             {session ? (
               <>
-                {/* Admin mode: Switch to User Mode */}
-                {isInAdminMode && (
+                {/* Admin/Operator mode: Switch to User Mode (desktop only — mobile handled by layout) */}
+                {(isInAdminMode || isInOperatorMode) && (
                   <Link
                     href="/slots"
                     className="hidden md:flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium transition-all text-white/70 hover:text-white hover:bg-white/10"
@@ -56,7 +58,7 @@ export default function Navbar() {
                 )}
 
                 {/* User mode: Admin button for admin users */}
-                {!isInAdminMode && isAdmin && (
+                {!isInAdminMode && !isInOperatorMode && isAdmin && (
                   <Link
                     href="/admin"
                     className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium transition-all text-white/70 hover:text-white hover:bg-white/10"
@@ -66,10 +68,21 @@ export default function Navbar() {
                   </Link>
                 )}
 
-                {/* Logout button - hidden on mobile in admin mode since admin layout has its own */}
+                {/* User mode: Operator button for operator users */}
+                {!isInAdminMode && !isInOperatorMode && isOperator && (
+                  <Link
+                    href="/operator"
+                    className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium transition-all text-white/70 hover:text-white hover:bg-white/10"
+                  >
+                    <Wrench className="w-4 h-4" />
+                    <span className="hidden md:inline">Operator</span>
+                  </Link>
+                )}
+
+                {/* Logout button - hidden on mobile in admin/operator mode since their layouts have their own */}
                 <button
                   onClick={() => signOut({ callbackUrl: '/login' })}
-                  className={`${isInAdminMode ? 'hidden md:flex' : 'flex'} items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium transition-all cursor-pointer text-white/70 hover:text-red-400 hover:bg-white/10`}
+                  className={`${isInAdminMode || isInOperatorMode ? 'hidden md:flex' : 'flex'} items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium transition-all cursor-pointer text-white/70 hover:text-red-400 hover:bg-white/10`}
                 >
                   <Power className="w-4 h-4" />
                   <span className="hidden md:inline">Logout</span>
