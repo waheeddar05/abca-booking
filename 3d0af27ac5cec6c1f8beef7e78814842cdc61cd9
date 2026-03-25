@@ -1,0 +1,27 @@
+src/components/BottomNav.tsx
+  791cb8f8fb3173cb 23
+src/components/Navbar.tsx
+  791cb8f8fb3173cb 8,22,24,49-50,61,71-82,85
+src/app/operator/layout.tsx
+  791cb8f8fb3173cb 5-6,14,30-54,56,77-95,99-108,111-112,114-131,135
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.15",
+  "base_commit_sha": "3d0af27ac5cec6c1f8beef7e78814842cdc61cd9",
+  "prompts": {
+    "791cb8f8fb3173cb": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "cbb3d545-824f-4954-8554-a5e3837cf574",
+        "model": "claude-sonnet-4-6"
+      },
+      "human_author": "Waheed <waheeddar8@gmail.com>",
+      "messages": [],
+      "total_additions": 104,
+      "total_deletions": 29,
+      "accepted_lines": 99,
+      "overriden_lines": 0
+    }
+  }
+}
