@@ -4,9 +4,9 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useSession } from 'next-auth/react';
 import { useState, useEffect } from 'react';
-import { Calendar, ClipboardList, Package, Wallet, Bell, Headset } from 'lucide-react';
+import { Calendar, ClipboardList, Package, Wallet, Bell } from 'lucide-react';
 
-const userTabs = [
+const tabs = [
   { href: '/slots', label: 'Book Slot', icon: Calendar },
   { href: '/bookings', label: 'Bookings', icon: ClipboardList },
   { href: '/packages', label: 'Packages', icon: Package },
@@ -32,19 +32,11 @@ export default function BottomNav() {
   }, [session, status]);
 
   const isLoggedIn = !!session || !!otpUserRole;
-  const userRole = (session?.user?.role as string) || otpUserRole;
-  const isOperator = userRole === 'OPERATOR';
-  const isAdmin = userRole === 'ADMIN';
 
-  // Only show for logged-in users, hide on landing/login/admin/operator pages
+  // Only show for logged-in users, hide on landing/login/admin pages
   if (!isLoggedIn) return null;
   if (pathname === '/' || pathname === '/login' || pathname === '/otp') return null;
-  if (pathname.startsWith('/admin') || pathname.startsWith('/operator')) return null;
-
-  // For operators/admins, add an Operator tab
-  const tabs = (isOperator || isAdmin)
-    ? [{ href: '/operator', label: 'Operator', icon: Headset }, ...userTabs]
-    : userTabs;
+  if (pathname.startsWith('/admin')) return null;
 
   const isActive = (href: string) => pathname === href || pathname.startsWith(href + '/');
 
