@@ -3,14 +3,19 @@ import { prisma } from '@/lib/prisma';
 import bcrypt from 'bcryptjs';
 import { getAuthenticatedUser } from '@/lib/auth';
 import { sendWhatsAppOTP, isValidIndianMobile } from '@/lib/whatsapp';
+import { sendSMS } from '@/lib/sms';
 import { getCachedPolicy } from '@/lib/policy-cache';
 
 /**
  * POST /api/auth/whatsapp/send-otp
  *
- * Requires an authenticated Google session. Sends a WhatsApp OTP
+ * Requires an authenticated Google session. Sends an OTP
  * to the provided mobile number so the user can verify ownership
  * and link the number to their account.
+ *
+ * Delivery strategy:
+ *   1. Try WhatsApp first (if configured)
+ *   2. Always send SMS as fallback/backup via Fast2SMS
  *
  * Body: { mobileNumber: string }
  */
@@ -90,29 +95,53 @@ export async function POST(req: NextRequest) {
       },
     });
 
-    // Send OTP via WhatsApp
-    const result = await sendWhatsAppOTP(cleaned, otp);
+    // Send OTP via WhatsApp (best-effort) + SMS (reliable fallback)
+    let whatsappSent = false;
+    let smsSent = false;
 
-    if (!result.success) {
-      console.error('[send-otp] WhatsApp OTP send failed:', {
-        userId: user.id,
-        mobile: cleaned.slice(0, 4) + '****' + cleaned.slice(-2),
-        error: result.error,
-      });
+    // Try WhatsApp first
+    try {
+      const waResult = await sendWhatsAppOTP(cleaned, otp);
+      whatsappSent = waResult.success;
+      if (waResult.success) {
+        console.log('[send-otp] WhatsApp OTP sent:', {
+          userId: user.id,
+          messageId: waResult.messageId,
+        });
+      } else {
+        console.warn('[send-otp] WhatsApp OTP failed:', waResult.error);
+      }
+    } catch (err) {
+      console.warn('[send-otp] WhatsApp OTP error:', err instanceof Error ? err.message : err);
+    }
+
+    // Always send SMS as backup (WhatsApp may accept but not deliver without templates)
+    try {
+      const smsResult = await sendSMS(cleaned, otp);
+      smsSent = smsResult.success;
+      if (smsResult.success) {
+        console.log('[send-otp] SMS OTP sent to:', cleaned.slice(0, 4) + '****' + cleaned.slice(-2));
+      } else {
+        console.warn('[send-otp] SMS OTP failed:', smsResult.error);
+      }
+    } catch (err) {
+      console.warn('[send-otp] SMS OTP error:', err instanceof Error ? err.message : err);
+    }
+
+    if (!whatsappSent && !smsSent) {
+      console.error('[send-otp] Both WhatsApp and SMS failed for user:', user.id);
       return NextResponse.json(
-        { error: result.error || 'Failed to send WhatsApp OTP. Please try again.' },
+        { error: 'Failed to send OTP. Please try again later.' },
         { status: 502 },
       );
     }
 
-    console.log('[send-otp] WhatsApp OTP sent successfully:', {
-      userId: user.id,
-      messageId: result.messageId,
-    });
+    const channel = whatsappSent && smsSent ? 'WhatsApp & SMS' : smsSent ? 'SMS' : 'WhatsApp';
+    console.log('[send-otp] OTP delivered via:', channel, 'for user:', user.id);
 
     return NextResponse.json({
-      message: 'OTP sent to your WhatsApp',
-      messageId: result.messageId,
+      message: `OTP sent to your ${smsSent ? 'phone' : 'WhatsApp'}`,
+      channel,
     });
   } catch (error) {
     console.error('WhatsApp send-otp error:', error);
