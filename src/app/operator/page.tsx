@@ -34,6 +34,9 @@ interface OperatorData {
     cancelled: number;
   };
   machineIds: string[];
+  assignedMachineIds: string[];
+  currentOperatorId: string;
+  viewAll: boolean;
 }
 
 function formatTime(dateStr: string): string {
@@ -50,12 +53,14 @@ export default function OperatorDashboard() {
   const [data, setData] = useState<OperatorData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [viewAllMachines, setViewAllMachines] = useState(false);
 
-  const fetchBookings = useCallback(async () => {
+  const fetchBookings = useCallback(async (viewAll = false) => {
     try {
       setLoading(true);
       setError(null);
-      const res = await fetch('/api/operator/bookings?date=today');
+      const viewAllParam = viewAll ? '&viewAll=true' : '';
+      const res = await fetch(`/api/operator/bookings?date=today${viewAllParam}`);
       if (!res.ok) {
         if (res.status === 403) {
           setError('Access denied. You need operator permissions.');
@@ -74,8 +79,8 @@ export default function OperatorDashboard() {
   }, []);
 
   useEffect(() => {
-    fetchBookings();
-  }, [fetchBookings]);
+    fetchBookings(viewAllMachines);
+  }, [fetchBookings, viewAllMachines]);
 
   // Group bookings by machine
   const groupedByMachine: Record<string, Booking[]> = {};
@@ -92,11 +97,23 @@ export default function OperatorDashboard() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div>
-        <h1 className="text-xl md:text-2xl font-bold text-white">Operator Dashboard</h1>
-        <p className="text-slate-400 text-sm mt-1">
-          Today&apos;s bookings for your assigned machines
-        </p>
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h1 className="text-xl md:text-2xl font-bold text-white">Operator Dashboard</h1>
+          <p className="text-slate-400 text-sm mt-1">
+            {viewAllMachines ? 'Today\u2019s bookings across all machines' : 'Today\u2019s bookings for your assigned machines'}
+          </p>
+        </div>
+        <button
+          onClick={() => setViewAllMachines(v => !v)}
+          className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors flex-shrink-0 cursor-pointer ${
+            viewAllMachines
+              ? 'bg-purple-500/15 text-purple-400 border border-purple-500/30'
+              : 'bg-[#0f1d2f]/60 text-slate-400 border border-white/[0.08] hover:border-white/[0.15]'
+          }`}
+        >
+          All Machines
+        </button>
       </div>
 
       {/* Summary Stats */}
@@ -156,7 +173,7 @@ export default function OperatorDashboard() {
           <CalendarCheck className="w-10 h-10 text-slate-500 mx-auto mb-3" />
           <p className="text-white font-medium">No bookings today</p>
           <p className="text-slate-400 text-sm mt-1">
-            There are no bookings for your assigned machines today.
+            {viewAllMachines ? 'There are no bookings across any machines today.' : 'There are no bookings for your assigned machines today.'}
           </p>
         </div>
       )}
