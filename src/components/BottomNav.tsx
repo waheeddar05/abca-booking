@@ -3,9 +3,10 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useSession } from 'next-auth/react';
-import { Calendar, ClipboardList, Package, Wallet, Bell } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { Calendar, ClipboardList, Package, Wallet, Bell, Headset } from 'lucide-react';
 
-const tabs = [
+const userTabs = [
   { href: '/slots', label: 'Book Slot', icon: Calendar },
   { href: '/bookings', label: 'Bookings', icon: ClipboardList },
   { href: '/packages', label: 'Packages', icon: Package },
@@ -14,13 +15,36 @@ const tabs = [
 ];
 
 export default function BottomNav() {
-  const { data: session } = useSession();
+  const { data: session, status } = useSession();
   const pathname = usePathname();
+  const [otpUserRole, setOtpUserRole] = useState<string | null>(null);
+
+  // Fetch role from API for OTP users (no NextAuth session)
+  useEffect(() => {
+    if (status === 'loading') return;
+    if (session) return;
+    fetch('/api/user/profile')
+      .then(res => res.ok ? res.json() : null)
+      .then(data => {
+        if (data?.role) setOtpUserRole(data.role);
+      })
+      .catch(() => {});
+  }, [session, status]);
+
+  const isLoggedIn = !!session || !!otpUserRole;
+  const userRole = (session?.user?.role as string) || otpUserRole;
+  const isOperator = userRole === 'OPERATOR';
+  const isAdmin = userRole === 'ADMIN';
 
   // Only show for logged-in users, hide on landing/login/admin/operator pages
-  if (!session) return null;
+  if (!isLoggedIn) return null;
   if (pathname === '/' || pathname === '/login' || pathname === '/otp') return null;
   if (pathname.startsWith('/admin') || pathname.startsWith('/operator')) return null;
+
+  // For operators/admins, add an Operator tab
+  const tabs = (isOperator || isAdmin)
+    ? [{ href: '/operator', label: 'Operator', icon: Headset }, ...userTabs]
+    : userTabs;
 
   const isActive = (href: string) => pathname === href || pathname.startsWith(href + '/');
 
