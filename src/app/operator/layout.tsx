@@ -1,25 +1,26 @@
 'use client';
 
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
 import { useSession, signOut } from 'next-auth/react';
-import { LayoutDashboard, CalendarCheck, Wrench, ArrowLeft, Power } from 'lucide-react';
+import { useRouter } from 'next/navigation';
+import { Wrench, ArrowLeft, Power } from 'lucide-react';
 
 export default function OperatorLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
-  const pathname = usePathname();
   const { data: session } = useSession();
+  const router = useRouter();
 
-  const links = [
-    { href: '/operator', label: 'Dashboard', icon: LayoutDashboard },
-    { href: '/operator/bookings', label: "Today's Bookings", icon: CalendarCheck },
-  ];
-
-  const isActive = (href: string) =>
-    href === '/operator' ? pathname === '/operator' : pathname.startsWith(href);
+  const handleLogout = () => {
+    if (session) {
+      signOut({ callbackUrl: '/login' });
+    } else {
+      document.cookie = 'token=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT';
+      router.push('/login');
+    }
+  };
 
   return (
     <div className="min-h-[calc(100vh-56px)] overflow-x-hidden">
@@ -33,7 +34,7 @@ export default function OperatorLayout({
           <div className="w-6 h-6 rounded-lg bg-gradient-to-br from-accent/20 to-green-500/20 flex items-center justify-center">
             <Wrench className="w-3 h-3 text-accent" />
           </div>
-          <span className="text-xs font-bold text-white tracking-wide">Operator</span>
+          <span className="text-xs font-bold text-white tracking-wide">Operator Panel</span>
         </div>
         <div className="flex items-center gap-1.5">
           <Link
@@ -44,31 +45,11 @@ export default function OperatorLayout({
             User Mode
           </Link>
           <button
-            onClick={() => signOut({ callbackUrl: '/login' })}
+            onClick={handleLogout}
             className="flex items-center gap-1.5 text-red-400/70 hover:text-red-400 transition-colors text-xs font-medium px-2.5 py-1.5 rounded-lg bg-white/[0.04] active:scale-95 cursor-pointer"
           >
             <Power className="w-3 h-3" />
           </button>
-        </div>
-      </div>
-
-      {/* Mobile: Horizontal tabs */}
-      <div className="md:hidden sticky top-[calc(3.5rem+40px)] z-30 bg-[#0f1d2f]/95 backdrop-blur-md border-b border-white/[0.06]">
-        <div className="flex overflow-x-auto px-2 py-1 gap-1">
-          {links.map(({ href, label, icon: Icon }) => (
-            <Link
-              key={href}
-              href={href}
-              className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium whitespace-nowrap transition-colors ${
-                isActive(href)
-                  ? 'bg-accent/15 text-accent'
-                  : 'text-slate-400 hover:bg-white/[0.04]'
-              }`}
-            >
-              <Icon className="w-3.5 h-3.5" />
-              {label}
-            </Link>
-          ))}
         </div>
       </div>
 
@@ -88,29 +69,8 @@ export default function OperatorLayout({
             </div>
           </div>
 
-          {/* Nav Links */}
-          <nav className="flex-1 px-3 py-2 space-y-0.5">
-            {links.map(({ href, label, icon: Icon }) => {
-              const active = isActive(href);
-              return (
-                <Link
-                  key={href}
-                  href={href}
-                  className={`relative flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-sm font-medium transition-all duration-200 group ${
-                    active
-                      ? 'bg-accent/10 text-accent'
-                      : 'text-slate-500 hover:bg-white/[0.04] hover:text-slate-300'
-                  }`}
-                >
-                  {active && (
-                    <div className="absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-5 bg-accent rounded-r-full" />
-                  )}
-                  <Icon className={`w-[18px] h-[18px] transition-transform duration-200 ${active ? '' : 'group-hover:scale-110'}`} />
-                  {label}
-                </Link>
-              );
-            })}
-          </nav>
+          {/* Spacer */}
+          <div className="flex-1" />
 
           {/* Sidebar Footer */}
           <div className="px-3 py-3 border-t border-white/[0.04] space-y-1.5">
@@ -122,7 +82,7 @@ export default function OperatorLayout({
               User Mode
             </Link>
             <button
-              onClick={() => signOut({ callbackUrl: '/login' })}
+              onClick={handleLogout}
               className="flex items-center gap-2 w-full px-3 py-2 rounded-xl text-sm font-medium transition-all cursor-pointer text-red-400/70 hover:bg-white/[0.04] hover:text-red-400"
             >
               <Power className="w-4 h-4" />
