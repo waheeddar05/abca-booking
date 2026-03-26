@@ -34,6 +34,18 @@ export interface WhatsAppProvider {
   ): Promise<WhatsAppSendResult>;
 
   sendText(to: string, body: string): Promise<WhatsAppSendResult>;
+
+  /**
+   * Send a Meta authentication template with a copy-code OTP button.
+   * Only supported by the Meta Cloud API provider.
+   */
+  sendAuthOTP?(
+    to: string,
+    templateName: string,
+    language: string,
+    otp: string,
+    codeExpirationMinutes?: number,
+  ): Promise<WhatsAppSendResult>;
 }
 
 export interface TemplateComponent {
@@ -268,6 +280,97 @@ class MetaCloudAPIProvider implements WhatsAppProvider {
       return { success: false, error: message };
     }
   }
+
+  /**
+   * Send a Meta authentication template with a copy-code OTP button.
+   *
+   * Meta's authentication templates have a fixed body format:
+   *   "<OTP> is your verification code."
+   *   + optional "For your security, do not share this code."
+   *   + optional "This code expires in <N> minutes."
+   *   + Copy Code button
+   *
+   * The OTP must be passed in both the body parameter AND the button parameter.
+   * See: https://developers.facebook.com/docs/whatsapp/cloud-api/guides/send-messages#authentication-templates
+   */
+  async sendAuthOTP(
+    to: string,
+    templateName: string,
+    language: string,
+    otp: string,
+    _codeExpirationMinutes?: number,
+  ): Promise<WhatsAppSendResult> {
+    try {
+      const url = `${this.baseUrl}/messages`;
+      console.log('[WhatsApp/Meta] Sending auth OTP template:', { to, templateName, language });
+
+      const payload = {
+        messaging_product: 'whatsapp',
+        to,
+        type: 'template',
+        template: {
+          name: templateName,
+          language: { code: language },
+          components: [
+            {
+              type: 'body',
+              parameters: [
+                { type: 'text', text: otp },
+              ],
+            },
+            {
+              type: 'button',
+              sub_type: 'url',
+              index: '0',
+              parameters: [
+                { type: 'text', text: otp },
+              ],
+            },
+          ],
+        },
+      };
+
+      console.log('[WhatsApp/Meta] Auth OTP payload:', JSON.stringify(payload, null, 2));
+
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${this.accessToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(payload),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        console.error('[WhatsApp/Meta] Auth OTP API error:', {
+          status: res.status,
+          error: data?.error,
+          to,
+          templateName,
+        });
+        return {
+          success: false,
+          error: data?.error?.message || `HTTP ${res.status}`,
+        };
+      }
+
+      console.log('[WhatsApp/Meta] Auth OTP sent successfully:', {
+        messageId: data?.messages?.[0]?.id,
+        to,
+      });
+
+      return {
+        success: true,
+        messageId: data?.messages?.[0]?.id,
+      };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Unknown error';
+      console.error('[WhatsApp/Meta] sendAuthOTP error:', message);
+      return { success: false, error: message };
+    }
+  }
 }
 
 // ─── Provider factory ───────────────────────────────────────────────
@@ -340,8 +443,22 @@ export async function sendWhatsAppOTP(
     return provider.sendText(to, textBody);
   }
 
-  // Meta: try template first, fall back to text
-  if (OTP_TEMPLATE_NAME !== 'text') {
+  // Meta Cloud API: use authentication template with copy-code button
+  // This works outside the 24h conversation window (template messages are always allowed)
+  if (provider.sendAuthOTP && OTP_TEMPLATE_NAME && OTP_TEMPLATE_NAME !== 'text') {
+    console.log('[WhatsApp] Sending via Meta auth template:', OTP_TEMPLATE_NAME);
+    const authResult = await provider.sendAuthOTP(
+      to,
+      OTP_TEMPLATE_NAME,
+      TEMPLATE_LANGUAGE,
+      otp,
+      Number(ttl) || 5,
+    );
+
+    if (authResult.success) return authResult;
+    console.warn('[WhatsApp] Auth template send failed:', authResult.error);
+
+    // Fall back to regular template if auth template fails
     const templateResult = await provider.sendTemplate(to, OTP_TEMPLATE_NAME, TEMPLATE_LANGUAGE, [
       {
         type: 'body',
@@ -350,9 +467,11 @@ export async function sendWhatsAppOTP(
     ]);
 
     if (templateResult.success) return templateResult;
-    console.warn('[WhatsApp] Template send failed, falling back to text:', templateResult.error);
+    console.warn('[WhatsApp] Regular template also failed:', templateResult.error);
   }
 
+  // Last resort: plain text (only works within 24h conversation window)
+  console.warn('[WhatsApp] Falling back to plain text (requires open conversation window)');
   return provider.sendText(to, textBody);
 }
 
