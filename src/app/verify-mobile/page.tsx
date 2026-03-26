@@ -1,21 +1,24 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useSession } from 'next-auth/react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 
 type Step = 'mobile' | 'otp' | 'success';
 
 export default function VerifyMobilePage() {
   const { data: session, status, update: updateSession } = useSession();
   const router = useRouter();
+  const searchParams = useSearchParams();
 
-  const [step, setStep] = useState<Step>('mobile');
-  const [mobileNumber, setMobileNumber] = useState('');
+  const prefillMobile = searchParams.get('mobile') || '';
+  const [step, setStep] = useState<Step>(prefillMobile ? 'mobile' : 'mobile');
+  const [mobileNumber, setMobileNumber] = useState(prefillMobile);
   const [otp, setOtp] = useState(['', '', '', '', '', '']);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [countdown, setCountdown] = useState(0);
+  const [autoSendDone, setAutoSendDone] = useState(false);
 
   const otpRefs = useRef<(HTMLInputElement | null)[]>([]);
 
@@ -25,6 +28,15 @@ export default function VerifyMobilePage() {
       router.replace('/slots');
     }
   }, [session, status, router]);
+
+  // Auto-send OTP if mobile number is pre-filled from prompt
+  useEffect(() => {
+    if (prefillMobile && !autoSendDone && status === 'authenticated' && /^[6-9]\d{9}$/.test(prefillMobile)) {
+      setAutoSendDone(true);
+      handleSendOtp();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [prefillMobile, status, autoSendDone]);
 
   // Countdown timer for resend
   useEffect(() => {

@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
+import { useRouter } from 'next/navigation';
 import { Phone, X } from 'lucide-react';
 
 interface MobileNumberPromptProps {
@@ -10,6 +11,7 @@ interface MobileNumberPromptProps {
 }
 
 export function MobileNumberPrompt({ open, onSubmit, onDismiss }: MobileNumberPromptProps) {
+  const router = useRouter();
   const [mobile, setMobile] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
@@ -44,25 +46,10 @@ export function MobileNumberPrompt({ open, onSubmit, onDismiss }: MobileNumberPr
       setError('Please enter a valid 10-digit mobile number');
       return;
     }
-    setLoading(true);
-    setError('');
-    try {
-      const res = await fetch('/api/user/profile', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ mobileNumber: cleaned }),
-      });
-      if (res.ok) {
-        onSubmit(cleaned);
-      } else {
-        const data = await res.json();
-        setError(data.error || 'Failed to save mobile number');
-      }
-    } catch {
-      setError('Failed to save mobile number');
-    } finally {
-      setLoading(false);
-    }
+    // Go directly to verify-mobile page with the number pre-filled
+    // The verify page will save + verify in one flow
+    onSubmit(cleaned);
+    router.push(`/verify-mobile?mobile=${cleaned}`);
   };
 
   if (!open) return null;

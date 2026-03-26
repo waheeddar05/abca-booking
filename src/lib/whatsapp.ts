@@ -73,7 +73,7 @@ function detectProvider(): ProviderType {
   return null;
 }
 
-const OTP_TEMPLATE_NAME = process.env.WHATSAPP_OTP_TEMPLATE || 'otp_login';
+const OTP_TEMPLATE_NAME = process.env.WHATSAPP_OTP_TEMPLATE || '';
 const TEMPLATE_LANGUAGE = 'en';
 
 // ─── Twilio WhatsApp Provider ───────────────────────────────────────
