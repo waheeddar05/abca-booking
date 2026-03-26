@@ -132,7 +132,7 @@ export async function POST(req: NextRequest) {
               type: 'body',
               parameters: [
                 { type: 'text', text: otp },
-                { type: 'text', text: `Active for ${ttl} minutes` },
+                { type: 'text', text: `Enter this on the app within ${ttl} min. Do not share.` },
               ],
             },
           ],

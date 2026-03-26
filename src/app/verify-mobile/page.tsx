@@ -119,9 +119,17 @@ function VerifyMobileContent() {
       }
       setStep('success');
       // Update the NextAuth session so mobileVerified is true
-      await updateSession();
-      // Redirect after brief success animation
-      setTimeout(() => router.replace('/slots'), 1500);
+      try { await updateSession(); } catch { /* session update is best-effort */ }
+      // Redirect after brief success animation — use window.location as fallback
+      setTimeout(() => {
+        try {
+          router.replace('/slots');
+        } catch {
+          window.location.href = '/slots';
+        }
+        // Hard fallback if router.replace doesn't navigate
+        setTimeout(() => { window.location.href = '/slots'; }, 1000);
+      }, 1500);
     } catch {
       setError('Network error. Please try again.');
     } finally {
