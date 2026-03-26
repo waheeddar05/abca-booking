@@ -117,16 +117,21 @@ export async function notifyBookingConfirmed(
   userId: string,
   details: {
     date: string; // e.g. "Wed, 26 Mar 2026"
-    time: string; // e.g. "04:00 PM – 04:30 PM"
+    time: string; // e.g. "04:00 PM – 04:30 PM (2 slots)"
     machine: string; // e.g. "Yantra"
-    pitch: string; // e.g. "Astro"
+    pitch: string; // e.g. "Astro Turf"
     price: string; // e.g. "₹500"
+    operatorName?: string; // e.g. "Pratyush"
+    operatorPhone?: string; // e.g. "7058683664"
     mobileNumber?: string | null;
   },
 ): Promise<SendResult> {
-  // Template booking_confirmation_v2:
-  // "🏏 *Booking Confirmed!*\n\n📅 Date: {{1}}\n⏰ Time: {{2}}\n🎯 Machine: {{3}}\n🏟️ Pitch: {{4}}\n💰 Price: {{5}}\n\n📍 PlayOrbit Cricket Nets\n\nSee you at the nets!"
+  // Template booking_detail (7 params):
+  // "🏏 *Booking Confirmed!*\n📅 {{1}}\n⏰ {{2}}\n🎯 {{3}} — {{4}}\n💰 {{5}}\n👤 Operator: {{6}}\n📞 Contact: {{7}}\n📍 PlayOrbit Cricket Nets + maps link"
   const slotSummary = `${details.machine}, ${details.pitch} — ${details.time} on ${details.date} (${details.price})`;
+  const operatorName = details.operatorName || 'To be assigned';
+  const operatorPhone = details.operatorPhone || 'Will be shared soon';
+
   return notify(
     {
       userId,
@@ -137,7 +142,7 @@ export async function notifyBookingConfirmed(
     details.mobileNumber
       ? {
           mobileNumber: details.mobileNumber,
-          templateName: 'booking_confirmation_v2',
+          templateName: 'booking_detail',
           components: [
             {
               type: 'body',
@@ -147,6 +152,8 @@ export async function notifyBookingConfirmed(
                 { type: 'text', text: details.machine },
                 { type: 'text', text: details.pitch },
                 { type: 'text', text: details.price },
+                { type: 'text', text: operatorName },
+                { type: 'text', text: operatorPhone },
               ],
             },
           ],

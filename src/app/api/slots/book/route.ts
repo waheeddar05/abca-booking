@@ -684,6 +684,22 @@ export async function POST(req: NextRequest) {
         where: { id: userId! },
         select: { mobileNumber: true, mobileVerified: true },
       });
+
+      // Fetch assigned operator details (from the first booking result)
+      let operatorName: string | undefined;
+      let operatorPhone: string | undefined;
+      const firstResult = results[0];
+      if (firstResult?.operatorId) {
+        const operator = await prisma.user.findUnique({
+          where: { id: firstResult.operatorId },
+          select: { name: true, mobileNumber: true },
+        });
+        if (operator) {
+          operatorName = operator.name || undefined;
+          operatorPhone = operator.mobileNumber || undefined;
+        }
+      }
+
       // Build price string
       let priceStr = '';
       if (isFreeBooking) priceStr = 'FREE';
@@ -692,12 +708,20 @@ export async function POST(req: NextRequest) {
       else if (userPackageId) priceStr = 'Package session';
       else priceStr = `₹${totalPrice}`;
 
+      // Pitch label
+      const pitchLabels: Record<string, string> = {
+        ASTRO: 'Astro Turf', CEMENT: 'Cement', NATURAL: 'Natural Turf', TURF: 'Cement Wicket',
+      };
+      const pitchLabel = firstSlot.pitchType ? (pitchLabels[firstSlot.pitchType] || firstSlot.pitchType) : 'N/A';
+
       await notifyBookingConfirmed(userId!, {
         date: dateStr,
         time: `${timeStr} – ${endTimeStr} (${slotCount} slot${slotCount > 1 ? 's' : ''})`,
         machine: machineName || 'N/A',
-        pitch: firstSlot.pitchType || 'N/A',
+        pitch: pitchLabel,
         price: priceStr,
+        operatorName,
+        operatorPhone,
         mobileNumber: notifUser?.mobileVerified ? notifUser.mobileNumber : null,
       });
     } catch (notifErr) {
