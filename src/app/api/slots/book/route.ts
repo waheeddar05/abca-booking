@@ -685,18 +685,23 @@ export async function POST(req: NextRequest) {
         select: { mobileNumber: true, mobileVerified: true },
       });
 
-      // Fetch assigned operator details (from the first booking result)
+      // Fetch assigned operator details from the booking record
       let operatorName: string | undefined;
       let operatorPhone: string | undefined;
-      const firstResult = results[0];
-      if (firstResult?.operatorId) {
-        const operator = await prisma.user.findUnique({
-          where: { id: firstResult.operatorId },
-          select: { name: true, mobileNumber: true },
+      if (results[0]?.id) {
+        const booking = await prisma.booking.findUnique({
+          where: { id: results[0].id },
+          select: { operatorId: true },
         });
-        if (operator) {
-          operatorName = operator.name || undefined;
-          operatorPhone = operator.mobileNumber || undefined;
+        if (booking?.operatorId) {
+          const operator = await prisma.user.findUnique({
+            where: { id: booking.operatorId },
+            select: { name: true, mobileNumber: true },
+          });
+          if (operator) {
+            operatorName = operator.name || undefined;
+            operatorPhone = operator.mobileNumber || undefined;
+          }
         }
       }
 
