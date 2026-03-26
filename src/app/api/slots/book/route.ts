@@ -684,9 +684,20 @@ export async function POST(req: NextRequest) {
         where: { id: userId! },
         select: { mobileNumber: true, mobileVerified: true },
       });
+      // Build price string
+      let priceStr = '';
+      if (isFreeBooking) priceStr = 'FREE';
+      else if (isWalletPayment && walletDebitResult) priceStr = `₹${totalPrice} (Wallet)`;
+      else if (isCashPayment) priceStr = `₹${totalPrice} (Pay at center)`;
+      else if (userPackageId) priceStr = 'Package session';
+      else priceStr = `₹${totalPrice}`;
+
       await notifyBookingConfirmed(userId!, {
-        slotSummary: `${machineName}, ${timeStr} – ${endTimeStr}`,
         date: dateStr,
+        time: `${timeStr} – ${endTimeStr} (${slotCount} slot${slotCount > 1 ? 's' : ''})`,
+        machine: machineName || 'N/A',
+        pitch: firstSlot.pitchType || 'N/A',
+        price: priceStr,
         mobileNumber: notifUser?.mobileVerified ? notifUser.mobileNumber : null,
       });
     } catch (notifErr) {

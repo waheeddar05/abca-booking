@@ -116,30 +116,37 @@ export async function notify(
 export async function notifyBookingConfirmed(
   userId: string,
   details: {
-    slotSummary: string; // e.g. "Yantra, Astro — 04:00 PM to 04:30 PM"
-    date?: string; // e.g. "March 26, 2026"
+    date: string; // e.g. "Wed, 26 Mar 2026"
+    time: string; // e.g. "04:00 PM – 04:30 PM"
+    machine: string; // e.g. "Yantra"
+    pitch: string; // e.g. "Astro"
+    price: string; // e.g. "₹500"
     mobileNumber?: string | null;
   },
 ): Promise<SendResult> {
-  // Template: "Your booking at PlayOrbit has been confirmed for {{1}} on {{2}}. See you at the nets!"
-  const bookingDate = details.date || new Date().toLocaleDateString('en-IN', { year: 'numeric', month: 'long', day: 'numeric' });
+  // Template booking_confirmation_v2:
+  // "🏏 *Booking Confirmed!*\n\n📅 Date: {{1}}\n⏰ Time: {{2}}\n🎯 Machine: {{3}}\n🏟️ Pitch: {{4}}\n💰 Price: {{5}}\n\n📍 PlayOrbit Cricket Nets\n\nSee you at the nets!"
+  const slotSummary = `${details.machine}, ${details.pitch} — ${details.time} on ${details.date} (${details.price})`;
   return notify(
     {
       userId,
       title: 'Booking Confirmed',
-      message: details.slotSummary,
+      message: slotSummary,
       type: 'SUCCESS',
     },
     details.mobileNumber
       ? {
           mobileNumber: details.mobileNumber,
-          templateName: 'booking_confirmed',
+          templateName: 'booking_confirmation_v2',
           components: [
             {
               type: 'body',
               parameters: [
-                { type: 'text', text: details.slotSummary },
-                { type: 'text', text: bookingDate },
+                { type: 'text', text: details.date },
+                { type: 'text', text: details.time },
+                { type: 'text', text: details.machine },
+                { type: 'text', text: details.pitch },
+                { type: 'text', text: details.price },
               ],
             },
           ],
