@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import bcrypt from 'bcryptjs';
 import { getAuthenticatedUser } from '@/lib/auth';
-import { sendWhatsAppOTP, isValidIndianMobile } from '@/lib/whatsapp';
+import { sendWhatsAppOTP, sendWhatsAppNotification, sendWhatsAppText, isValidIndianMobile } from '@/lib/whatsapp';
 import { sendSMS } from '@/lib/sms';
 import { getCachedPolicy } from '@/lib/policy-cache';
 
@@ -95,12 +95,59 @@ export async function POST(req: NextRequest) {
       },
     });
 
-    // Send OTP via SMS (primary) + WhatsApp (enhancement if auth template configured)
+    // Send OTP via WhatsApp (template + text) and SMS
     let whatsappSent = false;
     let smsSent = false;
     let smsProvider = '';
 
-    // Send SMS first (reliable, always delivered)
+    const waEnabled = await getCachedPolicy('WHATSAPP_NOTIFICATIONS_ENABLED');
+    const waTemplate = process.env.WHATSAPP_OTP_TEMPLATE || '';
+
+    // Strategy 1: If auth template exists (business verified), use it directly
+    if (waTemplate && waTemplate !== 'text') {
+      try {
+        const waResult = await sendWhatsAppOTP(cleaned, otp);
+        whatsappSent = waResult.success;
+        if (waResult.success) {
+          console.log('[send-otp] WhatsApp OTP sent via auth template:', { userId: user.id });
+        } else {
+          console.warn('[send-otp] WhatsApp auth template failed:', waResult.error);
+        }
+      } catch (err) {
+        console.warn('[send-otp] WhatsApp auth OTP error:', err instanceof Error ? err.message : err);
+      }
+    }
+
+    // Strategy 2: If no auth template, send welcome template (opens conversation)
+    // then send OTP as plain text
+    if (!whatsappSent && waEnabled === 'true') {
+      try {
+        const ttl = process.env.OTP_TTL_MINUTES || '5';
+
+        // Send welcome template to open conversation window
+        await sendWhatsAppNotification(cleaned, 'playorbit_welcome', [], 'en');
+
+        // Small delay to ensure template is processed first
+        await new Promise(resolve => setTimeout(resolve, 500));
+
+        // Send OTP as plain text (works within conversation window)
+        const textResult = await sendWhatsAppText(
+          cleaned,
+          `🔐 Your PlayOrbit verification code is: *${otp}*\n\nIt expires in ${ttl} minutes. Do not share this code with anyone.`,
+        );
+
+        whatsappSent = textResult?.success || false;
+        if (whatsappSent) {
+          console.log('[send-otp] WhatsApp OTP sent via template+text:', { userId: user.id });
+        } else {
+          console.warn('[send-otp] WhatsApp text OTP failed:', textResult?.error);
+        }
+      } catch (err) {
+        console.warn('[send-otp] WhatsApp template+text OTP error:', err instanceof Error ? err.message : err);
+      }
+    }
+
+    // SMS fallback (always try)
     try {
       const smsResult = await sendSMS(cleaned, otp);
       smsSent = smsResult.success;
@@ -112,27 +159,6 @@ export async function POST(req: NextRequest) {
       }
     } catch (err) {
       console.warn('[send-otp] SMS OTP error:', err instanceof Error ? err.message : err);
-    }
-
-    // Also try WhatsApp if an auth template is configured (not "text" mode)
-    // Note: Without an approved AUTHENTICATION template, WhatsApp API accepts
-    // the message but Meta won't deliver it outside the 24h conversation window.
-    const waTemplate = process.env.WHATSAPP_OTP_TEMPLATE || '';
-    if (waTemplate && waTemplate !== 'text') {
-      try {
-        const waResult = await sendWhatsAppOTP(cleaned, otp);
-        whatsappSent = waResult.success;
-        if (waResult.success) {
-          console.log('[send-otp] WhatsApp OTP sent:', {
-            userId: user.id,
-            messageId: waResult.messageId,
-          });
-        } else {
-          console.warn('[send-otp] WhatsApp OTP failed:', waResult.error);
-        }
-      } catch (err) {
-        console.warn('[send-otp] WhatsApp OTP error:', err instanceof Error ? err.message : err);
-      }
     }
 
     if (!whatsappSent && !smsSent) {
