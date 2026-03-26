@@ -2,7 +2,7 @@
 
 import React, { useState } from 'react';
 import Image from 'next/image';
-import { Calendar, Zap, Clock, Instagram, Phone, Target, Shield, Users, Star, ArrowRight, MapPin, Play } from 'lucide-react';
+import { Calendar, Zap, Clock, Instagram, Phone, Target, Shield, Users, Star, ArrowRight, MapPin } from 'lucide-react';
 import LoginModal from './LoginModal';
 import { CONTACT_NUMBERS, INSTAGRAM_URL, LOCATION_URL } from '@/lib/client-constants';
 
@@ -96,31 +96,6 @@ export default function LandingPageClient() {
             <span className="flex items-center gap-1"><Target className="w-3 h-3 md:w-3.5 md:h-3.5" /> High Precision</span>
             <span className="text-white/10">&middot;</span>
             <span className="flex items-center gap-1"><Zap className="w-3 h-3 md:w-3.5 md:h-3.5" /> Instant Access</span>
-          </div>
-        </div>
-      </section>
-
-      {/* Demo Video Section */}
-      <section className="relative z-10 px-4 md:px-6 py-4 md:py-10">
-        <div className="max-w-4xl mx-auto">
-          <div className="text-center mb-3 md:mb-6">
-            <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-accent/10 border border-accent/20 text-accent text-[10px] font-bold uppercase tracking-[0.15em] mb-2 md:mb-3">
-              <Play className="w-2.5 h-2.5 fill-current" />
-              See It In Action
-            </div>
-            <h3 className="text-lg md:text-3xl font-black text-white leading-tight">HOW <span className="text-accent">AUTOSHIP</span> WORKS</h3>
-          </div>
-          <div className="relative rounded-xl md:rounded-2xl overflow-hidden border border-white/[0.08] bg-[#060d1b]/80 shadow-[0_8px_40px_rgba(0,0,0,0.4)]">
-            <video
-              className="w-full aspect-video"
-              controls
-              playsInline
-              preload="metadata"
-              poster=""
-            >
-              <source src="/videos/autoship-demo.mp4" type="video/mp4" />
-              Your browser does not support the video tag.
-            </video>
           </div>
         </div>
       </section>
