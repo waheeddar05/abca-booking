@@ -116,13 +116,15 @@ export async function POST(req: NextRequest) {
     }
 
     // Always send SMS as backup (WhatsApp may accept but not deliver without templates)
+    let smsProvider = '';
     try {
       const smsResult = await sendSMS(cleaned, otp);
       smsSent = smsResult.success;
+      smsProvider = smsResult.provider || '';
       if (smsResult.success) {
-        console.log('[send-otp] SMS OTP sent to:', cleaned.slice(0, 4) + '****' + cleaned.slice(-2));
+        console.log('[send-otp] SMS OTP sent via', smsProvider, 'to:', cleaned.slice(0, 4) + '****' + cleaned.slice(-2));
       } else {
-        console.warn('[send-otp] SMS OTP failed:', smsResult.error);
+        console.warn('[send-otp] SMS OTP failed:', smsResult.error, '(provider:', smsProvider, ')');
       }
     } catch (err) {
       console.warn('[send-otp] SMS OTP error:', err instanceof Error ? err.message : err);
