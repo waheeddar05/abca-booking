@@ -69,9 +69,9 @@ export function MobileNumberPrompt({ open, onSubmit, onDismiss }: MobileNumberPr
           <Phone className="w-7 h-7 text-accent" />
         </div>
 
-        <h2 className="text-lg font-bold text-white text-center mb-1">Add Your Mobile Number</h2>
+        <h2 className="text-lg font-bold text-white text-center mb-1">Verify Your Mobile</h2>
         <p className="text-xs text-slate-400 text-center mb-5">
-          We need your mobile number for booking confirmations and important updates.
+          Verify your number to receive booking confirmations on WhatsApp.
         </p>
 
         <div className="mb-4">
@@ -101,14 +101,7 @@ export function MobileNumberPrompt({ open, onSubmit, onDismiss }: MobileNumberPr
           disabled={loading || !mobile.trim()}
           className="w-full px-4 py-3 text-sm font-bold bg-accent hover:bg-accent-light text-primary rounded-xl transition-colors cursor-pointer disabled:opacity-50 mb-3"
         >
-          {loading ? (
-            <span className="flex items-center justify-center gap-2">
-              <span className="w-4 h-4 border-2 border-current/30 border-t-current rounded-full animate-spin" />
-              Saving...
-            </span>
-          ) : (
-            'Save Mobile Number'
-          )}
+          Verify Mobile Number
         </button>
 
         <button

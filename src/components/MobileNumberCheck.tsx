@@ -28,8 +28,8 @@ export function MobileNumberCheck() {
 
         const profile = await res.json();
 
-        // Already has mobile number - no need to prompt
-        if (profile.mobileNumber) {
+        // Has mobile number AND verified - no need to prompt
+        if (profile.mobileNumber && profile.mobileVerified) {
           setChecked(true);
           return;
         }
