@@ -117,9 +117,12 @@ export async function notifyBookingConfirmed(
   userId: string,
   details: {
     slotSummary: string; // e.g. "Yantra, Astro — 04:00 PM to 04:30 PM"
+    date?: string; // e.g. "March 26, 2026"
     mobileNumber?: string | null;
   },
 ): Promise<SendResult> {
+  // Template: "Your booking at PlayOrbit has been confirmed for {{1}} on {{2}}. See you at the nets!"
+  const bookingDate = details.date || new Date().toLocaleDateString('en-IN', { year: 'numeric', month: 'long', day: 'numeric' });
   return notify(
     {
       userId,
@@ -134,7 +137,10 @@ export async function notifyBookingConfirmed(
           components: [
             {
               type: 'body',
-              parameters: [{ type: 'text', text: details.slotSummary }],
+              parameters: [
+                { type: 'text', text: details.slotSummary },
+                { type: 'text', text: bookingDate },
+              ],
             },
           ],
         }
@@ -157,6 +163,7 @@ export async function notifyBookingCancelled(
     ? `${details.message}\n${details.refundInfo}`
     : details.message;
 
+  // Template: "Your PlayOrbit booking has been cancelled: {{1}}. If a refund applies, it will be credited to your wallet."
   return notify(
     {
       userId,
@@ -171,7 +178,7 @@ export async function notifyBookingCancelled(
           components: [
             {
               type: 'body',
-              parameters: [{ type: 'text', text: fullMessage }],
+              parameters: [{ type: 'text', text: details.message }],
             },
           ],
         }
@@ -223,6 +230,7 @@ export async function notifyWalletCredit(
     mobileNumber?: string | null;
   },
 ): Promise<SendResult> {
+  // Template: "PlayOrbit Wallet: ₹{{1}} credited. Reason: {{2}}. New balance: ₹{{3}}. Thank you!"
   const message = `₹${details.amount} credited to your wallet. Reason: ${details.reason}. Balance: ₹${details.newBalance}`;
 
   return notify(

@@ -685,7 +685,8 @@ export async function POST(req: NextRequest) {
         select: { mobileNumber: true, mobileVerified: true },
       });
       await notifyBookingConfirmed(userId!, {
-        slotSummary: lines.join('\n'),
+        slotSummary: `${machineName}, ${timeStr} – ${endTimeStr}`,
+        date: dateStr,
         mobileNumber: notifUser?.mobileVerified ? notifUser.mobileNumber : null,
       });
     } catch (notifErr) {
