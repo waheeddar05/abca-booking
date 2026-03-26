@@ -1,18 +1,30 @@
 'use client';
 
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, Suspense } from 'react';
 import { useSession } from 'next-auth/react';
 import { useRouter, useSearchParams } from 'next/navigation';
 
 type Step = 'mobile' | 'otp' | 'success';
 
 export default function VerifyMobilePage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen flex items-center justify-center bg-[#030712]">
+        <div className="animate-spin w-8 h-8 border-2 border-accent/30 border-t-accent rounded-full" />
+      </div>
+    }>
+      <VerifyMobileContent />
+    </Suspense>
+  );
+}
+
+function VerifyMobileContent() {
   const { data: session, status, update: updateSession } = useSession();
   const router = useRouter();
   const searchParams = useSearchParams();
 
   const prefillMobile = searchParams.get('mobile') || '';
-  const [step, setStep] = useState<Step>(prefillMobile ? 'mobile' : 'mobile');
+  const [step, setStep] = useState<Step>('mobile');
   const [mobileNumber, setMobileNumber] = useState(prefillMobile);
   const [otp, setOtp] = useState(['', '', '', '', '', '']);
   const [loading, setLoading] = useState(false);
