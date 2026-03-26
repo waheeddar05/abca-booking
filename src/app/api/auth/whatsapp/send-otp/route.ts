@@ -95,28 +95,12 @@ export async function POST(req: NextRequest) {
       },
     });
 
-    // Send OTP via WhatsApp (best-effort) + SMS (reliable fallback)
+    // Send OTP via SMS (primary) + WhatsApp (enhancement if auth template configured)
     let whatsappSent = false;
     let smsSent = false;
-
-    // Try WhatsApp first
-    try {
-      const waResult = await sendWhatsAppOTP(cleaned, otp);
-      whatsappSent = waResult.success;
-      if (waResult.success) {
-        console.log('[send-otp] WhatsApp OTP sent:', {
-          userId: user.id,
-          messageId: waResult.messageId,
-        });
-      } else {
-        console.warn('[send-otp] WhatsApp OTP failed:', waResult.error);
-      }
-    } catch (err) {
-      console.warn('[send-otp] WhatsApp OTP error:', err instanceof Error ? err.message : err);
-    }
-
-    // Always send SMS as backup (WhatsApp may accept but not deliver without templates)
     let smsProvider = '';
+
+    // Send SMS first (reliable, always delivered)
     try {
       const smsResult = await sendSMS(cleaned, otp);
       smsSent = smsResult.success;
@@ -128,6 +112,27 @@ export async function POST(req: NextRequest) {
       }
     } catch (err) {
       console.warn('[send-otp] SMS OTP error:', err instanceof Error ? err.message : err);
+    }
+
+    // Also try WhatsApp if an auth template is configured (not "text" mode)
+    // Note: Without an approved AUTHENTICATION template, WhatsApp API accepts
+    // the message but Meta won't deliver it outside the 24h conversation window.
+    const waTemplate = process.env.WHATSAPP_OTP_TEMPLATE || '';
+    if (waTemplate && waTemplate !== 'text') {
+      try {
+        const waResult = await sendWhatsAppOTP(cleaned, otp);
+        whatsappSent = waResult.success;
+        if (waResult.success) {
+          console.log('[send-otp] WhatsApp OTP sent:', {
+            userId: user.id,
+            messageId: waResult.messageId,
+          });
+        } else {
+          console.warn('[send-otp] WhatsApp OTP failed:', waResult.error);
+        }
+      } catch (err) {
+        console.warn('[send-otp] WhatsApp OTP error:', err instanceof Error ? err.message : err);
+      }
     }
 
     if (!whatsappSent && !smsSent) {
