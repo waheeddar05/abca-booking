@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import bcrypt from 'bcryptjs';
 import { getAuthenticatedUser } from '@/lib/auth';
-import { sendWhatsAppOTP, sendWhatsAppNotification, sendWhatsAppText, isValidIndianMobile } from '@/lib/whatsapp';
+import { sendWhatsAppOTP, sendWhatsAppNotification, isValidIndianMobile } from '@/lib/whatsapp';
 import { sendSMS } from '@/lib/sms';
 import { getCachedPolicy } from '@/lib/policy-cache';
 
@@ -118,32 +118,35 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // Strategy 2: If no auth template, send welcome template (opens conversation)
-    // then send OTP as plain text
+    // Strategy 2: If no auth template, send OTP via utility template
+    // Uses playorbit_account_pin template: "Reference: {{1}}, Status: {{2}}"
     if (!whatsappSent && waEnabled === 'true') {
       try {
         const ttl = process.env.OTP_TTL_MINUTES || '5';
 
-        // Send welcome template to open conversation window
-        await sendWhatsAppNotification(cleaned, 'playorbit_welcome', [], 'en');
-
-        // Small delay to ensure template is processed first
-        await new Promise(resolve => setTimeout(resolve, 500));
-
-        // Send OTP as plain text (works within conversation window)
-        const textResult = await sendWhatsAppText(
+        const waResult = await sendWhatsAppNotification(
           cleaned,
-          `🔐 Your PlayOrbit verification code is: *${otp}*\n\nIt expires in ${ttl} minutes. Do not share this code with anyone.`,
+          'playorbit_account_pin',
+          [
+            {
+              type: 'body',
+              parameters: [
+                { type: 'text', text: otp },
+                { type: 'text', text: `Active for ${ttl} minutes` },
+              ],
+            },
+          ],
+          'en',
         );
 
-        whatsappSent = textResult?.success || false;
+        whatsappSent = waResult?.success || false;
         if (whatsappSent) {
-          console.log('[send-otp] WhatsApp OTP sent via template+text:', { userId: user.id });
+          console.log('[send-otp] WhatsApp OTP sent via utility template:', { userId: user.id });
         } else {
-          console.warn('[send-otp] WhatsApp text OTP failed:', textResult?.error);
+          console.warn('[send-otp] WhatsApp utility template OTP failed:', waResult?.error);
         }
       } catch (err) {
-        console.warn('[send-otp] WhatsApp template+text OTP error:', err instanceof Error ? err.message : err);
+        console.warn('[send-otp] WhatsApp utility OTP error:', err instanceof Error ? err.message : err);
       }
     }
 
