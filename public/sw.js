@@ -1,4 +1,4 @@
-const CACHE_NAME = 'playorbit-v4';
+const CACHE_NAME = 'playorbit-v5';
 
 // Only precache truly static/public assets (no auth-protected pages)
 const PRECACHE_ASSETS = [

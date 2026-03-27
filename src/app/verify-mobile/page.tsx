@@ -200,12 +200,14 @@ function VerifyMobileContent() {
               </div>
 
               <h1 className="text-lg font-bold text-white">
-                {step === 'success' ? 'Verified!' : 'Verify Your Mobile'}
+                {step === 'mobile' && 'Enter Your Mobile'}
+                {step === 'otp' && 'Enter OTP'}
+                {step === 'success' && 'Verified!'}
               </h1>
               <p className="text-xs text-slate-500">
                 {step === 'mobile' && 'Link your mobile number to continue'}
                 {step === 'otp' && countdown === 0 && loading && 'Sending OTP to your WhatsApp...'}
-                {step === 'otp' && !(countdown === 0 && loading) && 'Enter the OTP sent to your WhatsApp'}
+                {step === 'otp' && !(countdown === 0 && loading) && `Code sent to +91 ${mobileNumber}`}
                 {step === 'success' && 'Redirecting to booking...'}
               </p>
             </div>

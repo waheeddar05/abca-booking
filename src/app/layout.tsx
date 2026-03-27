@@ -6,7 +6,7 @@ import BottomNav from "@/components/BottomNav";
 import { Providers } from "@/components/Providers";
 import { ErrorBoundary } from "@/components/ui/ErrorBoundary";
 import { ToastProvider } from "@/components/ui/Toast";
-import { MobileNumberCheck } from "@/components/MobileNumberCheck";
+
 import PWARegister from "@/components/PWARegister";
 import "./globals.css";
 
@@ -62,7 +62,6 @@ export default function RootLayout({
           <ToastProvider>
             <ErrorBoundary>
               <Navbar />
-              <MobileNumberCheck />
               <main className="pb-20 md:pb-0">{children}</main>
               <BottomNav />
             </ErrorBoundary>

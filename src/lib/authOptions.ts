@@ -14,7 +14,7 @@ export const authOptions: NextAuthOptions = {
   ],
   secret: process.env.NEXTAUTH_SECRET,
   callbacks: {
-    async jwt({ token, user }) {
+    async jwt({ token, user, trigger }) {
       if (user) {
         token.id = user.id;
         token.role = (user as any).role;
@@ -25,9 +25,12 @@ export const authOptions: NextAuthOptions = {
 
       // Refresh role from DB periodically so admin-promoted roles take effect
       // without requiring the user to sign out and back in.
+      // Also force-refresh when updateSession() is called (trigger === "update")
+      // so that mobileVerified is immediately picked up after verification.
       const now = Date.now();
       const lastRefresh = (token.roleRefreshedAt as number) || 0;
-      if (now - lastRefresh > 60_000 && token.email) {
+      const shouldRefresh = trigger === "update" || (now - lastRefresh > 60_000);
+      if (shouldRefresh && token.email) {
         try {
           const dbUser = await prisma.user.findUnique({
             where: { email: token.email },
