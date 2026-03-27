@@ -24,7 +24,8 @@ function VerifyMobileContent() {
   const searchParams = useSearchParams();
 
   const prefillMobile = searchParams.get('mobile') || '';
-  const [step, setStep] = useState<Step>('mobile');
+  // If mobile is pre-filled from the prompt, skip the mobile step (avoid showing it twice)
+  const [step, setStep] = useState<Step>(prefillMobile && /^[6-9]\d{9}$/.test(prefillMobile) ? 'otp' : 'mobile');
   const [mobileNumber, setMobileNumber] = useState(prefillMobile);
   const [otp, setOtp] = useState(['', '', '', '', '', '']);
   const [loading, setLoading] = useState(false);
@@ -97,8 +98,9 @@ function VerifyMobileContent() {
     }
   };
 
-  const handleVerifyOtp = async () => {
-    const otpString = otp.join('');
+  const handleVerifyOtp = async (otpOverride?: string[]) => {
+    const otpArray = otpOverride || otp;
+    const otpString = otpArray.join('');
     if (otpString.length !== 6) {
       setError('Please enter the complete 6-digit OTP');
       return;
@@ -148,9 +150,9 @@ function VerifyMobileContent() {
       otpRefs.current[index + 1]?.focus();
     }
 
-    // Auto-submit when all digits entered
+    // Auto-submit when all digits entered — pass newOtp directly to avoid stale closure
     if (value && index === 5 && newOtp.every(d => d !== '')) {
-      setTimeout(() => handleVerifyOtp(), 100);
+      setTimeout(() => handleVerifyOtp(newOtp), 100);
     }
   };
 
@@ -202,7 +204,8 @@ function VerifyMobileContent() {
               </h1>
               <p className="text-xs text-slate-500">
                 {step === 'mobile' && 'Link your mobile number to continue'}
-                {step === 'otp' && 'Enter the OTP sent to your WhatsApp'}
+                {step === 'otp' && countdown === 0 && loading && 'Sending OTP to your WhatsApp...'}
+                {step === 'otp' && !(countdown === 0 && loading) && 'Enter the OTP sent to your WhatsApp'}
                 {step === 'success' && 'Redirecting to booking...'}
               </p>
             </div>
