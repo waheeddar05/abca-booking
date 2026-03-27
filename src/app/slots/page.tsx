@@ -14,7 +14,6 @@ import { PackageSelector } from '@/components/slots/PackageSelector';
 import { BookingBar } from '@/components/slots/BookingBar';
 import { ContactFooter } from '@/components/ContactFooter';
 import { BackButton } from '@/components/ui/BackButton';
-import { PackageFirstBookingBanner } from '@/components/ui/PackageFirstBookingBanner';
 import { PaymentMethodSelector } from '@/components/ui/PaymentMethodSelector';
 import { useSlots } from '@/hooks/useSlots';
 import { usePackages } from '@/hooks/usePackages';
@@ -83,7 +82,6 @@ function SlotsContent() {
   // ─── Hooks ─────────────────────────────────────────────
   const { slots, loading, error, fetchSlots } = useSlots();
   const pkg = usePackages();
-  const firstBookingPackage = pkg.packages.find(p => p.status === 'ACTIVE' && p.usedSessions === 0);
   const pricing = usePricing({
     selectedSlots,
     machineConfig,
@@ -446,11 +444,6 @@ function SlotsContent() {
             <p className="text-sm font-medium text-white">Booking for: <span className="text-accent">{userName}</span></p>
           </div>
         </div>
-      )}
-
-      {/* First Booking Banner */}
-      {firstBookingPackage && (
-        <PackageFirstBookingBanner packageName={firstBookingPackage.packageName} />
       )}
 
       {/* Page Header */}
