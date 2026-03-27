@@ -1,0 +1,23 @@
+src/app/api/admin/users/route.ts
+  5b6f8b627d6d594b 211-219,221-224,226-248,250-277
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.19",
+  "base_commit_sha": "3d0deff9602db61b5c844c63f0b952544faed5fa",
+  "prompts": {
+    "5b6f8b627d6d594b": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "0109d78f-6392-4820-a073-d5e9c126458a",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Waheed <waheeddar8@gmail.com>",
+      "messages": [],
+      "total_additions": 67,
+      "total_deletions": 22,
+      "accepted_lines": 67,
+      "overriden_lines": 0
+    }
+  }
+}
