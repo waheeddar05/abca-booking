@@ -1,0 +1,23 @@
+src/app/verify-mobile/page.tsx
+  5b6f8b627d6d594b 306
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.19",
+  "base_commit_sha": "fdad691942041bebbc8243bc9d4f10abb0ce66fe",
+  "prompts": {
+    "5b6f8b627d6d594b": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "0109d78f-6392-4820-a073-d5e9c126458a",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Waheed <waheeddar8@gmail.com>",
+      "messages": [],
+      "total_additions": 1,
+      "total_deletions": 1,
+      "accepted_lines": 1,
+      "overriden_lines": 0
+    }
+  }
+}
