@@ -208,29 +208,74 @@ export async function DELETE(req: NextRequest) {
       return NextResponse.json({ error: 'Cannot delete super admin' }, { status: 400 });
     }
 
-    // Delete all related records first, then user
-    // 1. Get user's packages to delete their sub-relations
-    const userPackages = await prisma.userPackage.findMany({
-      where: { userId: id },
-      select: { id: true },
+    // Delete all related records in correct order (respecting foreign keys)
+    // Use a transaction to ensure atomicity
+    await prisma.$transaction(async (tx) => {
+      // 1. Get user's bookings to delete their sub-relations (refunds)
+      const userBookings = await tx.booking.findMany({
+        where: { userId: id },
+        select: { id: true },
+      });
+      const bookingIds = userBookings.map(b => b.id);
+
+      if (bookingIds.length > 0) {
+        // Delete refunds tied to user's bookings
+        await tx.refund.deleteMany({ where: { bookingId: { in: bookingIds } } });
+      }
+
+      // 2. Delete refunds initiated by this user (adminRefunds relation)
+      await tx.refund.updateMany({
+        where: { initiatedById: id },
+        data: { initiatedById: id }, // Can't delete these if they reference other bookings
+      });
+      // For admin refunds on OTHER users' bookings, just nullify won't work (required field).
+      // Delete any refunds this user initiated that aren't already covered above.
+      const remainingAdminRefunds = await tx.refund.findMany({
+        where: { initiatedById: id },
+        select: { id: true },
+      });
+      if (remainingAdminRefunds.length > 0) {
+        await tx.refund.deleteMany({
+          where: { id: { in: remainingAdminRefunds.map(r => r.id) } },
+        });
+      }
+
+      // 3. Get user's packages to delete their sub-relations
+      const userPackages = await tx.userPackage.findMany({
+        where: { userId: id },
+        select: { id: true },
+      });
+      const userPackageIds = userPackages.map(up => up.id);
+
+      if (userPackageIds.length > 0) {
+        await tx.packageAuditLog.deleteMany({ where: { userPackageId: { in: userPackageIds } } });
+        await tx.packageBooking.deleteMany({ where: { userPackageId: { in: userPackageIds } } });
+      }
+
+      // 4. Delete wallet and its transactions
+      const wallet = await tx.wallet.findUnique({ where: { userId: id } });
+      if (wallet) {
+        await tx.walletTransaction.deleteMany({ where: { walletId: wallet.id } });
+        await tx.wallet.delete({ where: { id: wallet.id } });
+      }
+
+      // 5. Nullify operatorId on bookings where this user was the operator
+      await tx.booking.updateMany({
+        where: { operatorId: id },
+        data: { operatorId: null },
+      });
+
+      // 6. Delete all direct user relations
+      await tx.userPackage.deleteMany({ where: { userId: id } });
+      await tx.notification.deleteMany({ where: { userId: id } });
+      await tx.payment.deleteMany({ where: { userId: id } });
+      await tx.booking.deleteMany({ where: { userId: id } });
+      await tx.otp.deleteMany({ where: { userId: id } });
+      // OperatorAssignment and CashPaymentUser have onDelete: Cascade, handled automatically
+
+      // 7. Finally delete the user
+      await tx.user.delete({ where: { id } });
     });
-    const userPackageIds = userPackages.map(up => up.id);
-
-    if (userPackageIds.length > 0) {
-      // Delete package audit logs and package bookings tied to user's packages
-      await prisma.packageAuditLog.deleteMany({ where: { userPackageId: { in: userPackageIds } } });
-      await prisma.packageBooking.deleteMany({ where: { userPackageId: { in: userPackageIds } } });
-    }
-
-    // 2. Delete all direct user relations
-    await prisma.userPackage.deleteMany({ where: { userId: id } });
-    await prisma.notification.deleteMany({ where: { userId: id } });
-    await prisma.payment.deleteMany({ where: { userId: id } });
-    await prisma.booking.deleteMany({ where: { userId: id } });
-    await prisma.otp.deleteMany({ where: { userId: id } });
-
-    // 3. Finally delete the user
-    await prisma.user.delete({ where: { id } });
 
     return NextResponse.json({ message: 'User deleted successfully' });
   } catch (error) {
