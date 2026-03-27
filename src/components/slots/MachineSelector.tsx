@@ -73,10 +73,10 @@ function MachineCardButton({
         className="w-7 h-7 rounded-md object-cover flex-shrink-0"
       />
       <div className="min-w-0">
-        <span className={`text-[10px] font-bold leading-tight ${isSelected ? 'text-accent' : 'text-slate-300'}`}>
+        <span className={`text-[11px] font-bold leading-tight ${isSelected ? 'text-accent' : 'text-slate-300'}`}>
           {card.label}
         </span>
-        <p className={`text-[8px] ${isSelected ? 'text-accent/70' : 'text-slate-500'}`}>
+        <p className={`text-[9px] ${isSelected ? 'text-accent/70' : 'text-slate-500'}`}>
           {card.shortLabel}
         </p>
       </div>

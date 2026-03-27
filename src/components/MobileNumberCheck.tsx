@@ -16,8 +16,8 @@ export function MobileNumberCheck() {
     if (status !== 'authenticated' || checkedRef.current) return;
     if (!session?.user) return;
 
-    // Don't show on admin or operator pages
-    if (pathname.startsWith('/admin') || pathname.startsWith('/operator')) return;
+    // Don't show on admin, operator, or verify-mobile pages
+    if (pathname.startsWith('/admin') || pathname.startsWith('/operator') || pathname.startsWith('/verify-mobile')) return;
 
     checkedRef.current = true;
 

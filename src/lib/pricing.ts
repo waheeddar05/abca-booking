@@ -316,8 +316,31 @@ export async function getTimeSlabConfig(): Promise<TimeSlabConfig> {
 }
 
 /**
+ * Find consecutive groups within a sorted list of slots.
+ * Returns groups of 2+ consecutive slots that are eligible for discount.
+ */
+function findConsecutiveSlotGroups(
+  sorted: Array<{ startTime: Date; endTime: Date }>
+): Array<Array<{ startTime: Date; endTime: Date }>> {
+  if (sorted.length < 2) return [];
+
+  const groups: Array<Array<{ startTime: Date; endTime: Date }>> = [[sorted[0]]];
+  for (let i = 1; i < sorted.length; i++) {
+    const prevEnd = sorted[i - 1].endTime.getTime();
+    const currStart = sorted[i].startTime.getTime();
+    if (Math.abs(prevEnd - currStart) < 1000) {
+      groups[groups.length - 1].push(sorted[i]);
+    } else {
+      groups.push([sorted[i]]);
+    }
+  }
+
+  return groups.filter(g => g.length >= 2);
+}
+
+/**
  * Calculate pricing for booked slots with the new pricing model.
- * If 2+ consecutive slots, use consecutive rate per slot.
+ * If 2+ consecutive slots (even in separate groups), use consecutive rate per slot.
  */
 export function calculateNewPricing(
   slots: Array<{ startTime: Date; endTime: Date }>,
@@ -336,24 +359,32 @@ export function calculateNewPricing(
 }> {
   const sorted = [...slots].sort((a, b) => a.startTime.getTime() - b.startTime.getTime());
 
-  // Check if consecutive
-  let isConsecutive = false;
-  if (sorted.length >= 2) {
-    isConsecutive = sorted.every((slot, i) => {
-      if (i === 0) return true;
-      // Check if previous slot's end time matches current slot's start time
-      return Math.abs(sorted[i - 1].endTime.getTime() - slot.startTime.getTime()) < 1000;
-    });
+  // Find all consecutive groups (each group has 2+ back-to-back slots)
+  const consecutiveGroups = findConsecutiveSlotGroups(sorted);
+
+  // Build a set of slot keys that are in a consecutive group
+  const consecutiveSlotKeys = new Set<string>();
+  for (const group of consecutiveGroups) {
+    for (const slot of group) {
+      consecutiveSlotKeys.add(`${slot.startTime.getTime()}-${slot.endTime.getTime()}`);
+    }
   }
 
   return sorted.map(slot => {
     const slab = getTimeSlab(slot.startTime, timeSlabs);
     const singlePrice = getSlotPrice(category, ballType, pitchType, slab, pricingConfig, machineId);
-    const consecutiveTotalFor2 = getConsecutivePrice(category, ballType, pitchType, slab, pricingConfig, machineId);
-    const consecutivePerSlot = consecutiveTotalFor2 / 2;
+    const slotKey = `${slot.startTime.getTime()}-${slot.endTime.getTime()}`;
+    const isInConsecutiveGroup = consecutiveSlotKeys.has(slotKey);
+
+    let price: number;
+    if (isInConsecutiveGroup) {
+      const consecutiveTotalFor2 = getConsecutivePrice(category, ballType, pitchType, slab, pricingConfig, machineId);
+      price = consecutiveTotalFor2 / 2;
+    } else {
+      price = singlePrice;
+    }
 
     const originalPrice = singlePrice;
-    const price = isConsecutive ? consecutivePerSlot : singlePrice;
     const discountAmount = originalPrice - price;
 
     return {

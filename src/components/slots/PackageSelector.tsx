@@ -29,7 +29,7 @@ export function PackageSelector({
         <select
           value={selectedPackageId}
           onChange={(e) => onSelect(e.target.value)}
-          className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl px-4 py-3 text-sm text-white outline-none focus:border-accent appearance-none transition-all"
+          className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl px-3 py-3 text-xs text-white outline-none focus:border-accent appearance-none transition-all truncate"
         >
           <option value="" className="bg-[#0f1d2f]">
             Don&apos;t use a package (Direct Payment)

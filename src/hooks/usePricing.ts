@@ -37,6 +37,31 @@ function checkConsecutive(slots: AvailableSlot[]): boolean {
   return true;
 }
 
+/**
+ * Find consecutive groups within selected slots.
+ * E.g. 2 morning consecutive + 2 evening consecutive = 2 groups, each eligible for discount.
+ */
+function findConsecutiveGroups(slots: AvailableSlot[]): AvailableSlot[][] {
+  if (slots.length < 2) return [];
+  const sorted = [...slots].sort(
+    (a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime()
+  );
+
+  const groups: AvailableSlot[][] = [[sorted[0]]];
+  for (let i = 1; i < sorted.length; i++) {
+    const prevEnd = new Date(sorted[i - 1].endTime).getTime();
+    const currStart = new Date(sorted[i].startTime).getTime();
+    if (prevEnd === currStart) {
+      groups[groups.length - 1].push(sorted[i]);
+    } else {
+      groups.push([sorted[i]]);
+    }
+  }
+
+  // Only return groups with 2+ consecutive slots (eligible for discount)
+  return groups.filter(g => g.length >= 2);
+}
+
 function calcConsecutiveTotal(
   slots: AvailableSlot[],
   pc: PricingConfig,
@@ -45,28 +70,67 @@ function calcConsecutiveTotal(
   ballType: string,
   pitchType: string
 ): number | null {
-  if (!checkConsecutive(slots)) return null;
+  // Check if ALL slots are consecutive (original behavior)
+  if (checkConsecutive(slots)) {
+    const sorted = [...slots].sort(
+      (a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime()
+    );
 
-  const sorted = [...slots].sort(
-    (a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime()
-  );
+    let total = 0;
+    for (const slot of sorted) {
+      const slab = (slot.timeSlab || 'morning') as 'morning' | 'evening';
+      const pType = pitchType === 'TURF' ? 'CEMENT' : (pitchType || 'ASTRO');
+      const validPType = (['ASTRO', 'CEMENT', 'NATURAL'].includes(pType) ? pType : 'ASTRO') as 'ASTRO' | 'CEMENT' | 'NATURAL';
 
-  let total = 0;
-  for (const slot of sorted) {
-    const slab = (slot.timeSlab || 'morning') as 'morning' | 'evening';
-    const pType = pitchType === 'TURF' ? 'CEMENT' : (pitchType || 'ASTRO');
-    const validPType = (['ASTRO', 'CEMENT', 'NATURAL'].includes(pType) ? pType : 'ASTRO') as 'ASTRO' | 'CEMENT' | 'NATURAL';
-
-    let consecutiveFor2: number;
-    if (isLeatherMachine) {
-      const subType = selectedMachineId === 'YANTRA'
-        ? (ballType === 'LEATHER' ? 'yantra' : 'yantra_machine')
-        : (ballType === 'LEATHER' ? 'leather' : 'machine');
-      consecutiveFor2 = pc[subType as keyof PricingConfig][validPType][slab].consecutive;
-    } else {
-      consecutiveFor2 = pc.tennis[validPType][slab].consecutive;
+      let consecutiveFor2: number;
+      if (isLeatherMachine) {
+        const subType = selectedMachineId === 'YANTRA'
+          ? (ballType === 'LEATHER' ? 'yantra' : 'yantra_machine')
+          : (ballType === 'LEATHER' ? 'leather' : 'machine');
+        consecutiveFor2 = pc[subType as keyof PricingConfig][validPType][slab].consecutive;
+      } else {
+        consecutiveFor2 = pc.tennis[validPType][slab].consecutive;
+      }
+      total += consecutiveFor2 / 2;
     }
-    total += consecutiveFor2 / 2;
+
+    return total;
+  }
+
+  // Check for separate consecutive groups (e.g. 2 morning + 2 evening)
+  const groups = findConsecutiveGroups(slots);
+  if (groups.length === 0) return null;
+
+  // Calculate: consecutive price for grouped slots + single price for ungrouped slots
+  const groupedSlotIds = new Set(groups.flat().map(s => `${s.startTime}-${s.endTime}`));
+  let total = 0;
+
+  // Add consecutive pricing for each group
+  for (const group of groups) {
+    for (const slot of group) {
+      const slab = (slot.timeSlab || 'morning') as 'morning' | 'evening';
+      const pType = pitchType === 'TURF' ? 'CEMENT' : (pitchType || 'ASTRO');
+      const validPType = (['ASTRO', 'CEMENT', 'NATURAL'].includes(pType) ? pType : 'ASTRO') as 'ASTRO' | 'CEMENT' | 'NATURAL';
+
+      let consecutiveFor2: number;
+      if (isLeatherMachine) {
+        const subType = selectedMachineId === 'YANTRA'
+          ? (ballType === 'LEATHER' ? 'yantra' : 'yantra_machine')
+          : (ballType === 'LEATHER' ? 'leather' : 'machine');
+        consecutiveFor2 = pc[subType as keyof PricingConfig][validPType][slab].consecutive;
+      } else {
+        consecutiveFor2 = pc.tennis[validPType][slab].consecutive;
+      }
+      total += consecutiveFor2 / 2;
+    }
+  }
+
+  // Add single pricing for non-grouped slots
+  for (const slot of slots) {
+    const slotId = `${slot.startTime}-${slot.endTime}`;
+    if (!groupedSlotIds.has(slotId)) {
+      total += slot.price ?? 600;
+    }
   }
 
   return total;
@@ -85,7 +149,9 @@ export function usePricing({
   };
 
   return useMemo(() => {
-    const isConsecutive = checkConsecutive(selectedSlots);
+    const isAllConsecutive = checkConsecutive(selectedSlots);
+    const hasConsecutiveGroups = findConsecutiveGroups(selectedSlots).length > 0;
+    const isConsecutive = isAllConsecutive || hasConsecutiveGroups;
 
     const consecutiveTotal =
       machineConfig?.pricingConfig
