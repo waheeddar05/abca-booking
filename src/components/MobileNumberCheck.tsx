@@ -1,22 +1,20 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef } from 'react';
 import { useSession } from 'next-auth/react';
-import { usePathname } from 'next/navigation';
-import { MobileNumberPrompt } from '@/components/ui/MobileNumberPrompt';
+import { usePathname, useRouter } from 'next/navigation';
 
 export function MobileNumberCheck() {
   const { data: session, status } = useSession();
   const pathname = usePathname();
+  const router = useRouter();
   const checkedRef = useRef(false);
-  const [showPrompt, setShowPrompt] = useState(false);
-  const [checked, setChecked] = useState(false);
 
   useEffect(() => {
     if (status !== 'authenticated' || checkedRef.current) return;
     if (!session?.user) return;
 
-    // Don't show on admin, operator, or verify-mobile pages
+    // Don't redirect on admin, operator, or verify-mobile pages
     if (pathname.startsWith('/admin') || pathname.startsWith('/operator') || pathname.startsWith('/verify-mobile')) return;
 
     checkedRef.current = true;
@@ -29,59 +27,23 @@ export function MobileNumberCheck() {
         const profile = await res.json();
 
         // Has mobile number AND verified - no need to prompt
-        if (profile.mobileNumber && profile.mobileVerified) {
-          setChecked(true);
-          return;
-        }
+        if (profile.mobileNumber && profile.mobileVerified) return;
 
         // User dismissed the prompt before
-        if (profile.phonePromptDismissed) {
-          setChecked(true);
-          return;
-        }
+        if (profile.phonePromptDismissed) return;
 
         // OTP users already provided a phone number to log in
-        if (profile.authProvider === 'OTP') {
-          setChecked(true);
-          return;
-        }
+        if (profile.authProvider === 'OTP') return;
 
-        // Show the prompt
-        setShowPrompt(true);
-        setChecked(true);
+        // Redirect directly to verify-mobile page (single flow: enter phone → OTP → done)
+        router.push('/verify-mobile');
       } catch {
         // Silently fail - don't block the user experience
-        setChecked(true);
       }
     };
 
     checkProfile();
-  }, [status, session, pathname]);
+  }, [status, session, pathname, router]);
 
-  const handleSubmit = () => {
-    setShowPrompt(false);
-  };
-
-  const handleDismiss = async () => {
-    setShowPrompt(false);
-    try {
-      await fetch('/api/user/profile', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ phonePromptDismissed: true }),
-      });
-    } catch {
-      // Silently fail - prompt is already closed
-    }
-  };
-
-  if (!checked || !showPrompt) return null;
-
-  return (
-    <MobileNumberPrompt
-      open={showPrompt}
-      onSubmit={handleSubmit}
-      onDismiss={handleDismiss}
-    />
-  );
+  return null;
 }
