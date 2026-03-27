@@ -303,7 +303,7 @@ function VerifyMobileContent() {
                 </div>
 
                 <button
-                  onClick={handleVerifyOtp}
+                  onClick={() => handleVerifyOtp()}
                   disabled={otp.some(d => d === '') || loading}
                   className="w-full py-3 px-4 rounded-xl font-bold text-sm transition-all active:scale-[0.97] disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer bg-green-500/90 hover:bg-green-500 text-white shadow-lg shadow-green-500/20"
                 >
