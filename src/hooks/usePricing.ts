@@ -150,8 +150,28 @@ export function usePricing({
 
   return useMemo(() => {
     const isAllConsecutive = checkConsecutive(selectedSlots);
-    const hasConsecutiveGroups = findConsecutiveGroups(selectedSlots).length > 0;
+    const groups = findConsecutiveGroups(selectedSlots);
+    const hasConsecutiveGroups = groups.length > 0;
     const isConsecutive = isAllConsecutive || hasConsecutiveGroups;
+
+    // Debug: log consecutive detection
+    if (selectedSlots.length >= 2) {
+      console.log('[Pricing] slots:', selectedSlots.length,
+        'allConsecutive:', isAllConsecutive,
+        'groups:', groups.length,
+        'hasPricingConfig:', !!machineConfig?.pricingConfig);
+      if (machineConfig?.pricingConfig) {
+        const pType = pitchType === 'TURF' ? 'CEMENT' : (pitchType || 'ASTRO');
+        const validPType = (['ASTRO', 'CEMENT', 'NATURAL'].includes(pType) ? pType : 'ASTRO') as 'ASTRO' | 'CEMENT' | 'NATURAL';
+        const tier = isLeatherMachine
+          ? (selectedMachineId === 'YANTRA' ? (ballType === 'LEATHER' ? 'yantra' : 'yantra_machine') : (ballType === 'LEATHER' ? 'leather' : 'machine'))
+          : 'tennis';
+        const slotSlab = (selectedSlots[0]?.timeSlab || 'morning') as 'morning' | 'evening';
+        const tierConfig = (machineConfig.pricingConfig as any)[tier]?.[validPType]?.[slotSlab];
+        console.log('[Pricing] tier:', tier, 'pitch:', validPType, 'slab:', slotSlab,
+          'single:', tierConfig?.single, 'consecutive:', tierConfig?.consecutive);
+      }
+    }
 
     const consecutiveTotal =
       machineConfig?.pricingConfig
@@ -169,6 +189,11 @@ export function usePricing({
       (sum, slot) => sum + (slot.price ?? machineConfig?.defaultSlotPrice ?? 600),
       0
     );
+
+    // Debug: log pricing result
+    if (selectedSlots.length >= 2) {
+      console.log('[Pricing] consecutiveTotal:', consecutiveTotal, 'originalTotal:', originalTotal);
+    }
 
     // Calculate recurring slot discount — apply per qualifying slot
     let recurringDiscount = 0;
