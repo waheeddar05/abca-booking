@@ -1,0 +1,27 @@
+src/app/api/admin/db-cleanup/route.ts
+  5b6f8b627d6d594b 1-231
+src/app/admin/db-cleanup/page.tsx
+  5b6f8b627d6d594b 1-346
+src/app/admin/layout.tsx
+  5b6f8b627d6d594b 6,29-32
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.19",
+  "base_commit_sha": "7d6e2edf658ce3d5002d7a547d71c3a1f45b4e56",
+  "prompts": {
+    "5b6f8b627d6d594b": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "0109d78f-6392-4820-a073-d5e9c126458a",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Waheed <waheeddar8@gmail.com>",
+      "messages": [],
+      "total_additions": 582,
+      "total_deletions": 2,
+      "accepted_lines": 582,
+      "overriden_lines": 0
+    }
+  }
+}
