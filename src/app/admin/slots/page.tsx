@@ -55,8 +55,12 @@ const getMachineIdLabel = (id: string | null) => {
 const formatBlockTime = (iso: string | null) => {
   if (!iso) return null;
   const d = new Date(iso);
-  const h = d.getUTCHours().toString().padStart(2, '0');
-  const m = d.getUTCMinutes().toString().padStart(2, '0');
+  // Convert UTC to IST (UTC + 5:30)
+  const utcMs = d.getTime();
+  const istMs = utcMs + (5 * 60 + 30) * 60 * 1000;
+  const istDate = new Date(istMs);
+  const h = istDate.getUTCHours().toString().padStart(2, '0');
+  const m = istDate.getUTCMinutes().toString().padStart(2, '0');
   return `${h}:${m}`;
 };
 
