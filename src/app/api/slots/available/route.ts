@@ -216,7 +216,23 @@ export async function GET(req: NextRequest) {
 
       // Check if slot is blocked by Admin
       const isBlocked = blockedSlots.some(block => {
-        if (block.machineId) {
+        // Check recurring days: if block has recurringDays, only block on those days
+        if (block.recurringDays && block.recurringDays.length > 0) {
+          const dayOfWeek = dateUTC.getUTCDay();
+          if (!block.recurringDays.includes(dayOfWeek)) return false;
+        }
+
+        // Check machineIds array (new multi-machine blocks)
+        if (block.machineIds && block.machineIds.length > 0) {
+          if (machineId && !block.machineIds.includes(machineId)) return false;
+          if (!machineId) {
+            // Legacy: check if any of the blocked machines match category
+            const anyMatchCategory = block.machineIds.some(mid =>
+              isLeatherMachine === LEATHER_MACHINES.includes(mid as MachineId)
+            );
+            if (!anyMatchCategory) return false;
+          }
+        } else if (block.machineId) {
           if (machineId && (block.machineId as MachineId) !== machineId) return false;
           if (!machineId) {
             const blockIsLeather = LEATHER_MACHINES.includes(block.machineId as MachineId);
@@ -224,7 +240,7 @@ export async function GET(req: NextRequest) {
           }
         }
 
-        if (block.machineType && !block.machineId) {
+        if (block.machineType && !block.machineId && !(block.machineIds && block.machineIds.length > 0)) {
           const relevantTypes = getRelevantBallTypes(block.machineType);
           if (!relevantTypes.includes(ballType)) return false;
         }

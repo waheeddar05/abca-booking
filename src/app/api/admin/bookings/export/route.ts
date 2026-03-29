@@ -22,6 +22,8 @@ const SAFE_BOOKING_SELECT = {
   operationMode: true,
   cancelledBy: true,
   discountAmount: true,
+  kitRental: true,
+  kitRentalCharge: true,
   user: { select: { email: true, mobileNumber: true } },
 } as const;
 
@@ -126,6 +128,8 @@ export async function GET(req: NextRequest) {
       'Cancelled At',
       'Payment Method',
       'Payment Status',
+      'Kit Rental',
+      'Kit Rental Charge',
       'Refund Status',
       'Refund Amount',
       'Refund Method',
@@ -187,6 +191,8 @@ export async function GET(req: NextRequest) {
         b.status === 'CANCELLED' && b.updatedAt ? formatIST(b.updatedAt, 'yyyy-MM-dd HH:mm:ss') : '',
         pkg ? 'NA' : (b.paymentMethod || ''),
         pkg ? 'NA' : (b.paymentStatus || ''),
+        b.kitRental ? 'Yes' : 'No',
+        b.kitRentalCharge != null ? b.kitRentalCharge.toString() : '',
         refundStatus,
         refundAmount,
         refundMethodCol,

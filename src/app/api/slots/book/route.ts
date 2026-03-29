@@ -124,6 +124,10 @@ export async function POST(req: NextRequest) {
     const isCashPayment = requestedPaymentMethod === 'CASH';
     const isWalletPayment = requestedPaymentMethod === 'WALLET';
 
+    // Kit rental
+    const kitRental = !!slotsToBook[0]?.kitRental;
+    const kitRentalCharge = kitRental ? (parseFloat(slotsToBook[0]?.kitRentalCharge) || 200) : 0;
+
     // Server-side: reject cash payment if disabled globally and user has no cash access
     if (isCashPayment) {
       const [cashPolicy, cashPaymentUser] = await Promise.all([
@@ -312,7 +316,9 @@ export async function POST(req: NextRequest) {
     }
 
     // If wallet payment, validate balance upfront
-    const totalPrice = isFreeBooking ? 0 : pricing.reduce((sum, p) => sum + p.price, 0);
+    const slotsTotalPrice = isFreeBooking ? 0 : pricing.reduce((sum, p) => sum + p.price, 0);
+    const totalKitRentalCharge = kitRental ? kitRentalCharge * validatedSlots.length : 0;
+    const totalPrice = slotsTotalPrice + totalKitRentalCharge;
     const totalRecurringDiscountDisplay = totalRecurringDiscount; // For notification display
     if (isWalletPayment && !isFreeBooking && !userPackageId) {
       const walletEnabled = await isWalletEnabled();
@@ -485,6 +491,10 @@ export async function POST(req: NextRequest) {
               assignedOperatorId = await autoAssignOperator(slot.date, slot.startTime, tx, slot.machineId, slotTimeSlab);
             }
 
+            // Kit rental: add per-slot charge to the booking price
+            const slotKitCharge = kitRental ? kitRentalCharge : 0;
+            const priceWithKit = effectivePrice + slotKitCharge;
+
             const bookingData: Prisma.BookingUncheckedCreateInput = {
               userId: userId!,
               date: slot.date,
@@ -496,10 +506,12 @@ export async function POST(req: NextRequest) {
               createdBy,
               isSuperAdminBooking: isFreeBooking,
               operationMode: slot.operationMode,
-              price: effectivePrice,
+              price: priceWithKit,
               originalPrice: effectiveOriginalPrice,
               discountAmount: effectiveDiscountAmount,
               discountType: effectiveDiscountType,
+              kitRental,
+              kitRentalCharge: kitRental ? kitRentalCharge : null,
               ...(slot.machineId ? { machineId: slot.machineId } : {}),
               ...(slot.pitchType !== null ? { pitchType: slot.pitchType } : {}),
               ...(assignedOperatorId ? { operatorId: assignedOperatorId } : {}),
@@ -514,10 +526,12 @@ export async function POST(req: NextRequest) {
               createdBy,
               isSuperAdminBooking: isFreeBooking,
               operationMode: slot.operationMode,
-              price: effectivePrice,
+              price: priceWithKit,
               originalPrice: effectiveOriginalPrice,
               discountAmount: effectiveDiscountAmount,
               discountType: effectiveDiscountType,
+              kitRental,
+              kitRentalCharge: kitRental ? kitRentalCharge : null,
               ...(slot.machineId ? { machineId: slot.machineId } : {}),
               ...(slot.pitchType !== null ? { pitchType: slot.pitchType } : {}),
               ...(assignedOperatorId ? { operatorId: assignedOperatorId } : {}),

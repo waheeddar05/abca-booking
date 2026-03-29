@@ -90,6 +90,8 @@ model Booking {
   operatorId          String?
   paymentMethod       BookingPaymentMethod?
   paymentStatus       BookingPaymentStatus?
+  kitRental           Boolean              @default(false)
+  kitRentalCharge     Float?
   user               User?           @relation(fields: [userId], references: [id])
   operator           User?           @relation("OperatorBookings", fields: [operatorId], references: [id])
   packageBooking     PackageBooking?
@@ -103,17 +105,19 @@ model Booking {
 }
 
 model BlockedSlot {
-  id          String     @id @default(cuid())
-  startDate   DateTime   @db.Date
-  endDate     DateTime   @db.Date
-  startTime   DateTime?
-  endTime     DateTime?
-  machineType BallType?
-  pitchType   PitchType?
-  reason      String?
-  blockedBy   String
-  createdAt   DateTime   @default(now())
-  machineId   MachineId?
+  id            String     @id @default(cuid())
+  startDate     DateTime   @db.Date
+  endDate       DateTime   @db.Date
+  startTime     DateTime?
+  endTime       DateTime?
+  machineType   BallType?
+  pitchType     PitchType?
+  reason        String?
+  blockedBy     String
+  createdAt     DateTime   @default(now())
+  machineId     MachineId?
+  recurringDays Int[]
+  machineIds    String[]
 }
 
 model Package {

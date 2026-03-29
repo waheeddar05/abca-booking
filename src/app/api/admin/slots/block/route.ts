@@ -53,7 +53,9 @@ export async function POST(req: NextRequest) {
       startTime, // "HH:mm" or null
       endTime,   // "HH:mm" or null
       machineType,  // Legacy: BallType ('LEATHER' | 'TENNIS')
-      machineId,    // New: specific machine ID
+      machineId,    // New: specific machine ID (single)
+      machineIds,   // New: multiple machine IDs array
+      recurringDays, // New: array of day-of-week numbers (0=Sun, 1=Mon, ..., 6=Sat)
       pitchType,
       reason
     } = body;
@@ -69,26 +71,46 @@ export async function POST(req: NextRequest) {
     let endT: Date | null = null;
 
     if (startTime && endTime) {
-      // Create representative dates for time range blocking
       startT = new Date(`1970-01-01T${startTime}:00+05:30`);
       endT = new Date(`1970-01-01T${endTime}:00+05:30`);
     }
 
-    // Validate machineId if provided
+    // Validate machineId(s)
     let validatedMachineId: MachineId | null = null;
-    if (machineId && isValidMachineId(machineId)) {
+    const validatedMachineIds: string[] = [];
+
+    if (machineIds && Array.isArray(machineIds) && machineIds.length > 0) {
+      // Multiple machines - store in machineIds array
+      for (const mid of machineIds) {
+        if (isValidMachineId(mid)) {
+          validatedMachineIds.push(mid);
+        }
+      }
+    } else if (machineId && isValidMachineId(machineId)) {
       validatedMachineId = machineId as MachineId;
     }
 
-    // 1. Create the BlockedSlot record
+    // Validate recurringDays
+    const validatedRecurringDays: number[] = [];
+    if (recurringDays && Array.isArray(recurringDays)) {
+      for (const d of recurringDays) {
+        if (typeof d === 'number' && d >= 0 && d <= 6) {
+          validatedRecurringDays.push(d);
+        }
+      }
+    }
+
+    // 1. Create a single BlockedSlot record
     const blockedSlot = await prisma.blockedSlot.create({
       data: {
         startDate: start,
         endDate: end,
         startTime: startT,
         endTime: endT,
-        machineType: validatedMachineId ? null : machineType, // Legacy field
+        machineType: (validatedMachineId || validatedMachineIds.length > 0) ? null : machineType,
         machineId: validatedMachineId,
+        machineIds: validatedMachineIds,
+        recurringDays: validatedRecurringDays,
         pitchType,
         reason,
         blockedBy: admin.id,
@@ -104,11 +126,12 @@ export async function POST(req: NextRequest) {
       status: 'BOOKED',
     };
 
-    if (validatedMachineId) {
-      // New: block by specific machine
+    if (validatedMachineIds.length > 0) {
+      // Multiple specific machines
+      where.machineId = { in: validatedMachineIds };
+    } else if (validatedMachineId) {
       where.machineId = validatedMachineId;
     } else if (machineType) {
-      // Legacy: block by machine category
       if (machineType === 'LEATHER' || machineType === 'MACHINE') {
         where.OR = [
           { ballType: { in: ['LEATHER', 'MACHINE'] } },
@@ -128,10 +151,16 @@ export async function POST(req: NextRequest) {
     });
 
     const bookingsToCancel = conflictingBookings.filter(booking => {
-      // If full day block (startTime is null), all on this date are conflicting
+      // For recurring blocks, check if the booking date falls on a recurring day
+      if (validatedRecurringDays.length > 0) {
+        const bookingDate = new Date(booking.date);
+        const dayOfWeek = bookingDate.getUTCDay();
+        if (!validatedRecurringDays.includes(dayOfWeek)) return false;
+      }
+
+      // If full day block (startTime is null), all matching are conflicting
       if (!startT || !endT) return true;
 
-      // Robust time range overlap check using minutes from midnight
       const getMinutes = (d: Date) => d.getUTCHours() * 60 + d.getUTCMinutes();
 
       const blockStartMin = getMinutes(startT);
@@ -140,7 +169,6 @@ export async function POST(req: NextRequest) {
       const bookingStartMin = getMinutes(new Date(booking.startTime));
       const bookingEndMin = getMinutes(new Date(booking.endTime));
 
-      // Overlap check
       return bookingStartMin < blockEndMin && bookingEndMin > blockStartMin;
     });
 

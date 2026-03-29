@@ -13,7 +13,7 @@ import { SlotGrid } from '@/components/slots/SlotGrid';
 import { PackageSelector } from '@/components/slots/PackageSelector';
 import { BookingBar } from '@/components/slots/BookingBar';
 import { ContactFooter } from '@/components/ContactFooter';
-import { BackButton } from '@/components/ui/BackButton';
+
 import { PaymentMethodSelector } from '@/components/ui/PaymentMethodSelector';
 import { useSlots } from '@/hooks/useSlots';
 import { usePackages } from '@/hooks/usePackages';
@@ -47,6 +47,7 @@ function SlotsContent() {
   const [paymentMethod, setPaymentMethod] = useState<'ONLINE' | 'CASH'>('ONLINE');
   const [useWallet, setUseWallet] = useState(false);
   const [walletBalance, setWalletBalance] = useState<number>(0);
+  const [kitRental, setKitRental] = useState(false);
 
   const { data: session } = useSession();
   const toast = useToast();
@@ -68,8 +69,12 @@ function SlotsContent() {
     },
   }, paymentConfig?.paymentEnabled ?? false);
 
+  const KIT_RENTAL_CHARGE = 200;
+  const KIT_RENTAL_MACHINES: MachineId[] = ['GRAVITY', 'YANTRA'];
+
   // ─── Derived State ─────────────────────────────────────
   const selectedCard = getMachineCard(selectedMachineId);
+  const isKitRentalAvailable = KIT_RENTAL_MACHINES.includes(selectedMachineId);
   const isLeatherMachine = selectedCard.category === 'LEATHER';
   const selectedMachineInfo = machineConfig?.machines?.find(m => m.id === selectedMachineId);
   const enabledPitchTypes = selectedMachineInfo?.enabledPitchTypes || [];
@@ -205,6 +210,7 @@ function SlotsContent() {
     setSelectedMachineId(machineId);
     setSelectedSlots([]);
     pkg.reset();
+    setKitRental(false);
 
     setBallType(card.category === 'LEATHER' ? 'LEATHER' : 'TENNIS');
     setOperationMode('WITH_OPERATOR');
@@ -239,9 +245,13 @@ function SlotsContent() {
 
   const hasSelectedSlotsWithoutOperator = !isLeatherMachine && selectedSlots.some(s => !s.operatorAvailable);
 
+  // Kit rental total for all selected slots
+  const kitRentalTotal = kitRental && isKitRentalAvailable ? KIT_RENTAL_CHARGE * selectedSlots.length : 0;
+
   // Build booking details for confirm dialog
   const getBookingConfirmDetails = () => {
-    const total = pkg.selectedPackageId && pkg.validation ? (pkg.validation.extraCharge || 0) : pricing.totalPrice;
+    const baseTotal = pkg.selectedPackageId && pkg.validation ? (pkg.validation.extraCharge || 0) : pricing.totalPrice;
+    const total = baseTotal + kitRentalTotal;
     const walletDeduction = useWallet && walletBalance > 0 ? Math.min(walletBalance, total) : 0;
     const amountAfterWallet = total - walletDeduction;
     const selfOperateSlots = !isLeatherMachine
@@ -306,7 +316,8 @@ function SlotsContent() {
   const handleBookConfirm = async () => {
     setShowBookingConfirm(false);
 
-    const total = pkg.selectedPackageId && pkg.validation ? (pkg.validation.extraCharge || 0) : pricing.totalPrice;
+    const baseTotal = pkg.selectedPackageId && pkg.validation ? (pkg.validation.extraCharge || 0) : pricing.totalPrice;
+    const total = baseTotal + kitRentalTotal;
     const walletDeduction = useWallet && walletBalance > 0 ? Math.min(walletBalance, total) : 0;
     const amountAfterWallet = total - walletDeduction;
 
@@ -335,6 +346,7 @@ function SlotsContent() {
       ...(pitchType ? { pitchType } : {}),
       ...(isCashPayment ? { paymentMethod: 'CASH' as const } : walletCoversAll ? { paymentMethod: 'WALLET' as const } : {}),
       ...(walletDeduction > 0 ? { walletDeduction } : {}),
+      ...(kitRental && isKitRentalAvailable ? { kitRental: true, kitRentalCharge: KIT_RENTAL_CHARGE } : {}),
     }));
 
     // If online payment is required, go through Razorpay first
@@ -447,7 +459,6 @@ function SlotsContent() {
       )}
 
       {/* Page Header */}
-      <BackButton />
       <div className="flex items-center gap-3 mb-5">
         <div className="w-9 h-9 rounded-lg bg-accent/10 flex items-center justify-center">
           <Calendar className="w-4 h-4 text-accent" />
@@ -533,6 +544,34 @@ function SlotsContent() {
 
       <hr className="border-white/[0.06] my-4" />
 
+      {/* Kit Rental Option - Only for Gravity and Yantra */}
+      {isKitRentalAvailable && selectedSlots.length > 0 && (
+        <div className="mb-4">
+          <label className="flex items-start gap-3 p-3.5 bg-white/[0.04] border border-white/[0.08] rounded-xl cursor-pointer hover:bg-white/[0.06] transition-colors">
+            <input
+              type="checkbox"
+              checked={kitRental}
+              onChange={e => setKitRental(e.target.checked)}
+              className="mt-0.5 w-4 h-4 accent-accent rounded"
+            />
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-semibold text-white">Cricket Kit &amp; Bat Rental</p>
+              <p className="text-[11px] text-slate-400 mt-0.5">
+                Rent cricket kit and bat for your session at <span className="text-accent font-semibold">&#8377;{KIT_RENTAL_CHARGE}/session</span>
+              </p>
+              <p className="text-[10px] text-amber-400/80 mt-1">
+                Note: Any damages to the bat will be chargeable
+              </p>
+              {kitRental && selectedSlots.length > 0 && (
+                <p className="text-[11px] text-accent font-medium mt-1">
+                  +&#8377;{kitRentalTotal} ({selectedSlots.length} session{selectedSlots.length > 1 ? 's' : ''})
+                </p>
+              )}
+            </div>
+          </label>
+        </div>
+      )}
+
       {/* Payment Method Selection */}
       {selectedSlots.length > 0
         && paymentConfig?.paymentEnabled
@@ -549,7 +588,7 @@ function SlotsContent() {
             disabled={bookingLoading || paymentProcessing}
             showCash={paymentConfig?.cashPaymentEnabled}
             showWallet={paymentConfig?.walletEnabled}
-            totalAmount={pkg.selectedPackageId && pkg.validation ? (pkg.validation.extraCharge || 0) : pricing.totalPrice}
+            totalAmount={(pkg.selectedPackageId && pkg.validation ? (pkg.validation.extraCharge || 0) : pricing.totalPrice) + kitRentalTotal}
             useWallet={useWallet}
             onUseWalletChange={setUseWallet}
             onWalletBalanceLoaded={setWalletBalance}
@@ -592,6 +631,7 @@ function SlotsContent() {
         packageValidation={pkg.validation}
         bookingLoading={bookingLoading || paymentProcessing}
         isSuperAdmin={!!isFreeBooking}
+        kitRentalTotal={kitRentalTotal}
         onBook={handleBook}
       />
     </div>

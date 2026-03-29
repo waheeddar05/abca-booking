@@ -13,7 +13,7 @@ import {
   PITCH_LABELS,
 } from '@/lib/client-constants';
 import { getDisplayStatus } from '@/lib/booking-utils';
-import { BackButton } from '@/components/ui/BackButton';
+
 
 interface BookingRefund {
   method: 'WALLET' | 'RAZORPAY';
@@ -145,7 +145,6 @@ export default function BookingsPage() {
       <div className="fixed inset-0 -z-10 bg-[radial-gradient(ellipse_at_top,rgba(212,168,67,0.05),transparent_60%)]"></div>
 
       {/* Page Header */}
-      <BackButton />
       <div className="flex items-center gap-3 mb-6">
         <div className="w-10 h-10 rounded-xl bg-accent/10 flex items-center justify-center">
           <ClipboardList className="w-5 h-5 text-accent" />

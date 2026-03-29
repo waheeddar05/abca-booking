@@ -22,6 +22,8 @@ interface BlockedSlot {
   reason: string | null;
   blockedBy: string;
   createdAt: string;
+  recurringDays: number[];
+  machineIds: string[];
 }
 
 type TabId = 'block' | 'active';
@@ -183,61 +185,50 @@ export default function SlotManagement() {
       return;
     }
 
-    const machineIds = allMachines ? [] : selectedMachines;
+    const machineIdsToSend = allMachines ? [] : selectedMachines;
 
     setBlockLoading(true);
     setMessage({ text: '', type: '' });
 
     try {
-      let totalSuccess = 0;
-      let totalCancelled = 0;
-
-      const createBlock = async (sd: string, ed: string) => {
-        const ids = machineIds.length > 0 ? machineIds : [null];
-        for (const mid of ids) {
-          const body: Record<string, unknown> = {
-            startDate: sd,
-            endDate: ed,
-            reason: reason || null,
-          };
-          if (!isFullDay) {
-            body.startTime = startTime;
-            body.endTime = endTime;
-          }
-          if (mid) body.machineId = mid;
-
-          const res = await fetch('/api/admin/slots/block', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(body),
-          });
-          const data = await res.json();
-          if (res.ok) {
-            totalSuccess++;
-            totalCancelled += data.cancelledBookingsCount || 0;
-          }
-        }
+      // Build a single block request
+      const body: Record<string, unknown> = {
+        startDate,
+        endDate,
+        reason: reason || null,
       };
+      if (!isFullDay) {
+        body.startTime = startTime;
+        body.endTime = endTime;
+      }
+      if (machineIdsToSend.length > 0) {
+        body.machineIds = machineIdsToSend;
+      }
 
-      if (scheduleType === 'dateRange') {
-        await createBlock(startDate, endDate);
-      } else {
-        // Recurring: create individual blocks for each matching day
+      if (scheduleType === 'recurring') {
         const dates = getDatesToBlock();
         if (dates.length === 0) {
           setMessage({ text: 'No matching days found in the selected range', type: 'error' });
           setBlockLoading(false);
           return;
         }
-        for (const d of dates) {
-          await createBlock(d, d);
-        }
+        body.recurringDays = recurringDays;
       }
 
-      const parts = [];
-      if (totalSuccess > 0) parts.push(`${totalSuccess} block(s) created successfully`);
-      if (totalCancelled > 0) parts.push(`${totalCancelled} booking(s) cancelled`);
-      setMessage({ text: parts.join('. ') || 'Blocked successfully', type: 'success' });
+      const res = await fetch('/api/admin/slots/block', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json();
+
+      if (res.ok) {
+        const parts = ['Block created successfully'];
+        if (data.cancelledBookingsCount > 0) parts.push(`${data.cancelledBookingsCount} booking(s) cancelled`);
+        setMessage({ text: parts.join('. '), type: 'success' });
+      } else {
+        setMessage({ text: data.error || 'Failed to block slots', type: 'error' });
+      }
 
       resetForm();
       fetchBlockedSlots();
@@ -654,6 +645,14 @@ export default function SlotManagement() {
                 const et = formatBlockTime(block.endTime);
                 const isFullDay = !block.startTime;
                 const machineLabel = block.machineId ? getMachineIdLabel(block.machineId) : null;
+                const hasMultipleMachines = block.machineIds && block.machineIds.length > 0;
+                const machineLabels = hasMultipleMachines
+                  ? block.machineIds.map(id => getMachineIdLabel(id)).filter(Boolean)
+                  : [];
+                const hasRecurringDays = block.recurringDays && block.recurringDays.length > 0;
+                const recurringDayLabels = hasRecurringDays
+                  ? block.recurringDays.map(d => WEEKDAYS.find(w => w.key === d)?.label).filter(Boolean)
+                  : [];
 
                 return (
                   <div
@@ -680,9 +679,25 @@ export default function SlotManagement() {
                         ) : null}
                       </div>
 
+                      {/* Recurring days */}
+                      {hasRecurringDays && (
+                        <div className="flex flex-wrap items-center gap-1.5 mb-1.5">
+                          <Repeat className="w-3 h-3 text-accent/60" />
+                          <span className="text-[10px] font-medium text-accent/80">
+                            Every {recurringDayLabels.join(', ')}
+                          </span>
+                        </div>
+                      )}
+
                       {/* Tags line */}
                       <div className="flex flex-wrap items-center gap-1.5">
-                        {machineLabel ? (
+                        {hasMultipleMachines ? (
+                          machineLabels.map((label, idx) => (
+                            <span key={idx} className="text-[10px] font-medium px-2 py-0.5 rounded-md bg-blue-500/10 text-blue-400">
+                              {label}
+                            </span>
+                          ))
+                        ) : machineLabel ? (
                           <span className="text-[10px] font-medium px-2 py-0.5 rounded-md bg-blue-500/10 text-blue-400">
                             {machineLabel}
                           </span>

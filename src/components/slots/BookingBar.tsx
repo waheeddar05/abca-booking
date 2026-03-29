@@ -19,6 +19,7 @@ interface BookingBarProps {
   packageValidation: PackageValidationResponse | null;
   bookingLoading: boolean;
   isSuperAdmin?: boolean;
+  kitRentalTotal?: number;
   onBook: () => void;
 }
 
@@ -37,11 +38,13 @@ export function BookingBar({
   packageValidation,
   bookingLoading,
   isSuperAdmin,
+  kitRentalTotal = 0,
   onBook,
 }: BookingBarProps) {
   if (selectedSlots.length === 0) return null;
 
   const savings = originalTotal - totalPrice;
+  const displayTotal = totalPrice + kitRentalTotal;
 
   return (
     <div className="fixed bottom-0 md:bottom-0 left-0 right-0 bg-[#0f1d2f]/95 backdrop-blur-md border-t border-white/[0.08] p-4 z-40 mb-[60px] md:mb-0 safe-bottom">
@@ -86,12 +89,12 @@ export function BookingBar({
                 ) : (
                   <>
                     <span className="text-sm font-bold text-accent">
-                      {totalPrice.toLocaleString()}
+                      {displayTotal.toLocaleString()}
                     </span>
                     {hasSavings && (
                       <>
                         <span className="text-[10px] text-slate-500 line-through ml-1">
-                          ₹{originalTotal.toLocaleString()}
+                          ₹{(originalTotal + kitRentalTotal).toLocaleString()}
                         </span>
                         <span className="text-[10px] text-green-400 ml-1">
                           Save ₹{savings.toLocaleString()}
@@ -101,6 +104,11 @@ export function BookingBar({
                     {recurringDiscount > 0 && (
                       <span className="text-[10px] text-emerald-400 ml-1">
                         (incl. Slot Discount: -₹{recurringDiscount})
+                      </span>
+                    )}
+                    {kitRentalTotal > 0 && (
+                      <span className="text-[10px] text-amber-400 ml-1">
+                        (incl. Kit: +₹{kitRentalTotal})
                       </span>
                     )}
                   </>
