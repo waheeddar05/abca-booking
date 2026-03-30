@@ -107,6 +107,19 @@ export async function POST(req: NextRequest) {
           newBalance: walletResult.newBalance,
         };
 
+        // Create Refund record so the refund button is correctly disabled
+        await prisma.refund.create({
+          data: {
+            bookingId,
+            amount: booking.price,
+            method: 'WALLET',
+            status: 'PROCESSED',
+            reason: `Auto-refund: booking cancelled by ${cancelledByName}`,
+            walletTransactionId: walletResult.transactionId,
+            initiatedById: user.id,
+          },
+        });
+
         // Notify user about wallet credit
         try {
           const notifUser = await prisma.user.findUnique({
@@ -185,6 +198,20 @@ export async function POST(req: NextRequest) {
               newBalance: walletResult.newBalance,
             };
 
+            // Create Refund record so the refund button is correctly disabled
+            await prisma.refund.create({
+              data: {
+                bookingId,
+                paymentId: payment.id,
+                amount: refundAmount,
+                method: 'WALLET',
+                status: 'PROCESSED',
+                reason: `Auto-refund: booking cancelled by ${cancelledByName}`,
+                walletTransactionId: walletResult.transactionId,
+                initiatedById: user.id,
+              },
+            });
+
             // Notify user about wallet credit
             try {
               const notifUser = await prisma.user.findUnique({
@@ -226,6 +253,20 @@ export async function POST(req: NextRequest) {
               amount: refundAmount,
               refundId: refund.id,
             };
+
+            // Create Refund record so the refund button is correctly disabled
+            await prisma.refund.create({
+              data: {
+                bookingId,
+                paymentId: payment.id,
+                amount: refundAmount,
+                method: 'RAZORPAY',
+                status: 'INITIATED',
+                reason: `Auto-refund: booking cancelled by ${cancelledByName}`,
+                razorpayRefundId: refund.id,
+                initiatedById: user.id,
+              },
+            });
           }
         }
       }

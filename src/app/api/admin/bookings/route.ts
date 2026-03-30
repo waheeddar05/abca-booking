@@ -305,6 +305,19 @@ export async function PATCH(req: NextRequest) {
             data: { paymentStatus: 'UNPAID' },
           });
 
+          // Create Refund record so canRefund() knows this booking was already refunded
+          await prisma.refund.create({
+            data: {
+              bookingId,
+              amount: booking.price,
+              method: 'WALLET',
+              status: 'PROCESSED',
+              reason: `Auto-refund: booking cancelled by admin (${adminName})`,
+              walletTransactionId: walletResult.transactionId || undefined,
+              initiatedById: authUser!.id,
+            },
+          });
+
           refundInfo = `Refund: ₹${booking.price} credited to wallet (Balance: ₹${walletResult.newBalance})`;
 
           // Notify wallet credit
@@ -361,6 +374,20 @@ export async function PATCH(req: NextRequest) {
                 },
               });
 
+              // Create Refund record so canRefund() knows this booking was already refunded
+              await prisma.refund.create({
+                data: {
+                  bookingId,
+                  paymentId: payment.id,
+                  amount: refundAmount,
+                  method: 'WALLET',
+                  status: 'PROCESSED',
+                  reason: `Auto-refund: booking cancelled by admin (${adminName})`,
+                  walletTransactionId: walletResult.transactionId || undefined,
+                  initiatedById: authUser!.id,
+                },
+              });
+
               refundInfo = `Refund: ₹${refundAmount} credited to wallet (Balance: ₹${walletResult.newBalance})`;
 
               try {
@@ -395,6 +422,20 @@ export async function PATCH(req: NextRequest) {
                   refundAmount: { increment: refundAmount },
                   refundedAt: new Date(),
                   refundMethod: 'RAZORPAY',
+                },
+              });
+
+              // Create Refund record so canRefund() knows this booking was already refunded
+              await prisma.refund.create({
+                data: {
+                  bookingId,
+                  paymentId: payment.id,
+                  amount: refundAmount,
+                  method: 'RAZORPAY',
+                  status: 'INITIATED',
+                  reason: `Auto-refund: booking cancelled by admin (${adminName})`,
+                  razorpayRefundId: refund.id,
+                  initiatedById: authUser!.id,
                 },
               });
 
