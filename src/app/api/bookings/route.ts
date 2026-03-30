@@ -92,58 +92,38 @@ export async function GET(req: NextRequest) {
     }
     const packageBookingSet = new Set(packageBookings.map((pb: any) => pb.bookingId));
 
-    // Fetch refund info for cancelled bookings
-    const cancelledIds = bookings.filter((b: any) => b.status === 'CANCELLED').map((b: any) => b.id);
-    let refundMap: Record<string, { method: string; amount: number; refundedAt: string | null }> = {};
-    if (cancelledIds.length > 0) {
+    // Fetch refund info for all bookings from the Refund table
+    let refundMap: Record<string, { method: string; totalRefunded: number; refunds: Array<{ method: string; amount: number; status: string; refundedAt: string }> }> = {};
+    if (bookingIds.length > 0) {
       try {
-        const payments = await prisma.payment.findMany({
+        const refunds = await prisma.refund.findMany({
           where: {
-            bookingIds: { hasSome: cancelledIds },
-            status: { in: ['REFUNDED', 'PARTIALLY_REFUNDED'] },
+            bookingId: { in: bookingIds },
+            status: { not: 'FAILED' },
           },
           select: {
-            bookingIds: true,
-            refundAmount: true,
-            refundMethod: true,
-            refundedAt: true,
-          },
-        });
-        for (const p of payments) {
-          for (const bid of p.bookingIds) {
-            if (cancelledIds.includes(bid)) {
-              refundMap[bid] = {
-                method: p.refundMethod || 'RAZORPAY',
-                amount: p.bookingIds.length > 1 ? (p.refundAmount || 0) / p.bookingIds.length : (p.refundAmount || 0),
-                refundedAt: p.refundedAt ? p.refundedAt.toISOString() : null,
-              };
-            }
-          }
-        }
-
-        // Also check wallet transactions for wallet-paid refunds
-        const walletRefunds = await prisma.walletTransaction.findMany({
-          where: {
-            referenceId: { in: cancelledIds },
-            type: 'CREDIT_REFUND',
-          },
-          select: {
-            referenceId: true,
+            bookingId: true,
             amount: true,
+            method: true,
+            status: true,
             createdAt: true,
           },
+          orderBy: { createdAt: 'desc' },
         });
-        for (const wt of walletRefunds) {
-          if (wt.referenceId && !refundMap[wt.referenceId]) {
-            refundMap[wt.referenceId] = {
-              method: 'WALLET',
-              amount: wt.amount,
-              refundedAt: wt.createdAt.toISOString(),
-            };
+        for (const r of refunds) {
+          if (!refundMap[r.bookingId]) {
+            refundMap[r.bookingId] = { method: r.method, totalRefunded: 0, refunds: [] };
           }
+          refundMap[r.bookingId].totalRefunded += r.amount;
+          refundMap[r.bookingId].refunds.push({
+            method: r.method,
+            amount: r.amount,
+            status: r.status,
+            refundedAt: r.createdAt.toISOString(),
+          });
         }
       } catch {
-        // ignore if columns don't exist yet
+        // ignore if table doesn't exist yet
       }
     }
 
@@ -168,7 +148,12 @@ export async function GET(req: NextRequest) {
       cancellationReason: b.cancellationReason ?? null,
       paymentMethod: b.paymentMethod ?? null,
       paymentStatus: b.paymentStatus ?? null,
-      refund: refundMap[b.id] || null,
+      refund: refundMap[b.id] ? {
+        method: refundMap[b.id].method,
+        amount: refundMap[b.id].totalRefunded,
+        refundedAt: refundMap[b.id].refunds[0]?.refundedAt || null,
+        refunds: refundMap[b.id].refunds,
+      } : null,
       createdAt: b.createdAt ? b.createdAt.toISOString() : null,
       isPackageBooking: packageBookingSet.has(b.id),
       operatorName: b.operator?.name || null,

@@ -15,10 +15,18 @@ import {
 import { getDisplayStatus } from '@/lib/booking-utils';
 
 
+interface RefundEntry {
+  method: 'WALLET' | 'RAZORPAY';
+  amount: number;
+  status: string;
+  refundedAt: string;
+}
+
 interface BookingRefund {
   method: 'WALLET' | 'RAZORPAY';
   amount: number;
   refundedAt: string | null;
+  refunds?: RefundEntry[];
 }
 
 interface Booking {
@@ -316,18 +324,53 @@ export default function BookingsPage() {
                     <div className="mt-2 text-[10px] text-red-400/70 italic">Cancelled by {booking.cancelledBy}</div>
                   )}
 
-                  {/* Refund Info */}
-                  {booking.status === 'CANCELLED' && booking.refund && (
+                  {/* Refund Info — shown for any booking with refunds */}
+                  {booking.refund && (
                     <div className="mt-2 pt-2 border-t border-white/[0.04]">
-                      <div className="flex items-center gap-2">
-                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-green-500/10 text-green-400">
-                          <span className="w-1 h-1 rounded-full bg-green-400"></span>
-                          Refund: ₹{booking.refund.amount}
-                        </span>
-                        <span className="text-[10px] text-slate-500">
-                          via {booking.refund.method === 'WALLET' ? 'Wallet' : 'Bank (5-7 days)'}
-                        </span>
-                      </div>
+                      {booking.refund.refunds && booking.refund.refunds.length > 1 ? (
+                        /* Multiple refunds — show each one */
+                        <div className="space-y-1">
+                          {booking.refund.refunds.map((r, i) => (
+                            <div key={i} className="flex items-center gap-2">
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-green-500/10 text-green-400">
+                                <span className="w-1 h-1 rounded-full bg-green-400"></span>
+                                ₹{r.amount}
+                              </span>
+                              <span className="text-[10px] text-slate-500">
+                                via {r.method === 'WALLET' ? 'Wallet' : 'Bank'} • {format(new Date(r.refundedAt), 'MMM d')}
+                              </span>
+                            </div>
+                          ))}
+                          <div className="flex items-center gap-1 mt-1">
+                            <span className="text-[10px] font-semibold text-green-400">
+                              Total refunded: ₹{booking.refund.amount}
+                              {booking.price && booking.refund.amount < booking.price && (
+                                <span className="text-slate-500 font-normal"> of ₹{booking.price}</span>
+                              )}
+                            </span>
+                          </div>
+                        </div>
+                      ) : (
+                        /* Single refund */
+                        <div className="flex items-center gap-2">
+                          <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold ${
+                            booking.price && booking.refund.amount < booking.price
+                              ? 'bg-yellow-500/10 text-yellow-400'
+                              : 'bg-green-500/10 text-green-400'
+                          }`}>
+                            <span className={`w-1 h-1 rounded-full ${
+                              booking.price && booking.refund.amount < booking.price ? 'bg-yellow-400' : 'bg-green-400'
+                            }`}></span>
+                            {booking.price && booking.refund.amount < booking.price ? 'Partial ' : ''}Refund: ₹{booking.refund.amount}
+                            {booking.price && booking.refund.amount < booking.price && (
+                              <span className="opacity-70"> of ₹{booking.price}</span>
+                            )}
+                          </span>
+                          <span className="text-[10px] text-slate-500">
+                            via {booking.refund.method === 'WALLET' ? 'Wallet' : 'Bank (5-7 days)'}
+                          </span>
+                        </div>
+                      )}
                     </div>
                   )}
                   {booking.status === 'CANCELLED' && !booking.refund && booking.price && booking.price > 0 && booking.paymentStatus === 'PAID' && (
