@@ -1,0 +1,33 @@
+prisma/schema.prisma
+  9c2d006674728a6f 136
+src/app/api/admin/packages/assign/route.ts
+  9c2d006674728a6f 1-122
+src/app/admin/packages/page.tsx
+  9c2d006674728a6f 4,79,103-173,352,361,956-1133
+prisma/migrations/20260330000000_add_custom_package_flag/migration.sql
+  9c2d006674728a6f 1-2
+src/app/api/packages/route.ts
+  9c2d006674728a6f 8
+src/app/api/admin/packages/route.ts
+  9c2d006674728a6f 14
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.22",
+  "base_commit_sha": "fd5b6f340d082ded9463260817b7c8af86597a45",
+  "prompts": {
+    "9c2d006674728a6f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "e726e8f1-bc27-4daa-9faa-27e2da25d55b",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Waheed <waheeddar8@gmail.com>",
+      "messages": [],
+      "total_additions": 380,
+      "total_deletions": 5,
+      "accepted_lines": 380,
+      "overriden_lines": 0
+    }
+  }
+}
