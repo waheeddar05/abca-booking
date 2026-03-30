@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Package, Plus, Pencil, ToggleLeft, ToggleRight, Loader2, Users, BarChart3, Download } from 'lucide-react';
+import { Package, Plus, Pencil, ToggleLeft, ToggleRight, Loader2, Users, BarChart3, Download, UserPlus, Search, Check } from 'lucide-react';
 import { NumberInputDialog } from '@/components/ui/NumberInputDialog';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { AdminPageHeader } from '@/components/admin/AdminPageHeader';
@@ -76,7 +76,7 @@ export default function AdminPackages() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState(emptyForm);
   const [message, setMessage] = useState({ text: '', type: '' });
-  const [tab, setTab] = useState<'packages' | 'users' | 'reports'>('packages');
+  const [tab, setTab] = useState<'packages' | 'users' | 'reports' | 'assign'>('packages');
   const [reports, setReports] = useState<any>(null);
   const [userPackages, setUserPackages] = useState<any[]>([]);
   const [reportsLoading, setReportsLoading] = useState(false);
@@ -99,6 +99,77 @@ export default function AdminPackages() {
     toDate: '',
   });
   const [downloadingCsv, setDownloadingCsv] = useState(false);
+
+  // Assign tab state
+  const [assignSearch, setAssignSearch] = useState('');
+  const [assignSearchResults, setAssignSearchResults] = useState<any[]>([]);
+  const [assignSearching, setAssignSearching] = useState(false);
+  const [selectedUser, setSelectedUser] = useState<any>(null);
+  const [assignForm, setAssignForm] = useState({
+    name: '',
+    machineId: 'GRAVITY',
+    machineType: 'LEATHER',
+    ballType: 'LEATHER',
+    wicketType: 'ASTRO',
+    timingType: 'DAY',
+    totalSessions: 4,
+    validityDays: 30,
+  });
+  const [assigning, setAssigning] = useState(false);
+  const [assignMessage, setAssignMessage] = useState({ text: '', type: '' });
+
+  const searchUsers = async (query: string) => {
+    if (!query || query.length < 2) { setAssignSearchResults([]); return; }
+    setAssignSearching(true);
+    try {
+      const res = await fetch(`/api/admin/users?search=${encodeURIComponent(query)}`);
+      if (res.ok) {
+        const data = await res.json();
+        setAssignSearchResults(Array.isArray(data) ? data : data.users || []);
+      }
+    } catch (e) {
+      console.error('User search failed', e);
+    } finally {
+      setAssignSearching(false);
+    }
+  };
+
+  useEffect(() => {
+    const timer = setTimeout(() => searchUsers(assignSearch), 300);
+    return () => clearTimeout(timer);
+  }, [assignSearch]);
+
+  const handleAssign = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedUser) { setAssignMessage({ text: 'Please select a user', type: 'error' }); return; }
+    if (!assignForm.name.trim()) { setAssignMessage({ text: 'Please enter a package name', type: 'error' }); return; }
+    if (!assignForm.totalSessions || assignForm.totalSessions <= 0) { setAssignMessage({ text: 'Sessions must be a positive number', type: 'error' }); return; }
+    if (!assignForm.validityDays || assignForm.validityDays <= 0) { setAssignMessage({ text: 'Validity days must be a positive number', type: 'error' }); return; }
+
+    setAssigning(true);
+    setAssignMessage({ text: '', type: '' });
+    try {
+      const res = await fetch('/api/admin/packages/assign', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId: selectedUser.id, ...assignForm }),
+      });
+      if (res.ok) {
+        setAssignMessage({ text: `Custom package assigned to ${selectedUser.name || selectedUser.mobileNumber || selectedUser.email}`, type: 'success' });
+        setSelectedUser(null);
+        setAssignSearch('');
+        setAssignSearchResults([]);
+        setAssignForm({ name: '', machineId: 'GRAVITY', machineType: 'LEATHER', ballType: 'LEATHER', wicketType: 'ASTRO', timingType: 'DAY', totalSessions: 4, validityDays: 30 });
+      } else {
+        const data = await res.json();
+        setAssignMessage({ text: data.error || 'Failed to assign package', type: 'error' });
+      }
+    } catch {
+      setAssignMessage({ text: 'Internal server error', type: 'error' });
+    } finally {
+      setAssigning(false);
+    }
+  };
 
   const handleDownloadCsv = async () => {
     setDownloadingCsv(true);
@@ -278,7 +349,7 @@ export default function AdminPackages() {
     <div>
       <AdminPageHeader icon={Package} title="Packages" description="Manage subscription packages">
         <div className="flex gap-1 sm:gap-2">
-          {(['packages', 'users', 'reports'] as const).map(t => (
+          {(['packages', 'users', 'assign', 'reports'] as const).map(t => (
             <button
               key={t}
               onClick={() => setTab(t)}
@@ -287,6 +358,7 @@ export default function AdminPackages() {
             >
               {t === 'packages' && <Package className="w-3.5 h-3.5 inline mr-1" />}
               {t === 'users' && <Users className="w-3.5 h-3.5 inline mr-1" />}
+              {t === 'assign' && <UserPlus className="w-3.5 h-3.5 inline mr-1" />}
               {t === 'reports' && <BarChart3 className="w-3.5 h-3.5 inline mr-1" />}
               {t.charAt(0).toUpperCase() + t.slice(1)}
             </button>
@@ -879,6 +951,184 @@ export default function AdminPackages() {
             ))}
           </div>
         )
+      )}
+
+      {/* ASSIGN TAB */}
+      {tab === 'assign' && (
+        <div className="space-y-4">
+          {assignMessage.text && (
+            <p className={`text-sm ${assignMessage.type === 'success' ? 'text-green-400' : 'text-red-400'}`}>
+              {assignMessage.text}
+            </p>
+          )}
+
+          {/* User Search */}
+          <div className="bg-white/[0.03] backdrop-blur-sm rounded-2xl border border-white/[0.07] p-4">
+            <h3 className="text-sm font-bold text-white mb-3 flex items-center gap-2">
+              <Search className="w-4 h-4 text-accent" />
+              Select User
+            </h3>
+            {selectedUser ? (
+              <div className="flex items-center justify-between bg-accent/10 border border-accent/30 rounded-xl px-4 py-3">
+                <div>
+                  <span className="text-sm font-semibold text-white">{selectedUser.name || 'No name'}</span>
+                  <span className="text-xs text-slate-400 ml-2">{selectedUser.mobileNumber || selectedUser.email}</span>
+                </div>
+                <button
+                  onClick={() => { setSelectedUser(null); setAssignSearch(''); setAssignSearchResults([]); }}
+                  className="text-xs text-red-400 hover:text-red-300 cursor-pointer"
+                >
+                  Change
+                </button>
+              </div>
+            ) : (
+              <div>
+                <div className="relative">
+                  <input
+                    type="text"
+                    value={assignSearch}
+                    onChange={e => setAssignSearch(e.target.value)}
+                    placeholder="Search by name, mobile, or email..."
+                    className="w-full bg-white/[0.04] border border-white/[0.1] text-white text-sm rounded-xl px-4 py-3 outline-none focus:border-accent placeholder:text-slate-500"
+                  />
+                  {assignSearching && <Loader2 className="w-4 h-4 animate-spin text-slate-400 absolute right-3 top-3.5" />}
+                </div>
+                {assignSearchResults.length > 0 && (
+                  <div className="mt-2 max-h-48 overflow-y-auto space-y-1">
+                    {assignSearchResults.map((u: any) => (
+                      <button
+                        key={u.id}
+                        onClick={() => { setSelectedUser(u); setAssignSearchResults([]); setAssignSearch(''); }}
+                        className="w-full text-left px-3 py-2 rounded-lg hover:bg-white/[0.06] transition-colors cursor-pointer"
+                      >
+                        <span className="text-sm text-white">{u.name || 'No name'}</span>
+                        <span className="text-xs text-slate-400 ml-2">{u.mobileNumber || u.email}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* Package Config Form */}
+          <form onSubmit={handleAssign} className="bg-white/[0.03] backdrop-blur-sm rounded-2xl border border-white/[0.07] p-4 space-y-4">
+            <h3 className="text-sm font-bold text-white mb-1 flex items-center gap-2">
+              <Package className="w-4 h-4 text-accent" />
+              Package Details
+            </h3>
+
+            <div>
+              <label className="block text-[10px] font-medium text-slate-400 mb-1">Package Name</label>
+              <input
+                type="text"
+                value={assignForm.name}
+                onChange={e => setAssignForm(prev => ({ ...prev, name: e.target.value }))}
+                placeholder="e.g. Custom 10 Sessions for John"
+                className="w-full bg-white/[0.04] border border-white/[0.1] text-white text-sm rounded-xl px-4 py-3 outline-none focus:border-accent placeholder:text-slate-500"
+                required
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-[10px] font-medium text-slate-400 mb-1">Machine</label>
+                <select
+                  value={assignForm.machineId}
+                  onChange={e => {
+                    const m = MACHINE_OPTIONS.find(o => o.id === e.target.value);
+                    setAssignForm(prev => ({
+                      ...prev,
+                      machineId: e.target.value,
+                      machineType: m?.type || prev.machineType,
+                      ballType: m?.type === 'TENNIS' ? 'MACHINE' : prev.ballType,
+                    }));
+                  }}
+                  className="w-full bg-white/[0.04] border border-white/[0.1] text-white text-sm rounded-xl px-3 py-3 outline-none focus:border-accent"
+                >
+                  {MACHINE_OPTIONS.map(m => (
+                    <option key={m.id} value={m.id}>{m.label}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-[10px] font-medium text-slate-400 mb-1">Ball Type</label>
+                <select
+                  value={assignForm.ballType}
+                  onChange={e => setAssignForm(prev => ({ ...prev, ballType: e.target.value }))}
+                  className="w-full bg-white/[0.04] border border-white/[0.1] text-white text-sm rounded-xl px-3 py-3 outline-none focus:border-accent"
+                  disabled={assignForm.machineType === 'TENNIS'}
+                >
+                  {BALL_TYPES.map(b => (
+                    <option key={b} value={b}>{b === 'MACHINE' ? 'Machine Ball' : 'Leather'}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-[10px] font-medium text-slate-400 mb-1">Pitch Type</label>
+                <select
+                  value={assignForm.wicketType}
+                  onChange={e => setAssignForm(prev => ({ ...prev, wicketType: e.target.value }))}
+                  className="w-full bg-white/[0.04] border border-white/[0.1] text-white text-sm rounded-xl px-3 py-3 outline-none focus:border-accent"
+                >
+                  {WICKET_TYPES.map(w => (
+                    <option key={w} value={w}>{w === 'ASTRO' ? 'Astro Turf' : w === 'CEMENT' ? 'Cement' : 'Natural Turf'}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-[10px] font-medium text-slate-400 mb-1">Timing</label>
+                <select
+                  value={assignForm.timingType}
+                  onChange={e => setAssignForm(prev => ({ ...prev, timingType: e.target.value }))}
+                  className="w-full bg-white/[0.04] border border-white/[0.1] text-white text-sm rounded-xl px-3 py-3 outline-none focus:border-accent"
+                >
+                  {TIMING_TYPES.map(t => (
+                    <option key={t} value={t}>{t === 'DAY' ? 'Day' : 'Evening'}</option>
+                  ))}
+                  <option value="BOTH">Both</option>
+                </select>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-[10px] font-medium text-slate-400 mb-1">Total Sessions</label>
+                <input
+                  type="number"
+                  min={1}
+                  value={assignForm.totalSessions}
+                  onChange={e => setAssignForm(prev => ({ ...prev, totalSessions: parseInt(e.target.value) || 0 }))}
+                  className="w-full bg-white/[0.04] border border-white/[0.1] text-white text-sm rounded-xl px-4 py-3 outline-none focus:border-accent"
+                  required
+                />
+              </div>
+              <div>
+                <label className="block text-[10px] font-medium text-slate-400 mb-1">Validity (Days)</label>
+                <input
+                  type="number"
+                  min={1}
+                  value={assignForm.validityDays}
+                  onChange={e => setAssignForm(prev => ({ ...prev, validityDays: parseInt(e.target.value) || 0 }))}
+                  className="w-full bg-white/[0.04] border border-white/[0.1] text-white text-sm rounded-xl px-4 py-3 outline-none focus:border-accent"
+                  required
+                />
+              </div>
+            </div>
+
+            <button
+              type="submit"
+              disabled={assigning || !selectedUser}
+              className="w-full bg-accent hover:bg-accent-light text-primary font-semibold py-3 rounded-xl text-sm transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+            >
+              {assigning ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
+              {assigning ? 'Assigning...' : 'Assign Custom Package'}
+            </button>
+          </form>
+        </div>
       )}
 
       {/* REPORTS TAB */}

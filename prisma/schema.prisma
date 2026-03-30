@@ -133,6 +133,7 @@ model Package {
   price            Float
   extraChargeRules Json?
   isActive         Boolean            @default(true)
+  isCustom         Boolean            @default(false)
   createdAt        DateTime           @default(now())
   updatedAt        DateTime           @updatedAt
   userPackages     UserPackage[]

@@ -11,7 +11,7 @@ export async function GET(req: NextRequest) {
     const { searchParams } = new URL(req.url);
     const activeOnly = searchParams.get('activeOnly') === 'true';
 
-    const where: any = {};
+    const where: any = { isCustom: false };
     if (activeOnly) where.isActive = true;
 
     const packages = await prisma.package.findMany({
