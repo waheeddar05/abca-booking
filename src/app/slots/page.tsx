@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useMemo, Suspense, useCallback, useRef } from 'react';
 import { useSession } from 'next-auth/react';
-import { useSearchParams } from 'next/navigation';
+import { useSearchParams, useRouter } from 'next/navigation';
 import { format } from 'date-fns';
 import { Calendar, Loader2, AlertTriangle, UserCircle } from 'lucide-react';
 import { PageBackground } from '@/components/ui/PageBackground';
@@ -51,6 +51,7 @@ function SlotsContent() {
 
   const { data: session } = useSession();
   const toast = useToast();
+  const router = useRouter();
   const searchParams = useSearchParams();
   const userId = searchParams.get('userId');
   const userName = searchParams.get('userName');
@@ -397,8 +398,7 @@ function SlotsContent() {
         toast.success('Payment successful! Booking confirmed.');
         setSelectedSlots([]);
         pkg.reset();
-        fetchSlots(selectedDate, selectedMachineId, ballType, pitchType);
-        pkg.fetchPackages(isBookingForOther, userId);
+        router.push('/bookings');
       } catch (err) {
         toast.error(err instanceof Error ? err.message : 'Booking failed after payment. Please contact admin.');
       } finally {
@@ -423,8 +423,7 @@ function SlotsContent() {
       );
       setSelectedSlots([]);
       pkg.reset();
-      fetchSlots(selectedDate, selectedMachineId, ballType, pitchType);
-      pkg.fetchPackages(isBookingForOther, userId);
+      router.push('/bookings');
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Booking failed. Please try again.');
     } finally {
