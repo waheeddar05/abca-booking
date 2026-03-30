@@ -69,12 +69,15 @@ function SlotsContent() {
     },
   }, paymentConfig?.paymentEnabled ?? false);
 
-  const KIT_RENTAL_CHARGE = 200;
-  const KIT_RENTAL_MACHINES: MachineId[] = ['GRAVITY', 'YANTRA'];
+  // Kit rental config from payment config API
+  const kitRentalCfg = paymentConfig?.kitRentalConfig;
+  const KIT_RENTAL_CHARGE = kitRentalCfg?.price ?? 200;
+  const isKitRentalEnabled = kitRentalCfg?.enabled ?? false;
+  const kitRentalMachines = (kitRentalCfg?.machines ?? ['GRAVITY', 'YANTRA']) as MachineId[];
 
   // ─── Derived State ─────────────────────────────────────
   const selectedCard = getMachineCard(selectedMachineId);
-  const isKitRentalAvailable = KIT_RENTAL_MACHINES.includes(selectedMachineId);
+  const isKitRentalAvailable = isKitRentalEnabled && kitRentalMachines.includes(selectedMachineId);
   const isLeatherMachine = selectedCard.category === 'LEATHER';
   const selectedMachineInfo = machineConfig?.machines?.find(m => m.id === selectedMachineId);
   const enabledPitchTypes = selectedMachineInfo?.enabledPitchTypes || [];
@@ -544,7 +547,7 @@ function SlotsContent() {
 
       <hr className="border-white/[0.06] my-4" />
 
-      {/* Kit Rental Option - Only for Gravity and Yantra */}
+      {/* Kit Rental Option - Configurable from admin */}
       {isKitRentalAvailable && selectedSlots.length > 0 && (
         <div className="mb-4">
           <label className="flex items-start gap-3 p-3.5 bg-white/[0.04] border border-white/[0.08] rounded-xl cursor-pointer hover:bg-white/[0.06] transition-colors">
@@ -555,13 +558,15 @@ function SlotsContent() {
               className="mt-0.5 w-4 h-4 accent-accent rounded"
             />
             <div className="flex-1 min-w-0">
-              <p className="text-sm font-semibold text-white">Cricket Kit &amp; Bat Rental</p>
+              <p className="text-sm font-semibold text-white">{kitRentalCfg?.title || 'Cricket Kit & Bat Rental'}</p>
               <p className="text-[11px] text-slate-400 mt-0.5">
-                Rent cricket kit and bat for your session at <span className="text-accent font-semibold">&#8377;{KIT_RENTAL_CHARGE}/session</span>
+                {kitRentalCfg?.description || 'Rent cricket kit and bat for your session'} at <span className="text-accent font-semibold">&#8377;{KIT_RENTAL_CHARGE}/session</span>
               </p>
-              <p className="text-[10px] text-amber-400/80 mt-1">
-                Note: Any damages to the bat will be chargeable
-              </p>
+              {kitRentalCfg?.note && (
+                <p className="text-[10px] text-amber-400/80 mt-1">
+                  Note: {kitRentalCfg.note}
+                </p>
+              )}
               {kitRental && selectedSlots.length > 0 && (
                 <p className="text-[11px] text-accent font-medium mt-1">
                   +&#8377;{kitRentalTotal} ({selectedSlots.length} session{selectedSlots.length > 1 ? 's' : ''})

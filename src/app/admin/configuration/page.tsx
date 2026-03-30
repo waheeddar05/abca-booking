@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useSession } from 'next-auth/react';
-import { Settings, IndianRupee, Save, Loader2, Zap, Check, ChevronUp, ChevronDown, CreditCard, Banknote, Wallet, Plus, Trash2, Edit2, Tag } from 'lucide-react';
+import { Settings, IndianRupee, Save, Loader2, Zap, Check, ChevronUp, ChevronDown, CreditCard, Banknote, Wallet, Plus, Trash2, Edit2, Tag, ShoppingBag } from 'lucide-react';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { AdminPageHeader } from '@/components/admin/AdminPageHeader';
 import { AdminCard } from '@/components/admin/AdminCard';
@@ -280,6 +280,18 @@ export default function ConfigurationPage() {
   const [savingPayment, setSavingPayment] = useState(false);
   const [paymentMessage, setPaymentMessage] = useState({ text: '', type: '' });
 
+  // Kit Rental Config state
+  const [kitRentalConfig, setKitRentalConfig] = useState({
+    enabled: false,
+    price: 200,
+    title: 'Cricket Kit & Bat Rental',
+    description: 'Rent cricket kit and bat for your session',
+    note: 'Any damages to the bat will be chargeable',
+    machines: ['GRAVITY', 'YANTRA'] as string[],
+  });
+  const [savingKitRental, setSavingKitRental] = useState(false);
+  const [kitRentalMessage, setKitRentalMessage] = useState({ text: '', type: '' });
+
   useEffect(() => {
     async function fetchMachineConfig() {
       try {
@@ -334,6 +346,13 @@ export default function ConfigurationPage() {
             CASH_PAYMENT_ENABLED: policies['CASH_PAYMENT_ENABLED'] === 'true',
             WALLET_ENABLED: policies['WALLET_ENABLED'] === 'true',
           });
+          // Load kit rental config
+          if (policies['KIT_RENTAL_CONFIG']) {
+            try {
+              const parsed = JSON.parse(policies['KIT_RENTAL_CONFIG']);
+              setKitRentalConfig(prev => ({ ...prev, ...parsed }));
+            } catch { /* use defaults */ }
+          }
         }
       } catch (error) {
         console.error('Failed to fetch payment settings:', error);
@@ -406,6 +425,27 @@ export default function ConfigurationPage() {
       setPaymentMessage({ text: 'Failed to save', type: 'error' });
     } finally {
       setSavingPayment(false);
+    }
+  };
+
+  const handleSaveKitRental = async (updatedConfig?: typeof kitRentalConfig) => {
+    const configToSave = updatedConfig || kitRentalConfig;
+    setSavingKitRental(true);
+    setKitRentalMessage({ text: '', type: '' });
+    try {
+      const res = await fetch('/api/admin/policies', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ key: 'KIT_RENTAL_CONFIG', value: JSON.stringify(configToSave) }),
+      });
+      if (!res.ok) throw new Error('Failed to save');
+      setKitRentalConfig(configToSave);
+      setKitRentalMessage({ text: 'Saved', type: 'success' });
+      setTimeout(() => setKitRentalMessage({ text: '', type: '' }), 2000);
+    } catch {
+      setKitRentalMessage({ text: 'Failed to save', type: 'error' });
+    } finally {
+      setSavingKitRental(false);
     }
   };
 
@@ -815,6 +855,140 @@ export default function ConfigurationPage() {
             ))}
           </div>
         )}
+      </AdminCard>
+
+      {/* ─── Kit Rental Settings ─────────────────── */}
+      <AdminCard
+        title="Kit Rental Settings"
+        icon={<ShoppingBag className="w-4 h-4 text-accent" />}
+        collapsible
+        defaultOpen={false}
+        headerRight={
+          kitRentalMessage.text ? (
+            <span className={`text-xs font-medium ${kitRentalMessage.type === 'success' ? 'text-green-400' : 'text-red-400'}`}>
+              {kitRentalMessage.text}
+            </span>
+          ) : undefined
+        }
+      >
+        <div className="space-y-4">
+          {/* Enable/Disable Toggle */}
+          <AdminToggle
+            enabled={kitRentalConfig.enabled}
+            onToggle={() => {
+              const updated = { ...kitRentalConfig, enabled: !kitRentalConfig.enabled };
+              setKitRentalConfig(updated);
+              handleSaveKitRental(updated);
+            }}
+            label="Enable Kit Rental"
+            description="Show kit rental option on booking page for selected machines"
+            icon={ShoppingBag}
+            disabled={savingKitRental}
+          />
+
+          {kitRentalConfig.enabled && (
+            <div className="space-y-3 pt-2">
+              {/* Price */}
+              <div>
+                <label className="block text-[10px] font-medium text-slate-400 mb-1 uppercase tracking-wider">Rental Price (per session)</label>
+                <div className="relative max-w-xs">
+                  <IndianRupee className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3 h-3 text-slate-500" />
+                  <input
+                    type="number"
+                    min="0"
+                    value={kitRentalConfig.price}
+                    onChange={e => setKitRentalConfig(prev => ({ ...prev, price: Math.max(0, Number(e.target.value)) }))}
+                    className={inputClass + ' pl-7 max-w-xs'}
+                  />
+                </div>
+              </div>
+
+              {/* Title */}
+              <div>
+                <label className="block text-[10px] font-medium text-slate-400 mb-1 uppercase tracking-wider">Title</label>
+                <input
+                  type="text"
+                  value={kitRentalConfig.title}
+                  onChange={e => setKitRentalConfig(prev => ({ ...prev, title: e.target.value }))}
+                  placeholder="e.g., Cricket Kit & Bat Rental"
+                  className={inputClass}
+                />
+              </div>
+
+              {/* Description */}
+              <div>
+                <label className="block text-[10px] font-medium text-slate-400 mb-1 uppercase tracking-wider">Description</label>
+                <input
+                  type="text"
+                  value={kitRentalConfig.description}
+                  onChange={e => setKitRentalConfig(prev => ({ ...prev, description: e.target.value }))}
+                  placeholder="e.g., Rent cricket kit and bat for your session"
+                  className={inputClass}
+                />
+              </div>
+
+              {/* Note/Warning */}
+              <div>
+                <label className="block text-[10px] font-medium text-slate-400 mb-1 uppercase tracking-wider">Note / Warning</label>
+                <input
+                  type="text"
+                  value={kitRentalConfig.note}
+                  onChange={e => setKitRentalConfig(prev => ({ ...prev, note: e.target.value }))}
+                  placeholder="e.g., Any damages to the bat will be chargeable"
+                  className={inputClass}
+                />
+              </div>
+
+              {/* Applicable Machines */}
+              <div>
+                <label className="block text-[10px] font-medium text-slate-400 mb-2 uppercase tracking-wider">Applicable Machines</label>
+                <div className="grid grid-cols-2 gap-2">
+                  {ALL_MACHINE_IDS.map(mid => {
+                    const isSelected = kitRentalConfig.machines.includes(mid);
+                    return (
+                      <button
+                        key={mid}
+                        type="button"
+                        onClick={() => {
+                          setKitRentalConfig(prev => ({
+                            ...prev,
+                            machines: isSelected
+                              ? prev.machines.filter(m => m !== mid)
+                              : [...prev.machines, mid],
+                          }));
+                        }}
+                        className={`flex items-center gap-2 p-2.5 rounded-xl text-left transition-all cursor-pointer ${
+                          isSelected
+                            ? 'bg-accent/10 ring-1 ring-accent/30'
+                            : 'bg-white/[0.03] border border-white/[0.06] hover:border-white/[0.12]'
+                        }`}
+                      >
+                        <span className={`w-4 h-4 rounded border flex items-center justify-center flex-shrink-0 ${
+                          isSelected ? 'bg-accent border-accent' : 'border-slate-600'
+                        }`}>
+                          {isSelected && <Check className="w-2.5 h-2.5 text-primary" />}
+                        </span>
+                        <span className={`text-xs font-medium ${isSelected ? 'text-accent' : 'text-slate-400'}`}>
+                          {MACHINE_LABELS[mid].name}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Save Button */}
+              <button
+                onClick={() => handleSaveKitRental()}
+                disabled={savingKitRental}
+                className="inline-flex items-center gap-2 bg-accent/15 hover:bg-accent/25 text-accent border border-accent/25 px-5 py-2.5 rounded-xl text-sm font-semibold transition-all cursor-pointer disabled:opacity-40"
+              >
+                {savingKitRental ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                {savingKitRental ? 'Saving...' : 'Save Kit Rental Settings'}
+              </button>
+            </div>
+          )}
+        </div>
       </AdminCard>
 
       {/* ─── Machine Configuration ────────────────── */}

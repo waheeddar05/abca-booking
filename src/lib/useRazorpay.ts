@@ -2,6 +2,15 @@
 
 import { useState, useEffect, useCallback } from 'react';
 
+interface KitRentalConfig {
+  enabled: boolean;
+  price: number;
+  title: string;
+  description: string;
+  note: string;
+  machines: string[];
+}
+
 interface PaymentConfig {
   paymentEnabled: boolean;
   slotPaymentRequired: boolean;
@@ -9,6 +18,7 @@ interface PaymentConfig {
   razorpayKeyId: string;
   cashPaymentEnabled: boolean;
   walletEnabled: boolean;
+  kitRentalConfig?: KitRentalConfig;
 }
 
 interface RazorpayOrderResponse {

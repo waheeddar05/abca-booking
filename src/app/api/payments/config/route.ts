@@ -12,6 +12,7 @@ const PAYMENT_POLICY_KEYS = [
   'PACKAGE_PAYMENT_REQUIRED',
   'CASH_PAYMENT_ENABLED',
   'WALLET_ENABLED',
+  'KIT_RENTAL_CONFIG',
 ];
 
 // GET /api/payments/config - Payment config (includes cash payment eligibility)
@@ -40,6 +41,22 @@ export async function GET(req: NextRequest) {
 
     const paymentEnabled = config['PAYMENT_GATEWAY_ENABLED'] === 'true';
 
+    // Parse kit rental config
+    const DEFAULT_KIT_RENTAL = {
+      enabled: false,
+      price: 200,
+      title: 'Cricket Kit & Bat Rental',
+      description: 'Rent cricket kit and bat for your session',
+      note: 'Any damages to the bat will be chargeable',
+      machines: ['GRAVITY', 'YANTRA'],
+    };
+    let kitRentalConfig = DEFAULT_KIT_RENTAL;
+    try {
+      if (config['KIT_RENTAL_CONFIG']) {
+        kitRentalConfig = { ...DEFAULT_KIT_RENTAL, ...JSON.parse(config['KIT_RENTAL_CONFIG']) };
+      }
+    } catch { /* use defaults */ }
+
     return NextResponse.json({
       paymentEnabled,
       slotPaymentRequired: config['SLOT_PAYMENT_REQUIRED'] === 'true',
@@ -47,6 +64,7 @@ export async function GET(req: NextRequest) {
       razorpayKeyId: paymentEnabled ? RAZORPAY_PUBLIC_KEY : '',
       cashPaymentEnabled: globalCashEnabled || userHasCashAccess,
       walletEnabled: config['WALLET_ENABLED'] === 'true',
+      kitRentalConfig,
     });
   } catch (error) {
     console.error('Payment config error:', error);

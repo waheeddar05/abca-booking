@@ -124,9 +124,21 @@ export async function POST(req: NextRequest) {
     const isCashPayment = requestedPaymentMethod === 'CASH';
     const isWalletPayment = requestedPaymentMethod === 'WALLET';
 
-    // Kit rental
-    const kitRental = !!slotsToBook[0]?.kitRental;
-    const kitRentalCharge = kitRental ? (parseFloat(slotsToBook[0]?.kitRentalCharge) || 200) : 0;
+    // Kit rental - read config from policy (server-side truth)
+    const kitRentalRequested = !!slotsToBook[0]?.kitRental;
+    let kitRental = false;
+    let kitRentalCharge = 0;
+    if (kitRentalRequested) {
+      const kitRentalPolicy = await prisma.policy.findUnique({ where: { key: 'KIT_RENTAL_CONFIG' } });
+      const kitConfig = kitRentalPolicy ? (() => { try { return JSON.parse(kitRentalPolicy.value); } catch { return null; } })() : null;
+      const isKitEnabled = kitConfig?.enabled ?? false;
+      const kitMachines: string[] = kitConfig?.machines ?? ['GRAVITY', 'YANTRA'];
+      const firstMachineIdRaw = slotsToBook[0]?.machineId as string | undefined;
+      if (isKitEnabled && firstMachineIdRaw && kitMachines.includes(firstMachineIdRaw)) {
+        kitRental = true;
+        kitRentalCharge = kitConfig?.price ?? 200;
+      }
+    }
 
     // Server-side: reject cash payment if disabled globally and user has no cash access
     if (isCashPayment) {
