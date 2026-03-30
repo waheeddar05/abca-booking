@@ -84,56 +84,72 @@ export async function POST(req: NextRequest) {
     } | null = null;
 
     try {
-      // Case 1: Wallet-paid booking — refund directly to wallet
+      // Check how much has already been refunded for this booking
+      const existingRefunds = await prisma.refund.findMany({
+        where: { bookingId, status: { not: 'FAILED' } },
+      });
+      const alreadyRefunded = existingRefunds.reduce((sum, r) => sum + r.amount, 0);
+
+      // Case 1: Wallet-paid booking — refund remaining to wallet
       if (booking.paymentMethod === 'WALLET' && booking.paymentStatus === 'PAID' && booking.userId && booking.price && booking.price > 0) {
-        const walletResult = await creditWallet(
-          booking.userId,
-          booking.price,
-          'CREDIT_REFUND',
-          `Refund for cancelled booking`,
-          bookingId,
-        );
+        const remainingRefund = booking.price - alreadyRefunded;
 
-        // Update booking payment status
-        await prisma.booking.update({
-          where: { id: bookingId },
-          data: { paymentStatus: 'UNPAID' },
-        });
-
-        refundResult = {
-          method: 'WALLET',
-          amount: booking.price,
-          walletTransactionId: walletResult.transactionId,
-          newBalance: walletResult.newBalance,
-        };
-
-        // Create Refund record so the refund button is correctly disabled
-        await prisma.refund.create({
-          data: {
+        if (remainingRefund > 0) {
+          const walletResult = await creditWallet(
+            booking.userId,
+            remainingRefund,
+            'CREDIT_REFUND',
+            `Refund for cancelled booking`,
             bookingId,
-            amount: booking.price,
-            method: 'WALLET',
-            status: 'PROCESSED',
-            reason: `Auto-refund: booking cancelled by ${cancelledByName}`,
-            walletTransactionId: walletResult.transactionId,
-            initiatedById: user.id,
-          },
-        });
+          );
 
-        // Notify user about wallet credit
-        try {
-          const notifUser = await prisma.user.findUnique({
-            where: { id: booking.userId },
-            select: { mobileNumber: true, mobileVerified: true },
+          // Update booking payment status
+          await prisma.booking.update({
+            where: { id: bookingId },
+            data: { paymentStatus: 'UNPAID' },
           });
-          await notifyWalletCredit(booking.userId, {
-            amount: booking.price,
-            reason: 'Booking cancellation refund',
+
+          refundResult = {
+            method: 'WALLET',
+            amount: remainingRefund,
+            walletTransactionId: walletResult.transactionId,
             newBalance: walletResult.newBalance,
-            mobileNumber: notifUser?.mobileVerified ? notifUser.mobileNumber : null,
+          };
+
+          // Create Refund record so the refund button is correctly disabled
+          await prisma.refund.create({
+            data: {
+              bookingId,
+              amount: remainingRefund,
+              method: 'WALLET',
+              status: 'PROCESSED',
+              reason: `Auto-refund: booking cancelled by ${cancelledByName}`,
+              walletTransactionId: walletResult.transactionId,
+              initiatedById: user.id,
+            },
           });
-        } catch (notifErr) {
-          console.error('Wallet credit notification failed:', notifErr);
+
+          // Notify user about wallet credit
+          try {
+            const notifUser = await prisma.user.findUnique({
+              where: { id: booking.userId },
+              select: { mobileNumber: true, mobileVerified: true },
+            });
+            await notifyWalletCredit(booking.userId, {
+              amount: remainingRefund,
+              reason: 'Booking cancellation refund',
+              newBalance: walletResult.newBalance,
+              mobileNumber: notifUser?.mobileVerified ? notifUser.mobileNumber : null,
+            });
+          } catch (notifErr) {
+            console.error('Wallet credit notification failed:', notifErr);
+          }
+        } else {
+          // Already fully refunded — just update payment status
+          await prisma.booking.update({
+            where: { id: bookingId },
+            data: { paymentStatus: 'UNPAID' },
+          });
         }
       } else {
         // Case 2: Online payment — check Payment table for Razorpay refund
@@ -146,127 +162,132 @@ export async function POST(req: NextRequest) {
 
         if (payment?.razorpayPaymentId) {
           // Calculate refund amount (proportional if multiple bookings in same payment)
-          const refundAmount = payment.bookingIds.length > 1
+          const fullRefundAmount = payment.bookingIds.length > 1
             ? payment.amount / payment.bookingIds.length
             : payment.amount;
+          const remainingRefund = fullRefundAmount - alreadyRefunded;
 
-          // Determine refund method:
-          // 1. Explicit request from user/admin
-          // 2. Admin-configured default
-          // 3. Fallback: WALLET if enabled, otherwise RAZORPAY
-          const walletEnabled = await isWalletEnabled();
-          let resolvedMethod: 'WALLET' | 'RAZORPAY';
+          if (remainingRefund > 0) {
+            // Determine refund method:
+            // 1. Explicit request from user/admin
+            // 2. Admin-configured default
+            // 3. Fallback: WALLET if enabled, otherwise RAZORPAY
+            const walletEnabled = await isWalletEnabled();
+            let resolvedMethod: 'WALLET' | 'RAZORPAY';
 
-          if (requestedRefundMethod === 'RAZORPAY' || requestedRefundMethod === 'WALLET') {
-            resolvedMethod = requestedRefundMethod;
-            // If wallet not enabled but requested, fall back to Razorpay
-            if (resolvedMethod === 'WALLET' && !walletEnabled) {
-              resolvedMethod = 'RAZORPAY';
+            if (requestedRefundMethod === 'RAZORPAY' || requestedRefundMethod === 'WALLET') {
+              resolvedMethod = requestedRefundMethod;
+              // If wallet not enabled but requested, fall back to Razorpay
+              if (resolvedMethod === 'WALLET' && !walletEnabled) {
+                resolvedMethod = 'RAZORPAY';
+              }
+            } else {
+              resolvedMethod = walletEnabled
+                ? await getDefaultRefundMethod()
+                : 'RAZORPAY';
             }
-          } else {
-            resolvedMethod = walletEnabled
-              ? await getDefaultRefundMethod()
-              : 'RAZORPAY';
-          }
 
-          if (resolvedMethod === 'WALLET' && booking.userId) {
-            // Credit to wallet
-            const walletResult = await creditWallet(
-              booking.userId,
-              refundAmount,
-              'CREDIT_REFUND',
-              `Refund for cancelled booking`,
-              bookingId,
-            );
-
-            // Update payment record
-            const isFullRefund = payment.bookingIds.length === 1;
-            await prisma.payment.update({
-              where: { id: payment.id },
-              data: {
-                status: isFullRefund ? 'REFUNDED' : 'PARTIALLY_REFUNDED',
-                refundAmount: { increment: refundAmount },
-                refundedAt: new Date(),
-                refundMethod: 'WALLET',
-              },
-            });
-
-            refundResult = {
-              method: 'WALLET',
-              amount: refundAmount,
-              walletTransactionId: walletResult.transactionId,
-              newBalance: walletResult.newBalance,
-            };
-
-            // Create Refund record so the refund button is correctly disabled
-            await prisma.refund.create({
-              data: {
+            if (resolvedMethod === 'WALLET' && booking.userId) {
+              // Credit to wallet
+              const walletResult = await creditWallet(
+                booking.userId,
+                remainingRefund,
+                'CREDIT_REFUND',
+                `Refund for cancelled booking`,
                 bookingId,
-                paymentId: payment.id,
-                amount: refundAmount,
+              );
+
+              // Update payment record
+              const totalRefundedOnPayment = (payment.refundAmount || 0) + remainingRefund;
+              const isFullPaymentRefund = totalRefundedOnPayment >= payment.amount;
+              await prisma.payment.update({
+                where: { id: payment.id },
+                data: {
+                  status: isFullPaymentRefund ? 'REFUNDED' : 'PARTIALLY_REFUNDED',
+                  refundAmount: { increment: remainingRefund },
+                  refundedAt: new Date(),
+                  refundMethod: 'WALLET',
+                },
+              });
+
+              refundResult = {
                 method: 'WALLET',
-                status: 'PROCESSED',
-                reason: `Auto-refund: booking cancelled by ${cancelledByName}`,
+                amount: remainingRefund,
                 walletTransactionId: walletResult.transactionId,
-                initiatedById: user.id,
-              },
-            });
-
-            // Notify user about wallet credit
-            try {
-              const notifUser = await prisma.user.findUnique({
-                where: { id: booking.userId },
-                select: { mobileNumber: true, mobileVerified: true },
-              });
-              await notifyWalletCredit(booking.userId, {
-                amount: refundAmount,
-                reason: 'Booking cancellation refund',
                 newBalance: walletResult.newBalance,
-                mobileNumber: notifUser?.mobileVerified ? notifUser.mobileNumber : null,
+              };
+
+              // Create Refund record so the refund button is correctly disabled
+              await prisma.refund.create({
+                data: {
+                  bookingId,
+                  paymentId: payment.id,
+                  amount: remainingRefund,
+                  method: 'WALLET',
+                  status: 'PROCESSED',
+                  reason: `Auto-refund: booking cancelled by ${cancelledByName}`,
+                  walletTransactionId: walletResult.transactionId,
+                  initiatedById: user.id,
+                },
               });
-            } catch (notifErr) {
-              console.error('Wallet credit notification failed:', notifErr);
-            }
-          } else {
-            // Razorpay refund
-            const { initiateRefund } = await import('@/lib/razorpay');
-            const refund = await initiateRefund({
-              paymentId: payment.razorpayPaymentId,
-              amount: refundAmount,
-              notes: { bookingId, cancelledBy: cancelledByName },
-            });
 
-            const isFullRefund = payment.bookingIds.length === 1;
-            await prisma.payment.update({
-              where: { id: payment.id },
-              data: {
-                status: isFullRefund ? 'REFUNDED' : 'PARTIALLY_REFUNDED',
-                refundId: refund.id,
-                refundAmount: { increment: refundAmount },
-                refundedAt: new Date(),
-                refundMethod: 'RAZORPAY',
-              },
-            });
+              // Notify user about wallet credit
+              try {
+                const notifUser = await prisma.user.findUnique({
+                  where: { id: booking.userId },
+                  select: { mobileNumber: true, mobileVerified: true },
+                });
+                await notifyWalletCredit(booking.userId, {
+                  amount: remainingRefund,
+                  reason: 'Booking cancellation refund',
+                  newBalance: walletResult.newBalance,
+                  mobileNumber: notifUser?.mobileVerified ? notifUser.mobileNumber : null,
+                });
+              } catch (notifErr) {
+                console.error('Wallet credit notification failed:', notifErr);
+              }
+            } else {
+              // Razorpay refund
+              const { initiateRefund } = await import('@/lib/razorpay');
+              const refund = await initiateRefund({
+                paymentId: payment.razorpayPaymentId,
+                amount: remainingRefund,
+                notes: { bookingId, cancelledBy: cancelledByName },
+              });
 
-            refundResult = {
-              method: 'RAZORPAY',
-              amount: refundAmount,
-              refundId: refund.id,
-            };
+              const totalRefundedOnPayment = (payment.refundAmount || 0) + remainingRefund;
+              const isFullPaymentRefund = totalRefundedOnPayment >= payment.amount;
+              await prisma.payment.update({
+                where: { id: payment.id },
+                data: {
+                  status: isFullPaymentRefund ? 'REFUNDED' : 'PARTIALLY_REFUNDED',
+                  refundId: refund.id,
+                  refundAmount: { increment: remainingRefund },
+                  refundedAt: new Date(),
+                  refundMethod: 'RAZORPAY',
+                },
+              });
 
-            // Create Refund record so the refund button is correctly disabled
-            await prisma.refund.create({
-              data: {
-                bookingId,
-                paymentId: payment.id,
-                amount: refundAmount,
+              refundResult = {
                 method: 'RAZORPAY',
-                status: 'INITIATED',
-                reason: `Auto-refund: booking cancelled by ${cancelledByName}`,
-                razorpayRefundId: refund.id,
-                initiatedById: user.id,
-              },
-            });
+                amount: remainingRefund,
+                refundId: refund.id,
+              };
+
+              // Create Refund record so the refund button is correctly disabled
+              await prisma.refund.create({
+                data: {
+                  bookingId,
+                  paymentId: payment.id,
+                  amount: remainingRefund,
+                  method: 'RAZORPAY',
+                  status: 'INITIATED',
+                  reason: `Auto-refund: booking cancelled by ${cancelledByName}`,
+                  razorpayRefundId: refund.id,
+                  initiatedById: user.id,
+                },
+              });
+            }
           }
         }
       }
