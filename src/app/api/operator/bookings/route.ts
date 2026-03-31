@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { getOperatorSession } from '@/lib/adminAuth';
-import { getISTTodayUTC, dateStringToUTC } from '@/lib/time';
+import { getISTTodayUTC, getISTLastMonthRange, dateStringToUTC } from '@/lib/time';
 
 export async function GET(req: NextRequest) {
   try {
@@ -14,6 +14,15 @@ export async function GET(req: NextRequest) {
     const dateParam = searchParams.get('date');
     const viewAll = searchParams.get('viewAll') === 'true';
     const tab = searchParams.get('tab'); // 'upcoming' | 'inProgress' | 'completed' | 'cancelled' | null (all)
+    const category = searchParams.get('category'); // 'today' | 'upcoming' | 'previous' | 'lastMonth' | null (all)
+    const filterStatus = searchParams.get('status'); // 'BOOKED' | 'IN_PROGRESS' | 'DONE' | 'CANCELLED'
+    const filterMachineId = searchParams.get('machineId');
+    const customer = searchParams.get('customer');
+    const filterDate = searchParams.get('filterDate');
+    const fromDate = searchParams.get('from');
+    const toDate = searchParams.get('to');
+    const sortBy = searchParams.get('sortBy') || 'date';
+    const sortOrder = searchParams.get('sortOrder') || 'desc';
     const page = Math.max(1, parseInt(searchParams.get('page') || '1'));
     const limit = Math.min(50, Math.max(1, parseInt(searchParams.get('limit') || '20')));
 
@@ -43,19 +52,80 @@ export async function GET(req: NextRequest) {
       machineId: { in: machineIds as any },
     };
 
-    // Date filtering
-    const isAllMode = dateParam === 'all';
-    if (isAllMode) {
-      // No date filter — show all bookings
-    } else if (dateParam && dateParam !== 'today') {
-      bookingWhere.date = dateStringToUTC(dateParam);
-    } else {
-      bookingWhere.date = getISTTodayUTC();
+    // If a specific machine filter is set, narrow down further (must still be in allowed machines)
+    if (filterMachineId && machineIds.includes(filterMachineId)) {
+      bookingWhere.machineId = filterMachineId;
     }
 
-    // Tab-based status filtering
+    // Category-based date filtering (matches admin)
+    const todayUTC = getISTTodayUTC();
+    if (category === 'today') {
+      bookingWhere.date = todayUTC;
+    } else if (category === 'upcoming') {
+      bookingWhere.date = { gt: todayUTC };
+      bookingWhere.status = 'BOOKED';
+    } else if (category === 'previous') {
+      bookingWhere.date = { lt: todayUTC };
+    } else if (category === 'lastMonth') {
+      const lastMonthRange = getISTLastMonthRange();
+      bookingWhere.date = {
+        gte: lastMonthRange.start,
+        lte: lastMonthRange.end,
+      };
+    } else {
+      // Legacy date param support
+      const isAllMode = dateParam === 'all';
+      if (isAllMode) {
+        // No date filter — show all bookings
+      } else if (dateParam && dateParam !== 'today') {
+        bookingWhere.date = dateStringToUTC(dateParam);
+      } else if (!category) {
+        // Default: no date restriction (show all) when using new filters
+      }
+    }
+
+    // Single date filter overrides category date
+    if (filterDate) {
+      bookingWhere.date = dateStringToUTC(filterDate);
+    } else if (fromDate && toDate) {
+      bookingWhere.date = {
+        gte: dateStringToUTC(fromDate),
+        lte: dateStringToUTC(toDate),
+      };
+    }
+
+    // Customer search
+    if (customer) {
+      bookingWhere.OR = [
+        { playerName: { contains: customer, mode: 'insensitive' } },
+        { user: { name: { contains: customer, mode: 'insensitive' } } },
+        { user: { email: { contains: customer, mode: 'insensitive' } } },
+      ];
+    }
+
+    // Status filtering (derived statuses like admin)
     const now = new Date();
-    if (tab === 'upcoming') {
+    if (filterStatus === 'IN_PROGRESS') {
+      bookingWhere.status = 'BOOKED';
+      bookingWhere.startTime = { lte: now };
+      bookingWhere.endTime = { gt: now };
+    } else if (filterStatus === 'BOOKED') {
+      bookingWhere.status = 'BOOKED';
+      bookingWhere.startTime = { gt: now };
+    } else if (filterStatus === 'DONE') {
+      bookingWhere.AND = [
+        ...(bookingWhere.AND || []),
+        {
+          OR: [
+            { status: 'DONE' },
+            { status: 'BOOKED', endTime: { lte: now } },
+          ],
+        },
+      ];
+    } else if (filterStatus === 'CANCELLED') {
+      bookingWhere.status = 'CANCELLED';
+    } else if (tab === 'upcoming') {
+      // Legacy tab support
       bookingWhere.status = 'BOOKED';
       bookingWhere.startTime = { gt: now };
     } else if (tab === 'inProgress') {
@@ -64,12 +134,21 @@ export async function GET(req: NextRequest) {
       bookingWhere.endTime = { gt: now };
     } else if (tab === 'completed') {
       bookingWhere.OR = [
+        ...(bookingWhere.OR || []),
         { status: 'DONE' },
         { status: 'BOOKED', endTime: { lte: now } },
       ];
-      // Remove top-level status if set
     } else if (tab === 'cancelled') {
       bookingWhere.status = 'CANCELLED';
+    }
+
+    // Sort order
+    const orderBy: any = [];
+    if (sortBy === 'createdAt') {
+      orderBy.push({ createdAt: sortOrder });
+    } else {
+      orderBy.push({ date: sortOrder });
+      orderBy.push({ startTime: sortOrder });
     }
 
     // Fetch bookings with operator and package info
@@ -89,9 +168,7 @@ export async function GET(req: NextRequest) {
             },
           },
         },
-        orderBy: [
-          { startTime: 'desc' as const },
-        ],
+        orderBy,
         skip: (page - 1) * limit,
         take: limit,
       }),
