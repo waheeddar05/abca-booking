@@ -83,7 +83,10 @@ export async function POST(req: NextRequest) {
     let consecutiveAdjustment = 0; // Amount to subtract from refund due to sibling repricing
 
     try {
-      if (booking.discountAmount && booking.discountAmount > 0 && booking.machineId && booking.userId) {
+      // Check for consecutive siblings regardless of discountAmount — the
+      // discount field may be null for older bookings but the pricing gap
+      // still needs to be clawed back on cancellation.
+      if (booking.machineId && booking.userId) {
         // Find active sibling bookings on the same date, machine, and pitch
         const siblingBookings = await prisma.booking.findMany({
           where: {
@@ -170,22 +173,21 @@ export async function POST(req: NextRequest) {
             }
           }
 
-          // Update sibling bookings with new prices and accumulate price increases
+          // Update sibling bookings with new prices and accumulate price increases.
+          // ONLY update when new price is HIGHER — never lower a sibling's price,
+          // as that would change the amount the user already paid and misalign
+          // booking history, CSV exports, and admin views.
           for (let i = 0; i < siblingBookings.length; i++) {
             const sibling = siblingBookings[i];
             const newPrice = newPricing[i].price;
             const oldPrice = sibling.price || 0;
             const priceIncrease = newPrice - oldPrice;
 
-            console.log(`[Cancel] Sibling ${sibling.id}: oldPrice=${oldPrice}, newPrice=${newPrice}, increase=${priceIncrease}, recurringApplied=${newPricing[i].discountAmount}`);
+            console.log(`[Cancel] Sibling ${sibling.id}: oldPrice=${oldPrice}, newPrice=${newPrice}, increase=${priceIncrease}, discount=${newPricing[i].discountAmount}`);
 
             if (priceIncrease > 0) {
               consecutiveAdjustment += priceIncrease;
-            }
 
-            // Always update sibling price to the correctly recalculated value,
-            // even if priceIncrease <= 0 (e.g., price decreased or unchanged)
-            if (newPrice !== oldPrice) {
               await prisma.booking.update({
                 where: { id: sibling.id },
                 data: {
@@ -203,7 +205,7 @@ export async function POST(req: NextRequest) {
       // refund status displays correctly (totalRefunded >= price → "Refunded")
       if (consecutiveAdjustment > 0 && booking.price) {
         const adjustedBookingPrice = Math.max(0, booking.price - consecutiveAdjustment);
-        console.log(`[Cancel] Booking ${bookingId}: originalPrice=${booking.price + consecutiveAdjustment}, adjustment=${consecutiveAdjustment}, adjustedPrice=${adjustedBookingPrice}`);
+        console.log(`[Cancel] Booking ${bookingId}: paidPrice=${booking.price}, adjustment=${consecutiveAdjustment}, refundablePrice=${adjustedBookingPrice}`);
         await prisma.booking.update({
           where: { id: bookingId },
           data: { price: adjustedBookingPrice },
