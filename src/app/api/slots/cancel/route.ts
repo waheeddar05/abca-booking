@@ -5,7 +5,8 @@ import { getISTTime, formatIST } from '@/lib/time';
 import { isBefore } from 'date-fns';
 import { creditWallet, getDefaultRefundMethod, isWalletEnabled } from '@/lib/wallet';
 import { notifyBookingCancelled, notifyWalletCredit } from '@/lib/notifications';
-import { MACHINES } from '@/lib/constants';
+import { MACHINES, getBallTypeForMachine, MACHINE_A_BALLS } from '@/lib/constants';
+import { calculateNewPricing, getPricingConfig, getTimeSlabConfig } from '@/lib/pricing';
 
 export async function POST(req: NextRequest) {
   try {
@@ -73,6 +74,90 @@ export async function POST(req: NextRequest) {
       });
     }
 
+    // ─── Consecutive Pricing Adjustment ──────────────────────────────
+    // When cancelling a booking that was part of a consecutive group,
+    // recalculate sibling prices and adjust the refund accordingly.
+    // e.g. If 2 consecutive slots cost ₹800 (₹400 each) and single is ₹500,
+    //   cancelling one should refund ₹300 (not ₹400) and reprice sibling to ₹500.
+    let consecutiveAdjustment = 0; // Amount to subtract from refund due to sibling repricing
+
+    try {
+      if (booking.discountAmount && booking.discountAmount > 0 && booking.machineId && booking.userId) {
+        // Find active sibling bookings on the same date, machine, and pitch
+        const siblingBookings = await prisma.booking.findMany({
+          where: {
+            id: { not: bookingId },
+            userId: booking.userId,
+            date: booking.date,
+            machineId: booking.machineId,
+            pitchType: booking.pitchType,
+            status: 'BOOKED',
+          },
+          orderBy: { startTime: 'asc' },
+        });
+
+        if (siblingBookings.length > 0) {
+          // Recalculate pricing for remaining slots (without the cancelled one)
+          const ballType = booking.ballType || getBallTypeForMachine(booking.machineId);
+          const category: 'MACHINE' | 'TENNIS' = MACHINE_A_BALLS.includes(ballType) ? 'MACHINE' : 'TENNIS';
+
+          const pricingConfig = await getPricingConfig();
+          const timeSlabConfig = await getTimeSlabConfig();
+
+          const remainingSlots = siblingBookings.map(b => ({
+            startTime: new Date(b.startTime),
+            endTime: new Date(b.endTime),
+          }));
+
+          const newPricing = calculateNewPricing(
+            remainingSlots,
+            category,
+            ballType,
+            booking.pitchType,
+            timeSlabConfig,
+            pricingConfig,
+            booking.machineId
+          );
+
+          // Update sibling bookings with new prices and accumulate price increases
+          for (let i = 0; i < siblingBookings.length; i++) {
+            const sibling = siblingBookings[i];
+            const newPrice = newPricing[i].price;
+            const oldPrice = sibling.price || 0;
+            const priceIncrease = newPrice - oldPrice;
+
+            if (priceIncrease > 0) {
+              consecutiveAdjustment += priceIncrease;
+
+              await prisma.booking.update({
+                where: { id: sibling.id },
+                data: {
+                  price: newPrice,
+                  originalPrice: newPricing[i].originalPrice,
+                  discountAmount: newPricing[i].discountAmount > 0 ? newPricing[i].discountAmount : null,
+                  discountType: newPricing[i].discountAmount > 0 ? 'FIXED' : null,
+                },
+              });
+            }
+          }
+        }
+      }
+      // Update the cancelled booking's price to the adjusted amount so that
+      // refund status displays correctly (totalRefunded >= price → "Refunded")
+      if (consecutiveAdjustment > 0 && booking.price) {
+        const adjustedBookingPrice = Math.max(0, booking.price - consecutiveAdjustment);
+        await prisma.booking.update({
+          where: { id: bookingId },
+          data: { price: adjustedBookingPrice },
+        });
+        // Update local reference so refund logic uses the adjusted price
+        booking.price = adjustedBookingPrice;
+      }
+    } catch (adjustErr) {
+      console.error('Consecutive pricing adjustment failed:', adjustErr);
+      // Continue with standard refund if adjustment fails
+    }
+
     // ─── Refund Logic ─────────────────────────────────────────────────
     // Process refund for wallet-paid or online-paid bookings
     let refundResult: {
@@ -92,6 +177,7 @@ export async function POST(req: NextRequest) {
 
       // Case 1: Wallet-paid booking — refund remaining to wallet
       if (booking.paymentMethod === 'WALLET' && booking.paymentStatus === 'PAID' && booking.userId && booking.price && booking.price > 0) {
+        // booking.price is already adjusted for consecutive repricing above
         const remainingRefund = booking.price - alreadyRefunded;
 
         if (remainingRefund > 0) {
@@ -161,10 +247,14 @@ export async function POST(req: NextRequest) {
         });
 
         if (payment?.razorpayPaymentId) {
-          // Calculate refund amount (proportional if multiple bookings in same payment)
-          const fullRefundAmount = payment.bookingIds.length > 1
-            ? payment.amount / payment.bookingIds.length
-            : payment.amount;
+          // Use the booking's actual price instead of splitting payment equally —
+          // bookings may have different prices due to consecutive discounts.
+          // booking.price is already adjusted for consecutive repricing above.
+          const fullRefundAmount = (booking.price && booking.price > 0) ? booking.price : (
+            payment.bookingIds.length > 1
+              ? payment.amount / payment.bookingIds.length
+              : payment.amount
+          );
           const remainingRefund = fullRefundAmount - alreadyRefunded;
 
           if (remainingRefund > 0) {
