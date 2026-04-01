@@ -804,6 +804,8 @@ export async function POST(req: NextRequest) {
         operatorName,
         operatorPhone,
         mobileNumber: notifUser?.mobileVerified ? notifUser.mobileNumber : null,
+        kitRental,
+        kitRentalCharge,
       });
     } catch (notifErr) {
       console.error('Failed to create booking notification:', notifErr);

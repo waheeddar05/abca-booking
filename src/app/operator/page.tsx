@@ -30,6 +30,8 @@ interface Booking {
   discountAmount: number | null;
   extraCharge: number | null;
   operationMode: 'WITH_OPERATOR' | 'SELF_OPERATE';
+  kitRental: boolean;
+  kitRentalCharge: number | null;
   cancelledBy: string | null;
   createdAt: string | null;
   paymentMethod: string | null;
@@ -422,6 +424,11 @@ export default function OperatorDashboard() {
                   {!booking.isPackageBooking && (
                     <span className="text-[10px] px-2 py-0.5 rounded-full bg-cyan-500/10 text-cyan-400 font-medium border border-cyan-500/20">
                       Regular
+                    </span>
+                  )}
+                  {booking.kitRental && (
+                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-teal-500/10 text-teal-400 font-medium border border-teal-500/20">
+                      Cricket Kit
                     </span>
                   )}
                 </div>

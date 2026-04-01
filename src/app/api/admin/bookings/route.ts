@@ -33,6 +33,8 @@ const SAFE_BOOKING_SELECT = {
   cancelledBy: true,
   cancellationReason: true,
   isSuperAdminBooking: true,
+  kitRental: true,
+  kitRentalCharge: true,
   user: { select: { name: true, email: true, mobileNumber: true } },
 } as const;
 

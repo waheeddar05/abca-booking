@@ -124,11 +124,14 @@ export async function notifyBookingConfirmed(
     operatorName?: string; // e.g. "Pratyush"
     operatorPhone?: string; // e.g. "7058683664"
     mobileNumber?: string | null;
+    kitRental?: boolean;
+    kitRentalCharge?: number | null;
   },
 ): Promise<SendResult> {
   // Template booking_detail (7 params):
   // "🏏 *Booking Confirmed!*\n📅 {{1}}\n⏰ {{2}}\n🎯 {{3}} — {{4}}\n💰 {{5}}\n👤 Operator: {{6}}\n📞 Contact: {{7}}\n📍 PlayOrbit Cricket Nets + maps link"
-  const slotSummary = `${details.machine}, ${details.pitch} — ${details.time} on ${details.date} (${details.price})`;
+  const kitInfo = details.kitRental ? ' + Cricket Kit' : '';
+  const slotSummary = `${details.machine}, ${details.pitch} — ${details.time} on ${details.date} (${details.price}${kitInfo})`;
   const operatorName = details.operatorName || 'To be assigned';
   const operatorPhone = details.operatorPhone || 'Will be shared soon';
 
@@ -151,7 +154,7 @@ export async function notifyBookingConfirmed(
                 { type: 'text', text: details.time },
                 { type: 'text', text: details.machine },
                 { type: 'text', text: details.pitch },
-                { type: 'text', text: details.price },
+                { type: 'text', text: details.price + kitInfo },
                 { type: 'text', text: operatorName },
                 { type: 'text', text: operatorPhone },
               ],

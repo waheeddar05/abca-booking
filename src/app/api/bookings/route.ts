@@ -154,6 +154,8 @@ export async function GET(req: NextRequest) {
         refundedAt: refundMap[b.id].refunds[0]?.refundedAt || null,
         refunds: refundMap[b.id].refunds,
       } : null,
+      kitRental: b.kitRental ?? false,
+      kitRentalCharge: b.kitRentalCharge ?? null,
       createdAt: b.createdAt ? b.createdAt.toISOString() : null,
       isPackageBooking: packageBookingSet.has(b.id),
       operatorName: b.operator?.name || null,

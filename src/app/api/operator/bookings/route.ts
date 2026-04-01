@@ -191,6 +191,8 @@ export async function GET(req: NextRequest) {
       discountAmount: b.discountAmount,
       extraCharge: b.extraCharge,
       operationMode: b.operationMode,
+      kitRental: b.kitRental ?? false,
+      kitRentalCharge: b.kitRentalCharge ?? null,
       cancelledBy: b.cancelledBy,
       createdAt: b.createdAt ? b.createdAt.toISOString() : null,
       paymentMethod: b.paymentMethod ?? null,

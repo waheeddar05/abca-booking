@@ -781,6 +781,11 @@ function AdminBookingsContent() {
                           {booking.operationMode === 'SELF_OPERATE' ? 'Self' : 'Operator'}
                         </span>
                       )}
+                      {booking.kitRental && (
+                        <span className="text-[10px] px-1.5 py-0.5 rounded font-medium bg-teal-500/10 text-teal-400">
+                          Cricket Kit{booking.kitRentalCharge ? ` (₹${booking.kitRentalCharge})` : ''}
+                        </span>
+                      )}
                     </div>
 
                     {/* Operator Assignment */}
@@ -907,6 +912,11 @@ function AdminBookingsContent() {
                                 {booking.operationMode === 'SELF_OPERATE' ? 'Self' : 'Op'}
                               </span>
                             )}
+                            {booking.kitRental && (
+                              <span className="text-[10px] px-1.5 py-0.5 rounded bg-teal-500/10 text-teal-400">
+                                Kit
+                              </span>
+                            )}
                           </div>
                         </td>
                         <td className="px-5 py-3.5">
@@ -936,6 +946,9 @@ function AdminBookingsContent() {
                               </span>
                               {booking.discountAmount > 0 && (
                                 <div className="text-[10px] text-green-400">-{booking.discountAmount} discount</div>
+                              )}
+                              {booking.kitRental && booking.kitRentalCharge && (
+                                <div className="text-[10px] text-teal-400">incl. ₹{booking.kitRentalCharge} kit</div>
                               )}
                             </button>
                           ) : (
