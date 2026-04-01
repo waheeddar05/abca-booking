@@ -37,6 +37,8 @@ export function PaymentMethodSelector({
           const bal = data.balance ?? null;
           setWalletBalance(bal);
           if (bal != null && onWalletBalanceLoaded) onWalletBalanceLoaded(bal);
+          // Auto-enable wallet when balance is available
+          if (bal != null && bal > 0 && onUseWalletChange) onUseWalletChange(true);
         })
         .catch(() => setWalletBalance(null));
     }

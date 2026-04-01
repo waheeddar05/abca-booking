@@ -119,7 +119,7 @@ export default function PackagesPage() {
       if (paymentConfig?.walletEnabled) {
         fetch('/api/wallet')
           .then(res => res.json())
-          .then(data => { if (data.balance != null) setWalletBalance(data.balance); })
+          .then(data => { if (data.balance != null) { setWalletBalance(data.balance); if (data.balance > 0) setUseWalletForPkg(true); } })
           .catch(() => {});
       }
     } else {
