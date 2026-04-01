@@ -242,7 +242,7 @@ export async function POST(req: NextRequest) {
         const payment = await prisma.payment.findFirst({
           where: {
             bookingIds: { has: bookingId },
-            status: 'CAPTURED',
+            status: { in: ['CAPTURED', 'PARTIALLY_REFUNDED'] },
           },
         });
 
@@ -416,7 +416,7 @@ export async function POST(req: NextRequest) {
         });
 
         await notifyBookingCancelled(booking.userId, {
-          message: lines.join('\n'),
+          message: lines.join(' | '),
           mobileNumber: notifUser?.mobileVerified ? notifUser.mobileNumber : null,
           refundInfo,
         });

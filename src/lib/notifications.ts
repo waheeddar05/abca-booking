@@ -192,7 +192,8 @@ export async function notifyBookingCancelled(
           components: [
             {
               type: 'body',
-              parameters: [{ type: 'text', text: details.message }],
+              // Meta WhatsApp API rejects newlines, tabs, and 4+ consecutive spaces in template params
+              parameters: [{ type: 'text', text: details.message.replace(/[\n\t]/g, ' | ').replace(/\s{4,}/g, '   ') }],
             },
           ],
         }

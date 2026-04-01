@@ -492,7 +492,19 @@ export async function sendWhatsAppNotification(
   }
 
   const to = formatIndianMobile(mobileNumber);
-  return provider.sendTemplate(to, templateName, language, components);
+
+  // Meta WhatsApp API rejects template params with newlines, tabs, or 4+ consecutive spaces.
+  // Sanitize all text parameters before sending.
+  const sanitizedComponents = components.map(comp => ({
+    ...comp,
+    parameters: comp.parameters?.map(param =>
+      param.type === 'text' && typeof param.text === 'string'
+        ? { ...param, text: param.text.replace(/[\n\t]/g, ' | ').replace(/\s{4,}/g, '   ') }
+        : param,
+    ),
+  }));
+
+  return provider.sendTemplate(to, templateName, language, sanitizedComponents);
 }
 
 /**
