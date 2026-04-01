@@ -379,9 +379,14 @@ function SlotsContent() {
         }
 
         // Payment succeeded — now create the actual booking
-        const bookingResult = await api.post<Array<{ id: string }>>('/api/slots/book', bookingPayload);
+        // Attach paymentId so the server can link bookings and auto-refund on failure
+        const payloadWithPayment = bookingPayload.map(slot => ({
+          ...slot,
+          paymentId: paymentResult.paymentId,
+        }));
+        const bookingResult = await api.post<Array<{ id: string }>>('/api/slots/book', payloadWithPayment);
 
-        // Link payment to booking IDs
+        // Link payment to booking IDs (server already does this, but belt-and-suspenders)
         const bookingIds = Array.isArray(bookingResult)
           ? bookingResult.map(b => b.id)
           : [(bookingResult as { id: string }).id];
@@ -393,7 +398,7 @@ function SlotsContent() {
             paymentId: paymentResult.paymentId,
             bookingIds,
           }),
-        }).catch(() => {}); // Non-critical, don't fail the booking
+        }).catch(() => {}); // Non-critical — server already linked them
 
         toast.success('Payment successful! Booking confirmed.');
         setSelectedSlots([]);
