@@ -12,7 +12,7 @@ import { notifyBookingConfirmed } from '@/lib/notifications';
 import { getPricingConfig, getTimeSlabConfig, calculateNewPricing, getTimeSlab } from '@/lib/pricing';
 import { getCachedPolicies } from '@/lib/policy-cache';
 import { validatePackageBooking } from '@/lib/packages';
-import { debitWallet, rollbackWalletDebit, isWalletEnabled, getWalletBalance } from '@/lib/wallet';
+import { creditWallet, debitWallet, rollbackWalletDebit, isWalletEnabled, getWalletBalance } from '@/lib/wallet';
 import { autoAssignOperator, getOperatorCount } from '@/lib/operatorAssign';
 
 async function getMachineConfig() {
@@ -82,6 +82,9 @@ function isTransactionAborted(error: unknown): boolean {
 }
 
 export async function POST(req: NextRequest) {
+  // Hoisted so it's accessible in the catch block for auto-refund
+  let onlinePaymentId: string | undefined;
+
   try {
     const user = await getAuthenticatedUser(req);
 
@@ -123,6 +126,10 @@ export async function POST(req: NextRequest) {
     const requestedPaymentMethod = slotsToBook[0]?.paymentMethod as string | undefined;
     const isCashPayment = requestedPaymentMethod === 'CASH';
     const isWalletPayment = requestedPaymentMethod === 'WALLET';
+
+    // Online payment ID — if provided, bookings will be linked to this payment
+    // and auto-refunded to wallet if booking fails
+    onlinePaymentId = slotsToBook[0]?.paymentId as string | undefined;
 
     // Kit rental - read config from policy (server-side truth)
     const kitRentalRequested = !!slotsToBook[0]?.kitRental;
@@ -198,7 +205,20 @@ export async function POST(req: NextRequest) {
 
       if (machineIdParam && isValidMachineId(machineIdParam)) {
         resolvedMachineId = machineIdParam as MachineId;
-        resolvedBallType = getBallTypeForMachine(resolvedMachineId);
+        // Use client-provided ballType if valid; otherwise fall back to machine default.
+        // Leather machines (GRAVITY, YANTRA) support both LEATHER and MACHINE ball types.
+        // Tennis machines always use TENNIS.
+        if (ballTypeParam && isValidBallType(ballTypeParam)) {
+          const machineCategory = getMachineCategory(resolvedMachineId);
+          const isCompatible =
+            (machineCategory === 'LEATHER' && MACHINE_A_BALLS.includes(ballTypeParam as BallType)) ||
+            (machineCategory === 'TENNIS' && (ballTypeParam as BallType) === 'TENNIS');
+          resolvedBallType = isCompatible
+            ? (ballTypeParam as BallType)
+            : getBallTypeForMachine(resolvedMachineId);
+        } else {
+          resolvedBallType = getBallTypeForMachine(resolvedMachineId);
+        }
       } else {
         // Legacy: use ballType directly
         if (!isValidBallType(ballTypeParam)) {
@@ -600,47 +620,77 @@ export async function POST(req: NextRequest) {
     }
 
     // If package booking, deduct sessions and create PackageBooking records
+    // Wrapped in a transaction to ensure all-or-nothing: if any step fails,
+    // we roll back the bookings to prevent orphaned bookings without deduction.
     if (userPackageId && packageValidation) {
-      // Check if this is the first booking for this package (activates validity)
-      const currentUserPackage = await prisma.userPackage.findUnique({
-        where: { id: userPackageId },
-        include: { package: true },
-      });
+      try {
+        await prisma.$transaction(async (tx) => {
+          // Check if this is the first booking for this package (activates validity)
+          const currentUserPackage = await tx.userPackage.findUnique({
+            where: { id: userPackageId },
+            include: { package: true },
+          });
 
-      for (let idx = 0; idx < results.length; idx++) {
-        const result = results[idx];
-        const slotExtra = perSlotExtraCharges[idx] ?? 0;
-        await prisma.packageBooking.upsert({
-          where: { bookingId: result.id },
-          create: {
-            userPackageId,
-            bookingId: result.id,
-            sessionsUsed: 1,
-            extraCharge: slotExtra,
-            extraChargeType: slotExtra > 0 ? (packageValidation.extraChargeType || null) : null,
-          },
-          update: {},
+          if (!currentUserPackage) {
+            throw new Error('Package not found during deduction');
+          }
+
+          // Double-check remaining sessions inside transaction to prevent race conditions
+          const remainingSessions = currentUserPackage.totalSessions - currentUserPackage.usedSessions;
+          if (remainingSessions < results.length) {
+            throw new Error(`Not enough sessions. Remaining: ${remainingSessions}, Required: ${results.length}`);
+          }
+
+          for (let idx = 0; idx < results.length; idx++) {
+            const result = results[idx];
+            const slotExtra = perSlotExtraCharges[idx] ?? 0;
+            await tx.packageBooking.upsert({
+              where: { bookingId: result.id },
+              create: {
+                userPackageId,
+                bookingId: result.id,
+                sessionsUsed: 1,
+                extraCharge: slotExtra,
+                extraChargeType: slotExtra > 0 ? (packageValidation.extraChargeType || null) : null,
+              },
+              update: {},
+            });
+          }
+
+          // If first booking (usedSessions was 0), activate validity period now
+          const isFirstBooking = currentUserPackage.usedSessions === 0;
+          const updateData: any = {
+            usedSessions: { increment: results.length },
+          };
+
+          if (isFirstBooking && currentUserPackage.package) {
+            const now = new Date();
+            const expiry = new Date(now);
+            expiry.setDate(expiry.getDate() + currentUserPackage.package.validityDays);
+            updateData.activationDate = now;
+            updateData.expiryDate = expiry;
+          }
+
+          await tx.userPackage.update({
+            where: { id: userPackageId },
+            data: updateData,
+          });
         });
+      } catch (pkgError) {
+        // Package deduction failed — cancel the bookings we just created to stay consistent
+        console.error('Package deduction failed, rolling back bookings:', pkgError);
+        try {
+          await prisma.booking.updateMany({
+            where: { id: { in: results.map(r => r.id) } },
+            data: { status: 'CANCELLED', cancellationReason: 'Package deduction failed' },
+          });
+        } catch (rollbackErr) {
+          console.error('Booking rollback after package deduction failure also failed:', rollbackErr);
+        }
+        return NextResponse.json({
+          error: pkgError instanceof Error ? pkgError.message : 'Package deduction failed',
+        }, { status: 500 });
       }
-
-      // If first booking (usedSessions was 0), activate validity period now
-      const isFirstBooking = currentUserPackage && currentUserPackage.usedSessions === 0;
-      const updateData: any = {
-        usedSessions: { increment: validatedSlots.length },
-      };
-
-      if (isFirstBooking && currentUserPackage.package) {
-        const now = new Date();
-        const expiry = new Date(now);
-        expiry.setDate(expiry.getDate() + currentUserPackage.package.validityDays);
-        updateData.activationDate = now;
-        updateData.expiryDate = expiry;
-      }
-
-      await prisma.userPackage.update({
-        where: { id: userPackageId },
-        data: updateData,
-      });
     }
 
     // Debit wallet if wallet payment was selected
@@ -759,9 +809,84 @@ export async function POST(req: NextRequest) {
       console.error('Failed to create booking notification:', notifErr);
     }
 
+    // ─── Link Online Payment to Bookings (Server-Side) ────────────────
+    // If an online paymentId was provided, link it to the created bookings
+    // server-side so the link is guaranteed even if the client's link-bookings
+    // call fails.
+    if (onlinePaymentId && results.length > 0) {
+      try {
+        const bookingIds = results.map(r => r.id);
+        await prisma.payment.update({
+          where: { id: onlinePaymentId },
+          data: { bookingIds },
+        });
+        // Mark each booking as paid via ONLINE
+        await prisma.booking.updateMany({
+          where: { id: { in: bookingIds } },
+          data: {
+            paymentMethod: 'ONLINE',
+            paymentStatus: 'PAID',
+          },
+        });
+      } catch (linkErr) {
+        // Non-fatal: bookings were created, just log the linking failure
+        console.error('Failed to link payment to bookings server-side:', linkErr);
+      }
+    }
+
     const response = Array.isArray(body) ? results : results[0];
     return NextResponse.json(response);
   } catch (error: unknown) {
+    // ─── Auto-Refund on Booking Failure ─────────────────────────────
+    // If an online payment was captured but booking creation failed,
+    // automatically refund to the user's wallet so money isn't lost.
+    if (onlinePaymentId) {
+      try {
+        const payment = await prisma.payment.findUnique({
+          where: { id: onlinePaymentId },
+        });
+        if (payment && payment.status === 'CAPTURED' && payment.bookingIds.length === 0) {
+          const refundAmount = payment.amount;
+          const walletResult = await creditWallet(
+            payment.userId,
+            refundAmount,
+            'CREDIT_REFUND',
+            `Auto-refund: slot booking failed after payment`,
+            onlinePaymentId,
+          );
+
+          // Update payment status to reflect the refund
+          // Note: No Refund record created here because there's no booking to reference
+          // (Refund.bookingId has a FK constraint). The wallet transaction serves as the audit trail.
+          await prisma.payment.update({
+            where: { id: onlinePaymentId },
+            data: {
+              status: 'REFUNDED',
+              refundAmount,
+              refundedAt: new Date(),
+              refundMethod: 'WALLET',
+              failureReason: `Booking failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
+            },
+          });
+
+          console.log(`Auto-refunded ₹${refundAmount} to wallet for failed booking (payment: ${onlinePaymentId})`);
+
+          // Return error with refund info so user knows their money is safe
+          const errMessage = error instanceof Error ? error.message : 'Booking failed';
+          return NextResponse.json({
+            error: `${errMessage}. ₹${refundAmount} has been refunded to your wallet.`,
+            refunded: true,
+            refundAmount,
+            walletBalance: walletResult.newBalance,
+          }, { status: error instanceof BookingConflictError || error instanceof OperatorUnavailableError ? 409 : 400 });
+        }
+      } catch (refundErr) {
+        console.error('CRITICAL: Auto-refund failed after booking failure:', refundErr);
+        console.error('Original booking error:', error);
+        // Still return the original error — admin will need to manually refund
+      }
+    }
+
     if (error instanceof BookingConflictError) {
       return NextResponse.json({ error: error.message }, { status: 409 });
     }
