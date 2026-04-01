@@ -76,7 +76,8 @@ export async function POST(req: NextRequest) {
 
     // ─── Consecutive Pricing Adjustment ──────────────────────────────
     // When cancelling a booking that was part of a consecutive group,
-    // recalculate sibling prices and adjust the refund accordingly.
+    // recalculate sibling prices (including recurring slot discounts) and
+    // adjust the refund accordingly.
     // e.g. If 2 consecutive slots cost ₹800 (₹400 each) and single is ₹500,
     //   cancelling one should refund ₹300 (not ₹400) and reprice sibling to ₹500.
     let consecutiveAdjustment = 0; // Amount to subtract from refund due to sibling repricing
@@ -119,6 +120,56 @@ export async function POST(req: NextRequest) {
             booking.machineId
           );
 
+          // ── Re-apply Recurring Slot Discounts to repriced siblings ─────
+          // The booking route applies recurring discounts on top of
+          // consecutive pricing. We must do the same here so that sibling
+          // prices stay correct and the consecutiveAdjustment is accurate.
+          const getISTTimeStr = (d: Date): string => {
+            const utcMs = d.getTime();
+            const istMs = utcMs + (5 * 60 + 30) * 60 * 1000;
+            const istDate = new Date(istMs);
+            const h = istDate.getUTCHours().toString().padStart(2, '0');
+            const m = istDate.getUTCMinutes().toString().padStart(2, '0');
+            return `${h}:${m}`;
+          };
+          const getISTDay = (d: Date): number => {
+            const utcMs = d.getTime();
+            const istMs = utcMs + (5 * 60 + 30) * 60 * 1000;
+            return new Date(istMs).getUTCDay();
+          };
+
+          let recurringDiscountRules: Array<any> = [];
+          try {
+            recurringDiscountRules = await prisma.recurringSlotDiscount.findMany({
+              where: { enabled: true },
+            });
+          } catch {
+            // Table may not exist; skip recurring discounts
+          }
+
+          const isRemainingConsecutive = remainingSlots.length >= 2;
+          const perSlotDiscountKey = isRemainingConsecutive ? 'twoSlotDiscount' : 'oneSlotDiscount';
+
+          for (let i = 0; i < newPricing.length; i++) {
+            const slotStart = remainingSlots[i].startTime;
+            const dayOfWeek = getISTDay(slotStart);
+            const istTimeStr = getISTTimeStr(slotStart);
+
+            for (const rule of recurringDiscountRules) {
+              if (!rule.days.includes(dayOfWeek)) continue;
+              const ruleStartTime = rule.slotStartTime.padStart(5, '0');
+              const ruleEndTime = (rule.slotEndTime || rule.slotStartTime).padStart(5, '0');
+              if (istTimeStr < ruleStartTime || istTimeStr >= ruleEndTime) continue;
+              if (rule.machineId && rule.machineId !== booking.machineId) continue;
+
+              const discountAmt = rule[perSlotDiscountKey] as number;
+              const maxReduction = Math.min(discountAmt, newPricing[i].price);
+              newPricing[i].price = Math.max(0, newPricing[i].price - maxReduction);
+              newPricing[i].discountAmount += maxReduction;
+              break; // first matching rule wins
+            }
+          }
+
           // Update sibling bookings with new prices and accumulate price increases
           for (let i = 0; i < siblingBookings.length; i++) {
             const sibling = siblingBookings[i];
@@ -126,9 +177,15 @@ export async function POST(req: NextRequest) {
             const oldPrice = sibling.price || 0;
             const priceIncrease = newPrice - oldPrice;
 
+            console.log(`[Cancel] Sibling ${sibling.id}: oldPrice=${oldPrice}, newPrice=${newPrice}, increase=${priceIncrease}, recurringApplied=${newPricing[i].discountAmount}`);
+
             if (priceIncrease > 0) {
               consecutiveAdjustment += priceIncrease;
+            }
 
+            // Always update sibling price to the correctly recalculated value,
+            // even if priceIncrease <= 0 (e.g., price decreased or unchanged)
+            if (newPrice !== oldPrice) {
               await prisma.booking.update({
                 where: { id: sibling.id },
                 data: {
@@ -146,6 +203,7 @@ export async function POST(req: NextRequest) {
       // refund status displays correctly (totalRefunded >= price → "Refunded")
       if (consecutiveAdjustment > 0 && booking.price) {
         const adjustedBookingPrice = Math.max(0, booking.price - consecutiveAdjustment);
+        console.log(`[Cancel] Booking ${bookingId}: originalPrice=${booking.price + consecutiveAdjustment}, adjustment=${consecutiveAdjustment}, adjustedPrice=${adjustedBookingPrice}`);
         await prisma.booking.update({
           where: { id: bookingId },
           data: { price: adjustedBookingPrice },
@@ -174,6 +232,7 @@ export async function POST(req: NextRequest) {
         where: { bookingId, status: { not: 'FAILED' } },
       });
       const alreadyRefunded = existingRefunds.reduce((sum, r) => sum + r.amount, 0);
+      console.log(`[Cancel] Refund calc for ${bookingId}: bookingPrice=${booking.price}, paymentMethod=${booking.paymentMethod}, alreadyRefunded=${alreadyRefunded}, consecutiveAdj=${consecutiveAdjustment}`);
 
       // Case 1: Wallet-paid booking — refund remaining to wallet
       if (booking.paymentMethod === 'WALLET' && booking.paymentStatus === 'PAID' && booking.userId && booking.price && booking.price > 0) {
