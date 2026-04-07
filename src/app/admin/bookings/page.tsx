@@ -786,6 +786,11 @@ function AdminBookingsContent() {
                           Cricket Kit{booking.kitRentalCharge ? ` (₹${booking.kitRentalCharge})` : ''}
                         </span>
                       )}
+                      {booking.packageBooking?.userPackage?.package?.name && (
+                        <span className="text-[10px] px-1.5 py-0.5 rounded font-medium bg-purple-500/10 text-purple-400">
+                          📦 {booking.packageBooking.userPackage.package.name}
+                        </span>
+                      )}
                     </div>
 
                     {/* Operator Assignment */}

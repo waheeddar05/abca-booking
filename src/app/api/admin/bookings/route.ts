@@ -4,7 +4,7 @@ import { requireAdmin } from '@/lib/adminAuth';
 import { getAuthenticatedUser } from '@/lib/auth';
 import { getISTTodayUTC, getISTLastMonthRange, dateStringToUTC, formatIST } from '@/lib/time';
 import { MACHINES } from '@/lib/constants';
-import { notifyBookingCancelled, notifyWalletCredit } from '@/lib/notifications';
+import { notifyBookingCancelled, notifyWalletCredit, notifyOperatorBookingCancelled } from '@/lib/notifications';
 import { autoAssignOperator } from '@/lib/operatorAssign';
 import { creditWallet, isWalletEnabled, getDefaultRefundMethod } from '@/lib/wallet';
 
@@ -149,7 +149,15 @@ export async function GET(req: NextRequest) {
           where,
           include: {
             user: { select: { name: true, email: true, mobileNumber: true } },
-            packageBooking: { select: { id: true } },
+            packageBooking: {
+              select: {
+                userPackage: {
+                  select: {
+                    package: { select: { name: true } },
+                  },
+                },
+              },
+            },
             refunds: { select: { id: true, amount: true, method: true, status: true } },
           },
           orderBy,
@@ -522,6 +530,26 @@ export async function PATCH(req: NextRequest) {
         });
       } catch (notifErr) {
         console.error('Failed to create cancellation notification:', notifErr);
+      }
+
+      // Notify assigned operator about cancellation
+      try {
+        if (booking.operatorId) {
+          const dateStr = formatIST(new Date(booking.date), 'EEE, dd MMM yyyy');
+          const timeStr = formatIST(new Date(booking.startTime), 'hh:mm a');
+          const endStr = formatIST(new Date(booking.endTime), 'hh:mm a');
+          const machineName = booking.machineId ? (MACHINES[booking.machineId as keyof typeof MACHINES]?.shortName || booking.machineId) : booking.ballType;
+          await notifyOperatorBookingCancelled(bookingId, {
+            customerName: booking.playerName,
+            date: dateStr,
+            time: `${timeStr} – ${endStr}`,
+            machine: machineName,
+            cancelledBy: adminName,
+            reason: cancellationReason || undefined,
+          });
+        }
+      } catch (opNotifErr) {
+        console.error('Failed to notify operator about admin cancellation:', opNotifErr);
       }
     }
 

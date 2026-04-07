@@ -79,6 +79,7 @@ function sortByPriority(operators: OperatorInfo[], slab: 'morning' | 'evening'):
  * Auto-assign an operator to a booking based on priority and availability.
  * Picks the highest-priority operator not already booked at the same time.
  * Falls back to highest-priority operator if all are busy.
+ * Respects weekday preferences from OperatorAssignment.days.
  */
 export async function autoAssignOperator(
   date: Date,
@@ -89,15 +90,21 @@ export async function autoAssignOperator(
 ): Promise<string | null> {
   const db = tx || defaultPrisma;
   const slab = timeSlab || 'morning';
+  const dayOfWeek = getDayOfWeekIST(date);
 
   // Get candidate operators — machine-specific first, fallback to all
   let operators: OperatorInfo[] = [];
   if (machineId) {
     const assignments = await db.operatorAssignment.findMany({
       where: { machineId },
-      select: { user: { select: { ...OPERATOR_SELECT, role: true } } },
+      include: { user: { select: { ...OPERATOR_SELECT, role: true } } },
     });
     operators = assignments
+      .filter(a => {
+        // Check if days is empty (all days) or includes current day
+        const daysFilter = a.days;
+        return daysFilter.length === 0 || daysFilter.includes(dayOfWeek);
+      })
       .filter(a => a.user.role === 'OPERATOR')
       .map(a => ({ id: a.user.id, operatorPriority: a.user.operatorPriority, operatorMorningPriority: a.user.operatorMorningPriority, operatorEveningPriority: a.user.operatorEveningPriority }));
   }

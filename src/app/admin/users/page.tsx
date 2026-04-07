@@ -19,6 +19,9 @@ interface UserData {
   role: string;
   isBlacklisted: boolean;
   isFreeUser: boolean;
+  isSpecialUser: boolean;
+  specialDiscountType: 'PERCENTAGE' | 'FIXED' | null;
+  specialDiscountValue: number | null;
   createdAt: string;
   _count: { bookings: number };
 }
@@ -235,6 +238,61 @@ export default function AdminUsers() {
     });
   };
 
+  const handleToggleSpecialUser = (user: UserData) => {
+    const newStatus = !user.isSpecialUser;
+    setPendingConfirm({
+      title: newStatus ? 'Mark as Special User' : 'Remove Special User Status',
+      message: `Are you sure you want to ${newStatus ? 'mark' : 'remove'} ${user.name || user.email} as a special user?`,
+      variant: 'default',
+      confirmLabel: newStatus ? 'Mark Special' : 'Remove',
+      onConfirm: async () => {
+        try {
+          const res = await fetch('/api/admin/users', {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              id: user.id,
+              isSpecialUser: newStatus,
+              ...(newStatus ? { specialDiscountType: 'PERCENTAGE', specialDiscountValue: 0 } : { specialDiscountType: null, specialDiscountValue: null }),
+            }),
+          });
+          const data = await res.json();
+          if (res.ok) {
+            toast.success(`${user.name || user.email} ${newStatus ? 'marked as special user' : 'removed from special users'}`);
+            fetchUsers();
+          } else {
+            toast.error(data.error || 'Failed to update user');
+          }
+        } catch {
+          toast.error('Internal server error');
+        }
+      },
+    });
+  };
+
+  const handleUpdateSpecialDiscount = async (userId: string, discountType: string, discountValue: number) => {
+    try {
+      const res = await fetch('/api/admin/users', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: userId,
+          specialDiscountType: discountType,
+          specialDiscountValue: discountValue,
+        }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        toast.success('Special user discount updated');
+        fetchUsers();
+      } else {
+        toast.error(data.error || 'Failed to update discount');
+      }
+    } catch {
+      toast.error('Internal server error');
+    }
+  };
+
   const handleChangeRole = (user: UserData, newRole: string) => {
     if (newRole === user.role) return;
     const roleLabel = newRole === 'ADMIN' ? 'Admin' : newRole === 'OPERATOR' ? 'Operator' : 'User';
@@ -432,6 +490,11 @@ export default function AdminUsers() {
                           Free
                         </span>
                       )}
+                      {user.isSpecialUser && (
+                        <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider bg-cyan-500/10 text-cyan-400">
+                          Special
+                        </span>
+                      )}
                       {user.isBlacklisted && (
                         <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider bg-red-500/10 text-red-400">
                           Blocked
@@ -543,6 +606,51 @@ export default function AdminUsers() {
                             </button>
                           )}
                         </div>
+                        {isSuperAdmin && (
+                          <button
+                            onClick={() => handleToggleSpecialUser(user)}
+                            className={`flex items-center justify-center gap-1.5 py-2 text-xs font-medium rounded-lg transition-colors cursor-pointer ${user.isSpecialUser
+                              ? 'text-cyan-400 bg-cyan-500/10 hover:bg-cyan-500/20'
+                              : 'text-slate-400 bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.1]'
+                              }`}
+                          >
+                            {user.isSpecialUser ? (
+                              <span className="truncate">Remove Special User</span>
+                            ) : (
+                              <span className="truncate">Mark as Special User</span>
+                            )}
+                          </button>
+                        )}
+                        {isSuperAdmin && user.isSpecialUser && (
+                          <div className="grid grid-cols-3 gap-2 border-t border-white/[0.06] pt-3 mt-3">
+                            <div>
+                              <label className="block text-[10px] font-medium text-slate-500 mb-1.5 uppercase tracking-wider">Discount Type</label>
+                              <select
+                                value={user.specialDiscountType || 'PERCENTAGE'}
+                                onChange={(e) => handleUpdateSpecialDiscount(user.id, e.target.value, user.specialDiscountValue || 0)}
+                                className="w-full bg-white/[0.04] border border-white/[0.1] text-slate-300 rounded-lg px-2 py-2 text-[11px] outline-none focus:border-accent focus:ring-1 focus:ring-accent/20 cursor-pointer"
+                              >
+                                <option value="PERCENTAGE">Percentage</option>
+                                <option value="FIXED">Fixed ₹</option>
+                              </select>
+                            </div>
+                            <div className="col-span-2">
+                              <label className="block text-[10px] font-medium text-slate-500 mb-1.5 uppercase tracking-wider">Discount Value</label>
+                              <input
+                                type="number"
+                                min="0"
+                                step="0.01"
+                                value={user.specialDiscountValue || ''}
+                                onChange={(e) => {
+                                  const value = e.target.value ? parseFloat(e.target.value) : 0;
+                                  handleUpdateSpecialDiscount(user.id, user.specialDiscountType || 'PERCENTAGE', value);
+                                }}
+                                placeholder={user.specialDiscountType === 'PERCENTAGE' ? '0-100' : '₹0'}
+                                className="w-full bg-white/[0.04] border border-white/[0.1] rounded-lg px-2 py-2 text-[11px] text-white placeholder:text-slate-500 outline-none focus:border-accent focus:ring-1 focus:ring-accent/20"
+                              />
+                            </div>
+                          </div>
+                        )}
                         {isSuperAdmin && (
                           <button
                             onClick={() => handleToggleFreeUser(user)}

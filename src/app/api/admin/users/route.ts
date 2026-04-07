@@ -51,6 +51,9 @@ export async function GET(req: NextRequest) {
         role: true,
         isBlacklisted: true,
         isFreeUser: true,
+        isSpecialUser: true,
+        specialDiscountType: true,
+        specialDiscountValue: true,
         createdAt: true,
         _count: {
           select: { bookings: true },
@@ -128,7 +131,7 @@ export async function PATCH(req: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 403 });
     }
 
-    const { id, role, isFreeUser } = await req.json();
+    const { id, role, isFreeUser, isSpecialUser, specialDiscountType, specialDiscountValue } = await req.json();
 
     if (!id) {
       return NextResponse.json({ error: 'User ID is required' }, { status: 400 });
@@ -137,6 +140,15 @@ export async function PATCH(req: NextRequest) {
     const validRoles = ['USER', 'ADMIN', 'OPERATOR'];
     if (role && !validRoles.includes(role)) {
       return NextResponse.json({ error: `Invalid role. Must be one of: ${validRoles.join(', ')}` }, { status: 400 });
+    }
+
+    const validDiscountTypes = ['PERCENTAGE', 'FIXED'];
+    if (specialDiscountType && !validDiscountTypes.includes(specialDiscountType)) {
+      return NextResponse.json({ error: `Invalid discount type. Must be one of: ${validDiscountTypes.join(', ')}` }, { status: 400 });
+    }
+
+    if (specialDiscountValue !== undefined && (typeof specialDiscountValue !== 'number' || specialDiscountValue < 0)) {
+      return NextResponse.json({ error: 'Discount value must be a positive number' }, { status: 400 });
     }
 
     const user = await prisma.user.findUnique({ where: { id } });
@@ -159,11 +171,24 @@ export async function PATCH(req: NextRequest) {
       return NextResponse.json({ error: 'Only super admin can set free user status' }, { status: 403 });
     }
 
+    // Only super admin can change special user status
+    if (typeof isSpecialUser === 'boolean' && session.email !== 'waheeddar8@gmail.com') {
+      return NextResponse.json({ error: 'Only super admin can set special user status' }, { status: 403 });
+    }
+
+    // Only super admin can change special user discount
+    if ((specialDiscountType || specialDiscountValue !== undefined) && session.email !== 'waheeddar8@gmail.com') {
+      return NextResponse.json({ error: 'Only super admin can set special user discount' }, { status: 403 });
+    }
+
     const updated = await prisma.user.update({
       where: { id },
       data: {
         ...(role && { role }),
         ...(typeof isFreeUser === 'boolean' ? { isFreeUser } : {}),
+        ...(typeof isSpecialUser === 'boolean' ? { isSpecialUser } : {}),
+        ...(specialDiscountType ? { specialDiscountType } : {}),
+        ...(specialDiscountValue !== undefined ? { specialDiscountValue } : {}),
       },
     });
 

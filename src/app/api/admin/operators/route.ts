@@ -14,7 +14,7 @@ const OPERATOR_QUERY = {
     operatorPriority: true,
     operatorMorningPriority: true,
     operatorEveningPriority: true,
-    operatorAssignments: { select: { id: true, machineId: true, createdAt: true } },
+    operatorAssignments: { select: { id: true, machineId: true, days: true, createdAt: true } },
   },
   orderBy: { operatorPriority: 'asc' as const },
 } as const;
@@ -68,12 +68,20 @@ export async function POST(req: NextRequest) {
     if (!(await requireAdmin(req))) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 403 });
     }
-    const { userId, machineId } = await req.json();
+    const { userId, machineId, days } = await req.json();
     if (!userId || !machineId) {
       return NextResponse.json({ error: 'userId and machineId are required' }, { status: 400 });
     }
     if (!VALID_MACHINES.includes(machineId)) {
       return NextResponse.json({ error: `Invalid machineId. Must be one of: ${VALID_MACHINES.join(', ')}` }, { status: 400 });
+    }
+
+    // Validate days array if provided
+    if (days !== undefined && !Array.isArray(days)) {
+      return NextResponse.json({ error: 'days must be an array of integers (0-6)' }, { status: 400 });
+    }
+    if (days !== undefined && days.some((d: any) => !Number.isInteger(d) || d < 0 || d > 6)) {
+      return NextResponse.json({ error: 'days must contain integers 0-6 (0=Sun..6=Sat)' }, { status: 400 });
     }
 
     const user = await prisma.user.findUnique({ where: { id: userId }, select: { role: true } });
@@ -82,7 +90,13 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'User must have OPERATOR role before assigning machines' }, { status: 400 });
     }
 
-    const assignment = await prisma.operatorAssignment.create({ data: { userId, machineId } });
+    const assignment = await prisma.operatorAssignment.create({
+      data: {
+        userId,
+        machineId,
+        days: days || [],
+      },
+    });
     return NextResponse.json({ assignment }, { status: 201 });
   } catch (error: any) {
     if (error?.code === 'P2002') {
@@ -122,6 +136,40 @@ export async function PATCH(req: NextRequest) {
   } catch (error: any) {
     console.error('Admin operator priority update error:', error);
     return NextResponse.json({ error: error?.message || 'Failed to update operator priorities' }, { status: 500 });
+  }
+}
+
+// PUT: Update days for an existing machine assignment
+export async function PUT(req: NextRequest) {
+  try {
+    if (!(await requireAdmin(req))) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 403 });
+    }
+    const { userId, machineId, days } = await req.json();
+    if (!userId || !machineId) {
+      return NextResponse.json({ error: 'userId and machineId are required' }, { status: 400 });
+    }
+    if (days === undefined) {
+      return NextResponse.json({ error: 'days field is required' }, { status: 400 });
+    }
+    if (!Array.isArray(days)) {
+      return NextResponse.json({ error: 'days must be an array of integers (0-6)' }, { status: 400 });
+    }
+    if (days.some((d: any) => !Number.isInteger(d) || d < 0 || d > 6)) {
+      return NextResponse.json({ error: 'days must contain integers 0-6 (0=Sun..6=Sat)' }, { status: 400 });
+    }
+
+    const assignment = await prisma.operatorAssignment.update({
+      where: { userId_machineId: { userId, machineId } },
+      data: { days },
+    });
+    return NextResponse.json({ assignment });
+  } catch (error: any) {
+    if (error?.code === 'P2025') {
+      return NextResponse.json({ error: 'Assignment not found' }, { status: 404 });
+    }
+    console.error('Admin operator update error:', error);
+    return NextResponse.json({ error: error?.message || 'Internal server error' }, { status: 500 });
   }
 }
 

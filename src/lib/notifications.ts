@@ -287,3 +287,126 @@ export async function notifyInfo(
 ): Promise<SendResult> {
   return notify({ userId, title, message, type: 'INFO' });
 }
+
+// ─── Operator Notification Helpers ─────────────────────────────────
+
+/**
+ * Look up the assigned operator for a booking and return their details.
+ * Returns null if no operator is assigned or operator has no mobile number.
+ */
+async function getBookingOperator(
+  bookingId: string,
+): Promise<{ operatorId: string; name: string; mobileNumber: string } | null> {
+  const booking = await prisma.booking.findUnique({
+    where: { id: bookingId },
+    select: {
+      operatorId: true,
+      operator: { select: { id: true, name: true, mobileNumber: true, mobileVerified: true } },
+    },
+  });
+  if (!booking?.operator?.mobileNumber) return null;
+  return {
+    operatorId: booking.operator.id,
+    name: booking.operator.name || 'Operator',
+    mobileNumber: booking.operator.mobileNumber,
+  };
+}
+
+/**
+ * Notify the assigned operator about a new booking via WhatsApp text + in-app.
+ * Falls back silently if no operator assigned or WhatsApp not configured.
+ */
+export async function notifyOperatorNewBooking(
+  bookingIds: string[],
+  details: {
+    customerName: string;
+    date: string;
+    time: string;
+    machine: string;
+    pitch: string;
+    slotCount: number;
+  },
+): Promise<void> {
+  if (bookingIds.length === 0) return;
+
+  try {
+    const operator = await getBookingOperator(bookingIds[0]);
+    if (!operator) return;
+
+    const msg = [
+      `New Booking!`,
+      `Customer: ${details.customerName}`,
+      `Date: ${details.date}`,
+      `Time: ${details.time}`,
+      `Machine: ${details.machine}`,
+      `Pitch: ${details.pitch}`,
+      `Slots: ${details.slotCount}`,
+    ].join('\n');
+
+    // In-app notification for the operator
+    await notify({
+      userId: operator.operatorId,
+      title: 'New Booking Assigned',
+      message: msg.replace(/\n/g, ' | '),
+      type: 'SUCCESS',
+    });
+
+    // WhatsApp text notification
+    const waEnabled = await isWhatsAppEnabled();
+    if (waEnabled) {
+      const { sendWhatsAppText } = await import('@/lib/whatsapp');
+      await sendWhatsAppText(operator.mobileNumber, msg);
+    }
+  } catch (err) {
+    console.error('[Notifications] Failed to notify operator about new booking:', err);
+  }
+}
+
+/**
+ * Notify the assigned operator about a booking cancellation via WhatsApp text + in-app.
+ * Falls back silently if no operator assigned or WhatsApp not configured.
+ */
+export async function notifyOperatorBookingCancelled(
+  bookingId: string,
+  details: {
+    customerName: string;
+    date: string;
+    time: string;
+    machine: string;
+    cancelledBy: string;
+    reason?: string;
+  },
+): Promise<void> {
+  try {
+    const operator = await getBookingOperator(bookingId);
+    if (!operator) return;
+
+    const lines = [
+      `Booking Cancelled`,
+      `Customer: ${details.customerName}`,
+      `Date: ${details.date}`,
+      `Time: ${details.time}`,
+      `Machine: ${details.machine}`,
+      `Cancelled by: ${details.cancelledBy}`,
+    ];
+    if (details.reason) lines.push(`Reason: ${details.reason}`);
+    const msg = lines.join('\n');
+
+    // In-app notification for the operator
+    await notify({
+      userId: operator.operatorId,
+      title: 'Booking Cancelled',
+      message: msg.replace(/\n/g, ' | '),
+      type: 'WARNING',
+    });
+
+    // WhatsApp text notification
+    const waEnabled = await isWhatsAppEnabled();
+    if (waEnabled) {
+      const { sendWhatsAppText } = await import('@/lib/whatsapp');
+      await sendWhatsAppText(operator.mobileNumber, msg);
+    }
+  } catch (err) {
+    console.error('[Notifications] Failed to notify operator about cancellation:', err);
+  }
+}

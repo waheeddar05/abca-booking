@@ -23,6 +23,7 @@ export default function AdminLayout({
     { href: '/admin/bookings', label: 'Bookings', icon: CalendarCheck },
     { href: '/admin/slots', label: 'Slots', icon: Clock },
     { href: '/admin/users', label: 'Users', icon: Users },
+    { href: '/admin/operators', label: 'Operators', icon: UserCog },
     { href: '/admin/packages', label: 'Packages', icon: Package },
     { href: '/admin/configuration', label: 'Settings', icon: SlidersHorizontal },
     { href: '/admin/policies', label: 'Policies', icon: Settings },

@@ -8,12 +8,14 @@ import {
   isValidMachineId, getBallTypeForMachine, getMachineCategory, LEATHER_MACHINES, MACHINES,
 } from '@/lib/constants';
 import { dateStringToUTC, formatIST } from '@/lib/time';
-import { notifyBookingConfirmed } from '@/lib/notifications';
+import { notifyBookingConfirmed, notifyOperatorNewBooking } from '@/lib/notifications';
 import { getPricingConfig, getTimeSlabConfig, calculateNewPricing, getTimeSlab } from '@/lib/pricing';
 import { getCachedPolicies } from '@/lib/policy-cache';
 import { validatePackageBooking } from '@/lib/packages';
 import { creditWallet, debitWallet, rollbackWalletDebit, isWalletEnabled, getWalletBalance } from '@/lib/wallet';
 import { autoAssignOperator, getOperatorCount } from '@/lib/operatorAssign';
+import { getApplicablePromoDiscount } from '@/lib/promotionalOffers';
+import { getSpecialUserDiscount, getBestDiscount } from '@/lib/specialUsers';
 
 async function getMachineConfig() {
   const config = await getCachedPolicies([
@@ -344,6 +346,37 @@ export async function POST(req: NextRequest) {
         pricing[i].discountAmount += maxReduction;
         totalRecurringDiscount += maxReduction;
         break; // first matching rule wins for this slot
+      }
+    }
+
+    // ── Promotional Offer + Special User Discount (higher discount wins) ──
+    // Applied on top of consecutive + recurring discounts.
+    // Only for non-free, non-package bookings.
+    let _totalPromoSpecialDiscount = 0;
+    let appliedDiscountLabel: string | null = null;
+    if (!isFreeBooking && !userPackageId) {
+      try {
+        const specialDiscount = await getSpecialUserDiscount(userId!);
+        for (let i = 0; i < pricing.length; i++) {
+          const slot = validatedSlots[i];
+          const promoDiscount = await getApplicablePromoDiscount(
+            slot.date, slot.startTime, slot.machineId, slot.pitchType,
+          );
+          const best = getBestDiscount(
+            pricing[i].price,
+            promoDiscount ? { ...promoDiscount, name: promoDiscount.name } : null,
+            specialDiscount,
+          );
+          if (best && best.discountAmount > 0) {
+            const maxReduction = Math.min(best.discountAmount, pricing[i].price);
+            pricing[i].price = Math.max(0, pricing[i].price - maxReduction);
+            pricing[i].discountAmount += maxReduction;
+            _totalPromoSpecialDiscount += maxReduction;
+            if (!appliedDiscountLabel) appliedDiscountLabel = best.label;
+          }
+        }
+      } catch (promoErr) {
+        console.error('[Booking] Promo/Special discount check failed:', promoErr);
       }
     }
 
@@ -809,6 +842,26 @@ export async function POST(req: NextRequest) {
       });
     } catch (notifErr) {
       console.error('Failed to create booking notification:', notifErr);
+    }
+
+    // ─── Notify Assigned Operator via WhatsApp + In-App ───────────────
+    try {
+      const firstSlot = validatedSlots[0];
+      const machineName = firstSlot.machineId ? MACHINES[firstSlot.machineId]?.shortName : (firstBallType === 'TENNIS' ? 'Tennis' : 'Leather');
+      const pitchLabels: Record<string, string> = {
+        ASTRO: 'Astro Turf', CEMENT: 'Cement', NATURAL: 'Natural Turf', TURF: 'Cement Wicket',
+      };
+      const pitchLabel = firstSlot.pitchType ? (pitchLabels[firstSlot.pitchType] || firstSlot.pitchType) : 'N/A';
+      await notifyOperatorNewBooking(results.map(r => r.id), {
+        customerName: firstSlot.playerName,
+        date: formatIST(firstSlot.date, 'EEE, dd MMM yyyy'),
+        time: `${formatIST(firstSlot.startTime, 'hh:mm a')} – ${formatIST(validatedSlots[validatedSlots.length - 1].endTime, 'hh:mm a')}`,
+        machine: machineName || 'N/A',
+        pitch: pitchLabel,
+        slotCount: validatedSlots.length,
+      });
+    } catch (opNotifErr) {
+      console.error('Failed to notify operator about new booking:', opNotifErr);
     }
 
     // ─── Link Online Payment to Bookings (Server-Side) ────────────────

@@ -49,6 +49,7 @@ interface Booking {
   machineId: string | null;
   createdAt: string | null;
   isPackageBooking: boolean;
+  packageName: string | null;
   paymentMethod: string | null;
   paymentStatus: string | null;
   refund: BookingRefund | null;
@@ -282,7 +283,7 @@ export default function BookingsPage() {
                     )}
                     {booking.isPackageBooking && (
                       <span className="text-[10px] px-2 py-0.5 rounded-full bg-purple-500/10 text-purple-400 font-medium border border-purple-500/20">
-                        Package
+                        {booking.packageName ? `📦 ${booking.packageName}` : 'Package'}
                       </span>
                     )}
                     {booking.kitRental && (

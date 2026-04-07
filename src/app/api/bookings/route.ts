@@ -62,6 +62,15 @@ export async function GET(req: NextRequest) {
             operator: {
               select: { name: true, mobileNumber: true },
             },
+            packageBooking: {
+              select: {
+                userPackage: {
+                  select: {
+                    package: { select: { name: true } },
+                  },
+                },
+              },
+            },
           },
         }),
         prisma.booking.count({ where }),
@@ -158,6 +167,7 @@ export async function GET(req: NextRequest) {
       kitRentalCharge: b.kitRentalCharge ?? null,
       createdAt: b.createdAt ? b.createdAt.toISOString() : null,
       isPackageBooking: packageBookingSet.has(b.id),
+      packageName: b.packageBooking?.userPackage?.package?.name || null,
       operatorName: b.operator?.name || null,
       operatorMobile: b.operator?.mobileNumber || null,
     }));

@@ -4,7 +4,7 @@ import { getAuthenticatedUser } from '@/lib/auth';
 import { getISTTime, formatIST } from '@/lib/time';
 import { isBefore } from 'date-fns';
 import { creditWallet, getDefaultRefundMethod, isWalletEnabled } from '@/lib/wallet';
-import { notifyBookingCancelled, notifyWalletCredit } from '@/lib/notifications';
+import { notifyBookingCancelled, notifyWalletCredit, notifyOperatorBookingCancelled } from '@/lib/notifications';
 import { MACHINES, getBallTypeForMachine, MACHINE_A_BALLS } from '@/lib/constants';
 import { calculateNewPricing, getPricingConfig, getTimeSlabConfig } from '@/lib/pricing';
 
@@ -484,6 +484,29 @@ export async function POST(req: NextRequest) {
       }
     } catch (notifErr) {
       console.error('Cancellation notification failed:', notifErr);
+    }
+
+    // ─── Notify Assigned Operator about Cancellation ──────────────────
+    try {
+      if (booking.operatorId) {
+        const dateStr = formatIST(new Date(booking.date), 'EEE, dd MMM yyyy');
+        const timeStr = formatIST(new Date(booking.startTime), 'hh:mm a');
+        const endStr = formatIST(new Date(booking.endTime), 'hh:mm a');
+        const machineName = booking.machineId
+          ? (MACHINES[booking.machineId as keyof typeof MACHINES]?.shortName || booking.machineId)
+          : booking.ballType;
+
+        await notifyOperatorBookingCancelled(bookingId, {
+          customerName: booking.playerName,
+          date: dateStr,
+          time: `${timeStr} – ${endStr}`,
+          machine: machineName,
+          cancelledBy: cancelledByName,
+          reason: cancellationReason || undefined,
+        });
+      }
+    } catch (opNotifErr) {
+      console.error('Failed to notify operator about cancellation:', opNotifErr);
     }
 
     return NextResponse.json({ message: 'Booking cancelled', refund: refundResult });
