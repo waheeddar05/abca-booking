@@ -1443,6 +1443,28 @@ export default function ConfigurationPage() {
         )}
       </AdminCard>
 
+      {/* ─── Promotional Offers ──── */}
+      <AdminCard
+        title="Promotional Offers"
+        icon={<ShoppingBag className="w-4 h-4 text-purple-400" />}
+        collapsible
+        defaultOpen={false}
+        subtitle="Date-based discounts for specific machines, pitches & time slots"
+      >
+        <div className="space-y-3">
+          <p className="text-xs text-slate-400">
+            Create and manage promotional offers with configurable discounts for specific date ranges, time slots, machines, and pitch types. When both a promo offer and a special user discount apply, the higher discount wins.
+          </p>
+          <a
+            href="/admin/offers"
+            className="inline-flex items-center gap-1.5 bg-purple-500/10 hover:bg-purple-500/20 text-purple-400 px-4 py-2.5 rounded-lg text-xs font-medium transition-colors"
+          >
+            <ShoppingBag className="w-3.5 h-3.5" />
+            Manage Promotional Offers
+          </a>
+        </div>
+      </AdminCard>
+
       {/* ─── Unified Save Button (bottom of page) ─── */}
       <div className="sticky bottom-4 z-40 flex items-center gap-3 p-4 rounded-2xl bg-[#0b1726]/95 backdrop-blur-xl border border-white/[0.08] shadow-xl shadow-black/30">
         <button
