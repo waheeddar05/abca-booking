@@ -143,11 +143,11 @@ export async function PATCH(req: NextRequest) {
     }
 
     const validDiscountTypes = ['PERCENTAGE', 'FIXED'];
-    if (specialDiscountType && !validDiscountTypes.includes(specialDiscountType)) {
+    if (specialDiscountType !== null && specialDiscountType !== undefined && !validDiscountTypes.includes(specialDiscountType)) {
       return NextResponse.json({ error: `Invalid discount type. Must be one of: ${validDiscountTypes.join(', ')}` }, { status: 400 });
     }
 
-    if (specialDiscountValue !== undefined && (typeof specialDiscountValue !== 'number' || specialDiscountValue < 0)) {
+    if (specialDiscountValue !== undefined && specialDiscountValue !== null && (typeof specialDiscountValue !== 'number' || specialDiscountValue < 0)) {
       return NextResponse.json({ error: 'Discount value must be a positive number' }, { status: 400 });
     }
 
@@ -180,7 +180,7 @@ export async function PATCH(req: NextRequest) {
         ...(role && { role }),
         ...(typeof isFreeUser === 'boolean' ? { isFreeUser } : {}),
         ...(typeof isSpecialUser === 'boolean' ? { isSpecialUser } : {}),
-        ...(specialDiscountType ? { specialDiscountType } : {}),
+        ...(specialDiscountType !== undefined ? { specialDiscountType } : {}),
         ...(specialDiscountValue !== undefined ? { specialDiscountValue } : {}),
       },
     });
