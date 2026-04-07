@@ -222,6 +222,7 @@ export default function AdminOffers() {
       pitchType: offer.pitchType,
       discountType: offer.discountType,
       discountValue: offer.discountValue,
+      appliesTo: offer.appliesTo || 'ALL',
     });
     setEditingId(offer.id);
     setShowForm(true);
