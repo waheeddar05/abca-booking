@@ -15,7 +15,7 @@ export async function PUT(
 
     const { id } = await params;
     const body = await req.json();
-    const { days, slotStartTime, slotEndTime, machineId, oneSlotDiscount, twoSlotDiscount, enabled } = body;
+    const { days, slotStartTime, slotEndTime, machineId, oneSlotDiscount, twoSlotDiscount, enabled, appliesTo } = body;
 
     const existing = await prisma.recurringSlotDiscount.findUnique({ where: { id } });
     if (!existing) {
@@ -37,6 +37,7 @@ export async function PUT(
         ...(oneSlotDiscount !== undefined ? { oneSlotDiscount: Number(oneSlotDiscount) } : {}),
         ...(twoSlotDiscount !== undefined ? { twoSlotDiscount: Number(twoSlotDiscount) } : {}),
         ...(enabled !== undefined ? { enabled: Boolean(enabled) } : {}),
+        ...(appliesTo !== undefined ? { appliesTo } : {}),
       },
     });
 

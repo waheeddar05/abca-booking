@@ -360,7 +360,7 @@ export async function POST(req: NextRequest) {
         for (let i = 0; i < pricing.length; i++) {
           const slot = validatedSlots[i];
           const promoDiscount = await getApplicablePromoDiscount(
-            slot.date, slot.startTime, slot.machineId, slot.pitchType,
+            slot.date, slot.startTime, slot.machineId, slot.pitchType, userId,
           );
           const best = getBestDiscount(
             pricing[i].price,

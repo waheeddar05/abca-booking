@@ -33,7 +33,7 @@ export async function POST(req: NextRequest) {
     }
 
     const body = await req.json();
-    const { days, slotStartTime, slotEndTime, machineId, oneSlotDiscount, twoSlotDiscount, enabled } = body;
+    const { days, slotStartTime, slotEndTime, machineId, oneSlotDiscount, twoSlotDiscount, enabled, appliesTo } = body;
 
     // Validation
     if (!Array.isArray(days) || days.length === 0) {
@@ -63,6 +63,7 @@ export async function POST(req: NextRequest) {
         oneSlotDiscount: Number(oneSlotDiscount),
         twoSlotDiscount: Number(twoSlotDiscount),
         enabled: enabled !== false,
+        appliesTo: appliesTo || 'ALL',
       },
     });
 

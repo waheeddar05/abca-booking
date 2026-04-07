@@ -17,6 +17,7 @@ const CreateOfferSchema = z.object({
   discountType: z.enum(['PERCENTAGE', 'FIXED']),
   discountValue: z.number().positive('Discount value must be positive'),
   isActive: z.boolean().optional().default(true),
+  appliesTo: z.enum(['ALL', 'SPECIAL']).optional().default('ALL'),
 });
 
 const OFFER_SELECT = {
@@ -32,6 +33,7 @@ const OFFER_SELECT = {
   discountType: true,
   discountValue: true,
   isActive: true,
+  appliesTo: true,
   createdAt: true,
   updatedAt: true,
 } as const;
@@ -99,6 +101,7 @@ export async function POST(req: NextRequest) {
         discountType: parsed.discountType as DiscountType,
         discountValue: parsed.discountValue,
         isActive: parsed.isActive ?? true,
+        appliesTo: parsed.appliesTo,
       },
       select: OFFER_SELECT,
     });
@@ -165,6 +168,9 @@ export async function PATCH(req: NextRequest) {
     }
     if (updates.endDate) {
       dataToUpdate.endDate = new Date(updates.endDate as string);
+    }
+    if (updates.appliesTo) {
+      dataToUpdate.appliesTo = updates.appliesTo;
     }
 
     const offer = await prisma.promotionalOffer.update({

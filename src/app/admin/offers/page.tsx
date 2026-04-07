@@ -17,6 +17,7 @@ interface OfferData {
   discountType: 'PERCENTAGE' | 'FIXED';
   discountValue: number;
   isActive: boolean;
+  appliesTo: 'ALL' | 'SPECIAL';
   createdAt: string;
   updatedAt: string;
 }
@@ -30,6 +31,7 @@ interface RecurringDiscountRule {
   machineId: string | null;
   oneSlotDiscount: number;
   twoSlotDiscount: number;
+  appliesTo: 'ALL' | 'SPECIAL';
 }
 
 const MACHINE_OPTIONS = [
@@ -78,6 +80,7 @@ const emptyForm = {
   pitchType: null as string | null,
   discountType: 'PERCENTAGE' as 'PERCENTAGE' | 'FIXED',
   discountValue: 10,
+  appliesTo: 'ALL' as 'ALL' | 'SPECIAL',
 };
 
 export default function AdminOffers() {
@@ -103,6 +106,7 @@ export default function AdminOffers() {
     oneSlotDiscount: 0,
     twoSlotDiscount: 0,
     enabled: true,
+    appliesTo: 'ALL' as 'ALL' | 'SPECIAL',
   });
   const [savingRule, setSavingRule] = useState(false);
   const [ruleMessage, setRuleMessage] = useState({ text: '', type: '' });
@@ -266,7 +270,7 @@ export default function AdminOffers() {
 
   // ─── Recurring Discount Helpers ─────────────────
   const resetRuleForm = () => {
-    setRuleForm({ days: [], slotStartTime: '08:00', slotEndTime: '08:30', machineId: '', oneSlotDiscount: 0, twoSlotDiscount: 0, enabled: true });
+    setRuleForm({ days: [], slotStartTime: '08:00', slotEndTime: '08:30', machineId: '', oneSlotDiscount: 0, twoSlotDiscount: 0, enabled: true, appliesTo: 'ALL' });
     setEditingRule(null);
     setShowAddRule(false);
   };
@@ -355,6 +359,7 @@ export default function AdminOffers() {
       oneSlotDiscount: rule.oneSlotDiscount,
       twoSlotDiscount: rule.twoSlotDiscount,
       enabled: rule.enabled,
+      appliesTo: rule.appliesTo,
     });
     setEditingRule(rule);
     setShowAddRule(true);
@@ -405,6 +410,17 @@ export default function AdminOffers() {
           {ALL_MACHINE_IDS.map(mid => (
             <option key={mid} value={mid}>{MACHINE_LABELS[mid].name}</option>
           ))}
+        </select>
+      </div>
+      <div>
+        <label className="block text-[10px] font-medium text-slate-400 mb-1">Applies To</label>
+        <select
+          value={ruleForm.appliesTo}
+          onChange={e => setRuleForm(prev => ({ ...prev, appliesTo: e.target.value as 'ALL' | 'SPECIAL' }))}
+          className={inputClass}
+        >
+          <option value="ALL">All Users</option>
+          <option value="SPECIAL">Special Users Only</option>
         </select>
       </div>
       <div className="grid grid-cols-2 gap-2">
@@ -467,11 +483,11 @@ export default function AdminOffers() {
         </button>
       </AdminPageHeader>
 
-      {/* Recurring Slot Discounts Section */}
+      {/* Recurring Offers Section */}
       <div className="bg-white/[0.03] backdrop-blur-sm rounded-2xl border border-white/[0.07] p-5 mb-6">
         <div className="flex items-center justify-between mb-4">
           <div>
-            <h2 className="text-sm font-semibold text-white">Recurring Slot Discounts</h2>
+            <h2 className="text-sm font-semibold text-white">Recurring Offers</h2>
             <p className="text-[11px] text-slate-400 mt-1">Fixed discounts for specific day + time combinations</p>
           </div>
         </div>
@@ -507,6 +523,13 @@ export default function AdminOffers() {
                         {rule.slotStartTime} – {rule.slotEndTime}
                         {rule.machineId && <span className="text-slate-500 ml-2">({MACHINE_LABELS[rule.machineId]?.name || rule.machineId})</span>}
                       </p>
+                      <div className="flex flex-wrap gap-1 mt-1 mb-1">
+                        <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${
+                          rule.appliesTo === 'SPECIAL' ? 'bg-purple-500/15 text-purple-400' : 'bg-blue-500/15 text-blue-400'
+                        }`}>
+                          {rule.appliesTo === 'SPECIAL' ? 'Special Users' : 'All Users'}
+                        </span>
+                      </div>
                       <div className="flex gap-3 mt-1">
                         <span className="text-[10px] text-emerald-400">1 slot: -₹{rule.oneSlotDiscount}</span>
                         <span className="text-[10px] text-emerald-400">2 slots: -₹{rule.twoSlotDiscount}</span>
@@ -733,6 +756,25 @@ export default function AdminOffers() {
               </div>
             </div>
 
+            {/* Applies To */}
+            <div>
+              <label className="block text-[11px] font-medium text-slate-400 mb-1">
+                Applies To
+              </label>
+              <select
+                value={form.appliesTo}
+                onChange={e => setForm({ ...form, appliesTo: e.target.value as 'ALL' | 'SPECIAL' })}
+                className="w-full bg-white/[0.04] border border-white/[0.1] rounded-lg px-3 py-2.5 text-sm text-white outline-none focus:border-accent"
+              >
+                <option value="ALL" className="bg-[#1a2a40]">
+                  All Users
+                </option>
+                <option value="SPECIAL" className="bg-[#1a2a40]">
+                  Special Users Only
+                </option>
+              </select>
+            </div>
+
             {/* Submit Button */}
             <button
               type="submit"
@@ -804,6 +846,11 @@ export default function AdminOffers() {
                       {offer.discountType === 'PERCENTAGE'
                         ? `${offer.discountValue}% off`
                         : `₹${offer.discountValue} off`}
+                    </span>
+                    <span className={`px-2 py-0.5 rounded font-medium ${
+                      offer.appliesTo === 'SPECIAL' ? 'bg-purple-500/15 text-purple-400' : 'bg-blue-500/15 text-blue-400'
+                    }`}>
+                      {offer.appliesTo === 'SPECIAL' ? 'Special Users' : 'All Users'}
                     </span>
                     {offer.machineId && (
                       <span className="bg-white/[0.06] px-2 py-0.5 rounded">

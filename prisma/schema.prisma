@@ -452,6 +452,7 @@ model PromotionalOffer {
   discountType    DiscountType
   discountValue   Float         // percentage (0-100) or flat ₹ amount
   isActive        Boolean       @default(true)
+  appliesTo       String        @default("ALL") // "ALL" = all users, "SPECIAL" = special users only
   createdAt       DateTime      @default(now())
   updatedAt       DateTime      @updatedAt
 
@@ -468,6 +469,7 @@ model RecurringSlotDiscount {
   machineId       MachineId?
   oneSlotDiscount   Float   // flat ₹ discount for 1 matching slot
   twoSlotDiscount   Float   // flat ₹ discount for 2 consecutive matching slots
+  appliesTo       String    @default("ALL") // "ALL" = all users, "SPECIAL" = special users only
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
 }
