@@ -53,7 +53,7 @@ export default function AdminUsers() {
   const [historyLoading, setHistoryLoading] = useState(false);
   const [cancellingId, setCancellingId] = useState<string | null>(null);
 
-  const isSuperAdmin = session?.user?.email === 'waheeddar8@gmail.com';
+  const isSuperAdmin = (session?.user as any)?.isSuperAdmin === true;
 
   const fetchBookingHistory = async (user: UserData) => {
     setHistoryUser(user);
@@ -606,22 +606,20 @@ export default function AdminUsers() {
                             </button>
                           )}
                         </div>
-                        {isSuperAdmin && (
-                          <button
-                            onClick={() => handleToggleSpecialUser(user)}
-                            className={`flex items-center justify-center gap-1.5 py-2 text-xs font-medium rounded-lg transition-colors cursor-pointer ${user.isSpecialUser
-                              ? 'text-cyan-400 bg-cyan-500/10 hover:bg-cyan-500/20'
-                              : 'text-slate-400 bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.1]'
-                              }`}
-                          >
-                            {user.isSpecialUser ? (
-                              <span className="truncate">Remove Special User</span>
-                            ) : (
-                              <span className="truncate">Mark as Special User</span>
-                            )}
-                          </button>
-                        )}
-                        {isSuperAdmin && user.isSpecialUser && (
+                        <button
+                          onClick={() => handleToggleSpecialUser(user)}
+                          className={`flex items-center justify-center gap-1.5 py-2 text-xs font-medium rounded-lg transition-colors cursor-pointer ${user.isSpecialUser
+                            ? 'text-cyan-400 bg-cyan-500/10 hover:bg-cyan-500/20'
+                            : 'text-slate-400 bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.1]'
+                            }`}
+                        >
+                          {user.isSpecialUser ? (
+                            <span className="truncate">Remove Special User</span>
+                          ) : (
+                            <span className="truncate">Mark as Special User</span>
+                          )}
+                        </button>
+                        {user.isSpecialUser && (
                           <div className="grid grid-cols-3 gap-2 border-t border-white/[0.06] pt-3 mt-3">
                             <div>
                               <label className="block text-[10px] font-medium text-slate-500 mb-1.5 uppercase tracking-wider">Discount Type</label>

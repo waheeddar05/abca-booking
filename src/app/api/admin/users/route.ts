@@ -171,15 +171,8 @@ export async function PATCH(req: NextRequest) {
       return NextResponse.json({ error: 'Only super admin can set free user status' }, { status: 403 });
     }
 
-    // Only super admin can change special user status
-    if (typeof isSpecialUser === 'boolean' && session.email !== 'waheeddar8@gmail.com') {
-      return NextResponse.json({ error: 'Only super admin can set special user status' }, { status: 403 });
-    }
-
-    // Only super admin can change special user discount
-    if ((specialDiscountType || specialDiscountValue !== undefined) && session.email !== 'waheeddar8@gmail.com') {
-      return NextResponse.json({ error: 'Only super admin can set special user discount' }, { status: 403 });
-    }
+    // Any admin can change special user status and discount
+    // (no super admin restriction)
 
     const updated = await prisma.user.update({
       where: { id },
