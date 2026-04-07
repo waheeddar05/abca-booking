@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useSession } from 'next-auth/react';
-import { LayoutDashboard, CalendarCheck, Users, Settings, Clock, Wrench, Package, Zap, SlidersHorizontal, ArrowLeft, Power, DatabaseZap, UserCog } from 'lucide-react';
+import { LayoutDashboard, CalendarCheck, Users, Settings, Clock, Wrench, Package, Zap, SlidersHorizontal, ArrowLeft, Power, DatabaseZap, UserCog, Tag } from 'lucide-react';
 import { signOut } from 'next-auth/react';
 import { AdminMobileNav } from '@/components/admin/AdminMobileNav';
 
@@ -24,6 +24,7 @@ export default function AdminLayout({
     { href: '/admin/slots', label: 'Slots', icon: Clock },
     { href: '/admin/users', label: 'Users', icon: Users },
     { href: '/admin/operators', label: 'Operators', icon: UserCog },
+    { href: '/admin/offers', label: 'Offers', icon: Tag },
     { href: '/admin/packages', label: 'Packages', icon: Package },
     { href: '/admin/configuration', label: 'Settings', icon: SlidersHorizontal },
     { href: '/admin/policies', label: 'Policies', icon: Settings },

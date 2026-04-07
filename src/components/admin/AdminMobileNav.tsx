@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useSession } from 'next-auth/react';
-import { LayoutDashboard, CalendarCheck, Clock, Users, SlidersHorizontal, Package } from 'lucide-react';
+import { LayoutDashboard, CalendarCheck, Clock, Users, SlidersHorizontal, Package, Tag } from 'lucide-react';
 
 export function AdminMobileNav() {
     const pathname = usePathname();
@@ -15,6 +15,7 @@ export function AdminMobileNav() {
         { href: '/admin/slots', label: 'Slots', icon: Clock },
         { href: '/admin/users', label: 'Users', icon: Users },
         { href: '/admin/packages', label: 'Packages', icon: Package },
+        { href: '/admin/offers', label: 'Offers', icon: Tag },
         { href: '/admin/configuration', label: 'Settings', icon: SlidersHorizontal },
     ];
 
@@ -28,7 +29,7 @@ export function AdminMobileNav() {
     return (
         <nav className="fixed bottom-0 left-0 right-0 z-50 md:hidden">
             <div className="bg-[#0b1726]/95 backdrop-blur-xl border-t border-white/[0.08] pb-safe">
-                <div className="grid grid-cols-6 h-[60px]">
+                <div className="grid grid-cols-7 h-[60px]">
                     {tabs.map((tab) => {
                         const active = isActive(tab.href);
                         return (
