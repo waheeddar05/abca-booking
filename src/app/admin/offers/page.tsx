@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Gift, Plus, Pencil, ToggleLeft, ToggleRight, Loader2, Trash2 } from 'lucide-react';
+import { Gift, Plus, Pencil, ToggleLeft, ToggleRight, Loader2, Trash2, Save, Edit2 } from 'lucide-react';
 import { AdminPageHeader } from '@/components/admin/AdminPageHeader';
 
 interface OfferData {
@@ -19,6 +19,17 @@ interface OfferData {
   isActive: boolean;
   createdAt: string;
   updatedAt: string;
+}
+
+interface RecurringDiscountRule {
+  id: string;
+  enabled: boolean;
+  days: number[];
+  slotStartTime: string;
+  slotEndTime: string;
+  machineId: string | null;
+  oneSlotDiscount: number;
+  twoSlotDiscount: number;
 }
 
 const MACHINE_OPTIONS = [
@@ -44,6 +55,18 @@ const DAYS_OF_WEEK = [
   { id: 6, label: 'Sat' },
 ];
 
+const DAY_LABELS: Record<number, string> = { 0: 'Sun', 1: 'Mon', 2: 'Tue', 3: 'Wed', 4: 'Thu', 5: 'Fri', 6: 'Sat' };
+const DAY_NUMBERS = [0, 1, 2, 3, 4, 5, 6];
+const ALL_MACHINE_IDS = ['GRAVITY', 'YANTRA', 'LEVERAGE_INDOOR', 'LEVERAGE_OUTDOOR'];
+const MACHINE_LABELS: Record<string, { name: string }> = {
+  GRAVITY: { name: 'Gravity (Leather)' },
+  YANTRA: { name: 'Yantra (Premium Leather)' },
+  LEVERAGE_INDOOR: { name: 'Leverage Indoor' },
+  LEVERAGE_OUTDOOR: { name: 'Leverage Outdoor' },
+};
+
+const inputClass = "w-full bg-white/[0.04] border border-white/[0.1] text-white placeholder:text-slate-500 rounded-lg px-3 py-2.5 text-sm outline-none focus:border-accent focus:ring-1 focus:ring-accent/20 transition-colors";
+
 const emptyForm = {
   name: '',
   startDate: new Date().toISOString().split('T')[0],
@@ -67,6 +90,23 @@ export default function AdminOffers() {
   const [submitting, setSubmitting] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
 
+  // Recurring Slot Discounts
+  const [recurringRules, setRecurringRules] = useState<RecurringDiscountRule[]>([]);
+  const [recurringLoading, setRecurringLoading] = useState(true);
+  const [showAddRule, setShowAddRule] = useState(false);
+  const [editingRule, setEditingRule] = useState<RecurringDiscountRule | null>(null);
+  const [ruleForm, setRuleForm] = useState({
+    days: [] as number[],
+    slotStartTime: '08:00',
+    slotEndTime: '08:30',
+    machineId: '',
+    oneSlotDiscount: 0,
+    twoSlotDiscount: 0,
+    enabled: true,
+  });
+  const [savingRule, setSavingRule] = useState(false);
+  const [ruleMessage, setRuleMessage] = useState({ text: '', type: '' });
+
   const fetchOffers = async () => {
     setLoading(true);
     try {
@@ -85,7 +125,22 @@ export default function AdminOffers() {
 
   useEffect(() => {
     fetchOffers();
+    fetchRecurringRules();
   }, []);
+
+  const fetchRecurringRules = async () => {
+    try {
+      const res = await fetch('/api/admin/recurring-discounts');
+      if (res.ok) {
+        const data = await res.json();
+        setRecurringRules(data.rules || []);
+      }
+    } catch (error) {
+      console.error('Failed to fetch recurring rules:', error);
+    } finally {
+      setRecurringLoading(false);
+    }
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -209,9 +264,195 @@ export default function AdminOffers() {
     }
   };
 
+  // ─── Recurring Discount Helpers ─────────────────
+  const resetRuleForm = () => {
+    setRuleForm({ days: [], slotStartTime: '08:00', slotEndTime: '08:30', machineId: '', oneSlotDiscount: 0, twoSlotDiscount: 0, enabled: true });
+    setEditingRule(null);
+    setShowAddRule(false);
+  };
+
+  const handleSaveRule = async () => {
+    // Validate end time is after start time
+    if (ruleForm.slotEndTime <= ruleForm.slotStartTime) {
+      setRuleMessage({ text: 'End time must be after start time', type: 'error' });
+      return;
+    }
+    if (ruleForm.days.length === 0) {
+      setRuleMessage({ text: 'Select at least one day', type: 'error' });
+      return;
+    }
+    setSavingRule(true);
+    try {
+      const payload = {
+        days: ruleForm.days,
+        slotStartTime: ruleForm.slotStartTime,
+        slotEndTime: ruleForm.slotEndTime,
+        machineId: ruleForm.machineId || null,
+        oneSlotDiscount: Number(ruleForm.oneSlotDiscount),
+        twoSlotDiscount: Number(ruleForm.twoSlotDiscount),
+        enabled: ruleForm.enabled,
+      };
+      let res;
+      if (editingRule) {
+        res = await fetch(`/api/admin/recurring-discounts/${editingRule.id}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+      } else {
+        res = await fetch('/api/admin/recurring-discounts', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+      }
+      if (res.ok) {
+        resetRuleForm();
+        fetchRecurringRules();
+        setRuleMessage({ text: editingRule ? 'Rule updated' : 'Rule created', type: 'success' });
+      } else {
+        const data = await res.json();
+        setRuleMessage({ text: data.error || 'Failed to save rule', type: 'error' });
+      }
+    } catch {
+      setRuleMessage({ text: 'Failed to save rule', type: 'error' });
+    } finally {
+      setSavingRule(false);
+    }
+  };
+
+  const handleDeleteRule = async (id: string) => {
+    try {
+      const res = await fetch(`/api/admin/recurring-discounts/${id}`, { method: 'DELETE' });
+      if (res.ok) {
+        fetchRecurringRules();
+        setRuleMessage({ text: 'Rule deleted', type: 'success' });
+      }
+    } catch {
+      setRuleMessage({ text: 'Failed to delete rule', type: 'error' });
+    }
+  };
+
+  const handleToggleRule = async (rule: RecurringDiscountRule) => {
+    try {
+      await fetch(`/api/admin/recurring-discounts/${rule.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enabled: !rule.enabled }),
+      });
+      fetchRecurringRules();
+    } catch {
+      setRuleMessage({ text: 'Failed to toggle rule', type: 'error' });
+    }
+  };
+
+  const startEditRule = (rule: RecurringDiscountRule) => {
+    setRuleForm({
+      days: rule.days,
+      slotStartTime: rule.slotStartTime,
+      slotEndTime: rule.slotEndTime,
+      machineId: rule.machineId || '',
+      oneSlotDiscount: rule.oneSlotDiscount,
+      twoSlotDiscount: rule.twoSlotDiscount,
+      enabled: rule.enabled,
+    });
+    setEditingRule(rule);
+    setShowAddRule(true);
+  };
+
+  const renderRuleForm = () => (
+    <div className="bg-white/[0.03] rounded-xl border border-accent/20 p-4 space-y-3 mt-2">
+      <h4 className="text-xs font-bold text-accent">{editingRule ? 'Edit Rule' : 'New Rule'}</h4>
+      <div>
+        <label className="block text-[10px] font-medium text-slate-400 mb-1">Days of Week</label>
+        <div className="flex flex-wrap gap-1">
+          {DAY_NUMBERS.map(d => (
+            <button
+              key={d}
+              onClick={() => {
+                setRuleForm(prev => ({
+                  ...prev,
+                  days: prev.days.includes(d) ? prev.days.filter(x => x !== d) : [...prev.days, d],
+                }));
+              }}
+              className={`px-2.5 py-1.5 rounded-lg text-[11px] font-medium transition-all cursor-pointer ${
+                ruleForm.days.includes(d)
+                  ? 'bg-accent/15 text-accent border border-accent/30'
+                  : 'bg-white/[0.04] text-slate-500 border border-white/[0.08] hover:bg-white/[0.08]'
+              }`}
+            >{DAY_LABELS[d]}</button>
+          ))}
+        </div>
+      </div>
+      <div className="grid grid-cols-2 gap-2">
+        <div>
+          <label className="block text-[10px] font-medium text-slate-400 mb-1">Start Time</label>
+          <input type="time" value={ruleForm.slotStartTime} onChange={e => setRuleForm(prev => ({ ...prev, slotStartTime: e.target.value }))} step="1800" className={inputClass} />
+        </div>
+        <div>
+          <label className="block text-[10px] font-medium text-slate-400 mb-1">End Time</label>
+          <input type="time" value={ruleForm.slotEndTime} onChange={e => setRuleForm(prev => ({ ...prev, slotEndTime: e.target.value }))} step="1800" className={inputClass} />
+        </div>
+      </div>
+      <div>
+        <label className="block text-[10px] font-medium text-slate-400 mb-1">Machine (optional)</label>
+        <select
+          value={ruleForm.machineId}
+          onChange={e => setRuleForm(prev => ({ ...prev, machineId: e.target.value }))}
+          className={inputClass}
+        >
+          <option value="">All Machines</option>
+          {ALL_MACHINE_IDS.map(mid => (
+            <option key={mid} value={mid}>{MACHINE_LABELS[mid].name}</option>
+          ))}
+        </select>
+      </div>
+      <div className="grid grid-cols-2 gap-2">
+        <div>
+          <label className="block text-[10px] font-medium text-slate-400 mb-1">Discount for 1 Slot (₹)</label>
+          <input
+            type="number"
+            value={ruleForm.oneSlotDiscount}
+            onChange={e => setRuleForm(prev => ({ ...prev, oneSlotDiscount: Number(e.target.value) || 0 }))}
+            placeholder="0"
+            min="0"
+            step="10"
+            className={inputClass}
+          />
+        </div>
+        <div>
+          <label className="block text-[10px] font-medium text-slate-400 mb-1">Discount for 2 Cons. Slots (₹)</label>
+          <input
+            type="number"
+            value={ruleForm.twoSlotDiscount}
+            onChange={e => setRuleForm(prev => ({ ...prev, twoSlotDiscount: Number(e.target.value) || 0 }))}
+            placeholder="0"
+            min="0"
+            step="10"
+            className={inputClass}
+          />
+        </div>
+      </div>
+      <div className="flex items-center gap-2 pt-1">
+        <button
+          onClick={handleSaveRule}
+          disabled={savingRule || ruleForm.days.length === 0}
+          className="inline-flex items-center gap-1.5 bg-accent/10 hover:bg-accent/20 text-accent px-3 py-1.5 rounded-lg text-xs font-medium transition-colors cursor-pointer disabled:opacity-50"
+        >
+          {savingRule ? <Loader2 className="w-3 h-3 animate-spin" /> : <Save className="w-3 h-3" />}
+          {editingRule ? 'Update' : 'Save Rule'}
+        </button>
+        <button
+          onClick={resetRuleForm}
+          className="text-xs text-slate-500 hover:text-slate-300 px-3 py-1.5 cursor-pointer"
+        >Cancel</button>
+      </div>
+    </div>
+  );
+
   return (
     <div className="min-h-screen bg-slate-950 text-white">
-      <AdminPageHeader icon={Gift} title="Promotional Offers" description="Manage promotional discounts">
+      <AdminPageHeader icon={Gift} title="Offers & Discounts" description="Manage promotional offers and recurring discounts">
         <button
           onClick={() => {
             setShowForm(!showForm);
@@ -225,6 +466,87 @@ export default function AdminOffers() {
           {showForm ? 'Cancel' : 'Create Offer'}
         </button>
       </AdminPageHeader>
+
+      {/* Recurring Slot Discounts Section */}
+      <div className="bg-white/[0.03] backdrop-blur-sm rounded-2xl border border-white/[0.07] p-5 mb-6">
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <h2 className="text-sm font-semibold text-white">Recurring Slot Discounts</h2>
+            <p className="text-[11px] text-slate-400 mt-1">Fixed discounts for specific day + time combinations</p>
+          </div>
+        </div>
+
+        {ruleMessage.text && (
+          <p className={`mb-4 text-sm ${ruleMessage.type === 'success' ? 'text-green-400' : 'text-red-400'}`}>
+            {ruleMessage.text}
+          </p>
+        )}
+
+        {recurringLoading ? (
+          <div className="flex items-center gap-2 py-4 text-slate-400">
+            <Loader2 className="w-4 h-4 animate-spin" />
+            <span className="text-sm">Loading discount rules...</span>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {/* Existing Rules */}
+            {recurringRules.length === 0 && !showAddRule && (
+              <p className="text-xs text-slate-500 italic">No recurring discount rules configured.</p>
+            )}
+            {recurringRules.map(rule => (
+              <div key={rule.id}>
+                <div className={`bg-white/[0.02] rounded-xl border p-3 ${rule.enabled ? 'border-emerald-500/20' : 'border-white/[0.05] opacity-60'}`}>
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex flex-wrap gap-1 mb-1">
+                        {rule.days.map(d => (
+                          <span key={d} className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-accent/10 text-accent">{DAY_LABELS[d]}</span>
+                        ))}
+                      </div>
+                      <p className="text-xs text-slate-300">
+                        {rule.slotStartTime} – {rule.slotEndTime}
+                        {rule.machineId && <span className="text-slate-500 ml-2">({MACHINE_LABELS[rule.machineId]?.name || rule.machineId})</span>}
+                      </p>
+                      <div className="flex gap-3 mt-1">
+                        <span className="text-[10px] text-emerald-400">1 slot: -₹{rule.oneSlotDiscount}</span>
+                        <span className="text-[10px] text-emerald-400">2 slots: -₹{rule.twoSlotDiscount}</span>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-1 flex-shrink-0">
+                      <button
+                        onClick={() => handleToggleRule(rule)}
+                        className={`p-1.5 rounded-lg text-[10px] font-medium cursor-pointer ${rule.enabled ? 'text-emerald-400 bg-emerald-400/10' : 'text-slate-500 bg-white/[0.04]'}`}
+                      >{rule.enabled ? 'ON' : 'OFF'}</button>
+                      <button onClick={() => startEditRule(rule)} className="p-1.5 rounded-lg text-slate-400 hover:text-accent hover:bg-accent/10 cursor-pointer"><Edit2 className="w-3 h-3" /></button>
+                      <button onClick={() => handleDeleteRule(rule.id)} className="p-1.5 rounded-lg text-slate-400 hover:text-red-400 hover:bg-red-400/10 cursor-pointer"><Trash2 className="w-3 h-3" /></button>
+                    </div>
+                  </div>
+                </div>
+                {/* Inline edit form — appears right below the rule being edited */}
+                {showAddRule && editingRule?.id === rule.id && renderRuleForm()}
+              </div>
+            ))}
+
+            {/* New rule form — appears at bottom only for new rules (not editing) */}
+            {showAddRule && !editingRule ? renderRuleForm() : null}
+            {!showAddRule && (
+              <button
+                onClick={() => setShowAddRule(true)}
+                className="inline-flex items-center gap-1.5 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 px-3 py-2 rounded-lg text-xs font-medium transition-colors cursor-pointer"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                Add Discount Rule
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Promotional Offers Section */}
+      <div className="mb-5">
+        <h2 className="text-sm font-semibold text-white mb-2">Promotional Offers</h2>
+        <p className="text-[11px] text-slate-400 mb-4">Date-based discounts for specific machines, pitches & time slots</p>
+      </div>
 
       {message.text && (
         <p className={`mb-4 text-sm ${message.type === 'success' ? 'text-green-400' : 'text-red-400'}`}>
