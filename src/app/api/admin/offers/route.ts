@@ -89,8 +89,8 @@ export async function POST(req: NextRequest) {
     const offer = await prisma.promotionalOffer.create({
       data: {
         name: parsed.name,
-        startDate: new Date(parsed.startDate).toISOString().split('T')[0], // Store as date only
-        endDate: new Date(parsed.endDate).toISOString().split('T')[0], // Store as date only
+        startDate: new Date(parsed.startDate),
+        endDate: new Date(parsed.endDate),
         timeSlotStart: parsed.timeSlotStart || null,
         timeSlotEnd: parsed.timeSlotEnd || null,
         days: parsed.days || [],
@@ -157,14 +157,14 @@ export async function PATCH(req: NextRequest) {
       }
     }
 
-    // Convert dates to date-only format if provided
+    // Convert date strings to Date objects if provided
     type UpdateData = Record<string, unknown>;
     const dataToUpdate: UpdateData = { ...updates };
     if (updates.startDate) {
-      dataToUpdate.startDate = new Date(updates.startDate as string).toISOString().split('T')[0];
+      dataToUpdate.startDate = new Date(updates.startDate as string);
     }
     if (updates.endDate) {
-      dataToUpdate.endDate = new Date(updates.endDate as string).toISOString().split('T')[0];
+      dataToUpdate.endDate = new Date(updates.endDate as string);
     }
 
     const offer = await prisma.promotionalOffer.update({
