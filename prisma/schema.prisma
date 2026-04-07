@@ -447,8 +447,8 @@ model PromotionalOffer {
   timeSlotStart   String?       // HH:MM — null means all day
   timeSlotEnd     String?       // HH:MM — null means all day
   days            Int[]         // Day-of-week filter: 0=Sun..6=Sat. Empty = all days.
-  machineId       MachineId?    // null = applies to all machines
-  pitchType       PitchType?    // null = applies to all pitches
+  machineIds      MachineId[]   // empty = applies to all machines
+  pitchTypes      PitchType[]   // empty = applies to all pitches
   discountType    DiscountType
   discountValue   Float         // percentage (0-100) or flat ₹ amount
   isActive        Boolean       @default(true)
@@ -466,7 +466,7 @@ model RecurringSlotDiscount {
   days            Int[]     // Array of day-of-week numbers: 0=Sun, 1=Mon, ..., 6=Sat
   slotStartTime   String    // HH:MM format e.g. "08:00"
   slotEndTime     String    // HH:MM format e.g. "08:30"
-  machineId       MachineId?
+  machineIds      MachineId[] // empty = applies to all machines
   oneSlotDiscount   Float   // flat ₹ discount for 1 matching slot
   twoSlotDiscount   Float   // flat ₹ discount for 2 consecutive matching slots
   appliesTo       String    @default("ALL") // "ALL" = all users, "SPECIAL" = special users only

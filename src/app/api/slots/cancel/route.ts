@@ -163,7 +163,7 @@ export async function POST(req: NextRequest) {
               const ruleStartTime = rule.slotStartTime.padStart(5, '0');
               const ruleEndTime = (rule.slotEndTime || rule.slotStartTime).padStart(5, '0');
               if (istTimeStr < ruleStartTime || istTimeStr >= ruleEndTime) continue;
-              if (rule.machineId && rule.machineId !== booking.machineId) continue;
+              if (rule.machineIds && rule.machineIds.length > 0 && booking.machineId && !rule.machineIds.includes(booking.machineId)) continue;
 
               const discountAmt = rule[perSlotDiscountKey] as number;
               const maxReduction = Math.min(discountAmt, newPricing[i].price);

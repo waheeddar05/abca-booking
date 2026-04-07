@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Gift, Plus, Pencil, Edit2, Loader2, Trash2, Save, X, Filter } from 'lucide-react';
 import { AdminPageHeader } from '@/components/admin/AdminPageHeader';
 
@@ -12,8 +12,8 @@ interface OfferData {
   timeSlotStart: string | null;
   timeSlotEnd: string | null;
   days: number[];
-  machineId: string | null;
-  pitchType: string | null;
+  machineIds: string[];
+  pitchTypes: string[];
   discountType: 'PERCENTAGE' | 'FIXED';
   discountValue: number;
   isActive: boolean;
@@ -28,7 +28,7 @@ interface RecurringDiscountRule {
   days: number[];
   slotStartTime: string;
   slotEndTime: string;
-  machineId: string | null;
+  machineIds: string[];
   oneSlotDiscount: number;
   twoSlotDiscount: number;
   appliesTo: 'ALL' | 'SPECIAL';
@@ -76,8 +76,8 @@ const emptyPromoForm = {
   timeSlotStart: null as string | null,
   timeSlotEnd: null as string | null,
   days: [] as number[],
-  machineId: null as string | null,
-  pitchType: null as string | null,
+  machineIds: [] as string[],
+  pitchTypes: [] as string[],
   discountType: 'PERCENTAGE' as 'PERCENTAGE' | 'FIXED',
   discountValue: 10,
   appliesTo: 'ALL' as 'ALL' | 'SPECIAL',
@@ -87,7 +87,7 @@ const emptyRecurringForm = {
   days: [] as number[],
   slotStartTime: '08:00',
   slotEndTime: '08:30',
-  machineId: null as string | null,
+  machineIds: [] as string[],
   oneSlotDiscount: 0,
   twoSlotDiscount: 0,
   enabled: true,
@@ -108,6 +108,7 @@ export default function AdminOffers() {
   const [ruleMessage, setRuleMessage] = useState({ text: '', type: '' });
 
   // Form state
+  const formRef = useRef<HTMLDivElement>(null);
   const [showForm, setShowForm] = useState(false);
   const [offerType, setOfferType] = useState<'PROMOTIONAL' | 'RECURRING'>('PROMOTIONAL');
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -262,13 +263,13 @@ export default function AdminOffers() {
   const startEditPromo = (offer: OfferData) => {
     setPromoForm({
       name: offer.name,
-      startDate: offer.startDate,
-      endDate: offer.endDate,
+      startDate: offer.startDate ? new Date(offer.startDate).toISOString().split('T')[0] : '',
+      endDate: offer.endDate ? new Date(offer.endDate).toISOString().split('T')[0] : '',
       timeSlotStart: offer.timeSlotStart,
       timeSlotEnd: offer.timeSlotEnd,
       days: offer.days,
-      machineId: offer.machineId,
-      pitchType: offer.pitchType,
+      machineIds: offer.machineIds || [],
+      pitchTypes: offer.pitchTypes || [],
       discountType: offer.discountType,
       discountValue: offer.discountValue,
       appliesTo: offer.appliesTo || 'ALL',
@@ -278,6 +279,7 @@ export default function AdminOffers() {
     setOfferType('PROMOTIONAL');
     setShowForm(true);
     setMessage({ text: '', type: '' });
+    setTimeout(() => formRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 100);
   };
 
   const toggleActivePromo = async (offer: OfferData) => {
@@ -337,7 +339,7 @@ export default function AdminOffers() {
         days: recurringForm.days,
         slotStartTime: recurringForm.slotStartTime,
         slotEndTime: recurringForm.slotEndTime,
-        machineId: recurringForm.machineId,
+        machineIds: recurringForm.machineIds,
         oneSlotDiscount: Number(recurringForm.oneSlotDiscount),
         twoSlotDiscount: Number(recurringForm.twoSlotDiscount),
         enabled: recurringForm.enabled,
@@ -382,7 +384,7 @@ export default function AdminOffers() {
       days: rule.days,
       slotStartTime: rule.slotStartTime,
       slotEndTime: rule.slotEndTime,
-      machineId: rule.machineId,
+      machineIds: rule.machineIds || [],
       oneSlotDiscount: rule.oneSlotDiscount,
       twoSlotDiscount: rule.twoSlotDiscount,
       enabled: rule.enabled,
@@ -392,6 +394,7 @@ export default function AdminOffers() {
     setEditingType('RECURRING');
     setOfferType('RECURRING');
     setShowForm(true);
+    setTimeout(() => formRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 100);
   };
 
   const handleDeleteRule = async (id: string) => {
@@ -439,7 +442,7 @@ export default function AdminOffers() {
 
       {/* Create/Edit Form */}
       {showForm && (
-        <div className="bg-white/[0.03] backdrop-blur-sm rounded-2xl border border-white/[0.07] p-6 mb-6">
+        <div ref={formRef} className="bg-white/[0.03] backdrop-blur-sm rounded-2xl border border-white/[0.07] p-6 mb-6">
           <h2 className="text-lg font-semibold text-white mb-5">
             {editingId ? 'Edit Offer' : 'Create New Offer'}
           </h2>
@@ -557,22 +560,22 @@ export default function AdminOffers() {
               </div>
 
               <div>
-                <label className="block text-[11px] font-medium text-slate-400 mb-2">Machine (Optional)</label>
+                <label className="block text-[11px] font-medium text-slate-400 mb-2">Machines <span className="text-slate-600">(empty = all)</span></label>
                 <div className="flex flex-wrap gap-2">
                   {MACHINE_OPTIONS.map(machine => (
                     <button
                       key={machine.id}
                       type="button"
-                      onClick={() =>
-                        setPromoForm({
-                          ...promoForm,
-                          machineId: promoForm.machineId === machine.id ? null : machine.id,
-                        })
-                      }
-                      className={`px-3 py-2 rounded-lg text-sm font-medium transition-all ${
-                        promoForm.machineId === machine.id
-                          ? 'bg-accent/20 border border-accent/40 text-accent'
-                          : 'bg-white/[0.04] border border-white/[0.1] text-slate-400 hover:border-white/[0.2]'
+                      onClick={() => {
+                        const newIds = promoForm.machineIds.includes(machine.id)
+                          ? promoForm.machineIds.filter(id => id !== machine.id)
+                          : [...promoForm.machineIds, machine.id];
+                        setPromoForm({ ...promoForm, machineIds: newIds });
+                      }}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                        promoForm.machineIds.includes(machine.id)
+                          ? 'bg-accent/20 text-accent border border-accent/40'
+                          : 'bg-white/[0.04] text-slate-400 border border-white/[0.08] hover:border-white/20'
                       }`}
                     >
                       {machine.label}
@@ -582,21 +585,28 @@ export default function AdminOffers() {
               </div>
 
               <div>
-                <label className="block text-[11px] font-medium text-slate-400 mb-1">Pitch Type (Optional)</label>
-                <select
-                  value={promoForm.pitchType || ''}
-                  onChange={e => setPromoForm({ ...promoForm, pitchType: e.target.value || null })}
-                  className={inputClass}
-                >
-                  <option value="" className="bg-[#1a2a40]">
-                    All Pitch Types
-                  </option>
-                  {PITCH_TYPES.map(p => (
-                    <option key={p.id} value={p.id} className="bg-[#1a2a40]">
-                      {p.label}
-                    </option>
+                <label className="block text-[11px] font-medium text-slate-400 mb-2">Pitch Types <span className="text-slate-600">(empty = all)</span></label>
+                <div className="flex flex-wrap gap-2">
+                  {PITCH_TYPES.map(pitch => (
+                    <button
+                      key={pitch.id}
+                      type="button"
+                      onClick={() => {
+                        const newTypes = promoForm.pitchTypes.includes(pitch.id)
+                          ? promoForm.pitchTypes.filter(id => id !== pitch.id)
+                          : [...promoForm.pitchTypes, pitch.id];
+                        setPromoForm({ ...promoForm, pitchTypes: newTypes });
+                      }}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                        promoForm.pitchTypes.includes(pitch.id)
+                          ? 'bg-accent/20 text-accent border border-accent/40'
+                          : 'bg-white/[0.04] text-slate-400 border border-white/[0.08] hover:border-white/20'
+                      }`}
+                    >
+                      {pitch.label}
+                    </button>
                   ))}
-                </select>
+                </div>
               </div>
 
               <div>
@@ -723,33 +733,22 @@ export default function AdminOffers() {
               </div>
 
               <div>
-                <label className="block text-[11px] font-medium text-slate-400 mb-2">Machine (Optional)</label>
+                <label className="block text-[11px] font-medium text-slate-400 mb-2">Machines <span className="text-slate-600">(empty = all)</span></label>
                 <div className="flex flex-wrap gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setRecurringForm({ ...recurringForm, machineId: null })}
-                    className={`px-3 py-2 rounded-lg text-sm font-medium transition-all ${
-                      recurringForm.machineId === null
-                        ? 'bg-accent/20 border border-accent/40 text-accent'
-                        : 'bg-white/[0.04] border border-white/[0.1] text-slate-400 hover:border-white/[0.2]'
-                    }`}
-                  >
-                    All Machines
-                  </button>
                   {MACHINE_OPTIONS.map(machine => (
                     <button
                       key={machine.id}
                       type="button"
-                      onClick={() =>
-                        setRecurringForm({
-                          ...recurringForm,
-                          machineId: recurringForm.machineId === machine.id ? null : machine.id,
-                        })
-                      }
-                      className={`px-3 py-2 rounded-lg text-sm font-medium transition-all ${
-                        recurringForm.machineId === machine.id
-                          ? 'bg-accent/20 border border-accent/40 text-accent'
-                          : 'bg-white/[0.04] border border-white/[0.1] text-slate-400 hover:border-white/[0.2]'
+                      onClick={() => {
+                        const newIds = recurringForm.machineIds.includes(machine.id)
+                          ? recurringForm.machineIds.filter(id => id !== machine.id)
+                          : [...recurringForm.machineIds, machine.id];
+                        setRecurringForm({ ...recurringForm, machineIds: newIds });
+                      }}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                        recurringForm.machineIds.includes(machine.id)
+                          ? 'bg-accent/20 text-accent border border-accent/40'
+                          : 'bg-white/[0.04] text-slate-400 border border-white/[0.08] hover:border-white/20'
                       }`}
                     >
                       {machine.label}
@@ -909,15 +908,19 @@ export default function AdminOffers() {
                               ? `${offer.promotional.discountValue}% off`
                               : `₹${offer.promotional.discountValue} off`}
                           </span>
-                          {offer.promotional.machineId && (
-                            <span className="bg-white/[0.06] px-2 py-0.5 rounded">
-                              {MACHINE_OPTIONS.find(m => m.id === offer.promotional?.machineId)?.label}
-                            </span>
+                          {offer.promotional.machineIds && offer.promotional.machineIds.length > 0 && (
+                            offer.promotional.machineIds.map(mid => (
+                              <span key={mid} className="bg-white/[0.06] px-2 py-0.5 rounded">
+                                {MACHINE_OPTIONS.find(m => m.id === mid)?.label}
+                              </span>
+                            ))
                           )}
-                          {offer.promotional.pitchType && (
-                            <span className="bg-white/[0.06] px-2 py-0.5 rounded">
-                              {PITCH_TYPES.find(p => p.id === offer.promotional?.pitchType)?.label}
-                            </span>
+                          {offer.promotional.pitchTypes && offer.promotional.pitchTypes.length > 0 && (
+                            offer.promotional.pitchTypes.map(pid => (
+                              <span key={pid} className="bg-white/[0.06] px-2 py-0.5 rounded">
+                                {PITCH_TYPES.find(p => p.id === pid)?.label}
+                              </span>
+                            ))
                           )}
                           {offer.promotional.days && offer.promotional.days.length > 0 && (
                             <span className="bg-white/[0.06] px-2 py-0.5 rounded">
@@ -937,10 +940,12 @@ export default function AdminOffers() {
                           <span className="bg-white/[0.06] px-2 py-0.5 rounded">
                             {offer.recurring.days.map(d => DAYS_OF_WEEK.find(dw => dw.id === d)?.label).join(', ')}
                           </span>
-                          {offer.recurring.machineId && (
-                            <span className="bg-white/[0.06] px-2 py-0.5 rounded">
-                              {MACHINE_OPTIONS.find(m => m.id === offer.recurring?.machineId)?.label}
-                            </span>
+                          {offer.recurring.machineIds && offer.recurring.machineIds.length > 0 && (
+                            offer.recurring.machineIds.map(mid => (
+                              <span key={mid} className="bg-white/[0.06] px-2 py-0.5 rounded">
+                                {MACHINE_OPTIONS.find(m => m.id === mid)?.label}
+                              </span>
+                            ))
                           )}
                           <span className="bg-emerald-500/15 text-emerald-400 px-2 py-0.5 rounded font-medium">
                             1 slot: -₹{offer.recurring.oneSlotDiscount}

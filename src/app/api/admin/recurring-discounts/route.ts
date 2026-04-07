@@ -33,7 +33,7 @@ export async function POST(req: NextRequest) {
     }
 
     const body = await req.json();
-    const { days, slotStartTime, slotEndTime, machineId, oneSlotDiscount, twoSlotDiscount, enabled, appliesTo } = body;
+    const { days, slotStartTime, slotEndTime, machineIds, oneSlotDiscount, twoSlotDiscount, enabled, appliesTo } = body;
 
     // Validation
     if (!Array.isArray(days) || days.length === 0) {
@@ -50,8 +50,12 @@ export async function POST(req: NextRequest) {
     }
 
     const validMachines = ['GRAVITY', 'YANTRA', 'LEVERAGE_INDOOR', 'LEVERAGE_OUTDOOR'];
-    if (machineId && !validMachines.includes(machineId)) {
-      return NextResponse.json({ error: `Invalid machineId. Must be one of: ${validMachines.join(', ')}` }, { status: 400 });
+    if (machineIds && Array.isArray(machineIds)) {
+      for (const mid of machineIds) {
+        if (!validMachines.includes(mid)) {
+          return NextResponse.json({ error: `Invalid machineId. Must be one of: ${validMachines.join(', ')}` }, { status: 400 });
+        }
+      }
     }
 
     const rule = await prisma.recurringSlotDiscount.create({
@@ -59,7 +63,7 @@ export async function POST(req: NextRequest) {
         days: days.map(Number),
         slotStartTime,
         slotEndTime,
-        machineId: machineId || null,
+        machineIds: (machineIds || []) as any[],
         oneSlotDiscount: Number(oneSlotDiscount),
         twoSlotDiscount: Number(twoSlotDiscount),
         enabled: enabled !== false,

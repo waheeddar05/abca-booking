@@ -337,7 +337,7 @@ export async function POST(req: NextRequest) {
         const ruleStartTime = rule.slotStartTime.padStart(5, '0');
         const ruleEndTime = (rule.slotEndTime || rule.slotStartTime).padStart(5, '0');
         if (istTimeStr < ruleStartTime || istTimeStr >= ruleEndTime) continue;
-        if (rule.machineId && rule.machineId !== firstMachineId) continue;
+        if (rule.machineIds && rule.machineIds.length > 0 && firstMachineId && !rule.machineIds.includes(firstMachineId)) continue;
 
         // Apply discount to this qualifying slot
         const discountAmount = rule[perSlotDiscount];

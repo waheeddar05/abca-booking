@@ -15,7 +15,7 @@ export async function PUT(
 
     const { id } = await params;
     const body = await req.json();
-    const { days, slotStartTime, slotEndTime, machineId, oneSlotDiscount, twoSlotDiscount, enabled, appliesTo } = body;
+    const { days, slotStartTime, slotEndTime, machineIds, oneSlotDiscount, twoSlotDiscount, enabled, appliesTo } = body;
 
     const existing = await prisma.recurringSlotDiscount.findUnique({ where: { id } });
     if (!existing) {
@@ -23,8 +23,12 @@ export async function PUT(
     }
 
     const validMachines = ['GRAVITY', 'YANTRA', 'LEVERAGE_INDOOR', 'LEVERAGE_OUTDOOR'];
-    if (machineId && !validMachines.includes(machineId)) {
-      return NextResponse.json({ error: `Invalid machineId` }, { status: 400 });
+    if (machineIds && Array.isArray(machineIds)) {
+      for (const mid of machineIds) {
+        if (!validMachines.includes(mid)) {
+          return NextResponse.json({ error: `Invalid machineId` }, { status: 400 });
+        }
+      }
     }
 
     const rule = await prisma.recurringSlotDiscount.update({
@@ -33,7 +37,7 @@ export async function PUT(
         ...(days !== undefined ? { days: days.map(Number) } : {}),
         ...(slotStartTime !== undefined ? { slotStartTime } : {}),
         ...(slotEndTime !== undefined ? { slotEndTime } : {}),
-        ...(machineId !== undefined ? { machineId: machineId || null } : {}),
+        ...(machineIds !== undefined ? { machineIds: machineIds || [] } : {}),
         ...(oneSlotDiscount !== undefined ? { oneSlotDiscount: Number(oneSlotDiscount) } : {}),
         ...(twoSlotDiscount !== undefined ? { twoSlotDiscount: Number(twoSlotDiscount) } : {}),
         ...(enabled !== undefined ? { enabled: Boolean(enabled) } : {}),

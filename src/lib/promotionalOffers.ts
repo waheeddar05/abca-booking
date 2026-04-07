@@ -79,13 +79,13 @@ export async function getApplicablePromoDiscount(
         }
       }
 
-      // 5. Check machine ID (null = all machines)
-      if (offer.machineId && offer.machineId !== machineId) {
+      // 5. Check machine IDs (empty = all machines)
+      if (offer.machineIds && offer.machineIds.length > 0 && machineId && !offer.machineIds.includes(machineId)) {
         return false;
       }
 
-      // 6. Check pitch type (null = all pitches)
-      if (offer.pitchType && offer.pitchType !== pitchType) {
+      // 6. Check pitch types (empty = all pitches)
+      if (offer.pitchTypes && offer.pitchTypes.length > 0 && pitchType && !offer.pitchTypes.includes(pitchType)) {
         return false;
       }
 

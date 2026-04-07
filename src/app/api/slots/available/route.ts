@@ -204,7 +204,7 @@ export async function GET(req: NextRequest) {
         const ruleEndTime = (rule.slotEndTime || rule.slotStartTime).padStart(5, '0');
         // Check if slot falls within the rule's time range [start, end)
         if (istTimeStr < ruleStartTime || istTimeStr >= ruleEndTime) continue;
-        if (rule.machineId && rule.machineId !== machineId) continue;
+        if (rule.machineIds && rule.machineIds.length > 0 && machineId && !rule.machineIds.includes(machineId)) continue;
         return { oneSlotDiscount: rule.oneSlotDiscount, twoSlotDiscount: rule.twoSlotDiscount };
       }
       return null;
