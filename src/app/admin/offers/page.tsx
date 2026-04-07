@@ -911,12 +911,12 @@ export default function AdminOffers() {
                           </span>
                           {offer.promotional.machineId && (
                             <span className="bg-white/[0.06] px-2 py-0.5 rounded">
-                              {MACHINE_OPTIONS.find(m => m.id === offer.promotional.machineId)?.label}
+                              {MACHINE_OPTIONS.find(m => m.id === offer.promotional?.machineId)?.label}
                             </span>
                           )}
                           {offer.promotional.pitchType && (
                             <span className="bg-white/[0.06] px-2 py-0.5 rounded">
-                              {PITCH_TYPES.find(p => p.id === offer.promotional.pitchType)?.label}
+                              {PITCH_TYPES.find(p => p.id === offer.promotional?.pitchType)?.label}
                             </span>
                           )}
                           {offer.promotional.days && offer.promotional.days.length > 0 && (
@@ -939,7 +939,7 @@ export default function AdminOffers() {
                           </span>
                           {offer.recurring.machineId && (
                             <span className="bg-white/[0.06] px-2 py-0.5 rounded">
-                              {MACHINE_OPTIONS.find(m => m.id === offer.recurring.machineId)?.label}
+                              {MACHINE_OPTIONS.find(m => m.id === offer.recurring?.machineId)?.label}
                             </span>
                           )}
                           <span className="bg-emerald-500/15 text-emerald-400 px-2 py-0.5 rounded font-medium">
