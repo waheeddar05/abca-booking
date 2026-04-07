@@ -37,8 +37,89 @@ export async function getSpecialUserDiscount(
 }
 
 /**
- * Calculate the best discount between promotional offer and special user discount.
- * "Higher discount wins" — compare the absolute ₹ amount each would give on the slot price.
+ * Calculate discount amounts, supporting special-user offer stacking.
+ *
+ * Business rules:
+ * - Offers with appliesTo="SPECIAL" stack additively with other offers (they don't compete).
+ * - Among non-special offers (appliesTo="ALL"), the highest discount wins.
+ * - A special user gets: best "ALL" offer + all applicable "SPECIAL" offers.
+ * - A regular user gets: only the best "ALL" offer.
+ */
+export interface DiscountResult {
+  totalDiscount: number;
+  label: string;
+  breakdown: { source: string; amount: number }[];
+}
+
+export function calculateStackedDiscount(
+  slotPrice: number,
+  promoDiscount: {
+    discountType: 'PERCENTAGE' | 'FIXED';
+    discountValue: number;
+    name: string;
+    appliesTo: string;
+  } | null,
+  allPromoDiscounts: {
+    discountType: 'PERCENTAGE' | 'FIXED';
+    discountValue: number;
+    name: string;
+    appliesTo: string;
+  }[],
+  isSpecialUser: boolean,
+): DiscountResult | null {
+  const breakdown: { source: string; amount: number }[] = [];
+  let runningPrice = slotPrice;
+
+  // 1. Find the best "ALL" offer among all applicable promos
+  const allUserOffers = allPromoDiscounts.filter(o => o.appliesTo === 'ALL');
+  let bestAllOffer: typeof allUserOffers[0] | null = null;
+  let bestAllAmount = 0;
+  for (const offer of allUserOffers) {
+    const amount = offer.discountType === 'PERCENTAGE'
+      ? (slotPrice * offer.discountValue) / 100
+      : offer.discountValue;
+    if (amount > bestAllAmount) {
+      bestAllAmount = amount;
+      bestAllOffer = offer;
+    }
+  }
+
+  // Apply the best ALL offer
+  if (bestAllOffer && bestAllAmount > 0) {
+    const reduction = Math.min(bestAllAmount, runningPrice);
+    runningPrice -= reduction;
+    breakdown.push({ source: bestAllOffer.name, amount: reduction });
+  }
+
+  // 2. If user is special, stack all SPECIAL-only offers on top
+  if (isSpecialUser) {
+    const specialOffers = allPromoDiscounts.filter(o => o.appliesTo === 'SPECIAL');
+    for (const offer of specialOffers) {
+      if (runningPrice <= 0) break;
+      const amount = offer.discountType === 'PERCENTAGE'
+        ? (slotPrice * offer.discountValue) / 100
+        : offer.discountValue;
+      const reduction = Math.min(amount, runningPrice);
+      if (reduction > 0) {
+        runningPrice -= reduction;
+        breakdown.push({ source: offer.name, amount: reduction });
+      }
+    }
+  }
+
+  if (breakdown.length === 0) {
+    return null;
+  }
+
+  const totalDiscount = breakdown.reduce((sum, b) => sum + b.amount, 0);
+  const label = breakdown.map(b => b.source).join(' + ');
+
+  return { totalDiscount, label, breakdown };
+}
+
+/**
+ * Legacy: Calculate the best discount between promotional offer and special user discount.
+ * Kept for backward compatibility. New code should use calculateStackedDiscount.
  */
 export function getBestDiscount(
   slotPrice: number,
@@ -88,6 +169,5 @@ export function getBestDiscount(
     };
   }
 
-  // This should not be reached, but handle it gracefully
   return null;
 }

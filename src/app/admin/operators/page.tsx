@@ -14,6 +14,11 @@ interface OperatorAssignment {
   createdAt: string;
 }
 
+interface DayPriority {
+  morning: number;
+  evening: number;
+}
+
 interface Operator {
   id: string;
   name: string | null;
@@ -22,6 +27,7 @@ interface Operator {
   operatorPriority: number;
   operatorMorningPriority: number;
   operatorEveningPriority: number;
+  operatorDayPriorities: Record<string, DayPriority> | null;
   operatorAssignments: OperatorAssignment[];
 }
 
@@ -47,6 +53,11 @@ export default function AdminOperators() {
   const [editingAssignment, setEditingAssignment] = useState<{ operatorId: string; assignment: OperatorAssignment } | null>(null);
   const [editDays, setEditDays] = useState<number[]>([]);
   const [editLoading, setEditLoading] = useState(false);
+
+  // Day-specific priority state
+  const [expandedPriority, setExpandedPriority] = useState<string | null>(null);
+  const [dayPriorities, setDayPriorities] = useState<Record<string, DayPriority>>({});
+  const [savingPriority, setSavingPriority] = useState(false);
 
   // Confirm dialogs
   const [pendingConfirm, setPendingConfirm] = useState<{
@@ -216,6 +227,50 @@ export default function AdminOperators() {
     return days.map(d => DAYS_OF_WEEK[d].slice(0, 3)).join(', ');
   };
 
+  const openDayPriorities = (operator: Operator) => {
+    if (expandedPriority === operator.id) {
+      setExpandedPriority(null);
+      return;
+    }
+    // Initialize from existing data
+    const existing = (operator.operatorDayPriorities || {}) as Record<string, DayPriority>;
+    const init: Record<string, DayPriority> = {};
+    for (let d = 0; d < 7; d++) {
+      init[String(d)] = existing[String(d)] || { morning: 0, evening: 0 };
+    }
+    setDayPriorities(init);
+    setExpandedPriority(operator.id);
+  };
+
+  const saveDayPriorities = async (operator: Operator) => {
+    setSavingPriority(true);
+    try {
+      const res = await fetch('/api/admin/operators', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          operators: [{
+            userId: operator.id,
+            priority: operator.operatorPriority,
+            dayPriorities: dayPriorities,
+          }],
+        }),
+      });
+      if (res.ok) {
+        toast.success('Day priorities updated');
+        setExpandedPriority(null);
+        fetchOperators();
+      } else {
+        const data = await res.json();
+        toast.error(data.error || 'Failed to update');
+      }
+    } catch {
+      toast.error('Failed to update');
+    } finally {
+      setSavingPriority(false);
+    }
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center py-20">
@@ -270,19 +325,74 @@ export default function AdminOperators() {
             </div>
 
             {/* Priorities */}
-            <div className="grid grid-cols-3 gap-2 mb-4 pb-4 border-b border-white/[0.05]">
-              <div className="bg-white/[0.02] rounded-lg p-2">
-                <p className="text-[10px] text-slate-400 uppercase tracking-wider mb-0.5">Overall</p>
-                <p className="text-sm font-semibold text-white">{operator.operatorPriority || '-'}</p>
+            <div className="mb-4 pb-4 border-b border-white/[0.05]">
+              <div className="grid grid-cols-3 gap-2 mb-2">
+                <div className="bg-white/[0.02] rounded-lg p-2">
+                  <p className="text-[10px] text-slate-400 uppercase tracking-wider mb-0.5">Overall</p>
+                  <p className="text-sm font-semibold text-white">{operator.operatorPriority || '-'}</p>
+                </div>
+                <div className="bg-white/[0.02] rounded-lg p-2">
+                  <p className="text-[10px] text-slate-400 uppercase tracking-wider mb-0.5">Morning</p>
+                  <p className="text-sm font-semibold text-blue-400">{operator.operatorMorningPriority || '-'}</p>
+                </div>
+                <div className="bg-white/[0.02] rounded-lg p-2">
+                  <p className="text-[10px] text-slate-400 uppercase tracking-wider mb-0.5">Evening</p>
+                  <p className="text-sm font-semibold text-orange-400">{operator.operatorEveningPriority || '-'}</p>
+                </div>
               </div>
-              <div className="bg-white/[0.02] rounded-lg p-2">
-                <p className="text-[10px] text-slate-400 uppercase tracking-wider mb-0.5">Morning</p>
-                <p className="text-sm font-semibold text-blue-400">{operator.operatorMorningPriority || '-'}</p>
-              </div>
-              <div className="bg-white/[0.02] rounded-lg p-2">
-                <p className="text-[10px] text-slate-400 uppercase tracking-wider mb-0.5">Evening</p>
-                <p className="text-sm font-semibold text-orange-400">{operator.operatorEveningPriority || '-'}</p>
-              </div>
+              <button
+                onClick={() => openDayPriorities(operator)}
+                className="text-[11px] text-accent hover:underline cursor-pointer"
+              >
+                {expandedPriority === operator.id ? 'Hide day-specific priorities' : 'Set day-specific priorities'}
+              </button>
+              {expandedPriority === operator.id && (
+                <div className="mt-3 space-y-2">
+                  <div className="grid grid-cols-[auto_1fr_1fr] gap-x-3 gap-y-1.5 items-center">
+                    <span className="text-[10px] text-slate-500"></span>
+                    <span className="text-[10px] text-blue-400 text-center uppercase tracking-wider">Morning</span>
+                    <span className="text-[10px] text-orange-400 text-center uppercase tracking-wider">Evening</span>
+                    {DAYS_OF_WEEK.map((day, idx) => (
+                      <>
+                        <span key={`label-${idx}`} className="text-xs text-slate-300">{day.slice(0, 3)}</span>
+                        <input
+                          key={`m-${idx}`}
+                          type="number"
+                          min="0"
+                          value={dayPriorities[String(idx)]?.morning || ''}
+                          onChange={e => setDayPriorities(prev => ({
+                            ...prev,
+                            [String(idx)]: { ...prev[String(idx)], morning: parseInt(e.target.value) || 0 }
+                          }))}
+                          placeholder="0"
+                          className="bg-white/[0.04] border border-white/[0.1] rounded px-2 py-1 text-xs text-white text-center outline-none focus:border-accent w-full"
+                        />
+                        <input
+                          key={`e-${idx}`}
+                          type="number"
+                          min="0"
+                          value={dayPriorities[String(idx)]?.evening || ''}
+                          onChange={e => setDayPriorities(prev => ({
+                            ...prev,
+                            [String(idx)]: { ...prev[String(idx)], evening: parseInt(e.target.value) || 0 }
+                          }))}
+                          placeholder="0"
+                          className="bg-white/[0.04] border border-white/[0.1] rounded px-2 py-1 text-xs text-white text-center outline-none focus:border-accent w-full"
+                        />
+                      </>
+                    ))}
+                  </div>
+                  <p className="text-[10px] text-slate-500">0 = use default morning/evening priority</p>
+                  <button
+                    onClick={() => saveDayPriorities(operator)}
+                    disabled={savingPriority}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-accent hover:bg-accent-light text-primary text-xs font-medium rounded-lg transition-colors cursor-pointer disabled:opacity-50"
+                  >
+                    {savingPriority && <Loader2 className="w-3 h-3 animate-spin" />}
+                    Save Day Priorities
+                  </button>
+                </div>
+              )}
             </div>
 
             {/* Assignments */}

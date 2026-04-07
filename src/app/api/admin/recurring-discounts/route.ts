@@ -33,7 +33,7 @@ export async function POST(req: NextRequest) {
     }
 
     const body = await req.json();
-    const { days, slotStartTime, slotEndTime, machineIds, oneSlotDiscount, twoSlotDiscount, enabled, appliesTo } = body;
+    const { days, slotStartTime, slotEndTime, machineIds, pitchTypes, oneSlotDiscount, twoSlotDiscount, enabled, appliesTo } = body;
 
     // Validation
     if (!Array.isArray(days) || days.length === 0) {
@@ -58,12 +58,22 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    const validPitchTypes = ['ASTRO', 'CEMENT', 'NATURAL'];
+    if (pitchTypes && Array.isArray(pitchTypes)) {
+      for (const pt of pitchTypes) {
+        if (!validPitchTypes.includes(pt)) {
+          return NextResponse.json({ error: `Invalid pitchType. Must be one of: ${validPitchTypes.join(', ')}` }, { status: 400 });
+        }
+      }
+    }
+
     const rule = await prisma.recurringSlotDiscount.create({
       data: {
         days: days.map(Number),
         slotStartTime,
         slotEndTime,
         machineIds: (machineIds || []) as any[],
+        pitchTypes: (pitchTypes || []) as any[],
         oneSlotDiscount: Number(oneSlotDiscount),
         twoSlotDiscount: Number(twoSlotDiscount),
         enabled: enabled !== false,

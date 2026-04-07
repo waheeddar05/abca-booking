@@ -14,8 +14,8 @@ import { getCachedPolicies } from '@/lib/policy-cache';
 import { validatePackageBooking } from '@/lib/packages';
 import { creditWallet, debitWallet, rollbackWalletDebit, isWalletEnabled, getWalletBalance } from '@/lib/wallet';
 import { autoAssignOperator, getOperatorCount } from '@/lib/operatorAssign';
-import { getApplicablePromoDiscount } from '@/lib/promotionalOffers';
-import { getSpecialUserDiscount, getBestDiscount } from '@/lib/specialUsers';
+import { getAllApplicablePromoDiscounts } from '@/lib/promotionalOffers';
+import { calculateStackedDiscount } from '@/lib/specialUsers';
 
 async function getMachineConfig() {
   const config = await getCachedPolicies([
@@ -326,53 +326,86 @@ export async function POST(req: NextRequest) {
     };
 
     // Check each slot against recurring discount rules — apply per qualifying slot
+    // Special-user rules stack on top of ALL rules (not subject to "best wins").
     const perSlotDiscount = isConsecutive ? 'twoSlotDiscount' : 'oneSlotDiscount';
     for (let i = 0; i < pricing.length; i++) {
       const slot = validatedSlots[i];
       const dayOfWeek = getISTDay(slot.startTime);
       const istTimeStr = getISTTime(slot.startTime);
+      const slotPitchType = slot.pitchType;
 
-      for (const rule of recurringDiscountRules) {
-        if (!rule.days.includes(dayOfWeek)) continue;
+      const matchesRule = (rule: typeof recurringDiscountRules[0]) => {
+        if (!rule.days.includes(dayOfWeek)) return false;
         const ruleStartTime = rule.slotStartTime.padStart(5, '0');
         const ruleEndTime = (rule.slotEndTime || rule.slotStartTime).padStart(5, '0');
-        if (istTimeStr < ruleStartTime || istTimeStr >= ruleEndTime) continue;
-        if (rule.machineIds && rule.machineIds.length > 0 && firstMachineId && !rule.machineIds.includes(firstMachineId)) continue;
+        if (istTimeStr < ruleStartTime || istTimeStr >= ruleEndTime) return false;
+        if (rule.machineIds && rule.machineIds.length > 0 && firstMachineId && !rule.machineIds.includes(firstMachineId)) return false;
+        const rulePitchTypes = (rule as Record<string, unknown>).pitchTypes as string[] | undefined;
+        if (rulePitchTypes && rulePitchTypes.length > 0 && slotPitchType && !rulePitchTypes.includes(slotPitchType)) return false;
+        return true;
+      };
 
-        // Apply discount to this qualifying slot
-        const discountAmount = rule[perSlotDiscount];
-        const maxReduction = Math.min(discountAmount, pricing[i].price);
+      // Find best ALL-user recurring discount
+      let bestAllDiscount = 0;
+      for (const rule of recurringDiscountRules) {
+        if (rule.appliesTo === 'SPECIAL') continue;
+        if (!matchesRule(rule)) continue;
+        bestAllDiscount = Math.max(bestAllDiscount, rule[perSlotDiscount]);
+      }
+
+      // Apply best ALL discount
+      if (bestAllDiscount > 0) {
+        const maxReduction = Math.min(bestAllDiscount, pricing[i].price);
         pricing[i].price = Math.max(0, pricing[i].price - maxReduction);
         pricing[i].discountAmount += maxReduction;
         totalRecurringDiscount += maxReduction;
-        break; // first matching rule wins for this slot
+      }
+
+      // Stack SPECIAL recurring discounts on top for special users
+      if (targetUser.isSpecialUser) {
+        for (const rule of recurringDiscountRules) {
+          if (rule.appliesTo !== 'SPECIAL') continue;
+          if (!matchesRule(rule)) continue;
+          const discountAmount = rule[perSlotDiscount];
+          if (discountAmount > 0 && pricing[i].price > 0) {
+            const maxReduction = Math.min(discountAmount, pricing[i].price);
+            pricing[i].price = Math.max(0, pricing[i].price - maxReduction);
+            pricing[i].discountAmount += maxReduction;
+            totalRecurringDiscount += maxReduction;
+          }
+        }
       }
     }
 
-    // ── Promotional Offer + Special User Discount (higher discount wins) ──
+    // ── Promotional Offers with Special User Stacking ──
+    // Special-user-only offers (appliesTo=SPECIAL) stack on top of regular offers.
+    // Among regular offers (appliesTo=ALL), highest discount wins.
     // Applied on top of consecutive + recurring discounts.
     // Only for non-free, non-package bookings.
     let _totalPromoSpecialDiscount = 0;
     let appliedDiscountLabel: string | null = null;
     if (!isFreeBooking && !userPackageId) {
       try {
-        const specialDiscount = await getSpecialUserDiscount(userId!);
+        const userIsSpecial = targetUser.isSpecialUser;
         for (let i = 0; i < pricing.length; i++) {
           const slot = validatedSlots[i];
-          const promoDiscount = await getApplicablePromoDiscount(
-            slot.date, slot.startTime, slot.machineId, slot.pitchType, userId,
+          const allPromos = await getAllApplicablePromoDiscounts(
+            slot.date, slot.startTime, slot.machineId, slot.pitchType, userIsSpecial,
           );
-          const best = getBestDiscount(
-            pricing[i].price,
-            promoDiscount ? { ...promoDiscount, name: promoDiscount.name } : null,
-            specialDiscount,
-          );
-          if (best && best.discountAmount > 0) {
-            const maxReduction = Math.min(best.discountAmount, pricing[i].price);
-            pricing[i].price = Math.max(0, pricing[i].price - maxReduction);
-            pricing[i].discountAmount += maxReduction;
-            _totalPromoSpecialDiscount += maxReduction;
-            if (!appliedDiscountLabel) appliedDiscountLabel = best.label;
+          if (allPromos.length > 0) {
+            const result = calculateStackedDiscount(
+              pricing[i].price,
+              null,
+              allPromos.map(p => ({ ...p, appliesTo: p.appliesTo })),
+              userIsSpecial,
+            );
+            if (result && result.totalDiscount > 0) {
+              const maxReduction = Math.min(result.totalDiscount, pricing[i].price);
+              pricing[i].price = Math.max(0, pricing[i].price - maxReduction);
+              pricing[i].discountAmount += maxReduction;
+              _totalPromoSpecialDiscount += maxReduction;
+              if (!appliedDiscountLabel) appliedDiscountLabel = result.label;
+            }
           }
         }
       } catch (promoErr) {

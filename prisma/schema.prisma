@@ -32,6 +32,7 @@ model User {
   operatorPriority          Int                  @default(0)
   operatorMorningPriority   Int                  @default(0)
   operatorEveningPriority   Int                  @default(0)
+  operatorDayPriorities     Json?                // { "0": { "morning": 1, "evening": 2 }, ... } day-specific priorities
   operatorAssignments       OperatorAssignment[]
   operatedBookings     Booking[]            @relation("OperatorBookings")
   cashPaymentUser      CashPaymentUser?
@@ -467,6 +468,7 @@ model RecurringSlotDiscount {
   slotStartTime   String    // HH:MM format e.g. "08:00"
   slotEndTime     String    // HH:MM format e.g. "08:30"
   machineIds      MachineId[] // empty = applies to all machines
+  pitchTypes      PitchType[] // empty = applies to all pitches
   oneSlotDiscount   Float   // flat ₹ discount for 1 matching slot
   twoSlotDiscount   Float   // flat ₹ discount for 2 consecutive matching slots
   appliesTo       String    @default("ALL") // "ALL" = all users, "SPECIAL" = special users only

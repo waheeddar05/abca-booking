@@ -14,6 +14,7 @@ const OPERATOR_QUERY = {
     operatorPriority: true,
     operatorMorningPriority: true,
     operatorEveningPriority: true,
+    operatorDayPriorities: true,
     operatorAssignments: { select: { id: true, machineId: true, days: true, createdAt: true } },
   },
   orderBy: { operatorPriority: 'asc' as const },
@@ -119,13 +120,14 @@ export async function PATCH(req: NextRequest) {
     }
 
     await prisma.$transaction(
-      operators.map((op: { userId: string; priority: number; morningPriority?: number; eveningPriority?: number }) =>
+      operators.map((op: { userId: string; priority: number; morningPriority?: number; eveningPriority?: number; dayPriorities?: Record<string, { morning: number; evening: number }> }) =>
         prisma.user.update({
           where: { id: op.userId },
           data: {
             operatorPriority: op.priority,
             ...(op.morningPriority !== undefined ? { operatorMorningPriority: op.morningPriority } : {}),
             ...(op.eveningPriority !== undefined ? { operatorEveningPriority: op.eveningPriority } : {}),
+            ...(op.dayPriorities !== undefined ? { operatorDayPriorities: op.dayPriorities } : {}),
           },
         })
       )

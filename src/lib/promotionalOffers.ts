@@ -2,11 +2,104 @@ import { prisma } from '@/lib/prisma';
 import { timeToMinutes } from '@/lib/pricing';
 import { type MachineId, type PitchType } from '@prisma/client';
 
+interface PromoResult {
+  offerId: string;
+  name: string;
+  discountType: 'PERCENTAGE' | 'FIXED';
+  discountValue: number;
+  appliesTo: string;
+}
+
 /**
- * Get applicable promotional discount for a given booking
- * Returns the best matching offer (highest discount value)
- * @param userId Optional user ID to check if user is special user (for appliesTo filtering)
- * @param isSpecialUser Optional boolean flag to indicate if user is special (for appliesTo filtering)
+ * Get ALL applicable promotional discounts for a given booking slot.
+ * Returns all matching offers so the stacking logic can decide what to apply.
+ */
+export async function getAllApplicablePromoDiscounts(
+  date: Date,
+  startTime: Date,
+  machineId?: string | null,
+  pitchType?: string | null,
+  isSpecialUser?: boolean,
+): Promise<PromoResult[]> {
+  try {
+    const offers = await prisma.promotionalOffer.findMany({
+      where: { isActive: true },
+    });
+
+    if (offers.length === 0) {
+      return [];
+    }
+
+    const istDate = new Date(date.toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }));
+    const bookingDateISO = istDate.toISOString().split('T')[0];
+    const dayOfWeek = istDate.getDay();
+
+    const istTimeStr = startTime.toLocaleTimeString('en-IN', {
+      timeZone: 'Asia/Kolkata',
+      hour12: false,
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+    const slotMinutes = timeToMinutes(istTimeStr);
+
+    const applicableOffers = offers.filter(offer => {
+      // Check appliesTo filter — SPECIAL offers only for special users
+      if (offer.appliesTo === 'SPECIAL' && !isSpecialUser) {
+        return false;
+      }
+
+      // Check date range
+      const offerStart = new Date(offer.startDate).toISOString().split('T')[0];
+      const offerEnd = new Date(offer.endDate).toISOString().split('T')[0];
+      if (bookingDateISO < offerStart || bookingDateISO > offerEnd) {
+        return false;
+      }
+
+      // Check day of week
+      if (offer.days && offer.days.length > 0) {
+        if (!offer.days.includes(dayOfWeek)) {
+          return false;
+        }
+      }
+
+      // Check time slot
+      if (offer.timeSlotStart && offer.timeSlotEnd) {
+        const slotStart = timeToMinutes(offer.timeSlotStart);
+        const slotEnd = timeToMinutes(offer.timeSlotEnd);
+        if (slotMinutes < slotStart || slotMinutes >= slotEnd) {
+          return false;
+        }
+      }
+
+      // Check machine IDs
+      if (offer.machineIds && offer.machineIds.length > 0 && machineId && !offer.machineIds.includes(machineId as MachineId)) {
+        return false;
+      }
+
+      // Check pitch types
+      if (offer.pitchTypes && offer.pitchTypes.length > 0 && pitchType && !offer.pitchTypes.includes(pitchType as PitchType)) {
+        return false;
+      }
+
+      return true;
+    });
+
+    return applicableOffers.map(offer => ({
+      offerId: offer.id,
+      name: offer.name,
+      discountType: offer.discountType as 'PERCENTAGE' | 'FIXED',
+      discountValue: offer.discountValue,
+      appliesTo: offer.appliesTo,
+    }));
+  } catch (error) {
+    console.error('[PromoOffers] Error fetching applicable discounts:', error);
+    return [];
+  }
+}
+
+/**
+ * Get the single best applicable promotional discount (legacy interface).
+ * Only returns the highest-value offer among ALL-user offers.
  */
 export async function getApplicablePromoDiscount(
   date: Date,
@@ -17,7 +110,6 @@ export async function getApplicablePromoDiscount(
   isSpecialUser?: boolean | null,
 ): Promise<{ offerId: string; name: string; discountType: 'PERCENTAGE' | 'FIXED'; discountValue: number } | null> {
   try {
-    // Determine if user is special (if not already provided)
     let userIsSpecial = isSpecialUser;
     if (userIsSpecial === undefined && userId) {
       const user = await prisma.user.findUnique({
@@ -27,86 +119,23 @@ export async function getApplicablePromoDiscount(
       userIsSpecial = user?.isSpecialUser ?? false;
     }
 
-    // Get all active offers
-    const offers = await prisma.promotionalOffer.findMany({
-      where: { isActive: true },
-    });
+    const allOffers = await getAllApplicablePromoDiscounts(
+      date, startTime, machineId, pitchType, !!userIsSpecial,
+    );
 
-    if (offers.length === 0) {
-      return null;
-    }
-
-    // Convert booking date to IST and extract date components
-    const istDate = new Date(date.toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }));
-    const bookingDateISO = istDate.toISOString().split('T')[0]; // YYYY-MM-DD format
-    const dayOfWeek = istDate.getDay(); // 0 = Sunday, 6 = Saturday
-
-    // Extract IST time from startTime
-    const istTimeStr = startTime.toLocaleTimeString('en-IN', {
-      timeZone: 'Asia/Kolkata',
-      hour12: false,
-      hour: '2-digit',
-      minute: '2-digit',
-    });
-    const slotMinutes = timeToMinutes(istTimeStr);
-
-    // Filter applicable offers
-    const applicableOffers = offers.filter(offer => {
-      // 1. Check appliesTo filter
-      if (offer.appliesTo === 'SPECIAL' && !userIsSpecial) {
-        return false;
-      }
-
-      // 2. Check date range
-      const offerStart = new Date(offer.startDate).toISOString().split('T')[0];
-      const offerEnd = new Date(offer.endDate).toISOString().split('T')[0];
-      if (bookingDateISO < offerStart || bookingDateISO > offerEnd) {
-        return false;
-      }
-
-      // 3. Check day of week if specified (empty days = all days)
-      if (offer.days && offer.days.length > 0) {
-        if (!offer.days.includes(dayOfWeek)) {
-          return false;
-        }
-      }
-
-      // 4. Check time slot if specified (null = all day)
-      if (offer.timeSlotStart && offer.timeSlotEnd) {
-        const slotStart = timeToMinutes(offer.timeSlotStart);
-        const slotEnd = timeToMinutes(offer.timeSlotEnd);
-        if (slotMinutes < slotStart || slotMinutes >= slotEnd) {
-          return false;
-        }
-      }
-
-      // 5. Check machine IDs (empty = all machines)
-      if (offer.machineIds && offer.machineIds.length > 0 && machineId && !offer.machineIds.includes(machineId as MachineId)) {
-        return false;
-      }
-
-      // 6. Check pitch types (empty = all pitches)
-      if (offer.pitchTypes && offer.pitchTypes.length > 0 && pitchType && !offer.pitchTypes.includes(pitchType as PitchType)) {
-        return false;
-      }
-
-      return true;
-    });
-
-    if (applicableOffers.length === 0) {
+    if (allOffers.length === 0) {
       return null;
     }
 
     // Return the offer with the highest discount value
-    // (For percentage, this is the highest percentage; for fixed, the highest amount)
-    const bestOffer = applicableOffers.reduce((best, current) => {
+    const bestOffer = allOffers.reduce((best, current) => {
       return current.discountValue > best.discountValue ? current : best;
     });
 
     return {
-      offerId: bestOffer.id,
+      offerId: bestOffer.offerId,
       name: bestOffer.name,
-      discountType: bestOffer.discountType as 'PERCENTAGE' | 'FIXED',
+      discountType: bestOffer.discountType,
       discountValue: bestOffer.discountValue,
     };
   } catch (error) {

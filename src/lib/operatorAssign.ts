@@ -57,18 +57,37 @@ export async function getOperatorCount(
 
 // ─── Operator Auto-Assignment ─────────────────────────
 
-type OperatorInfo = { id: string; operatorPriority: number; operatorMorningPriority: number; operatorEveningPriority: number };
-const OPERATOR_SELECT = { id: true, operatorPriority: true, operatorMorningPriority: true, operatorEveningPriority: true } as const;
+type DayPriorities = Record<string, { morning: number; evening: number }>;
+type OperatorInfo = { id: string; operatorPriority: number; operatorMorningPriority: number; operatorEveningPriority: number; operatorDayPriorities?: DayPriorities | null };
+const OPERATOR_SELECT = { id: true, operatorPriority: true, operatorMorningPriority: true, operatorEveningPriority: true, operatorDayPriorities: true } as const;
 
-/** Sort operators by slab-specific priority (ASC — lower number = higher priority), then overall priority as tiebreaker. */
-function sortByPriority(operators: OperatorInfo[], slab: 'morning' | 'evening'): OperatorInfo[] {
+/**
+ * Sort operators by priority for a given slab and day of week.
+ * Priority resolution order:
+ * 1. Day-specific slab priority (operatorDayPriorities[dayOfWeek][slab]) — most specific
+ * 2. General slab priority (operatorMorningPriority / operatorEveningPriority)
+ * 3. Overall priority (operatorPriority) — tiebreaker
+ * Lower number = higher priority. 0 means unset, pushed to end.
+ */
+function sortByPriority(operators: OperatorInfo[], slab: 'morning' | 'evening', dayOfWeek?: number): OperatorInfo[] {
   return [...operators].sort((a, b) => {
-    const aPri = slab === 'morning' ? a.operatorMorningPriority : a.operatorEveningPriority;
-    const bPri = slab === 'morning' ? b.operatorMorningPriority : b.operatorEveningPriority;
-    // Lower number = higher priority. 0 means unset, push to end.
-    const aEffective = aPri === 0 ? Infinity : aPri;
-    const bEffective = bPri === 0 ? Infinity : bPri;
-    if (aEffective !== bEffective) return aEffective - bEffective;
+    const getEffective = (op: OperatorInfo): number => {
+      // Check day-specific priority first
+      if (dayOfWeek !== undefined && op.operatorDayPriorities) {
+        const dayPri = (op.operatorDayPriorities as DayPriorities)?.[String(dayOfWeek)];
+        if (dayPri) {
+          const val = slab === 'morning' ? dayPri.morning : dayPri.evening;
+          if (val && val > 0) return val;
+        }
+      }
+      // Fall back to general slab priority
+      const slabPri = slab === 'morning' ? op.operatorMorningPriority : op.operatorEveningPriority;
+      return slabPri === 0 ? Infinity : slabPri;
+    };
+
+    const aEff = getEffective(a);
+    const bEff = getEffective(b);
+    if (aEff !== bEff) return aEff - bEff;
     const aOverall = a.operatorPriority === 0 ? Infinity : a.operatorPriority;
     const bOverall = b.operatorPriority === 0 ? Infinity : b.operatorPriority;
     return aOverall - bOverall;
@@ -106,21 +125,25 @@ export async function autoAssignOperator(
         return daysFilter.length === 0 || daysFilter.includes(dayOfWeek);
       })
       .filter(a => a.user.role === 'OPERATOR')
-      .map(a => ({ id: a.user.id, operatorPriority: a.user.operatorPriority, operatorMorningPriority: a.user.operatorMorningPriority, operatorEveningPriority: a.user.operatorEveningPriority }));
+      .map(a => ({ id: a.user.id, operatorPriority: a.user.operatorPriority, operatorMorningPriority: a.user.operatorMorningPriority, operatorEveningPriority: a.user.operatorEveningPriority, operatorDayPriorities: a.user.operatorDayPriorities as DayPriorities | null }));
   }
 
   // Fallback: no machine-specific assignments → use all operators
   if (operators.length === 0) {
-    operators = await db.user.findMany({
+    const allOps = await db.user.findMany({
       where: { role: 'OPERATOR' },
       select: OPERATOR_SELECT,
     });
+    operators = allOps.map(op => ({
+      ...op,
+      operatorDayPriorities: op.operatorDayPriorities as DayPriorities | null,
+    }));
   }
 
   if (operators.length === 0) return null;
   if (operators.length === 1) return operators[0].id;
 
-  const sorted = sortByPriority(operators, slab);
+  const sorted = sortByPriority(operators, slab, dayOfWeek);
 
   // Find which operators are already booked at this time
   const busyBookings = await db.booking.findMany({

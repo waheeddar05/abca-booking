@@ -46,6 +46,7 @@ export default function AdminUsers() {
     onConfirm: () => void;
   } | null>(null);
   const [cancelBookingDialog, setCancelBookingDialog] = useState<string | null>(null);
+  const [sortBy, setSortBy] = useState<'name-asc' | 'name-desc' | 'date-desc' | 'date-asc'>('date-desc');
 
   // Booking history modal state
   const [historyUser, setHistoryUser] = useState<UserData | null>(null);
@@ -114,7 +115,8 @@ export default function AdminUsers() {
     try {
       const params = new URLSearchParams();
       if (search) params.set('search', search);
-      if (roleFilter) params.set('role', roleFilter);
+      // SPECIAL is client-side filter, don't send to server
+      if (roleFilter && roleFilter !== 'SPECIAL') params.set('role', roleFilter);
       const res = await fetch(`/api/admin/users?${params.toString()}`);
       if (res.ok) {
         const data = await res.json();
@@ -270,29 +272,6 @@ export default function AdminUsers() {
     });
   };
 
-  const handleUpdateSpecialDiscount = async (userId: string, discountType: string, discountValue: number) => {
-    try {
-      const res = await fetch('/api/admin/users', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          id: userId,
-          specialDiscountType: discountType,
-          specialDiscountValue: discountValue,
-        }),
-      });
-      const data = await res.json();
-      if (res.ok) {
-        toast.success('Special user discount updated');
-        fetchUsers();
-      } else {
-        toast.error(data.error || 'Failed to update discount');
-      }
-    } catch {
-      toast.error('Internal server error');
-    }
-  };
-
   const handleChangeRole = (user: UserData, newRole: string) => {
     if (newRole === user.role) return;
     const roleLabel = newRole === 'ADMIN' ? 'Admin' : newRole === 'OPERATOR' ? 'Operator' : 'User';
@@ -326,6 +305,27 @@ export default function AdminUsers() {
   const adminCount = users.filter(u => u.role === 'ADMIN').length;
   const operatorCount = users.filter(u => u.role === 'OPERATOR').length;
   const userCount = users.filter(u => u.role === 'USER').length;
+  const specialCount = users.filter(u => u.isSpecialUser).length;
+
+  // Apply client-side sorting
+  const sortedUsers = [...users].sort((a, b) => {
+    switch (sortBy) {
+      case 'name-asc':
+        return (a.name || '').localeCompare(b.name || '');
+      case 'name-desc':
+        return (b.name || '').localeCompare(a.name || '');
+      case 'date-asc':
+        return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
+      case 'date-desc':
+      default:
+        return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+    }
+  });
+
+  // Apply role filter client-side for SPECIAL (server handles ADMIN/OPERATOR/USER)
+  const displayUsers = roleFilter === 'SPECIAL'
+    ? sortedUsers.filter(u => u.isSpecialUser)
+    : sortedUsers;
 
   return (
     <div>
@@ -339,35 +339,38 @@ export default function AdminUsers() {
         </button>
       </AdminPageHeader>
 
-      <div className="grid grid-cols-4 gap-2 mb-5">
+      <div className="grid grid-cols-5 gap-2 mb-4">
         <button
           onClick={() => setRoleFilter('')}
-          className={`rounded-xl p-3 text-center cursor-pointer transition-all ${roleFilter === '' ? 'bg-accent/15 ring-1 ring-accent/30' : 'bg-white/[0.04] border border-white/[0.08]'
-            }`}
+          className={`rounded-xl p-2.5 text-center cursor-pointer transition-all ${roleFilter === '' ? 'bg-accent/15 ring-1 ring-accent/30' : 'bg-white/[0.04] border border-white/[0.08]'}`}
         >
           <div className="text-lg font-bold text-white">{totalUsers}</div>
           <div className="text-[10px] font-medium text-slate-400 uppercase tracking-wider">All</div>
         </button>
         <button
-          onClick={() => setRoleFilter(roleFilter === 'ADMIN' ? '' : 'ADMIN')}
-          className={`rounded-xl p-3 text-center cursor-pointer transition-all ${roleFilter === 'ADMIN' ? 'bg-blue-500/10 ring-1 ring-blue-500/30' : 'bg-white/[0.04] border border-white/[0.08]'
-            }`}
+          onClick={() => setRoleFilter(roleFilter === 'SPECIAL' ? '' : 'SPECIAL')}
+          className={`rounded-xl p-2.5 text-center cursor-pointer transition-all ${roleFilter === 'SPECIAL' ? 'bg-cyan-500/10 ring-1 ring-cyan-500/30' : 'bg-white/[0.04] border border-white/[0.08]'}`}
         >
-          <div className="text-lg font-bold text-blue-600">{adminCount}</div>
-          <div className="text-[10px] font-medium text-blue-500 uppercase tracking-wider">Admins</div>
+          <div className="text-lg font-bold text-cyan-400">{specialCount}</div>
+          <div className="text-[10px] font-medium text-cyan-500 uppercase tracking-wider">Special</div>
         </button>
         <button
           onClick={() => setRoleFilter(roleFilter === 'OPERATOR' ? '' : 'OPERATOR')}
-          className={`rounded-xl p-3 text-center cursor-pointer transition-all ${roleFilter === 'OPERATOR' ? 'bg-purple-500/10 ring-1 ring-purple-500/30' : 'bg-white/[0.04] border border-white/[0.08]'
-            }`}
+          className={`rounded-xl p-2.5 text-center cursor-pointer transition-all ${roleFilter === 'OPERATOR' ? 'bg-purple-500/10 ring-1 ring-purple-500/30' : 'bg-white/[0.04] border border-white/[0.08]'}`}
         >
           <div className="text-lg font-bold text-purple-600">{operatorCount}</div>
           <div className="text-[10px] font-medium text-purple-500 uppercase tracking-wider">Operators</div>
         </button>
         <button
+          onClick={() => setRoleFilter(roleFilter === 'ADMIN' ? '' : 'ADMIN')}
+          className={`rounded-xl p-2.5 text-center cursor-pointer transition-all ${roleFilter === 'ADMIN' ? 'bg-blue-500/10 ring-1 ring-blue-500/30' : 'bg-white/[0.04] border border-white/[0.08]'}`}
+        >
+          <div className="text-lg font-bold text-blue-600">{adminCount}</div>
+          <div className="text-[10px] font-medium text-blue-500 uppercase tracking-wider">Admins</div>
+        </button>
+        <button
           onClick={() => setRoleFilter(roleFilter === 'USER' ? '' : 'USER')}
-          className={`rounded-xl p-3 text-center cursor-pointer transition-all ${roleFilter === 'USER' ? 'bg-green-500/10 ring-1 ring-green-500/30' : 'bg-white/[0.04] border border-white/[0.08]'
-            }`}
+          className={`rounded-xl p-2.5 text-center cursor-pointer transition-all ${roleFilter === 'USER' ? 'bg-green-500/10 ring-1 ring-green-500/30' : 'bg-white/[0.04] border border-white/[0.08]'}`}
         >
           <div className="text-lg font-bold text-green-600">{userCount}</div>
           <div className="text-[10px] font-medium text-green-500 uppercase tracking-wider">Users</div>
@@ -430,8 +433,8 @@ export default function AdminUsers() {
         </div>
       )}
 
-      <div className="mb-4">
-        <div className="relative">
+      <div className="mb-4 flex gap-2">
+        <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
           <input
             type="text"
@@ -441,6 +444,16 @@ export default function AdminUsers() {
             className="w-full bg-white/[0.04] border border-white/[0.1] rounded-xl pl-10 pr-4 py-3 text-sm text-white placeholder:text-slate-500 outline-none focus:border-accent focus:ring-1 focus:ring-accent/20"
           />
         </div>
+        <select
+          value={sortBy}
+          onChange={(e) => setSortBy(e.target.value as any)}
+          className="bg-white/[0.04] border border-white/[0.1] rounded-xl px-3 py-3 text-sm text-slate-300 outline-none focus:border-accent focus:ring-1 focus:ring-accent/20 cursor-pointer"
+        >
+          <option value="date-desc" className="bg-[#0f1d2f]">Newest</option>
+          <option value="date-asc" className="bg-[#0f1d2f]">Oldest</option>
+          <option value="name-asc" className="bg-[#0f1d2f]">A-Z</option>
+          <option value="name-desc" className="bg-[#0f1d2f]">Z-A</option>
+        </select>
       </div>
 
       {loading ? (
@@ -448,7 +461,7 @@ export default function AdminUsers() {
           <Loader2 className="w-5 h-5 animate-spin mr-2" />
           <span className="text-sm">Loading users...</span>
         </div>
-      ) : users.length === 0 ? (
+      ) : displayUsers.length === 0 ? (
         <div className="text-center py-16">
           <div className="w-12 h-12 rounded-full bg-white/[0.04] flex items-center justify-center mx-auto mb-3">
             <Users className="w-5 h-5 text-slate-500" />
@@ -457,7 +470,7 @@ export default function AdminUsers() {
         </div>
       ) : (
         <div className="space-y-2">
-          {users.map((user) => {
+          {displayUsers.map((user) => {
             const isExpanded = expandedUser === user.id;
             const initial = user.name ? user.name.charAt(0).toUpperCase() : (user.email?.charAt(0).toUpperCase() || '?');
 
@@ -619,36 +632,6 @@ export default function AdminUsers() {
                             <span className="truncate">Mark as Special User</span>
                           )}
                         </button>
-                        {user.isSpecialUser && (
-                          <div className="grid grid-cols-3 gap-2 border-t border-white/[0.06] pt-3 mt-3">
-                            <div>
-                              <label className="block text-[10px] font-medium text-slate-500 mb-1.5 uppercase tracking-wider">Discount Type</label>
-                              <select
-                                value={user.specialDiscountType || 'PERCENTAGE'}
-                                onChange={(e) => handleUpdateSpecialDiscount(user.id, e.target.value, user.specialDiscountValue || 0)}
-                                className="w-full bg-white/[0.04] border border-white/[0.1] text-slate-300 rounded-lg px-2 py-2 text-[11px] outline-none focus:border-accent focus:ring-1 focus:ring-accent/20 cursor-pointer"
-                              >
-                                <option value="PERCENTAGE">Percentage</option>
-                                <option value="FIXED">Fixed ₹</option>
-                              </select>
-                            </div>
-                            <div className="col-span-2">
-                              <label className="block text-[10px] font-medium text-slate-500 mb-1.5 uppercase tracking-wider">Discount Value</label>
-                              <input
-                                type="number"
-                                min="0"
-                                step="0.01"
-                                value={user.specialDiscountValue || ''}
-                                onChange={(e) => {
-                                  const value = e.target.value ? parseFloat(e.target.value) : 0;
-                                  handleUpdateSpecialDiscount(user.id, user.specialDiscountType || 'PERCENTAGE', value);
-                                }}
-                                placeholder={user.specialDiscountType === 'PERCENTAGE' ? '0-100' : '₹0'}
-                                className="w-full bg-white/[0.04] border border-white/[0.1] rounded-lg px-2 py-2 text-[11px] text-white placeholder:text-slate-500 outline-none focus:border-accent focus:ring-1 focus:ring-accent/20"
-                              />
-                            </div>
-                          </div>
-                        )}
                         {isSuperAdmin && (
                           <button
                             onClick={() => handleToggleFreeUser(user)}
