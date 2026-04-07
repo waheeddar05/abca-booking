@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Gift, Plus, Pencil, ToggleLeft, ToggleRight, Loader2, Trash2, Save, Edit2 } from 'lucide-react';
+import { Gift, Plus, Pencil, Edit2, Loader2, Trash2, Save, X, Filter } from 'lucide-react';
 import { AdminPageHeader } from '@/components/admin/AdminPageHeader';
 
 interface OfferData {
@@ -34,11 +34,21 @@ interface RecurringDiscountRule {
   appliesTo: 'ALL' | 'SPECIAL';
 }
 
+interface UnifiedOffer {
+  id: string;
+  type: 'PROMOTIONAL' | 'RECURRING';
+  name: string;
+  isActive: boolean;
+  appliesTo: 'ALL' | 'SPECIAL';
+  promotional?: OfferData;
+  recurring?: RecurringDiscountRule;
+}
+
 const MACHINE_OPTIONS = [
   { id: 'GRAVITY', label: 'Gravity (Leather)' },
-  { id: 'YANTRA', label: 'Yantra (Premium Leather)' },
-  { id: 'LEVERAGE_INDOOR', label: 'Leverage Tennis (Indoor)' },
-  { id: 'LEVERAGE_OUTDOOR', label: 'Leverage Tennis (Outdoor)' },
+  { id: 'YANTRA', label: 'Yantra (Premium)' },
+  { id: 'LEVERAGE_INDOOR', label: 'Leverage Indoor' },
+  { id: 'LEVERAGE_OUTDOOR', label: 'Leverage Outdoor' },
 ];
 
 const PITCH_TYPES = [
@@ -57,19 +67,9 @@ const DAYS_OF_WEEK = [
   { id: 6, label: 'Sat' },
 ];
 
-const DAY_LABELS: Record<number, string> = { 0: 'Sun', 1: 'Mon', 2: 'Tue', 3: 'Wed', 4: 'Thu', 5: 'Fri', 6: 'Sat' };
-const DAY_NUMBERS = [0, 1, 2, 3, 4, 5, 6];
-const ALL_MACHINE_IDS = ['GRAVITY', 'YANTRA', 'LEVERAGE_INDOOR', 'LEVERAGE_OUTDOOR'];
-const MACHINE_LABELS: Record<string, { name: string }> = {
-  GRAVITY: { name: 'Gravity (Leather)' },
-  YANTRA: { name: 'Yantra (Premium Leather)' },
-  LEVERAGE_INDOOR: { name: 'Leverage Indoor' },
-  LEVERAGE_OUTDOOR: { name: 'Leverage Outdoor' },
-};
-
 const inputClass = "w-full bg-white/[0.04] border border-white/[0.1] text-white placeholder:text-slate-500 rounded-lg px-3 py-2.5 text-sm outline-none focus:border-accent focus:ring-1 focus:ring-accent/20 transition-colors";
 
-const emptyForm = {
+const emptyPromoForm = {
   name: '',
   startDate: new Date().toISOString().split('T')[0],
   endDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
@@ -83,34 +83,47 @@ const emptyForm = {
   appliesTo: 'ALL' as 'ALL' | 'SPECIAL',
 };
 
+const emptyRecurringForm = {
+  days: [] as number[],
+  slotStartTime: '08:00',
+  slotEndTime: '08:30',
+  machineId: null as string | null,
+  oneSlotDiscount: 0,
+  twoSlotDiscount: 0,
+  enabled: true,
+  appliesTo: 'ALL' as 'ALL' | 'SPECIAL',
+};
+
 export default function AdminOffers() {
+  // Promotional offers
   const [offers, setOffers] = useState<OfferData[]>([]);
   const [loading, setLoading] = useState(true);
-  const [showForm, setShowForm] = useState(false);
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [form, setForm] = useState(emptyForm);
   const [message, setMessage] = useState({ text: '', type: '' });
   const [submitting, setSubmitting] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
 
-  // Recurring Slot Discounts
+  // Recurring discounts
   const [recurringRules, setRecurringRules] = useState<RecurringDiscountRule[]>([]);
   const [recurringLoading, setRecurringLoading] = useState(true);
-  const [showAddRule, setShowAddRule] = useState(false);
-  const [editingRule, setEditingRule] = useState<RecurringDiscountRule | null>(null);
-  const [ruleForm, setRuleForm] = useState({
-    days: [] as number[],
-    slotStartTime: '08:00',
-    slotEndTime: '08:30',
-    machineId: '',
-    oneSlotDiscount: 0,
-    twoSlotDiscount: 0,
-    enabled: true,
-    appliesTo: 'ALL' as 'ALL' | 'SPECIAL',
-  });
-  const [savingRule, setSavingRule] = useState(false);
   const [ruleMessage, setRuleMessage] = useState({ text: '', type: '' });
 
+  // Form state
+  const [showForm, setShowForm] = useState(false);
+  const [offerType, setOfferType] = useState<'PROMOTIONAL' | 'RECURRING'>('PROMOTIONAL');
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editingType, setEditingType] = useState<'PROMOTIONAL' | 'RECURRING' | null>(null);
+
+  // Promotional form
+  const [promoForm, setPromoForm] = useState(emptyPromoForm);
+
+  // Recurring form
+  const [recurringForm, setRecurringForm] = useState(emptyRecurringForm);
+  const [savingRule, setSavingRule] = useState(false);
+
+  // Filter view
+  const [filterView, setFilterView] = useState<'all' | 'promotional' | 'recurring'>('all');
+
+  // Fetch offers
   const fetchOffers = async () => {
     setLoading(true);
     try {
@@ -127,11 +140,6 @@ export default function AdminOffers() {
     }
   };
 
-  useEffect(() => {
-    fetchOffers();
-    fetchRecurringRules();
-  }, []);
-
   const fetchRecurringRules = async () => {
     try {
       const res = await fetch('/api/admin/recurring-discounts');
@@ -146,33 +154,76 @@ export default function AdminOffers() {
     }
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  useEffect(() => {
+    fetchOffers();
+    fetchRecurringRules();
+  }, []);
+
+  // Build unified list
+  const unifiedOffers: UnifiedOffer[] = [
+    ...offers.map(o => ({
+      id: o.id,
+      type: 'PROMOTIONAL' as const,
+      name: o.name,
+      isActive: o.isActive,
+      appliesTo: o.appliesTo,
+      promotional: o,
+    })),
+    ...recurringRules.map(r => ({
+      id: r.id,
+      type: 'RECURRING' as const,
+      name: `${r.slotStartTime}-${r.slotEndTime} (${r.days.map(d => DAYS_OF_WEEK.find(dw => dw.id === d)?.label).join(',')})`,
+      isActive: r.enabled,
+      appliesTo: r.appliesTo,
+      recurring: r,
+    })),
+  ];
+
+  const filteredOffers = unifiedOffers.filter(o => {
+    if (filterView === 'promotional') return o.type === 'PROMOTIONAL';
+    if (filterView === 'recurring') return o.type === 'RECURRING';
+    return true;
+  });
+
+  // Reset forms
+  const resetForms = () => {
+    setPromoForm(emptyPromoForm);
+    setRecurringForm(emptyRecurringForm);
+    setEditingId(null);
+    setEditingType(null);
+    setOfferType('PROMOTIONAL');
+    setShowForm(false);
+    setMessage({ text: '', type: '' });
+    setRuleMessage({ text: '', type: '' });
+  };
+
+  // Promotional offer handlers
+  const handlePromoSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setMessage({ text: '', type: '' });
 
-    // Validation
-    if (!form.name.trim()) {
+    if (!promoForm.name.trim()) {
       setMessage({ text: 'Offer name is required', type: 'error' });
       return;
     }
-    if (!form.startDate || !form.endDate) {
+    if (!promoForm.startDate || !promoForm.endDate) {
       setMessage({ text: 'Start and end dates are required', type: 'error' });
       return;
     }
-    if (new Date(form.startDate) > new Date(form.endDate)) {
+    if (new Date(promoForm.startDate) > new Date(promoForm.endDate)) {
       setMessage({ text: 'Start date must be before end date', type: 'error' });
       return;
     }
-    if (form.discountValue <= 0) {
+    if (promoForm.discountValue <= 0) {
       setMessage({ text: 'Discount value must be positive', type: 'error' });
       return;
     }
-    if (form.discountType === 'PERCENTAGE' && form.discountValue > 100) {
+    if (promoForm.discountType === 'PERCENTAGE' && promoForm.discountValue > 100) {
       setMessage({ text: 'Percentage discount cannot exceed 100', type: 'error' });
       return;
     }
-    if (form.timeSlotStart && form.timeSlotEnd) {
-      if (form.timeSlotStart >= form.timeSlotEnd) {
+    if (promoForm.timeSlotStart && promoForm.timeSlotEnd) {
+      if (promoForm.timeSlotStart >= promoForm.timeSlotEnd) {
         setMessage({ text: 'Time slot start must be before end', type: 'error' });
         return;
       }
@@ -180,9 +231,9 @@ export default function AdminOffers() {
 
     setSubmitting(true);
     try {
-      const url = editingId ? '/api/admin/offers' : '/api/admin/offers';
-      const method = editingId ? 'PATCH' : 'POST';
-      const body = editingId ? { id: editingId, ...form } : form;
+      const url = editingId && editingType === 'PROMOTIONAL' ? '/api/admin/offers' : '/api/admin/offers';
+      const method = editingId && editingType === 'PROMOTIONAL' ? 'PATCH' : 'POST';
+      const body = editingId && editingType === 'PROMOTIONAL' ? { id: editingId, ...promoForm } : promoForm;
 
       const res = await fetch(url, {
         method,
@@ -192,12 +243,10 @@ export default function AdminOffers() {
 
       if (res.ok) {
         setMessage({
-          text: editingId ? 'Offer updated successfully' : 'Offer created successfully',
+          text: editingId && editingType === 'PROMOTIONAL' ? 'Offer updated successfully' : 'Offer created successfully',
           type: 'success',
         });
-        setShowForm(false);
-        setEditingId(null);
-        setForm(emptyForm);
+        resetForms();
         fetchOffers();
       } else {
         const data = await res.json();
@@ -210,8 +259,8 @@ export default function AdminOffers() {
     }
   };
 
-  const startEdit = (offer: OfferData) => {
-    setForm({
+  const startEditPromo = (offer: OfferData) => {
+    setPromoForm({
       name: offer.name,
       startDate: offer.startDate,
       endDate: offer.endDate,
@@ -225,11 +274,13 @@ export default function AdminOffers() {
       appliesTo: offer.appliesTo || 'ALL',
     });
     setEditingId(offer.id);
+    setEditingType('PROMOTIONAL');
+    setOfferType('PROMOTIONAL');
     setShowForm(true);
     setMessage({ text: '', type: '' });
   };
 
-  const toggleActive = async (offer: OfferData) => {
+  const toggleActivePromo = async (offer: OfferData) => {
     try {
       const res = await fetch('/api/admin/offers', {
         method: 'PATCH',
@@ -269,37 +320,33 @@ export default function AdminOffers() {
     }
   };
 
-  // ─── Recurring Discount Helpers ─────────────────
-  const resetRuleForm = () => {
-    setRuleForm({ days: [], slotStartTime: '08:00', slotEndTime: '08:30', machineId: '', oneSlotDiscount: 0, twoSlotDiscount: 0, enabled: true, appliesTo: 'ALL' });
-    setEditingRule(null);
-    setShowAddRule(false);
-  };
-
+  // Recurring discount handlers
   const handleSaveRule = async () => {
-    // Validate end time is after start time
-    if (ruleForm.slotEndTime <= ruleForm.slotStartTime) {
+    if (recurringForm.slotEndTime <= recurringForm.slotStartTime) {
       setRuleMessage({ text: 'End time must be after start time', type: 'error' });
       return;
     }
-    if (ruleForm.days.length === 0) {
+    if (recurringForm.days.length === 0) {
       setRuleMessage({ text: 'Select at least one day', type: 'error' });
       return;
     }
+
     setSavingRule(true);
     try {
       const payload = {
-        days: ruleForm.days,
-        slotStartTime: ruleForm.slotStartTime,
-        slotEndTime: ruleForm.slotEndTime,
-        machineId: ruleForm.machineId || null,
-        oneSlotDiscount: Number(ruleForm.oneSlotDiscount),
-        twoSlotDiscount: Number(ruleForm.twoSlotDiscount),
-        enabled: ruleForm.enabled,
+        days: recurringForm.days,
+        slotStartTime: recurringForm.slotStartTime,
+        slotEndTime: recurringForm.slotEndTime,
+        machineId: recurringForm.machineId,
+        oneSlotDiscount: Number(recurringForm.oneSlotDiscount),
+        twoSlotDiscount: Number(recurringForm.twoSlotDiscount),
+        enabled: recurringForm.enabled,
+        appliesTo: recurringForm.appliesTo,
       };
+
       let res;
-      if (editingRule) {
-        res = await fetch(`/api/admin/recurring-discounts/${editingRule.id}`, {
+      if (editingId && editingType === 'RECURRING') {
+        res = await fetch(`/api/admin/recurring-discounts/${editingId}`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload),
@@ -311,10 +358,14 @@ export default function AdminOffers() {
           body: JSON.stringify(payload),
         });
       }
+
       if (res.ok) {
-        resetRuleForm();
+        setRuleMessage({
+          text: editingId && editingType === 'RECURRING' ? 'Rule updated' : 'Rule created',
+          type: 'success',
+        });
+        resetForms();
         fetchRecurringRules();
-        setRuleMessage({ text: editingRule ? 'Rule updated' : 'Rule created', type: 'success' });
       } else {
         const data = await res.json();
         setRuleMessage({ text: data.error || 'Failed to save rule', type: 'error' });
@@ -324,6 +375,23 @@ export default function AdminOffers() {
     } finally {
       setSavingRule(false);
     }
+  };
+
+  const startEditRule = (rule: RecurringDiscountRule) => {
+    setRecurringForm({
+      days: rule.days,
+      slotStartTime: rule.slotStartTime,
+      slotEndTime: rule.slotEndTime,
+      machineId: rule.machineId,
+      oneSlotDiscount: rule.oneSlotDiscount,
+      twoSlotDiscount: rule.twoSlotDiscount,
+      enabled: rule.enabled,
+      appliesTo: rule.appliesTo,
+    });
+    setEditingId(rule.id);
+    setEditingType('RECURRING');
+    setOfferType('RECURRING');
+    setShowForm(true);
   };
 
   const handleDeleteRule = async (id: string) => {
@@ -351,131 +419,16 @@ export default function AdminOffers() {
     }
   };
 
-  const startEditRule = (rule: RecurringDiscountRule) => {
-    setRuleForm({
-      days: rule.days,
-      slotStartTime: rule.slotStartTime,
-      slotEndTime: rule.slotEndTime,
-      machineId: rule.machineId || '',
-      oneSlotDiscount: rule.oneSlotDiscount,
-      twoSlotDiscount: rule.twoSlotDiscount,
-      enabled: rule.enabled,
-      appliesTo: rule.appliesTo,
-    });
-    setEditingRule(rule);
-    setShowAddRule(true);
-  };
-
-  const renderRuleForm = () => (
-    <div className="bg-white/[0.03] rounded-xl border border-accent/20 p-4 space-y-3 mt-2">
-      <h4 className="text-xs font-bold text-accent">{editingRule ? 'Edit Rule' : 'New Rule'}</h4>
-      <div>
-        <label className="block text-[10px] font-medium text-slate-400 mb-1">Days of Week</label>
-        <div className="flex flex-wrap gap-1">
-          {DAY_NUMBERS.map(d => (
-            <button
-              key={d}
-              onClick={() => {
-                setRuleForm(prev => ({
-                  ...prev,
-                  days: prev.days.includes(d) ? prev.days.filter(x => x !== d) : [...prev.days, d],
-                }));
-              }}
-              className={`px-2.5 py-1.5 rounded-lg text-[11px] font-medium transition-all cursor-pointer ${
-                ruleForm.days.includes(d)
-                  ? 'bg-accent/15 text-accent border border-accent/30'
-                  : 'bg-white/[0.04] text-slate-500 border border-white/[0.08] hover:bg-white/[0.08]'
-              }`}
-            >{DAY_LABELS[d]}</button>
-          ))}
-        </div>
-      </div>
-      <div className="grid grid-cols-2 gap-2">
-        <div>
-          <label className="block text-[10px] font-medium text-slate-400 mb-1">Start Time</label>
-          <input type="time" value={ruleForm.slotStartTime} onChange={e => setRuleForm(prev => ({ ...prev, slotStartTime: e.target.value }))} step="1800" className={inputClass} />
-        </div>
-        <div>
-          <label className="block text-[10px] font-medium text-slate-400 mb-1">End Time</label>
-          <input type="time" value={ruleForm.slotEndTime} onChange={e => setRuleForm(prev => ({ ...prev, slotEndTime: e.target.value }))} step="1800" className={inputClass} />
-        </div>
-      </div>
-      <div>
-        <label className="block text-[10px] font-medium text-slate-400 mb-1">Machine (optional)</label>
-        <select
-          value={ruleForm.machineId}
-          onChange={e => setRuleForm(prev => ({ ...prev, machineId: e.target.value }))}
-          className={inputClass}
-        >
-          <option value="">All Machines</option>
-          {ALL_MACHINE_IDS.map(mid => (
-            <option key={mid} value={mid}>{MACHINE_LABELS[mid].name}</option>
-          ))}
-        </select>
-      </div>
-      <div>
-        <label className="block text-[10px] font-medium text-slate-400 mb-1">Applies To</label>
-        <select
-          value={ruleForm.appliesTo}
-          onChange={e => setRuleForm(prev => ({ ...prev, appliesTo: e.target.value as 'ALL' | 'SPECIAL' }))}
-          className={inputClass}
-        >
-          <option value="ALL">All Users</option>
-          <option value="SPECIAL">Special Users Only</option>
-        </select>
-      </div>
-      <div className="grid grid-cols-2 gap-2">
-        <div>
-          <label className="block text-[10px] font-medium text-slate-400 mb-1">Discount for 1 Slot (₹)</label>
-          <input
-            type="number"
-            value={ruleForm.oneSlotDiscount}
-            onChange={e => setRuleForm(prev => ({ ...prev, oneSlotDiscount: Number(e.target.value) || 0 }))}
-            placeholder="0"
-            min="0"
-            step="10"
-            className={inputClass}
-          />
-        </div>
-        <div>
-          <label className="block text-[10px] font-medium text-slate-400 mb-1">Discount for 2 Cons. Slots (₹)</label>
-          <input
-            type="number"
-            value={ruleForm.twoSlotDiscount}
-            onChange={e => setRuleForm(prev => ({ ...prev, twoSlotDiscount: Number(e.target.value) || 0 }))}
-            placeholder="0"
-            min="0"
-            step="10"
-            className={inputClass}
-          />
-        </div>
-      </div>
-      <div className="flex items-center gap-2 pt-1">
-        <button
-          onClick={handleSaveRule}
-          disabled={savingRule || ruleForm.days.length === 0}
-          className="inline-flex items-center gap-1.5 bg-accent/10 hover:bg-accent/20 text-accent px-3 py-1.5 rounded-lg text-xs font-medium transition-colors cursor-pointer disabled:opacity-50"
-        >
-          {savingRule ? <Loader2 className="w-3 h-3 animate-spin" /> : <Save className="w-3 h-3" />}
-          {editingRule ? 'Update' : 'Save Rule'}
-        </button>
-        <button
-          onClick={resetRuleForm}
-          className="text-xs text-slate-500 hover:text-slate-300 px-3 py-1.5 cursor-pointer"
-        >Cancel</button>
-      </div>
-    </div>
-  );
-
   return (
     <div className="min-h-screen bg-slate-950 text-white">
       <AdminPageHeader icon={Gift} title="Offers & Discounts" description="Manage promotional offers and recurring discounts">
         <button
           onClick={() => {
-            setShowForm(!showForm);
-            setEditingId(null);
-            setForm(emptyForm);
-            setMessage({ text: '', type: '' });
+            if (showForm) {
+              resetForms();
+            } else {
+              setShowForm(true);
+            }
           }}
           className="inline-flex items-center gap-2 bg-accent hover:bg-accent-light text-primary px-4 py-2.5 rounded-lg text-sm font-medium transition-colors cursor-pointer"
         >
@@ -484,451 +437,593 @@ export default function AdminOffers() {
         </button>
       </AdminPageHeader>
 
-      {/* Recurring Offers Section */}
-      <div className="bg-white/[0.03] backdrop-blur-sm rounded-2xl border border-white/[0.07] p-5 mb-6">
-        <div className="flex items-center justify-between mb-4">
-          <div>
-            <h2 className="text-sm font-semibold text-white">Recurring Offers</h2>
-            <p className="text-[11px] text-slate-400 mt-1">Fixed discounts for specific day + time combinations</p>
-          </div>
-        </div>
-
-        {ruleMessage.text && (
-          <p className={`mb-4 text-sm ${ruleMessage.type === 'success' ? 'text-green-400' : 'text-red-400'}`}>
-            {ruleMessage.text}
-          </p>
-        )}
-
-        {recurringLoading ? (
-          <div className="flex items-center gap-2 py-4 text-slate-400">
-            <Loader2 className="w-4 h-4 animate-spin" />
-            <span className="text-sm">Loading discount rules...</span>
-          </div>
-        ) : (
-          <div className="space-y-3">
-            {/* Existing Rules */}
-            {recurringRules.length === 0 && !showAddRule && (
-              <p className="text-xs text-slate-500 italic">No recurring discount rules configured.</p>
-            )}
-            {recurringRules.map(rule => (
-              <div key={rule.id}>
-                <div className={`bg-white/[0.02] rounded-xl border p-3 ${rule.enabled ? 'border-emerald-500/20' : 'border-white/[0.05] opacity-60'}`}>
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="flex-1 min-w-0">
-                      <div className="flex flex-wrap gap-1 mb-1">
-                        {rule.days.map(d => (
-                          <span key={d} className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-accent/10 text-accent">{DAY_LABELS[d]}</span>
-                        ))}
-                      </div>
-                      <p className="text-xs text-slate-300">
-                        {rule.slotStartTime} – {rule.slotEndTime}
-                        {rule.machineId && <span className="text-slate-500 ml-2">({MACHINE_LABELS[rule.machineId]?.name || rule.machineId})</span>}
-                      </p>
-                      <div className="flex flex-wrap gap-1 mt-1 mb-1">
-                        <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${
-                          rule.appliesTo === 'SPECIAL' ? 'bg-purple-500/15 text-purple-400' : 'bg-blue-500/15 text-blue-400'
-                        }`}>
-                          {rule.appliesTo === 'SPECIAL' ? 'Special Users' : 'All Users'}
-                        </span>
-                      </div>
-                      <div className="flex gap-3 mt-1">
-                        <span className="text-[10px] text-emerald-400">1 slot: -₹{rule.oneSlotDiscount}</span>
-                        <span className="text-[10px] text-emerald-400">2 slots: -₹{rule.twoSlotDiscount}</span>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-1 flex-shrink-0">
-                      <button
-                        onClick={() => handleToggleRule(rule)}
-                        className={`p-1.5 rounded-lg text-[10px] font-medium cursor-pointer ${rule.enabled ? 'text-emerald-400 bg-emerald-400/10' : 'text-slate-500 bg-white/[0.04]'}`}
-                      >{rule.enabled ? 'ON' : 'OFF'}</button>
-                      <button onClick={() => startEditRule(rule)} className="p-1.5 rounded-lg text-slate-400 hover:text-accent hover:bg-accent/10 cursor-pointer"><Edit2 className="w-3 h-3" /></button>
-                      <button onClick={() => handleDeleteRule(rule.id)} className="p-1.5 rounded-lg text-slate-400 hover:text-red-400 hover:bg-red-400/10 cursor-pointer"><Trash2 className="w-3 h-3" /></button>
-                    </div>
-                  </div>
-                </div>
-                {/* Inline edit form — appears right below the rule being edited */}
-                {showAddRule && editingRule?.id === rule.id && renderRuleForm()}
-              </div>
-            ))}
-
-            {/* New rule form — appears at bottom only for new rules (not editing) */}
-            {showAddRule && !editingRule ? renderRuleForm() : null}
-            {!showAddRule && (
-              <button
-                onClick={() => setShowAddRule(true)}
-                className="inline-flex items-center gap-1.5 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 px-3 py-2 rounded-lg text-xs font-medium transition-colors cursor-pointer"
-              >
-                <Plus className="w-3.5 h-3.5" />
-                Add Discount Rule
-              </button>
-            )}
-          </div>
-        )}
-      </div>
-
-      {/* Promotional Offers Section */}
-      <div className="mb-5">
-        <h2 className="text-sm font-semibold text-white mb-2">Promotional Offers</h2>
-        <p className="text-[11px] text-slate-400 mb-4">Date-based discounts for specific machines, pitches & time slots</p>
-      </div>
-
-      {message.text && (
-        <p className={`mb-4 text-sm ${message.type === 'success' ? 'text-green-400' : 'text-red-400'}`}>
-          {message.text}
-        </p>
-      )}
-
-      {/* Form */}
+      {/* Create/Edit Form */}
       {showForm && (
-        <div className="bg-white/[0.03] backdrop-blur-sm rounded-2xl border border-white/[0.07] p-5 mb-5">
-          <h2 className="text-sm font-semibold text-white mb-4">
-            {editingId ? 'Edit Offer' : 'New Offer'}
+        <div className="bg-white/[0.03] backdrop-blur-sm rounded-2xl border border-white/[0.07] p-6 mb-6">
+          <h2 className="text-lg font-semibold text-white mb-5">
+            {editingId ? 'Edit Offer' : 'Create New Offer'}
           </h2>
-          <form onSubmit={handleSubmit} className="space-y-4">
-            {/* Name */}
-            <div>
-              <label className="block text-[11px] font-medium text-slate-400 mb-1">
-                Offer Name *
-              </label>
-              <input
-                type="text"
-                value={form.name}
-                onChange={e => setForm({ ...form, name: e.target.value })}
-                placeholder="e.g. Monsoon Discount"
-                className="w-full bg-white/[0.04] border border-white/[0.1] rounded-lg px-3 py-2.5 text-sm text-white outline-none focus:border-accent focus:ring-1 focus:ring-accent/20 placeholder:text-slate-500"
-              />
-            </div>
 
-            {/* Discount Type & Value */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div>
-                <label className="block text-[11px] font-medium text-slate-400 mb-1">
-                  Discount Type *
-                </label>
-                <select
-                  value={form.discountType}
-                  onChange={e => setForm({ ...form, discountType: e.target.value as 'PERCENTAGE' | 'FIXED' })}
-                  className="w-full bg-white/[0.04] border border-white/[0.1] rounded-lg px-3 py-2.5 text-sm text-white outline-none focus:border-accent"
+          {/* Offer Type Selector */}
+          <div className="mb-6">
+            <label className="block text-[11px] font-medium text-slate-400 mb-2">Offer Type</label>
+            <div className="flex gap-3">
+              {['PROMOTIONAL', 'RECURRING'].map(type => (
+                <button
+                  key={type}
+                  onClick={() => setOfferType(type as 'PROMOTIONAL' | 'RECURRING')}
+                  className={`px-4 py-2.5 rounded-lg text-sm font-medium transition-all ${
+                    offerType === type
+                      ? 'bg-accent text-primary'
+                      : 'bg-white/[0.04] text-slate-400 hover:bg-white/[0.08]'
+                  }`}
                 >
-                  <option value="PERCENTAGE" className="bg-[#1a2a40]">
-                    Percentage (%)
+                  {type === 'PROMOTIONAL' ? 'Promotional' : 'Recurring'}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Promotional Form */}
+          {offerType === 'PROMOTIONAL' && (
+            <form onSubmit={handlePromoSubmit} className="space-y-4">
+              {message.text && (
+                <p className={`text-sm ${message.type === 'success' ? 'text-green-400' : 'text-red-400'}`}>
+                  {message.text}
+                </p>
+              )}
+
+              <div>
+                <label className="block text-[11px] font-medium text-slate-400 mb-1">Offer Name *</label>
+                <input
+                  type="text"
+                  value={promoForm.name}
+                  onChange={e => setPromoForm({ ...promoForm, name: e.target.value })}
+                  placeholder="e.g. Monsoon Discount"
+                  className={inputClass}
+                />
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-[11px] font-medium text-slate-400 mb-1">Discount Type *</label>
+                  <select
+                    value={promoForm.discountType}
+                    onChange={e => setPromoForm({ ...promoForm, discountType: e.target.value as 'PERCENTAGE' | 'FIXED' })}
+                    className={inputClass}
+                  >
+                    <option value="PERCENTAGE" className="bg-[#1a2a40]">
+                      Percentage (%)
+                    </option>
+                    <option value="FIXED" className="bg-[#1a2a40]">
+                      Fixed Amount (₹)
+                    </option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-[11px] font-medium text-slate-400 mb-1">Discount Value *</label>
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    pattern="[0-9]*"
+                    value={promoForm.discountValue}
+                    onChange={e => setPromoForm({ ...promoForm, discountValue: parseFloat(e.target.value) || 0 })}
+                    placeholder="10"
+                    className={inputClass}
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-[11px] font-medium text-slate-400 mb-1">Start Date *</label>
+                  <input
+                    type="date"
+                    value={promoForm.startDate}
+                    onChange={e => setPromoForm({ ...promoForm, startDate: e.target.value })}
+                    className={inputClass}
+                  />
+                </div>
+                <div>
+                  <label className="block text-[11px] font-medium text-slate-400 mb-1">End Date *</label>
+                  <input
+                    type="date"
+                    value={promoForm.endDate}
+                    onChange={e => setPromoForm({ ...promoForm, endDate: e.target.value })}
+                    className={inputClass}
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-[11px] font-medium text-slate-400 mb-1">Time Slot Start (Optional)</label>
+                  <input
+                    type="time"
+                    value={promoForm.timeSlotStart || ''}
+                    onChange={e => setPromoForm({ ...promoForm, timeSlotStart: e.target.value || null })}
+                    className={inputClass}
+                  />
+                </div>
+                <div>
+                  <label className="block text-[11px] font-medium text-slate-400 mb-1">Time Slot End (Optional)</label>
+                  <input
+                    type="time"
+                    value={promoForm.timeSlotEnd || ''}
+                    onChange={e => setPromoForm({ ...promoForm, timeSlotEnd: e.target.value || null })}
+                    className={inputClass}
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-medium text-slate-400 mb-2">Machine (Optional)</label>
+                <div className="flex flex-wrap gap-2">
+                  {MACHINE_OPTIONS.map(machine => (
+                    <button
+                      key={machine.id}
+                      type="button"
+                      onClick={() =>
+                        setPromoForm({
+                          ...promoForm,
+                          machineId: promoForm.machineId === machine.id ? null : machine.id,
+                        })
+                      }
+                      className={`px-3 py-2 rounded-lg text-sm font-medium transition-all ${
+                        promoForm.machineId === machine.id
+                          ? 'bg-accent/20 border border-accent/40 text-accent'
+                          : 'bg-white/[0.04] border border-white/[0.1] text-slate-400 hover:border-white/[0.2]'
+                      }`}
+                    >
+                      {machine.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-medium text-slate-400 mb-1">Pitch Type (Optional)</label>
+                <select
+                  value={promoForm.pitchType || ''}
+                  onChange={e => setPromoForm({ ...promoForm, pitchType: e.target.value || null })}
+                  className={inputClass}
+                >
+                  <option value="" className="bg-[#1a2a40]">
+                    All Pitch Types
                   </option>
-                  <option value="FIXED" className="bg-[#1a2a40]">
-                    Fixed Amount (₹)
+                  {PITCH_TYPES.map(p => (
+                    <option key={p.id} value={p.id} className="bg-[#1a2a40]">
+                      {p.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-medium text-slate-400 mb-2">Days of Week (Optional)</label>
+                <div className="flex flex-wrap gap-2">
+                  {DAYS_OF_WEEK.map(day => (
+                    <button
+                      key={day.id}
+                      type="button"
+                      onClick={() => {
+                        const newDays = promoForm.days.includes(day.id)
+                          ? promoForm.days.filter(d => d !== day.id)
+                          : [...promoForm.days, day.id].sort((a, b) => a - b);
+                        setPromoForm({ ...promoForm, days: newDays });
+                      }}
+                      className={`px-3 py-2 rounded-lg text-sm font-medium transition-all ${
+                        promoForm.days.includes(day.id)
+                          ? 'bg-accent/20 border border-accent/40 text-accent'
+                          : 'bg-white/[0.04] border border-white/[0.1] text-slate-400 hover:border-white/[0.2]'
+                      }`}
+                    >
+                      {day.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-medium text-slate-400 mb-1">Applies To</label>
+                <select
+                  value={promoForm.appliesTo}
+                  onChange={e => setPromoForm({ ...promoForm, appliesTo: e.target.value as 'ALL' | 'SPECIAL' })}
+                  className={inputClass}
+                >
+                  <option value="ALL" className="bg-[#1a2a40]">
+                    All Users
+                  </option>
+                  <option value="SPECIAL" className="bg-[#1a2a40]">
+                    Special Users Only
                   </option>
                 </select>
               </div>
-              <div>
-                <label className="block text-[11px] font-medium text-slate-400 mb-1">
-                  Discount Value *
-                </label>
-                <input
-                  type="number"
-                  value={form.discountValue}
-                  onChange={e => setForm({ ...form, discountValue: parseFloat(e.target.value) || 0 })}
-                  placeholder="10"
-                  step="0.01"
-                  min="0"
-                  max={form.discountType === 'PERCENTAGE' ? 100 : undefined}
-                  className="w-full bg-white/[0.04] border border-white/[0.1] rounded-lg px-3 py-2.5 text-sm text-white outline-none focus:border-accent focus:ring-1 focus:ring-accent/20"
-                />
-              </div>
-            </div>
 
-            {/* Date Range */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div>
-                <label className="block text-[11px] font-medium text-slate-400 mb-1">
-                  Start Date *
-                </label>
-                <input
-                  type="date"
-                  value={form.startDate}
-                  onChange={e => setForm({ ...form, startDate: e.target.value })}
-                  className="w-full bg-white/[0.04] border border-white/[0.1] rounded-lg px-3 py-2.5 text-sm text-white outline-none focus:border-accent"
-                />
-              </div>
-              <div>
-                <label className="block text-[11px] font-medium text-slate-400 mb-1">
-                  End Date *
-                </label>
-                <input
-                  type="date"
-                  value={form.endDate}
-                  onChange={e => setForm({ ...form, endDate: e.target.value })}
-                  className="w-full bg-white/[0.04] border border-white/[0.1] rounded-lg px-3 py-2.5 text-sm text-white outline-none focus:border-accent"
-                />
-              </div>
-            </div>
-
-            {/* Time Slot */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div>
-                <label className="block text-[11px] font-medium text-slate-400 mb-1">
-                  Time Slot Start (HH:MM) - Optional
-                </label>
-                <input
-                  type="time"
-                  value={form.timeSlotStart || ''}
-                  onChange={e => setForm({ ...form, timeSlotStart: e.target.value || null })}
-                  className="w-full bg-white/[0.04] border border-white/[0.1] rounded-lg px-3 py-2.5 text-sm text-white outline-none focus:border-accent"
-                />
-              </div>
-              <div>
-                <label className="block text-[11px] font-medium text-slate-400 mb-1">
-                  Time Slot End (HH:MM) - Optional
-                </label>
-                <input
-                  type="time"
-                  value={form.timeSlotEnd || ''}
-                  onChange={e => setForm({ ...form, timeSlotEnd: e.target.value || null })}
-                  className="w-full bg-white/[0.04] border border-white/[0.1] rounded-lg px-3 py-2.5 text-sm text-white outline-none focus:border-accent"
-                />
-              </div>
-            </div>
-
-            {/* Machine ID */}
-            <div>
-              <label className="block text-[11px] font-medium text-slate-400 mb-1">
-                Machine - Optional (null = all machines)
-              </label>
-              <select
-                value={form.machineId || ''}
-                onChange={e => setForm({ ...form, machineId: e.target.value || null })}
-                className="w-full bg-white/[0.04] border border-white/[0.1] rounded-lg px-3 py-2.5 text-sm text-white outline-none focus:border-accent"
+              <button
+                type="submit"
+                disabled={submitting}
+                className="inline-flex items-center gap-2 bg-accent hover:bg-accent-light text-primary px-5 py-2.5 rounded-lg text-sm font-medium transition-colors cursor-pointer disabled:opacity-50"
               >
-                <option value="" className="bg-[#1a2a40]">
-                  All Machines
-                </option>
-                {MACHINE_OPTIONS.map(m => (
-                  <option key={m.id} value={m.id} className="bg-[#1a2a40]">
-                    {m.label}
-                  </option>
-                ))}
-              </select>
-            </div>
+                {submitting ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    Saving...
+                  </>
+                ) : editingId && editingType === 'PROMOTIONAL' ? (
+                  'Update Offer'
+                ) : (
+                  'Create Offer'
+                )}
+              </button>
+            </form>
+          )}
 
-            {/* Pitch Type */}
-            <div>
-              <label className="block text-[11px] font-medium text-slate-400 mb-1">
-                Pitch Type - Optional (null = all pitches)
-              </label>
-              <select
-                value={form.pitchType || ''}
-                onChange={e => setForm({ ...form, pitchType: e.target.value || null })}
-                className="w-full bg-white/[0.04] border border-white/[0.1] rounded-lg px-3 py-2.5 text-sm text-white outline-none focus:border-accent"
-              >
-                <option value="" className="bg-[#1a2a40]">
-                  All Pitch Types
-                </option>
-                {PITCH_TYPES.map(p => (
-                  <option key={p.id} value={p.id} className="bg-[#1a2a40]">
-                    {p.label}
-                  </option>
-                ))}
-              </select>
-            </div>
+          {/* Recurring Form */}
+          {offerType === 'RECURRING' && (
+            <form
+              onSubmit={e => {
+                e.preventDefault();
+                handleSaveRule();
+              }}
+              className="space-y-4"
+            >
+              {ruleMessage.text && (
+                <p className={`text-sm ${ruleMessage.type === 'success' ? 'text-green-400' : 'text-red-400'}`}>
+                  {ruleMessage.text}
+                </p>
+              )}
 
-            {/* Days of Week */}
-            <div>
-              <label className="block text-[11px] font-medium text-slate-400 mb-2">
-                Days of Week - Optional (empty = all days)
-              </label>
-              <div className="flex flex-wrap gap-2">
-                {DAYS_OF_WEEK.map(day => (
+              <div>
+                <label className="block text-[11px] font-medium text-slate-400 mb-2">Days of Week *</label>
+                <div className="flex flex-wrap gap-2">
+                  {DAYS_OF_WEEK.map(day => (
+                    <button
+                      key={day.id}
+                      type="button"
+                      onClick={() => {
+                        const newDays = recurringForm.days.includes(day.id)
+                          ? recurringForm.days.filter(d => d !== day.id)
+                          : [...recurringForm.days, day.id].sort((a, b) => a - b);
+                        setRecurringForm({ ...recurringForm, days: newDays });
+                      }}
+                      className={`px-3 py-2 rounded-lg text-sm font-medium transition-all ${
+                        recurringForm.days.includes(day.id)
+                          ? 'bg-accent/20 border border-accent/40 text-accent'
+                          : 'bg-white/[0.04] border border-white/[0.1] text-slate-400 hover:border-white/[0.2]'
+                      }`}
+                    >
+                      {day.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-[11px] font-medium text-slate-400 mb-1">Start Time *</label>
+                  <input
+                    type="time"
+                    value={recurringForm.slotStartTime}
+                    onChange={e => setRecurringForm({ ...recurringForm, slotStartTime: e.target.value })}
+                    step="1800"
+                    className={inputClass}
+                  />
+                </div>
+                <div>
+                  <label className="block text-[11px] font-medium text-slate-400 mb-1">End Time *</label>
+                  <input
+                    type="time"
+                    value={recurringForm.slotEndTime}
+                    onChange={e => setRecurringForm({ ...recurringForm, slotEndTime: e.target.value })}
+                    step="1800"
+                    className={inputClass}
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-medium text-slate-400 mb-2">Machine (Optional)</label>
+                <div className="flex flex-wrap gap-2">
                   <button
-                    key={day.id}
                     type="button"
-                    onClick={() => {
-                      const newDays = form.days.includes(day.id)
-                        ? form.days.filter(d => d !== day.id)
-                        : [...form.days, day.id].sort((a, b) => a - b);
-                      setForm({ ...form, days: newDays });
-                    }}
-                    className={`px-3 py-2 rounded-lg text-[11px] font-medium transition-all cursor-pointer border ${
-                      form.days.includes(day.id)
-                        ? 'bg-accent/20 border-accent/40 text-accent'
-                        : 'bg-white/[0.04] border-white/[0.1] text-slate-400 hover:border-white/[0.2]'
+                    onClick={() => setRecurringForm({ ...recurringForm, machineId: null })}
+                    className={`px-3 py-2 rounded-lg text-sm font-medium transition-all ${
+                      recurringForm.machineId === null
+                        ? 'bg-accent/20 border border-accent/40 text-accent'
+                        : 'bg-white/[0.04] border border-white/[0.1] text-slate-400 hover:border-white/[0.2]'
                     }`}
                   >
-                    {day.label}
+                    All Machines
                   </button>
-                ))}
+                  {MACHINE_OPTIONS.map(machine => (
+                    <button
+                      key={machine.id}
+                      type="button"
+                      onClick={() =>
+                        setRecurringForm({
+                          ...recurringForm,
+                          machineId: recurringForm.machineId === machine.id ? null : machine.id,
+                        })
+                      }
+                      className={`px-3 py-2 rounded-lg text-sm font-medium transition-all ${
+                        recurringForm.machineId === machine.id
+                          ? 'bg-accent/20 border border-accent/40 text-accent'
+                          : 'bg-white/[0.04] border border-white/[0.1] text-slate-400 hover:border-white/[0.2]'
+                      }`}
+                    >
+                      {machine.label}
+                    </button>
+                  ))}
+                </div>
               </div>
-            </div>
 
-            {/* Applies To */}
-            <div>
-              <label className="block text-[11px] font-medium text-slate-400 mb-1">
-                Applies To
-              </label>
-              <select
-                value={form.appliesTo}
-                onChange={e => setForm({ ...form, appliesTo: e.target.value as 'ALL' | 'SPECIAL' })}
-                className="w-full bg-white/[0.04] border border-white/[0.1] rounded-lg px-3 py-2.5 text-sm text-white outline-none focus:border-accent"
+              <div>
+                <label className="block text-[11px] font-medium text-slate-400 mb-1">Applies To</label>
+                <select
+                  value={recurringForm.appliesTo}
+                  onChange={e => setRecurringForm({ ...recurringForm, appliesTo: e.target.value as 'ALL' | 'SPECIAL' })}
+                  className={inputClass}
+                >
+                  <option value="ALL" className="bg-[#1a2a40]">
+                    All Users
+                  </option>
+                  <option value="SPECIAL" className="bg-[#1a2a40]">
+                    Special Users Only
+                  </option>
+                </select>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-[11px] font-medium text-slate-400 mb-1">Discount for 1 Slot (₹)</label>
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    pattern="[0-9]*"
+                    value={recurringForm.oneSlotDiscount}
+                    onChange={e => setRecurringForm({ ...recurringForm, oneSlotDiscount: Number(e.target.value) || 0 })}
+                    placeholder="0"
+                    className={inputClass}
+                  />
+                </div>
+                <div>
+                  <label className="block text-[11px] font-medium text-slate-400 mb-1">Discount for 2 Consecutive Slots (₹)</label>
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    pattern="[0-9]*"
+                    value={recurringForm.twoSlotDiscount}
+                    onChange={e => setRecurringForm({ ...recurringForm, twoSlotDiscount: Number(e.target.value) || 0 })}
+                    placeholder="0"
+                    className={inputClass}
+                  />
+                </div>
+              </div>
+
+              <button
+                type="submit"
+                disabled={savingRule || recurringForm.days.length === 0}
+                className="inline-flex items-center gap-2 bg-accent hover:bg-accent-light text-primary px-5 py-2.5 rounded-lg text-sm font-medium transition-colors cursor-pointer disabled:opacity-50"
               >
-                <option value="ALL" className="bg-[#1a2a40]">
-                  All Users
-                </option>
-                <option value="SPECIAL" className="bg-[#1a2a40]">
-                  Special Users Only
-                </option>
-              </select>
-            </div>
-
-            {/* Submit Button */}
-            <button
-              type="submit"
-              disabled={submitting}
-              className="inline-flex items-center gap-2 bg-accent hover:bg-accent-light text-primary px-5 py-2.5 rounded-lg text-sm font-medium transition-colors cursor-pointer disabled:opacity-50"
-            >
-              {submitting ? (
-                <>
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                  Saving...
-                </>
-              ) : editingId ? (
-                'Update Offer'
-              ) : (
-                'Create Offer'
-              )}
-            </button>
-          </form>
+                {savingRule ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    Saving...
+                  </>
+                ) : editingId && editingType === 'RECURRING' ? (
+                  'Update Rule'
+                ) : (
+                  'Create Rule'
+                )}
+              </button>
+            </form>
+          )}
         </div>
       )}
 
+      {/* Filter Tabs */}
+      <div className="flex gap-2 mb-6">
+        {['all', 'promotional', 'recurring'].map(view => (
+          <button
+            key={view}
+            onClick={() => setFilterView(view as 'all' | 'promotional' | 'recurring')}
+            className={`px-4 py-2 rounded-lg text-sm font-medium transition-all inline-flex items-center gap-2 ${
+              filterView === view
+                ? 'bg-accent text-primary'
+                : 'bg-white/[0.04] text-slate-400 hover:bg-white/[0.08]'
+            }`}
+          >
+            <Filter className="w-4 h-4" />
+            {view === 'all' ? 'All Offers' : view === 'promotional' ? 'Promotional' : 'Recurring'}
+          </button>
+        ))}
+        <span className="text-slate-500 text-sm py-2">({filteredOffers.length})</span>
+      </div>
+
       {/* Offers List */}
-      {loading ? (
+      {loading || recurringLoading ? (
         <div className="flex items-center justify-center py-16 text-slate-400">
           <Loader2 className="w-5 h-5 animate-spin mr-2" />
           <span className="text-sm">Loading offers...</span>
         </div>
-      ) : offers.length === 0 ? (
+      ) : filteredOffers.length === 0 ? (
         <div className="text-center py-16">
           <div className="w-12 h-12 rounded-full bg-white/[0.04] flex items-center justify-center mx-auto mb-3">
             <Gift className="w-5 h-5 text-slate-500" />
           </div>
-          <p className="text-sm text-slate-400">No promotional offers created yet</p>
+          <p className="text-sm text-slate-400">No offers configured yet</p>
         </div>
       ) : (
-        <div className="space-y-2">
-          {offers.map(offer => (
-            <div
-              key={offer.id}
-              className={`bg-white/[0.03] backdrop-blur-sm rounded-xl border ${
-                editingId === offer.id ? 'border-accent/30' : 'border-white/[0.08]'
-              } p-4`}
-            >
-              <div className="flex items-start justify-between">
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-2 mb-2">
-                    <span className="text-sm font-semibold text-white">{offer.name}</span>
-                    <span
-                      className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${
-                        offer.isActive ? 'bg-green-500/15 text-green-400' : 'bg-red-500/15 text-red-400'
+        <div className="space-y-3">
+          {filteredOffers.map(offer => {
+            const isPromo = offer.type === 'PROMOTIONAL';
+            const data = isPromo ? offer.promotional : offer.recurring;
+
+            if (!data) return null;
+
+            return (
+              <div
+                key={offer.id}
+                className="bg-white/[0.03] backdrop-blur-sm rounded-xl border border-white/[0.08] p-4 hover:border-white/[0.12] transition-all"
+              >
+                <div className="flex items-start justify-between gap-4">
+                  <div className="flex-1 min-w-0">
+                    {/* Title and badges */}
+                    <div className="flex flex-wrap items-center gap-2 mb-3">
+                      <h3 className="text-sm font-semibold text-white">{offer.name}</h3>
+                      <span className="text-[10px] px-2 py-0.5 rounded-full font-medium bg-accent/15 text-accent">
+                        {offer.type === 'PROMOTIONAL' ? 'Promotional' : 'Recurring'}
+                      </span>
+                      <span
+                        className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${
+                          offer.isActive ? 'bg-green-500/15 text-green-400' : 'bg-red-500/15 text-red-400'
+                        }`}
+                      >
+                        {offer.isActive ? 'Active' : 'Inactive'}
+                      </span>
+                      <span
+                        className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${
+                          offer.appliesTo === 'SPECIAL' ? 'bg-purple-500/15 text-purple-400' : 'bg-blue-500/15 text-blue-400'
+                        }`}
+                      >
+                        {offer.appliesTo === 'SPECIAL' ? 'Special Users' : 'All Users'}
+                      </span>
+                    </div>
+
+                    {/* Details */}
+                    {isPromo && offer.promotional && (
+                      <div className="space-y-2">
+                        <div className="flex flex-wrap gap-2 text-[11px] text-slate-400">
+                          <span className="bg-white/[0.06] px-2 py-0.5 rounded">
+                            {new Date(offer.promotional.startDate).toLocaleDateString('en-IN')} -{' '}
+                            {new Date(offer.promotional.endDate).toLocaleDateString('en-IN')}
+                          </span>
+                          {offer.promotional.timeSlotStart && offer.promotional.timeSlotEnd && (
+                            <span className="bg-white/[0.06] px-2 py-0.5 rounded">
+                              {offer.promotional.timeSlotStart} – {offer.promotional.timeSlotEnd}
+                            </span>
+                          )}
+                          <span className="bg-emerald-500/15 text-emerald-400 px-2 py-0.5 rounded font-medium">
+                            {offer.promotional.discountType === 'PERCENTAGE'
+                              ? `${offer.promotional.discountValue}% off`
+                              : `₹${offer.promotional.discountValue} off`}
+                          </span>
+                          {offer.promotional.machineId && (
+                            <span className="bg-white/[0.06] px-2 py-0.5 rounded">
+                              {MACHINE_OPTIONS.find(m => m.id === offer.promotional.machineId)?.label}
+                            </span>
+                          )}
+                          {offer.promotional.pitchType && (
+                            <span className="bg-white/[0.06] px-2 py-0.5 rounded">
+                              {PITCH_TYPES.find(p => p.id === offer.promotional.pitchType)?.label}
+                            </span>
+                          )}
+                          {offer.promotional.days && offer.promotional.days.length > 0 && (
+                            <span className="bg-white/[0.06] px-2 py-0.5 rounded">
+                              {offer.promotional.days.map(d => DAYS_OF_WEEK.find(dw => dw.id === d)?.label).join(', ')}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    )}
+
+                    {!isPromo && offer.recurring && (
+                      <div className="space-y-2">
+                        <div className="flex flex-wrap gap-2 text-[11px] text-slate-400">
+                          <span className="bg-white/[0.06] px-2 py-0.5 rounded">
+                            {offer.recurring.slotStartTime} – {offer.recurring.slotEndTime}
+                          </span>
+                          <span className="bg-white/[0.06] px-2 py-0.5 rounded">
+                            {offer.recurring.days.map(d => DAYS_OF_WEEK.find(dw => dw.id === d)?.label).join(', ')}
+                          </span>
+                          {offer.recurring.machineId && (
+                            <span className="bg-white/[0.06] px-2 py-0.5 rounded">
+                              {MACHINE_OPTIONS.find(m => m.id === offer.recurring.machineId)?.label}
+                            </span>
+                          )}
+                          <span className="bg-emerald-500/15 text-emerald-400 px-2 py-0.5 rounded font-medium">
+                            1 slot: -₹{offer.recurring.oneSlotDiscount}
+                          </span>
+                          <span className="bg-emerald-500/15 text-emerald-400 px-2 py-0.5 rounded font-medium">
+                            2 slots: -₹{offer.recurring.twoSlotDiscount}
+                          </span>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Action Buttons */}
+                  <div className="flex items-center gap-1 flex-shrink-0">
+                    <button
+                      onClick={() => {
+                        if (isPromo && offer.promotional) {
+                          startEditPromo(offer.promotional);
+                        } else if (!isPromo && offer.recurring) {
+                          startEditRule(offer.recurring);
+                        }
+                      }}
+                      className="p-2 text-slate-400 hover:text-accent hover:bg-accent/10 rounded-lg transition-colors cursor-pointer"
+                      title="Edit"
+                    >
+                      <Pencil className="w-4 h-4" />
+                    </button>
+                    <button
+                      onClick={() => {
+                        if (isPromo && offer.promotional) {
+                          toggleActivePromo(offer.promotional);
+                        } else if (!isPromo && offer.recurring) {
+                          handleToggleRule(offer.recurring);
+                        }
+                      }}
+                      className={`p-2 rounded-lg transition-colors cursor-pointer ${
+                        offer.isActive
+                          ? 'text-emerald-400 hover:bg-emerald-400/10'
+                          : 'text-slate-500 hover:bg-white/[0.08]'
                       }`}
+                      title={offer.isActive ? 'Deactivate' : 'Activate'}
                     >
-                      {offer.isActive ? 'Active' : 'Inactive'}
-                    </span>
-                  </div>
-
-                  {/* Details Grid */}
-                  <div className="flex flex-wrap gap-2 text-[11px] text-slate-400 mb-2">
-                    <span className="bg-white/[0.06] px-2 py-0.5 rounded">
-                      {new Date(offer.startDate).toLocaleDateString('en-IN')} -{' '}
-                      {new Date(offer.endDate).toLocaleDateString('en-IN')}
-                    </span>
-                    {offer.timeSlotStart && offer.timeSlotEnd && (
-                      <span className="bg-white/[0.06] px-2 py-0.5 rounded">
-                        {offer.timeSlotStart} – {offer.timeSlotEnd}
-                      </span>
-                    )}
-                    <span className="bg-accent/15 px-2 py-0.5 rounded text-accent font-medium">
-                      {offer.discountType === 'PERCENTAGE'
-                        ? `${offer.discountValue}% off`
-                        : `₹${offer.discountValue} off`}
-                    </span>
-                    <span className={`px-2 py-0.5 rounded font-medium ${
-                      offer.appliesTo === 'SPECIAL' ? 'bg-purple-500/15 text-purple-400' : 'bg-blue-500/15 text-blue-400'
-                    }`}>
-                      {offer.appliesTo === 'SPECIAL' ? 'Special Users' : 'All Users'}
-                    </span>
-                    {offer.machineId && (
-                      <span className="bg-white/[0.06] px-2 py-0.5 rounded">
-                        {MACHINE_OPTIONS.find(m => m.id === offer.machineId)?.label || offer.machineId}
-                      </span>
-                    )}
-                    {offer.pitchType && (
-                      <span className="bg-white/[0.06] px-2 py-0.5 rounded">
-                        {PITCH_TYPES.find(p => p.id === offer.pitchType)?.label || offer.pitchType}
-                      </span>
-                    )}
-                    {offer.days && offer.days.length > 0 && (
-                      <span className="bg-white/[0.06] px-2 py-0.5 rounded">
-                        {offer.days.map(d => DAYS_OF_WEEK.find(dw => dw.id === d)?.label).join(', ')}
-                      </span>
-                    )}
-                  </div>
-
-                  <div className="text-xs text-slate-500">
-                    Created {new Date(offer.createdAt).toLocaleDateString('en-IN')}
+                      {offer.isActive ? '✓' : '○'}
+                    </button>
+                    <button
+                      onClick={() => {
+                        if (isPromo) {
+                          setDeleteConfirm(offer.id);
+                        } else {
+                          handleDeleteRule(offer.id);
+                        }
+                      }}
+                      className="p-2 text-slate-400 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-colors cursor-pointer"
+                      title="Delete"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
                   </div>
                 </div>
 
-                {/* Action Buttons */}
-                <div className="flex items-center gap-1 ml-3">
-                  <button
-                    onClick={() => startEdit(offer)}
-                    className="p-2 text-slate-400 hover:text-accent hover:bg-accent/10 rounded-lg transition-colors cursor-pointer"
-                    title="Edit"
-                  >
-                    <Pencil className="w-4 h-4" />
-                  </button>
-                  <button
-                    onClick={() => toggleActive(offer)}
-                    className="p-2 text-slate-400 hover:text-accent hover:bg-accent/10 rounded-lg transition-colors cursor-pointer"
-                    title={offer.isActive ? 'Deactivate' : 'Activate'}
-                  >
-                    {offer.isActive ? (
-                      <ToggleRight className="w-5 h-5 text-green-400" />
-                    ) : (
-                      <ToggleLeft className="w-5 h-5 text-slate-500" />
-                    )}
-                  </button>
-                  <button
-                    onClick={() => setDeleteConfirm(offer.id)}
-                    className="p-2 text-slate-400 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-colors cursor-pointer"
-                    title="Delete"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
-                </div>
+                {/* Delete Confirmation for Promotional */}
+                {deleteConfirm === offer.id && isPromo && (
+                  <div className="mt-4 p-3 bg-red-500/10 border border-red-500/20 rounded-lg flex items-center justify-between">
+                    <span className="text-sm text-red-200">Are you sure you want to delete this offer?</span>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => setDeleteConfirm(null)}
+                        className="px-3 py-1.5 rounded-lg text-sm font-medium text-slate-400 hover:text-slate-200 transition-colors cursor-pointer"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        onClick={() => deleteOffer(offer.id)}
+                        className="px-3 py-1.5 rounded-lg text-sm font-medium bg-red-500/20 text-red-300 hover:bg-red-500/30 transition-colors cursor-pointer"
+                      >
+                        Delete
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
-
-              {/* Delete Confirmation */}
-              {deleteConfirm === offer.id && (
-                <div className="mt-3 p-3 bg-red-500/10 border border-red-500/20 rounded-lg flex items-center justify-between">
-                  <span className="text-sm text-red-200">
-                    Are you sure you want to delete this offer?
-                  </span>
-                  <div className="flex gap-2">
-                    <button
-                      onClick={() => setDeleteConfirm(null)}
-                      className="px-3 py-1.5 rounded-lg text-sm font-medium text-slate-400 hover:text-slate-200 transition-colors cursor-pointer"
-                    >
-                      Cancel
-                    </button>
-                    <button
-                      onClick={() => deleteOffer(offer.id)}
-                      className="px-3 py-1.5 rounded-lg text-sm font-medium bg-red-500/20 text-red-300 hover:bg-red-500/30 transition-colors cursor-pointer"
-                    >
-                      Delete
-                    </button>
-                  </div>
-                </div>
-              )}
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </div>
