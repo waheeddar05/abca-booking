@@ -1,5 +1,6 @@
 import { prisma } from '@/lib/prisma';
 import { timeToMinutes } from '@/lib/pricing';
+import { type MachineId, type PitchType } from '@prisma/client';
 
 /**
  * Get applicable promotional discount for a given booking
@@ -80,12 +81,12 @@ export async function getApplicablePromoDiscount(
       }
 
       // 5. Check machine IDs (empty = all machines)
-      if (offer.machineIds && offer.machineIds.length > 0 && machineId && !offer.machineIds.includes(machineId)) {
+      if (offer.machineIds && offer.machineIds.length > 0 && machineId && !offer.machineIds.includes(machineId as MachineId)) {
         return false;
       }
 
       // 6. Check pitch types (empty = all pitches)
-      if (offer.pitchTypes && offer.pitchTypes.length > 0 && pitchType && !offer.pitchTypes.includes(pitchType)) {
+      if (offer.pitchTypes && offer.pitchTypes.length > 0 && pitchType && !offer.pitchTypes.includes(pitchType as PitchType)) {
         return false;
       }
 
