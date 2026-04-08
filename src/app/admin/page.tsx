@@ -1,11 +1,22 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import Link from 'next/link';
-import { useSession } from 'next-auth/react';
-import { CalendarCheck, Activity, CalendarDays, Clock, IndianRupee, TrendingUp, LayoutDashboard, Wrench, SlidersHorizontal, Users, Package, Settings } from 'lucide-react';
+import { CalendarCheck, Activity, CalendarDays, TrendingUp, IndianRupee, LayoutDashboard, X } from 'lucide-react';
 import { AdminPageHeader } from '@/components/admin/AdminPageHeader';
 import { AdminStatCard } from '@/components/admin/AdminStatCard';
+import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts';
+import { MACHINES } from '@/lib/constants';
+
+interface MachineRevenueItem {
+  machineId: string;
+  _sum: { price: number };
+}
+
+interface OperatorSummaryItem {
+  id: string;
+  name: string | null;
+  bookings: number;
+}
 
 interface Stats {
   totalBookings: number;
@@ -14,21 +25,30 @@ interface Stats {
   upcomingBookings: number;
   lastMonthBookings: number;
   totalRevenue: number;
+  bookingRevenue: number;
+  packageRevenue: number;
   totalDiscount: number;
+  machineRevenue: MachineRevenueItem[];
+  operatorSummary: OperatorSummaryItem[];
   systemStatus: string;
 }
 
+const MACHINE_COLORS = ['#f59e0b', '#3b82f6', '#10b981', '#8b5cf6'];
+
 export default function AdminDashboard() {
-  const { data: session } = useSession();
   const [stats, setStats] = useState<Stats | null>(null);
   const [loading, setLoading] = useState(true);
-
-  const isSuperAdmin = session?.user?.email === 'waheeddar8@gmail.com';
+  const [from, setFrom] = useState('');
+  const [to, setTo] = useState('');
 
   useEffect(() => {
     async function fetchStats() {
+      setLoading(true);
       try {
-        const response = await fetch('/api/admin/stats');
+        const params = new URLSearchParams();
+        if (from) params.set('from', from);
+        if (to) params.set('to', to);
+        const response = await fetch(`/api/admin/stats?${params.toString()}`);
         if (response.ok) {
           const data = await response.json();
           setStats(data);
@@ -41,7 +61,7 @@ export default function AdminDashboard() {
     }
 
     fetchStats();
-  }, []);
+  }, [from, to]);
 
   const statCards = [
     { label: 'Total Bookings', value: stats?.totalBookings ?? 0, icon: CalendarCheck, gradient: 'bg-gradient-to-br from-accent/15 to-accent/5', iconColor: 'text-accent', href: '/admin/bookings' },
@@ -51,15 +71,14 @@ export default function AdminDashboard() {
     { label: 'Status', value: stats?.systemStatus ?? 'Healthy', icon: Activity, gradient: 'bg-gradient-to-br from-green-500/15 to-green-500/5', iconColor: 'text-green-400', isText: true, href: '/admin/policies' },
   ];
 
-  const manageLinks = [
-    { href: '/admin/bookings', label: 'Bookings', icon: CalendarCheck, color: 'text-accent', bg: 'bg-accent/10' },
-    { href: '/admin/slots', label: 'Slots', icon: Clock, color: 'text-blue-400', bg: 'bg-blue-500/10' },
-    { href: '/admin/users', label: 'Users', icon: Users, color: 'text-purple-400', bg: 'bg-purple-500/10' },
-    { href: '/admin/packages', label: 'Packages', icon: Package, color: 'text-orange-400', bg: 'bg-orange-500/10' },
-    { href: '/admin/configuration', label: 'Settings', icon: SlidersHorizontal, color: 'text-slate-300', bg: 'bg-white/[0.06]' },
-    { href: '/admin/policies', label: 'Policies', icon: Settings, color: 'text-slate-300', bg: 'bg-white/[0.06]' },
-    ...(isSuperAdmin ? [{ href: '/admin/maintenance', label: 'Maintenance', icon: Wrench, color: 'text-amber-400', bg: 'bg-amber-500/10' }] : []),
-  ];
+  const machineChartData = (stats?.machineRevenue || []).map(item => ({
+    name: MACHINES[item.machineId as keyof typeof MACHINES]?.shortName || item.machineId,
+    revenue: item._sum.price || 0,
+  }));
+
+  const activeOperators = (stats?.operatorSummary || [])
+    .filter(op => op.bookings > 0)
+    .sort((a, b) => b.bookings - a.bookings);
 
   return (
     <div className="space-y-5">
@@ -68,6 +87,39 @@ export default function AdminDashboard() {
         title="Dashboard"
         description="Overview & quick actions"
       />
+
+      {/* Date Range Filter */}
+      <div className="flex items-end gap-2 flex-wrap">
+        <div className="grid grid-cols-2 gap-2 flex-1 min-w-0 max-w-sm">
+          <div>
+            <label className="block text-[11px] font-semibold text-slate-300 mb-1.5">From</label>
+            <input
+              type="date"
+              value={from}
+              onChange={e => setFrom(e.target.value)}
+              className="w-full bg-white/[0.06] border border-white/[0.15] text-white rounded-lg px-3 py-2.5 text-sm outline-none focus:border-accent focus:ring-1 focus:ring-accent/20 [color-scheme:dark]"
+            />
+          </div>
+          <div>
+            <label className="block text-[11px] font-semibold text-slate-300 mb-1.5">To</label>
+            <input
+              type="date"
+              value={to}
+              onChange={e => setTo(e.target.value)}
+              className="w-full bg-white/[0.06] border border-white/[0.15] text-white rounded-lg px-3 py-2.5 text-sm outline-none focus:border-accent focus:ring-1 focus:ring-accent/20 [color-scheme:dark]"
+            />
+          </div>
+        </div>
+        {(from || to) && (
+          <button
+            onClick={() => { setFrom(''); setTo(''); }}
+            className="flex items-center gap-1 text-xs text-slate-400 hover:text-white transition-colors px-2 py-2.5 cursor-pointer"
+          >
+            <X className="w-3.5 h-3.5" />
+            Clear
+          </button>
+        )}
+      </div>
 
       {/* Stats Grid */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2.5">
@@ -88,23 +140,85 @@ export default function AdminDashboard() {
         ))}
       </div>
 
-      {/* Quick Manage Grid - simple flat grid */}
-      <div>
-        <h2 className="text-sm font-semibold text-slate-400 mb-3 px-1">Manage</h2>
-        <div className="grid grid-cols-3 sm:grid-cols-4 lg:grid-cols-7 gap-2">
-          {manageLinks.map(({ href, label, icon: Icon, color, bg }) => (
-            <Link
-              key={href}
-              href={href}
-              className="flex flex-col items-center gap-1.5 px-2 py-3 rounded-xl bg-white/[0.03] border border-white/[0.06] hover:bg-white/[0.06] hover:border-white/[0.12] transition-all active:scale-95 group"
-            >
-              <div className={`w-9 h-9 rounded-xl ${bg} flex items-center justify-center group-hover:scale-110 transition-transform`}>
-                <Icon className={`w-4 h-4 ${color}`} />
-              </div>
-              <span className="text-[10px] font-medium text-slate-300">{label}</span>
-            </Link>
-          ))}
+      {/* Revenue Breakdown */}
+      {stats && (stats.bookingRevenue > 0 || stats.packageRevenue > 0) && (
+        <div className="grid grid-cols-2 gap-2.5">
+          <div className="bg-white/[0.03] backdrop-blur-sm rounded-xl border border-white/[0.07] p-3.5">
+            <div className="text-[10px] font-medium text-slate-400 uppercase tracking-wider mb-1">Booking Revenue</div>
+            <div className="text-lg font-bold text-emerald-400">₹{stats.bookingRevenue.toLocaleString()}</div>
+          </div>
+          <div className="bg-white/[0.03] backdrop-blur-sm rounded-xl border border-white/[0.07] p-3.5">
+            <div className="text-[10px] font-medium text-slate-400 uppercase tracking-wider mb-1">Package Revenue</div>
+            <div className="text-lg font-bold text-orange-400">₹{stats.packageRevenue.toLocaleString()}</div>
+          </div>
         </div>
+      )}
+
+      {/* Machine-wise Revenue Chart */}
+      <div className="bg-white/[0.03] backdrop-blur-sm rounded-xl sm:rounded-2xl border border-white/[0.07] p-4">
+        <h2 className="text-sm font-semibold text-slate-400 mb-3 px-1">Revenue by Machine</h2>
+        {!loading && machineChartData.length > 0 ? (
+          <div className="h-64">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={machineChartData} margin={{ top: 5, right: 10, left: 10, bottom: 5 }}>
+                <XAxis
+                  dataKey="name"
+                  tick={{ fill: '#94a3b8', fontSize: 11 }}
+                  axisLine={false}
+                  tickLine={false}
+                />
+                <YAxis
+                  tick={{ fill: '#94a3b8', fontSize: 11 }}
+                  axisLine={false}
+                  tickLine={false}
+                  tickFormatter={v => `₹${(v / 1000).toFixed(0)}k`}
+                />
+                <Tooltip
+                  formatter={(value) => [`₹${Number(value).toLocaleString()}`, 'Revenue']}
+                  contentStyle={{
+                    backgroundColor: '#0f1d2f',
+                    border: '1px solid rgba(255,255,255,0.1)',
+                    borderRadius: '8px',
+                    color: 'white',
+                  }}
+                  labelStyle={{ color: '#94a3b8' }}
+                />
+                <Bar dataKey="revenue" radius={[6, 6, 0, 0]}>
+                  {machineChartData.map((_, idx) => (
+                    <Cell key={idx} fill={MACHINE_COLORS[idx % MACHINE_COLORS.length]} />
+                  ))}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        ) : !loading ? (
+          <p className="text-sm text-slate-500 text-center py-8">No machine revenue data available</p>
+        ) : (
+          <div className="h-64 flex items-center justify-center">
+            <div className="w-6 h-6 border-2 border-accent/30 border-t-accent rounded-full animate-spin" />
+          </div>
+        )}
+      </div>
+
+      {/* Operator Summary */}
+      <div className="bg-white/[0.03] backdrop-blur-sm rounded-xl sm:rounded-2xl border border-white/[0.07] p-4">
+        <h2 className="text-sm font-semibold text-slate-400 mb-3 px-1">Operator Summary</h2>
+        {!loading ? (
+          <div className="space-y-2">
+            {activeOperators.length > 0 ? activeOperators.map(op => (
+              <div key={op.id} className="flex items-center justify-between py-2.5 px-3 bg-white/[0.03] rounded-lg border border-white/[0.06]">
+                <span className="text-sm text-white font-medium">{op.name || 'Unnamed'}</span>
+                <span className="text-sm font-bold text-purple-400">{op.bookings} bookings</span>
+              </div>
+            )) : (
+              <p className="text-sm text-slate-500 text-center py-4">No operator activity in this period</p>
+            )}
+          </div>
+        ) : (
+          <div className="flex items-center justify-center py-8">
+            <div className="w-6 h-6 border-2 border-accent/30 border-t-accent rounded-full animate-spin" />
+          </div>
+        )}
       </div>
     </div>
   );

@@ -15,6 +15,7 @@ model User {
   mobileNumber  String?        @unique
   authProvider  AuthProvider
   createdAt     DateTime       @default(now())
+  lastSeen      DateTime?
   role          UserRole       @default(USER)
   image         String?
   isBlacklisted Boolean        @default(false)

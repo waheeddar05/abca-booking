@@ -98,16 +98,19 @@ export const authOptions: NextAuthOptions = {
               image: googleImage,
               authProvider: "GOOGLE",
               role: isInitialAdmin ? "ADMIN" : "USER",
+              lastSeen: new Date(),
             },
           });
         } else {
-          // Update image on every sign-in to keep it fresh
+          // Update image and lastSeen on every sign-in
+          const updateData: Record<string, unknown> = { lastSeen: new Date() };
           if (googleImage && dbUser.image !== googleImage) {
-            dbUser = await prisma.user.update({
-              where: { id: dbUser.id },
-              data: { image: googleImage },
-            });
+            updateData.image = googleImage;
           }
+          dbUser = await prisma.user.update({
+            where: { id: dbUser.id },
+            data: updateData,
+          });
         }
         user.id = dbUser.id;
         (user as any).role = dbUser.role;

@@ -55,6 +55,7 @@ export async function GET(req: NextRequest) {
         specialDiscountType: true,
         specialDiscountValue: true,
         createdAt: true,
+        lastSeen: true,
         _count: {
           select: { bookings: true },
         },
