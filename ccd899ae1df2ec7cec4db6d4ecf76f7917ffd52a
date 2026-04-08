@@ -1,0 +1,29 @@
+src/components/ContactFooter.tsx
+  fa596b82adf9e8af 67-70
+src/app/notifications/page.tsx
+  fa596b82adf9e8af 7,167-168
+src/app/verify-mobile/page.tsx
+  fa596b82adf9e8af 359,363-364
+src/app/wallet/page.tsx
+  fa596b82adf9e8af 5,250-251
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.5",
+  "base_commit_sha": "ccd899ae1df2ec7cec4db6d4ecf76f7917ffd52a",
+  "prompts": {
+    "fa596b82adf9e8af": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6b050f98-cfb2-4d1d-a3c8-5ad8aa202820",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Waheed",
+      "messages": [],
+      "total_additions": 14,
+      "total_deletions": 1,
+      "accepted_lines": 14,
+      "overriden_lines": 0
+    }
+  }
+}
