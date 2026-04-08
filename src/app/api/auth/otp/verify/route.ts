@@ -36,11 +36,17 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Invalid OTP' }, { status: 400 });
     }
 
-    // Mark OTP as used
-    await prisma.otp.update({
-      where: { id: latestOtp.id },
-      data: { used: true },
-    });
+    // Mark OTP as used and update lastSeen
+    await Promise.all([
+      prisma.otp.update({
+        where: { id: latestOtp.id },
+        data: { used: true },
+      }),
+      prisma.user.update({
+        where: { id: user.id },
+        data: { lastSeen: new Date() },
+      }),
+    ]);
 
     const token = signToken({
       userId: user.id,

@@ -23,6 +23,7 @@ interface UserData {
   specialDiscountType: 'PERCENTAGE' | 'FIXED' | null;
   specialDiscountValue: number | null;
   createdAt: string;
+  lastSeen: string | null;
   _count: { bookings: number };
 }
 
@@ -339,41 +340,41 @@ export default function AdminUsers() {
         </button>
       </AdminPageHeader>
 
-      <div className="grid grid-cols-5 gap-2 mb-4">
+      <div className="flex gap-2 mb-4 overflow-x-auto pb-1 scrollbar-none">
         <button
           onClick={() => setRoleFilter('')}
-          className={`rounded-xl p-2.5 text-center cursor-pointer transition-all ${roleFilter === '' ? 'bg-accent/15 ring-1 ring-accent/30' : 'bg-white/[0.04] border border-white/[0.08]'}`}
+          className={`rounded-xl p-2.5 text-center cursor-pointer transition-all flex-1 min-w-[4.5rem] ${roleFilter === '' ? 'bg-accent/15 ring-1 ring-accent/30' : 'bg-white/[0.04] border border-white/[0.08]'}`}
         >
           <div className="text-lg font-bold text-white">{totalUsers}</div>
           <div className="text-[10px] font-medium text-slate-400 uppercase tracking-wider">All</div>
         </button>
         <button
+          onClick={() => setRoleFilter(roleFilter === 'USER' ? '' : 'USER')}
+          className={`rounded-xl p-2.5 text-center cursor-pointer transition-all flex-1 min-w-[4.5rem] ${roleFilter === 'USER' ? 'bg-green-500/10 ring-1 ring-green-500/30' : 'bg-white/[0.04] border border-white/[0.08]'}`}
+        >
+          <div className="text-lg font-bold text-green-600">{userCount}</div>
+          <div className="text-[10px] font-medium text-green-500 uppercase tracking-wider">Users</div>
+        </button>
+        <button
           onClick={() => setRoleFilter(roleFilter === 'SPECIAL' ? '' : 'SPECIAL')}
-          className={`rounded-xl p-2.5 text-center cursor-pointer transition-all ${roleFilter === 'SPECIAL' ? 'bg-cyan-500/10 ring-1 ring-cyan-500/30' : 'bg-white/[0.04] border border-white/[0.08]'}`}
+          className={`rounded-xl p-2.5 text-center cursor-pointer transition-all flex-1 min-w-[4.5rem] ${roleFilter === 'SPECIAL' ? 'bg-cyan-500/10 ring-1 ring-cyan-500/30' : 'bg-white/[0.04] border border-white/[0.08]'}`}
         >
           <div className="text-lg font-bold text-cyan-400">{specialCount}</div>
           <div className="text-[10px] font-medium text-cyan-500 uppercase tracking-wider">Special</div>
         </button>
         <button
           onClick={() => setRoleFilter(roleFilter === 'OPERATOR' ? '' : 'OPERATOR')}
-          className={`rounded-xl p-2.5 text-center cursor-pointer transition-all ${roleFilter === 'OPERATOR' ? 'bg-purple-500/10 ring-1 ring-purple-500/30' : 'bg-white/[0.04] border border-white/[0.08]'}`}
+          className={`rounded-xl p-2.5 text-center cursor-pointer transition-all flex-1 min-w-[4.5rem] ${roleFilter === 'OPERATOR' ? 'bg-purple-500/10 ring-1 ring-purple-500/30' : 'bg-white/[0.04] border border-white/[0.08]'}`}
         >
           <div className="text-lg font-bold text-purple-600">{operatorCount}</div>
           <div className="text-[10px] font-medium text-purple-500 uppercase tracking-wider">Operators</div>
         </button>
         <button
           onClick={() => setRoleFilter(roleFilter === 'ADMIN' ? '' : 'ADMIN')}
-          className={`rounded-xl p-2.5 text-center cursor-pointer transition-all ${roleFilter === 'ADMIN' ? 'bg-blue-500/10 ring-1 ring-blue-500/30' : 'bg-white/[0.04] border border-white/[0.08]'}`}
+          className={`rounded-xl p-2.5 text-center cursor-pointer transition-all flex-1 min-w-[4.5rem] ${roleFilter === 'ADMIN' ? 'bg-blue-500/10 ring-1 ring-blue-500/30' : 'bg-white/[0.04] border border-white/[0.08]'}`}
         >
           <div className="text-lg font-bold text-blue-600">{adminCount}</div>
-          <div className="text-[10px] font-medium text-blue-500 uppercase tracking-wider">Admins</div>
-        </button>
-        <button
-          onClick={() => setRoleFilter(roleFilter === 'USER' ? '' : 'USER')}
-          className={`rounded-xl p-2.5 text-center cursor-pointer transition-all ${roleFilter === 'USER' ? 'bg-green-500/10 ring-1 ring-green-500/30' : 'bg-white/[0.04] border border-white/[0.08]'}`}
-        >
-          <div className="text-lg font-bold text-green-600">{userCount}</div>
-          <div className="text-[10px] font-medium text-green-500 uppercase tracking-wider">Users</div>
+          <div className="text-[10px] font-medium text-blue-500 uppercase tracking-wider">Admin</div>
         </button>
       </div>
 
@@ -549,6 +550,14 @@ export default function AdminUsers() {
                       <div className="flex items-center gap-2 text-xs text-slate-400 min-w-0">
                         <Clock className="w-3.5 h-3.5 text-slate-500 flex-shrink-0" />
                         <span className="truncate">Joined {new Date(user.createdAt).toLocaleDateString()}</span>
+                      </div>
+                      <div className="flex items-center gap-2 text-xs text-slate-400 min-w-0">
+                        <Clock className="w-3.5 h-3.5 text-slate-500 flex-shrink-0" />
+                        <span className="truncate">
+                          {user.lastSeen
+                            ? `Last seen ${new Date(user.lastSeen).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}`
+                            : 'Never logged in'}
+                        </span>
                       </div>
                       <div className="flex items-center gap-2 text-xs text-slate-400 min-w-0">
                         <CalendarCheck className="w-3.5 h-3.5 text-slate-500 flex-shrink-0" />
