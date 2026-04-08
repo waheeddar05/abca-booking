@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useSession } from 'next-auth/react';
-import { LayoutDashboard, CalendarCheck, Clock, Users, SlidersHorizontal, Package, Tag } from 'lucide-react';
+import { LayoutDashboard, CalendarCheck, Clock, Users, UserCog, SlidersHorizontal, Package, Tag } from 'lucide-react';
 
 export function AdminMobileNav() {
     const pathname = usePathname();
@@ -14,6 +14,7 @@ export function AdminMobileNav() {
         { href: '/admin/bookings', label: 'Bookings', icon: CalendarCheck },
         { href: '/admin/slots', label: 'Slots', icon: Clock },
         { href: '/admin/users', label: 'Users', icon: Users },
+        { href: '/admin/operators', label: 'Operators', icon: UserCog },
         { href: '/admin/packages', label: 'Packages', icon: Package },
         { href: '/admin/offers', label: 'Offers', icon: Tag },
         { href: '/admin/configuration', label: 'Settings', icon: SlidersHorizontal },
@@ -29,14 +30,14 @@ export function AdminMobileNav() {
     return (
         <nav className="fixed bottom-0 left-0 right-0 z-50 md:hidden">
             <div className="bg-[#0b1726]/95 backdrop-blur-xl border-t border-white/[0.08] pb-safe">
-                <div className="grid grid-cols-7 h-[60px]">
+                <div className="flex overflow-x-auto h-[60px] scrollbar-hide">
                     {tabs.map((tab) => {
                         const active = isActive(tab.href);
                         return (
                             <Link
                                 key={tab.href}
                                 href={tab.href}
-                                className={`flex flex-col items-center justify-center h-full relative transition-colors ${active ? 'text-accent' : 'text-slate-500 active:text-slate-300'
+                                className={`flex flex-col items-center justify-center h-full relative transition-colors min-w-[3.25rem] flex-1 ${active ? 'text-accent' : 'text-slate-500 active:text-slate-300'
                                     }`}
                             >
                                 {active && (
