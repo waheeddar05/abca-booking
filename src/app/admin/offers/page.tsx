@@ -87,8 +87,8 @@ const emptyRecurringForm = {
   slotEndTime: '08:30',
   machineIds: [] as string[],
   pitchTypes: [] as string[],
-  oneSlotDiscount: 0,
-  twoSlotDiscount: 0,
+  oneSlotDiscount: '' as string,
+  twoSlotDiscount: '' as string,
   enabled: true,
   appliesTo: 'ALL' as 'ALL' | 'SPECIAL',
 };
@@ -164,6 +164,8 @@ export default function AdminOffers() {
   // Refs for scrolling
   const editFormRef = useRef<HTMLDivElement>(null);
   const createFormRef = useRef<HTMLDivElement>(null);
+  const recurringSectionRef = useRef<HTMLElement>(null);
+  const promoSectionRef = useRef<HTMLElement>(null);
 
   const fetchOffers = async () => {
     try {
@@ -219,7 +221,8 @@ export default function AdminOffers() {
       if (res.ok) {
         setMessage({ text: isEdit ? 'Updated' : 'Created', type: 'success' });
         resetAll();
-        fetchOffers();
+        await fetchOffers();
+        setTimeout(() => promoSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 100);
       } else {
         const data = await res.json();
         setMessage({ text: data.error || 'Failed', type: 'error' });
@@ -287,8 +290,8 @@ export default function AdminOffers() {
         slotEndTime: recurringForm.slotEndTime,
         machineIds: recurringForm.machineIds,
         pitchTypes: recurringForm.pitchTypes,
-        oneSlotDiscount: Number(recurringForm.oneSlotDiscount),
-        twoSlotDiscount: Number(recurringForm.twoSlotDiscount),
+        oneSlotDiscount: Number(recurringForm.oneSlotDiscount) || 0,
+        twoSlotDiscount: Number(recurringForm.twoSlotDiscount) || 0,
         enabled: recurringForm.enabled,
         appliesTo: recurringForm.appliesTo,
       };
@@ -309,7 +312,8 @@ export default function AdminOffers() {
       if (res.ok) {
         setMessage({ text: isEdit ? 'Updated' : 'Created', type: 'success' });
         resetAll();
-        fetchRecurringRules();
+        await fetchRecurringRules();
+        setTimeout(() => recurringSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 100);
       } else {
         const data = await res.json();
         setMessage({ text: data.error || 'Failed', type: 'error' });
@@ -329,8 +333,8 @@ export default function AdminOffers() {
       slotEndTime: rule.slotEndTime,
       machineIds: rule.machineIds || [],
       pitchTypes: rule.pitchTypes || [],
-      oneSlotDiscount: rule.oneSlotDiscount,
-      twoSlotDiscount: rule.twoSlotDiscount,
+      oneSlotDiscount: String(rule.oneSlotDiscount || ''),
+      twoSlotDiscount: String(rule.twoSlotDiscount || ''),
       enabled: rule.enabled,
       appliesTo: rule.appliesTo,
     });
@@ -383,7 +387,8 @@ export default function AdminOffers() {
         </div>
         <div>
           <label className="block text-[11px] font-medium text-slate-400 mb-1">Value *</label>
-          <input type="text" inputMode="numeric" value={promoForm.discountValue}
+          <input type="text" inputMode="numeric" value={promoForm.discountValue || ''}
+            placeholder="0"
             onChange={e => setPromoForm({ ...promoForm, discountValue: parseFloat(e.target.value) || 0 })}
             className={inputClass} />
         </div>
@@ -481,13 +486,15 @@ export default function AdminOffers() {
         <div>
           <label className="block text-[11px] font-medium text-slate-400 mb-1">1 Slot Discount (₹)</label>
           <input type="text" inputMode="numeric" value={recurringForm.oneSlotDiscount}
-            onChange={e => setRecurringForm({ ...recurringForm, oneSlotDiscount: Number(e.target.value) || 0 })}
+            placeholder="0"
+            onChange={e => setRecurringForm({ ...recurringForm, oneSlotDiscount: e.target.value.replace(/[^0-9.]/g, '') })}
             className={inputClass} />
         </div>
         <div>
           <label className="block text-[11px] font-medium text-slate-400 mb-1">2 Slot Discount (₹)</label>
           <input type="text" inputMode="numeric" value={recurringForm.twoSlotDiscount}
-            onChange={e => setRecurringForm({ ...recurringForm, twoSlotDiscount: Number(e.target.value) || 0 })}
+            placeholder="0"
+            onChange={e => setRecurringForm({ ...recurringForm, twoSlotDiscount: e.target.value.replace(/[^0-9.]/g, '') })}
             className={inputClass} />
         </div>
       </div>
@@ -523,7 +530,7 @@ export default function AdminOffers() {
       <AdminPageHeader icon={Gift} title="Offers & Discounts" description="Manage promotional and recurring offers" />
 
       {/* ═══ RECURRING OFFERS SECTION ═══ */}
-      <section className="mb-8">
+      <section ref={recurringSectionRef} className="mb-8">
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-2">
             <Repeat className="w-4 h-4 text-blue-400" />
@@ -561,12 +568,16 @@ export default function AdminOffers() {
                         <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${rule.enabled ? 'bg-green-500/15 text-green-400' : 'bg-red-500/15 text-red-400'}`}>
                           {rule.enabled ? 'Active' : 'Off'}
                         </span>
-                        {rule.appliesTo === 'SPECIAL' && (
-                          <span className="text-[10px] px-1.5 py-0.5 rounded-full font-medium bg-purple-500/15 text-purple-400">Special</span>
+                        {rule.appliesTo === 'SPECIAL' ? (
+                          <span className="text-[10px] px-1.5 py-0.5 rounded-full font-medium bg-purple-500/15 text-purple-400">Special Users</span>
+                        ) : (
+                          <span className="text-[10px] px-1.5 py-0.5 rounded-full font-medium bg-blue-500/15 text-blue-400">All Users</span>
                         )}
                       </div>
                       <div className="flex flex-wrap items-center gap-1.5 text-[11px] text-slate-400">
-                        <span>{rule.days.map(d => DAYS_OF_WEEK.find(dw => dw.id === d)?.label).join(', ')}</span>
+                        {rule.days?.length > 0 && (
+                          <span className="text-sky-400">{rule.days.map(d => DAYS_OF_WEEK.find(dw => dw.id === d)?.label).join(', ')}</span>
+                        )}
                         <span className="text-emerald-400 font-medium">-₹{rule.oneSlotDiscount} / -₹{rule.twoSlotDiscount}</span>
                         {rule.machineIds?.length > 0 && (
                           <span>{rule.machineIds.map(m => MACHINE_OPTIONS.find(o => o.id === m)?.label).join(', ')}</span>
@@ -618,7 +629,7 @@ export default function AdminOffers() {
       </section>
 
       {/* ═══ PROMOTIONAL OFFERS SECTION ═══ */}
-      <section>
+      <section ref={promoSectionRef}>
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-2">
             <Tag className="w-4 h-4 text-accent" />
@@ -654,8 +665,10 @@ export default function AdminOffers() {
                         <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${offer.isActive ? 'bg-green-500/15 text-green-400' : 'bg-red-500/15 text-red-400'}`}>
                           {offer.isActive ? 'Active' : 'Off'}
                         </span>
-                        {offer.appliesTo === 'SPECIAL' && (
-                          <span className="text-[10px] px-1.5 py-0.5 rounded-full font-medium bg-purple-500/15 text-purple-400">Special</span>
+                        {offer.appliesTo === 'SPECIAL' ? (
+                          <span className="text-[10px] px-1.5 py-0.5 rounded-full font-medium bg-purple-500/15 text-purple-400">Special Users</span>
+                        ) : (
+                          <span className="text-[10px] px-1.5 py-0.5 rounded-full font-medium bg-blue-500/15 text-blue-400">All Users</span>
                         )}
                         <span className="text-[10px] text-emerald-400 font-medium">
                           {offer.discountType === 'PERCENTAGE' ? `${offer.discountValue}%` : `₹${offer.discountValue}`} off
@@ -669,7 +682,7 @@ export default function AdminOffers() {
                           <span>{offer.timeSlotStart}–{offer.timeSlotEnd}</span>
                         )}
                         {offer.days?.length > 0 && (
-                          <span>{offer.days.map(d => DAYS_OF_WEEK.find(dw => dw.id === d)?.label).join(', ')}</span>
+                          <span className="text-sky-400">{offer.days.map(d => DAYS_OF_WEEK.find(dw => dw.id === d)?.label).join(', ')}</span>
                         )}
                         {offer.machineIds?.length > 0 && (
                           <span>{offer.machineIds.map(m => MACHINE_OPTIONS.find(o => o.id === m)?.label).join(', ')}</span>

@@ -15,6 +15,8 @@ interface BookingBarProps {
   originalTotal: number;
   hasSavings: boolean;
   recurringDiscount?: number;
+  promoDiscount?: number;
+  promoLabel?: string | null;
   selectedPackageId: string;
   packageValidation: PackageValidationResponse | null;
   bookingLoading: boolean;
@@ -34,6 +36,8 @@ export function BookingBar({
   originalTotal,
   hasSavings,
   recurringDiscount = 0,
+  promoDiscount = 0,
+  promoLabel,
   selectedPackageId,
   packageValidation,
   bookingLoading,
@@ -104,6 +108,11 @@ export function BookingBar({
                     {recurringDiscount > 0 && (
                       <span className="text-[10px] text-emerald-400 ml-1">
                         (incl. Slot Discount: -₹{recurringDiscount})
+                      </span>
+                    )}
+                    {promoDiscount > 0 && (
+                      <span className="text-[10px] text-amber-400 ml-1">
+                        ({promoLabel || 'Promo'}: -₹{promoDiscount})
                       </span>
                     )}
                     {kitRentalTotal > 0 && (

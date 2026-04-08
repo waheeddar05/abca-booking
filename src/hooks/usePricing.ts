@@ -21,6 +21,8 @@ interface UsePricingReturn {
   hasSavings: boolean;
   savings: number;
   recurringDiscount: number;
+  promoDiscount: number;
+  promoLabel: string | null;
   getSlotDisplayPrice: (slot: AvailableSlot) => number;
 }
 
@@ -183,8 +185,20 @@ export function usePricing({
       }
     }
 
+    // Calculate promotional offer discount — apply per qualifying slot
+    let promoDiscount = 0;
+    let promoLabel: string | null = null;
+    if (selectedSlots.length > 0) {
+      for (const slot of selectedSlots) {
+        if (slot.promoDiscount) {
+          promoDiscount += slot.promoDiscount.discountAmount;
+          if (!promoLabel) promoLabel = slot.promoDiscount.name;
+        }
+      }
+    }
+
     const priceAfterConsecutive = consecutiveTotal ?? originalTotal;
-    const totalPrice = Math.max(0, priceAfterConsecutive - recurringDiscount);
+    const totalPrice = Math.max(0, priceAfterConsecutive - recurringDiscount - promoDiscount);
     const hasSavings = totalPrice < originalTotal;
     const savings = hasSavings ? originalTotal - totalPrice : 0;
 
@@ -196,6 +210,8 @@ export function usePricing({
       hasSavings,
       savings,
       recurringDiscount,
+      promoDiscount,
+      promoLabel,
       getSlotDisplayPrice,
     };
   }, [selectedSlots, machineConfig, selectedMachineId, isLeatherMachine, ballType, pitchType]);

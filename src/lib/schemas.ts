@@ -29,6 +29,12 @@ export const AvailableSlotSchema = SlotSchema.extend({
     oneSlotDiscount: z.number(),
     twoSlotDiscount: z.number(),
   }).optional(),
+  promoDiscount: z.object({
+    name: z.string(),
+    discountType: z.enum(['PERCENTAGE', 'FIXED']),
+    discountValue: z.number(),
+    discountAmount: z.number(),
+  }).optional(),
 });
 
 // ─── Booking Request ─────────────────────────────────────

@@ -9,7 +9,7 @@ import {
   DEFAULT_MACHINE_PITCH_CONFIG, LEATHER_MACHINES,
 } from '@/lib/constants';
 import type { MachinePitchConfig } from '@/lib/constants';
-import { getPricingConfig, getTimeSlabConfig, getSlotPrice, getTimeSlab } from '@/lib/pricing';
+import { getPricingConfig, getTimeSlabConfig, getSlotPrice, getTimeSlab, timeToMinutes } from '@/lib/pricing';
 import { getCachedPolicies } from '@/lib/policy-cache';
 import { getAuthenticatedUser } from '@/lib/auth';
 import { getOperatorCount } from '@/lib/operatorAssign';
@@ -33,9 +33,14 @@ export async function GET(req: NextRequest) {
     const dateUTC = dateStringToUTC(dateStr);
 
     let isAdmin = false;
+    let isSpecialUser = false;
     try {
       const user = await getAuthenticatedUser(req);
       isAdmin = user?.role === 'ADMIN';
+      if (user) {
+        const fullUser = await prisma.user.findUnique({ where: { id: user.id }, select: { isSpecialUser: true } });
+        isSpecialUser = fullUser?.isSpecialUser ?? false;
+      }
     } catch (e) {
       console.error('Error authenticating user in available slots:', e);
     }
@@ -75,8 +80,8 @@ export async function GET(req: NextRequest) {
       return NextResponse.json([]);
     }
 
-    // Fetch all data in parallel: policies (cached), pricing, time slabs, blocked slots, and ALL bookings
-    const [policyMap, pricingConfig, timeSlabConfig, blockedSlots, allBookings, recurringDiscounts] = await Promise.all([
+    // Fetch all data in parallel: policies (cached), pricing, time slabs, blocked slots, ALL bookings, discounts, and promo offers
+    const [policyMap, pricingConfig, timeSlabConfig, blockedSlots, allBookings, recurringDiscounts, activePromoOffers] = await Promise.all([
       getCachedPolicies(['SLOT_DURATION', 'DISABLED_DATES', 'NUMBER_OF_OPERATORS', 'MACHINE_PITCH_CONFIG']),
       getPricingConfig(),
       getTimeSlabConfig(),
@@ -100,6 +105,14 @@ export async function GET(req: NextRequest) {
       // Fetch active recurring slot discounts for badge display
       prisma.recurringSlotDiscount.findMany({
         where: { enabled: true },
+      }).catch(() => []),
+      // Fetch active promotional offers for the selected date
+      prisma.promotionalOffer.findMany({
+        where: {
+          isActive: true,
+          startDate: { lte: dateUTC },
+          endDate: { gte: dateUTC },
+        },
       }).catch(() => []),
     ]);
 
@@ -210,6 +223,56 @@ export async function GET(req: NextRequest) {
       return null;
     }
 
+    // Helper to find best applicable promotional offer for a slot
+    function getPromoDiscount(slotStart: Date, slotPrice: number): { name: string; discountType: 'PERCENTAGE' | 'FIXED'; discountValue: number; discountAmount: number } | null {
+      const dayOfWeek = getISTDay(slotStart);
+      const istTimeStr = getISTTime(slotStart);
+      const slotMinutes = timeToMinutes(istTimeStr);
+
+      let bestOffer: typeof activePromoOffers[0] | null = null;
+      let bestAmount = 0;
+
+      for (const offer of activePromoOffers) {
+        // appliesTo filter
+        if (offer.appliesTo === 'SPECIAL' && !isSpecialUser) continue;
+
+        // Day of week filter
+        if (offer.days && offer.days.length > 0 && !offer.days.includes(dayOfWeek)) continue;
+
+        // Time slot filter
+        if (offer.timeSlotStart && offer.timeSlotEnd) {
+          const offerStart = timeToMinutes(offer.timeSlotStart);
+          const offerEnd = timeToMinutes(offer.timeSlotEnd);
+          if (slotMinutes < offerStart || slotMinutes >= offerEnd) continue;
+        }
+
+        // Machine filter
+        if (offer.machineIds && offer.machineIds.length > 0 && machineId && !offer.machineIds.includes(machineId)) continue;
+
+        // Pitch type filter
+        if (offer.pitchTypes && offer.pitchTypes.length > 0 && validatedPitchType && !offer.pitchTypes.includes(validatedPitchType)) continue;
+
+        // Calculate discount amount
+        const amount = offer.discountType === 'PERCENTAGE'
+          ? (slotPrice * offer.discountValue) / 100
+          : offer.discountValue;
+
+        if (amount > bestAmount) {
+          bestAmount = amount;
+          bestOffer = offer;
+        }
+      }
+
+      if (!bestOffer || bestAmount <= 0) return null;
+
+      return {
+        name: bestOffer.name,
+        discountType: bestOffer.discountType as 'PERCENTAGE' | 'FIXED',
+        discountValue: bestOffer.discountValue,
+        discountAmount: Math.min(bestAmount, slotPrice),
+      };
+    }
+
     const availableSlots = slots.map(slot => {
       const timeKey = slot.startTime.getTime();
       const isOccupied = occupiedTimeKeys.has(timeKey);
@@ -273,6 +336,9 @@ export async function GET(req: NextRequest) {
       // Check for recurring slot discount badge
       const recurringDiscount = getRecurringDiscount(slot.startTime);
 
+      // Check for promotional offer discount
+      const promoDiscount = getPromoDiscount(slot.startTime, finalPrice);
+
       // Determine slot status
       let status: string;
       if (isBlocked) {
@@ -293,6 +359,7 @@ export async function GET(req: NextRequest) {
         operatorAvailable,
         timeSlab,
         ...(recurringDiscount ? { recurringDiscount } : {}),
+        ...(promoDiscount ? { promoDiscount } : {}),
       };
     });
 
