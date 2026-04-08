@@ -1,0 +1,47 @@
+src/app/admin/slots/page.tsx
+  e333fd207f0cdb46 27,84,92,145,206,284,297,605-631,751-757,849-873
+src/app/api/admin/slots/block/route.ts
+  e333fd207f0cdb46 60-61,118,263,306-309
+src/app/admin/operators/page.tsx
+  e333fd207f0cdb46 5,7,48,53,133,135-140,150,195-249,540,684,742-844
+src/components/slots/SlotGrid.tsx
+  e333fd207f0cdb46 99
+src/components/BookingCard.tsx
+  e333fd207f0cdb46 1-251
+src/app/bookings/page.tsx
+  e333fd207f0cdb46 4,7,207-211,214-228
+src/app/operator/page.tsx
+  e333fd207f0cdb46 5-6,9,343-349
+src/lib/operatorAssign.ts
+  e333fd207f0cdb46 28-38,41-42,49-66,73,79
+src/app/api/slots/available/route.ts
+  e333fd207f0cdb46 282-286,349,354-361,374
+src/app/admin/packages/page.tsx
+  e333fd207f0cdb46 82-84,227,230-236,861-927,1028-1029
+prisma/schema.prisma
+  e333fd207f0cdb46 126
+src/app/api/admin/packages/user-packages/route.ts
+  e333fd207f0cdb46 6,15-16,21-32
+src/lib/schemas.ts
+  e333fd207f0cdb46 28
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.6",
+  "base_commit_sha": "7c7207cea7494efcca0c4f5ceba2597b12aef543",
+  "prompts": {
+    "e333fd207f0cdb46": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "2bac33a1-b711-4e80-ab58-ad1efa0bda38",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Waheed",
+      "messages": [],
+      "total_additions": 680,
+      "total_deletions": 374,
+      "accepted_lines": 676,
+      "overriden_lines": 0
+    }
+  }
+}
