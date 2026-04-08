@@ -1,18 +1,11 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { format } from 'date-fns';
-import { ClipboardList, Loader2, X, Calendar, Clock, IndianRupee, ChevronLeft, ChevronRight, User, Phone } from 'lucide-react';
+import { ClipboardList, Loader2, ChevronLeft, ChevronRight, XCircle } from 'lucide-react';
 import { ContactFooter } from '@/components/ContactFooter';
 import { CancellationDialog } from '@/components/ui/CancellationDialog';
+import { BookingCard } from '@/components/BookingCard';
 import { useToast } from '@/components/ui/Toast';
-import {
-  BOOKING_STATUS_CONFIG,
-  BALL_TYPE_CONFIG,
-  MACHINE_LABELS,
-  PITCH_LABELS,
-} from '@/lib/client-constants';
-import { getDisplayStatus } from '@/lib/booking-utils';
 
 
 interface RefundEntry {
@@ -144,11 +137,6 @@ export default function BookingsPage() {
     }
   };
 
-  const statusConfig = BOOKING_STATUS_CONFIG;
-  const ballTypeConfig = BALL_TYPE_CONFIG;
-  const machineLabels = MACHINE_LABELS;
-  const pitchLabels = PITCH_LABELS;
-
   return (
     <div className="max-w-2xl mx-auto px-4 py-5">
       {/* Background gradient */}
@@ -215,190 +203,29 @@ export default function BookingsPage() {
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             {bookings.map((booking) => {
-              const displayStatus = getDisplayStatus(booking);
-              const status = statusConfig[displayStatus as keyof typeof statusConfig];
-              const ballInfo = ballTypeConfig[booking.ballType] || { color: 'bg-gray-400', label: booking.ballType };
               const canCancel = booking.status === 'BOOKED' && new Date(booking.startTime) > new Date();
-              const hasDiscount = booking.discountAmount && booking.discountAmount > 0;
+              // Map refund data for the shared component
+              const bookingWithRefunds = {
+                ...booking,
+                refunds: booking.refund?.refunds || (booking.refund ? [{ method: booking.refund.method, amount: booking.refund.amount, status: 'PROCESSED', refundedAt: booking.refund.refundedAt }] : []),
+              };
 
               return (
-                <div key={booking.id} className="bg-white/[0.04] backdrop-blur-sm rounded-xl border border-white/[0.08] p-4 transition-all hover:bg-white/[0.06] hover:border-white/[0.14] flex flex-col">
-                  {/* Header: Status Badge + Cancel */}
-                  <div className="flex items-center justify-between mb-3">
-                    <div className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold ${status.bg} ${status.text}`}>
-                      <span className={`w-1.5 h-1.5 rounded-full ${status.dot}`}></span>
-                      {status.label}
-                    </div>
-                    {canCancel && (
-                      <button
-                        disabled={!!cancellingId}
-                        onClick={() => handleCancelRequest(booking.id)}
-                        className="flex items-center gap-1 px-2.5 py-1 text-[11px] font-medium text-red-400 hover:bg-red-500/10 rounded-lg transition-colors disabled:opacity-50 cursor-pointer"
-                      >
-                        <X className="w-3 h-3" />
-                        {cancellingId === booking.id ? 'Cancelling...' : 'Cancel'}
-                      </button>
-                    )}
-                  </div>
-
-                  {/* Date & Time */}
-                  <div className="flex items-center gap-2 mb-1">
-                    <Calendar className="w-3.5 h-3.5 text-accent/60 flex-shrink-0" />
-                    <span className="text-sm font-medium text-slate-300">
-                      {format(new Date(booking.date), 'EEE, MMM d')}
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-2 mb-3">
-                    <Clock className="w-3.5 h-3.5 text-accent/60 flex-shrink-0" />
-                    <span className="text-base font-bold text-white">
-                      {new Date(booking.startTime).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit' })}
-                      {' – '}
-                      {new Date(booking.endTime).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit' })}
-                    </span>
-                  </div>
-
-                  {/* Machine + Pitch + Tags */}
-                  <div className="flex flex-wrap gap-1.5 mb-3">
-                    {booking.machineId && (
-                      <span className="text-[10px] px-2 py-0.5 rounded-full bg-white/[0.06] text-slate-300 font-medium border border-white/[0.06]">
-                        {machineLabels[booking.machineId] || booking.machineId}
-                      </span>
-                    )}
-                    {booking.pitchType && (
-                      <span className="text-[10px] px-2 py-0.5 rounded-full bg-white/[0.06] text-slate-300 font-medium border border-white/[0.06]">
-                        {pitchLabels[booking.pitchType] || booking.pitchType}
-                      </span>
-                    )}
-                    <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${
-                      booking.ballType === 'LEATHER' ? 'bg-red-500/10 text-red-400 border border-red-500/20' :
-                      booking.ballType === 'TENNIS' ? 'bg-green-500/10 text-green-400 border border-green-500/20' :
-                      'bg-blue-500/10 text-blue-400 border border-blue-500/20'
-                    }`}>
-                      {ballInfo.label}
-                    </span>
-                    {booking.operationMode === 'SELF_OPERATE' && (
-                      <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-400 font-medium border border-amber-500/20">
-                        Self Operate
-                      </span>
-                    )}
-                    {booking.isPackageBooking && (
-                      <span className="text-[10px] px-2 py-0.5 rounded-full bg-purple-500/10 text-purple-400 font-medium border border-purple-500/20">
-                        {booking.packageName ? `📦 ${booking.packageName}` : 'Package'}
-                      </span>
-                    )}
-                    {booking.kitRental && (
-                      <span className="text-[10px] px-2 py-0.5 rounded-full bg-teal-500/10 text-teal-400 font-medium border border-teal-500/20">
-                        Cricket Kit
-                      </span>
-                    )}
-                  </div>
-
-                  {/* Operator Details */}
-                  {booking.status === 'BOOKED' && booking.operatorName && (
-                    <div className="bg-white/[0.03] rounded-lg px-3 py-2 mb-3 border border-white/[0.06]">
-                      <p className="text-[10px] text-slate-500 uppercase tracking-wider mb-1">Machine Operator</p>
-                      <div className="flex items-center gap-2">
-                        <User className="w-3 h-3 text-accent/60 flex-shrink-0" />
-                        <span className="text-xs text-slate-300 font-medium">{booking.operatorName}</span>
-                      </div>
-                      {booking.operatorMobile && (
-                        <div className="flex items-center gap-2 mt-0.5">
-                          <Phone className="w-3 h-3 text-accent/60 flex-shrink-0" />
-                          <a href={`tel:${booking.operatorMobile}`} className="text-xs text-accent hover:underline">{booking.operatorMobile}</a>
-                        </div>
-                      )}
-                    </div>
-                  )}
-
-                  {/* Price Row */}
-                  <div className="mt-auto pt-3 border-t border-white/[0.06] flex items-center justify-between">
-                    <span className="text-xs text-slate-400 truncate">{booking.playerName}</span>
-                    {booking.price != null && (
-                      <div className="flex items-center gap-1 shrink-0">
-                        <IndianRupee className="w-3 h-3 text-slate-500" />
-                        <span className="text-sm font-bold text-white">{booking.price}</span>
-                        {hasDiscount && (
-                          <span className="text-[10px] text-green-400 line-through ml-1">₹{booking.originalPrice}</span>
-                        )}
-                        {booking.extraCharge != null && booking.extraCharge > 0 && (
-                          <span className="text-[10px] text-amber-400 ml-1">+₹{booking.extraCharge}</span>
-                        )}
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Cancelled by info */}
-                  {booking.status === 'CANCELLED' && booking.cancelledBy && (
-                    <div className="mt-2 text-[10px] text-red-400/70 italic">Cancelled by {booking.cancelledBy}</div>
-                  )}
-
-                  {/* Refund Info — shown for any booking with refunds */}
-                  {booking.refund && (
-                    <div className="mt-2 pt-2 border-t border-white/[0.04]">
-                      {booking.refund.refunds && booking.refund.refunds.length > 1 ? (
-                        /* Multiple refunds — show each one */
-                        <div className="space-y-1">
-                          {booking.refund.refunds.map((r, i) => (
-                            <div key={i} className="flex items-center gap-2">
-                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-green-500/10 text-green-400">
-                                <span className="w-1 h-1 rounded-full bg-green-400"></span>
-                                ₹{r.amount}
-                              </span>
-                              <span className="text-[10px] text-slate-500">
-                                via {r.method === 'WALLET' ? 'Wallet' : 'Bank'} • {format(new Date(r.refundedAt), 'MMM d')}
-                              </span>
-                            </div>
-                          ))}
-                          <div className="flex items-center gap-1 mt-1">
-                            <span className="text-[10px] font-semibold text-green-400">
-                              Total refunded: ₹{booking.refund.amount}
-                              {booking.price && booking.refund.amount < booking.price && (
-                                <span className="text-slate-500 font-normal"> of ₹{booking.price}</span>
-                              )}
-                            </span>
-                          </div>
-                        </div>
-                      ) : (
-                        /* Single refund */
-                        <div className="flex items-center gap-2">
-                          <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold ${
-                            booking.price && booking.refund.amount < booking.price
-                              ? 'bg-yellow-500/10 text-yellow-400'
-                              : 'bg-green-500/10 text-green-400'
-                          }`}>
-                            <span className={`w-1 h-1 rounded-full ${
-                              booking.price && booking.refund.amount < booking.price ? 'bg-yellow-400' : 'bg-green-400'
-                            }`}></span>
-                            {booking.price && booking.refund.amount < booking.price ? 'Partial ' : ''}Refund: ₹{booking.refund.amount}
-                            {booking.price && booking.refund.amount < booking.price && (
-                              <span className="opacity-70"> of ₹{booking.price}</span>
-                            )}
-                          </span>
-                          <span className="text-[10px] text-slate-500">
-                            via {booking.refund.method === 'WALLET' ? 'Wallet' : 'Bank (5-7 days)'}
-                          </span>
-                        </div>
-                      )}
-                    </div>
-                  )}
-                  {booking.status === 'CANCELLED' && !booking.refund && booking.price && booking.price > 0 && booking.paymentStatus === 'PAID' && (
-                    <div className="mt-2 pt-2 border-t border-white/[0.04]">
-                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-500/10 text-amber-400">
-                        <span className="w-1 h-1 rounded-full bg-amber-400 animate-pulse"></span>
-                        Refund pending
-                      </span>
-                    </div>
-                  )}
-
-                  {/* Booked on */}
-                  {booking.createdAt && (
-                    <div className="mt-2 pt-2 border-t border-white/[0.04]">
-                      <span className="text-[10px] text-slate-500">
-                        Booked {format(new Date(booking.createdAt), 'MMM d, yyyy')}
-                      </span>
-                    </div>
-                  )}
-                </div>
+                <BookingCard
+                  key={booking.id}
+                  booking={bookingWithRefunds}
+                  role="user"
+                  renderActions={canCancel ? () => (
+                    <button
+                      disabled={!!cancellingId}
+                      onClick={() => handleCancelRequest(booking.id)}
+                      className="flex-1 flex items-center justify-center gap-1.5 py-1.5 text-[11px] font-medium text-red-400 bg-red-500/10 rounded-lg hover:bg-red-500/20 transition-colors cursor-pointer disabled:opacity-50"
+                    >
+                      <XCircle className="w-3 h-3" />
+                      {cancellingId === booking.id ? 'Cancelling...' : 'Cancel Booking'}
+                    </button>
+                  ) : undefined}
+                />
               );
             })}
           </div>

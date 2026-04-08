@@ -57,7 +57,8 @@ export async function POST(req: NextRequest) {
       machineIds,   // New: multiple machine IDs array
       recurringDays, // New: array of day-of-week numbers (0=Sun, 1=Mon, ..., 6=Sat)
       pitchType,
-      reason
+      reason,
+      appliesTo,    // "ALL" | "SPECIAL" | "NON_SPECIAL"
     } = body;
 
     if (!startDate || !endDate) {
@@ -114,6 +115,7 @@ export async function POST(req: NextRequest) {
         pitchType,
         reason,
         blockedBy: admin.id,
+        appliesTo: ['ALL', 'SPECIAL', 'NON_SPECIAL'].includes(appliesTo) ? appliesTo : 'ALL',
       },
     });
 
@@ -258,7 +260,7 @@ export async function PUT(req: NextRequest) {
     }
 
     const body = await req.json();
-    const { id, startDate, endDate, startTime, endTime, machineId, reason } = body;
+    const { id, startDate, endDate, startTime, endTime, machineId, reason, appliesTo } = body;
 
     if (!id) {
       return NextResponse.json({ error: 'Block id is required' }, { status: 400 });
@@ -299,6 +301,10 @@ export async function PUT(req: NextRequest) {
 
     if (reason !== undefined) {
       updateData.reason = reason || null;
+    }
+
+    if (appliesTo !== undefined && ['ALL', 'SPECIAL', 'NON_SPECIAL'].includes(appliesTo)) {
+      updateData.appliesTo = appliesTo;
     }
 
     const updated = await prisma.blockedSlot.update({

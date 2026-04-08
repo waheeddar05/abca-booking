@@ -79,6 +79,9 @@ export default function AdminPackages() {
   const [tab, setTab] = useState<'packages' | 'users' | 'reports' | 'assign'>('packages');
   const [reports, setReports] = useState<any>(null);
   const [userPackages, setUserPackages] = useState<any[]>([]);
+  const [userPkgStatusFilter, setUserPkgStatusFilter] = useState('');
+  const [userPkgSearch, setUserPkgSearch] = useState('');
+  const [userPkgSearchInput, setUserPkgSearchInput] = useState('');
   const [reportsLoading, setReportsLoading] = useState(false);
   const [userPkgLoading, setUserPkgLoading] = useState(false);
   const [numberDialog, setNumberDialog] = useState<{
@@ -221,10 +224,16 @@ export default function AdminPackages() {
     }
   };
 
-  const fetchUserPackages = async () => {
+  const fetchUserPackages = async (statusOverride?: string, searchOverride?: string) => {
     setUserPkgLoading(true);
     try {
-      const res = await fetch('/api/admin/packages/user-packages');
+      const params = new URLSearchParams();
+      const status = statusOverride ?? userPkgStatusFilter;
+      const search = searchOverride ?? userPkgSearch;
+      if (status) params.set('status', status);
+      if (search) params.set('search', search);
+      const qs = params.toString();
+      const res = await fetch(`/api/admin/packages/user-packages${qs ? `?${qs}` : ''}`);
       if (res.ok) setUserPackages(await res.json());
     } catch (e) {
       console.error('Failed to fetch user packages', e);
@@ -849,7 +858,73 @@ export default function AdminPackages() {
 
       {/* USER PACKAGES TAB */}
       {tab === 'users' && (
-        userPkgLoading ? (
+        <>
+          {/* Filter bar */}
+          <div className="flex flex-col sm:flex-row gap-2 mb-4">
+            <div className="flex gap-1.5 flex-wrap">
+              {[
+                { value: '', label: 'All' },
+                { value: 'ACTIVE', label: 'Active' },
+                { value: 'EXPIRED', label: 'Expired' },
+                { value: 'CANCELLED', label: 'Cancelled' },
+              ].map(opt => (
+                <button
+                  key={opt.value}
+                  onClick={() => {
+                    setUserPkgStatusFilter(opt.value);
+                    fetchUserPackages(opt.value, userPkgSearch);
+                  }}
+                  className={`px-3 py-1.5 text-[11px] font-medium rounded-lg transition-colors cursor-pointer ${
+                    userPkgStatusFilter === opt.value
+                      ? 'bg-accent/20 text-accent border border-accent/30'
+                      : 'bg-white/[0.04] text-slate-400 border border-white/[0.07] hover:bg-white/[0.08]'
+                  }`}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+            <form
+              className="flex-1 flex gap-1.5"
+              onSubmit={e => {
+                e.preventDefault();
+                setUserPkgSearch(userPkgSearchInput);
+                fetchUserPackages(userPkgStatusFilter, userPkgSearchInput);
+              }}
+            >
+              <div className="relative flex-1">
+                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-500" />
+                <input
+                  type="text"
+                  placeholder="Search by name, email or mobile..."
+                  value={userPkgSearchInput}
+                  onChange={e => setUserPkgSearchInput(e.target.value)}
+                  className="w-full bg-white/[0.04] border border-white/[0.1] text-white rounded-lg pl-8 pr-3 py-1.5 text-[11px] outline-none focus:border-accent placeholder:text-slate-600"
+                />
+              </div>
+              <button
+                type="submit"
+                className="px-3 py-1.5 bg-accent/20 text-accent text-[11px] font-medium rounded-lg hover:bg-accent/30 transition-colors cursor-pointer"
+              >
+                Search
+              </button>
+              {userPkgSearch && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setUserPkgSearchInput('');
+                    setUserPkgSearch('');
+                    fetchUserPackages(userPkgStatusFilter, '');
+                  }}
+                  className="px-2 py-1.5 text-slate-400 text-[11px] rounded-lg hover:bg-white/[0.06] transition-colors cursor-pointer"
+                >
+                  Clear
+                </button>
+              )}
+            </form>
+          </div>
+
+          {userPkgLoading ? (
           <div className="flex items-center justify-center py-16 text-slate-400">
             <Loader2 className="w-5 h-5 animate-spin mr-2" />
             <span className="text-sm">Loading user packages...</span>
@@ -950,7 +1025,8 @@ export default function AdminPackages() {
               </div>
             ))}
           </div>
-        )
+        )}
+        </>
       )}
 
       {/* ASSIGN TAB */}

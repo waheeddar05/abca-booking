@@ -25,28 +25,58 @@ function getDayOfWeekIST(date: Date): number {
   return new Date(istMs).getUTCDay();
 }
 
+/** Get date string in YYYY-MM-DD format in IST. */
+function getDateStringIST(date: Date): string {
+  const istMs = date.getTime() + (5 * 60 + 30) * 60 * 1000;
+  const istDate = new Date(istMs);
+  return `${istDate.getUTCFullYear()}-${String(istDate.getUTCMonth() + 1).padStart(2, '0')}-${String(istDate.getUTCDate()).padStart(2, '0')}`;
+}
+
+// ─── Operator Date Override Config ────────────────────────
+// Format: { "2026-04-10": { "morning": 0, "evening": 2 }, ... }
+export type OperatorDateOverrides = Record<string, { morning: number; evening: number }>;
+
 /**
  * Get the number of operators needed for a given date + time slot.
- * Reads OPERATOR_SCHEDULE_CONFIG from policy, falls back to NUMBER_OF_OPERATORS, then 1.
+ * Priority: 1. Date-specific overrides, 2. Day-of-week schedule, 3. Legacy NUMBER_OF_OPERATORS, 4. Default 1.
+ * Returns 0 when explicitly configured (allows "no operator" mode).
  */
 export async function getOperatorCount(
   date: Date,
   startTime: Date,
   timeSlabs: TimeSlabConfig
 ): Promise<number> {
+  const slab = getTimeSlab(startTime, timeSlabs);
+
+  // 1. Check date-specific overrides first (highest priority)
+  try {
+    const overridesStr = await getCachedPolicy('OPERATOR_DATE_OVERRIDES');
+    if (overridesStr) {
+      const overrides: OperatorDateOverrides = JSON.parse(overridesStr);
+      const dateKey = getDateStringIST(date);
+      if (overrides[dateKey] !== undefined) {
+        const count = overrides[dateKey][slab];
+        if (count !== undefined) return Math.max(0, count);
+      }
+    }
+  } catch (e) {
+    console.warn('[OperatorAssign] Error parsing OPERATOR_DATE_OVERRIDES:', e);
+  }
+
+  // 2. Check day-of-week schedule config
   try {
     const configStr = await getCachedPolicy('OPERATOR_SCHEDULE_CONFIG');
     if (configStr) {
       const config: OperatorScheduleConfig = JSON.parse(configStr);
       const day = getDayOfWeekIST(date);
-      const slab = getTimeSlab(startTime, timeSlabs);
       const match = config.schedule.find(e => e.days.includes(day) && e.slab === slab);
-      return Math.max(1, match?.count ?? config.default ?? 1);
+      return Math.max(0, match?.count ?? config.default ?? 1);
     }
   } catch (e) {
     console.warn('[OperatorAssign] Error parsing OPERATOR_SCHEDULE_CONFIG:', e);
   }
 
+  // 3. Legacy fallback
   try {
     const val = await getCachedPolicy('NUMBER_OF_OPERATORS');
     if (val) return Math.max(1, parseInt(val, 10));

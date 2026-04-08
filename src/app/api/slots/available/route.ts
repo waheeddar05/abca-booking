@@ -279,6 +279,11 @@ export async function GET(req: NextRequest) {
 
       // Check if slot is blocked by Admin
       const isBlocked = blockedSlots.some(block => {
+        // Check appliesTo: filter by user type
+        const blockAppliesTo = (block as any).appliesTo || 'ALL';
+        if (blockAppliesTo === 'SPECIAL' && !isSpecialUser) return false;
+        if (blockAppliesTo === 'NON_SPECIAL' && isSpecialUser) return false;
+
         // Check recurring days: if block has recurringDays, only block on those days
         if (block.recurringDays && block.recurringDays.length > 0) {
           const dayOfWeek = dateUTC.getUTCDay();
@@ -341,10 +346,19 @@ export async function GET(req: NextRequest) {
 
       // Determine slot status
       let status: string;
+      let selfOperate = false;
       if (isBlocked) {
         status = 'Blocked';
       } else if (isOccupied) {
         status = 'Booked';
+      } else if (numberOfOperators === 0) {
+        // Zero operators configured: leather machines unavailable, tennis machines self-operate
+        if (isLeatherMachine) {
+          status = 'Blocked';
+        } else {
+          status = 'Available';
+          selfOperate = true;
+        }
       } else if (isLeatherMachine && !operatorAvailable) {
         status = 'OperatorUnavailable';
       } else {
@@ -357,6 +371,7 @@ export async function GET(req: NextRequest) {
         status,
         price: finalPrice,
         operatorAvailable,
+        selfOperate,
         timeSlab,
         ...(recurringDiscount ? { recurringDiscount } : {}),
         ...(promoDiscount ? { promoDiscount } : {}),

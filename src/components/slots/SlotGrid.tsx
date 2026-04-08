@@ -96,7 +96,7 @@ function SlotCard({
   const isBlocked = slot.status === 'Blocked';
   const isOperatorUnavailable = slot.status === 'OperatorUnavailable';
   const isUnavailable = isBooked || isBlocked || isOperatorUnavailable;
-  const noOperator = !slot.operatorAvailable && !isLeatherMachine && !isUnavailable;
+  const noOperator = (slot.selfOperate || (!slot.operatorAvailable && !isLeatherMachine)) && !isUnavailable;
 
   const bgClass = isUnavailable
     ? 'bg-white/[0.02] border border-white/[0.05] cursor-not-allowed'

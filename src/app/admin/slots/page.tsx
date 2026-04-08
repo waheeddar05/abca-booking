@@ -24,6 +24,7 @@ interface BlockedSlot {
   createdAt: string;
   recurringDays: number[];
   machineIds: string[];
+  appliesTo: string;
 }
 
 type TabId = 'block' | 'active';
@@ -80,6 +81,7 @@ export default function SlotManagement() {
   const [selectedMachines, setSelectedMachines] = useState<string[]>([]);
   const [allMachines, setAllMachines] = useState(true);
   const [reason, setReason] = useState('');
+  const [appliesTo, setAppliesTo] = useState<'ALL' | 'SPECIAL' | 'NON_SPECIAL'>('ALL');
   const [blockLoading, setBlockLoading] = useState(false);
 
   // Active blocks state
@@ -87,7 +89,7 @@ export default function SlotManagement() {
   const [blockedLoading, setBlockedLoading] = useState(false);
   const [unblockId, setUnblockId] = useState<string | null>(null);
   const [editingBlock, setEditingBlock] = useState<BlockedSlot | null>(null);
-  const [editForm, setEditForm] = useState({ startDate: '', endDate: '', startTime: '', endTime: '', isFullDay: true, machineId: '' as string | null, reason: '' });
+  const [editForm, setEditForm] = useState({ startDate: '', endDate: '', startTime: '', endTime: '', isFullDay: true, machineId: '' as string | null, reason: '', appliesTo: 'ALL' as string });
   const [editLoading, setEditLoading] = useState(false);
 
   const todayStr = format(new Date(), 'yyyy-MM-dd');
@@ -140,6 +142,7 @@ export default function SlotManagement() {
     setSelectedMachines([]);
     setAllMachines(true);
     setReason('');
+    setAppliesTo('ALL');
   };
 
   // ─── Build list of dates to block ───────────────────────
@@ -200,6 +203,7 @@ export default function SlotManagement() {
         startDate,
         endDate,
         reason: reason || null,
+        appliesTo,
       };
       if (!isFullDay) {
         body.startTime = startTime;
@@ -277,6 +281,7 @@ export default function SlotManagement() {
       isFullDay: !block.startTime,
       machineId: block.machineId,
       reason: block.reason || '',
+      appliesTo: block.appliesTo || 'ALL',
     });
   };
 
@@ -289,6 +294,7 @@ export default function SlotManagement() {
         startDate: editForm.startDate,
         endDate: editForm.endDate,
         reason: editForm.reason || null,
+        appliesTo: editForm.appliesTo,
       };
       if (!editForm.isFullDay) {
         body.startTime = editForm.startTime;
@@ -596,6 +602,33 @@ export default function SlotManagement() {
             />
           </div>
 
+          {/* ── Section 5: Apply Block To ─────────────── */}
+          <div className="bg-white/[0.03] rounded-xl border border-white/[0.06] p-4">
+            <label className="block text-[10px] font-medium text-slate-500 mb-2 uppercase tracking-wider">
+              Apply Block To
+            </label>
+            <div className="flex gap-2 flex-wrap">
+              {[
+                { value: 'ALL' as const, label: 'All Users' },
+                { value: 'NON_SPECIAL' as const, label: 'Only Non-Special Users' },
+                { value: 'SPECIAL' as const, label: 'Only Special Users' },
+              ].map(opt => (
+                <button
+                  key={opt.value}
+                  type="button"
+                  onClick={() => setAppliesTo(opt.value)}
+                  className={`px-3 py-2 text-xs font-medium rounded-lg border transition-all cursor-pointer ${
+                    appliesTo === opt.value
+                      ? 'bg-accent/15 text-accent border-accent/30'
+                      : 'bg-white/[0.03] text-slate-400 border-white/[0.08] hover:bg-white/[0.06]'
+                  }`}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
           {/* ── Actions ────────────────────────────────── */}
           <div className="flex gap-2">
             <button
@@ -715,6 +748,13 @@ export default function SlotManagement() {
                             {block.reason}
                           </span>
                         )}
+                        {block.appliesTo && block.appliesTo !== 'ALL' && (
+                          <span className={`text-[10px] font-medium px-2 py-0.5 rounded-md ${
+                            block.appliesTo === 'SPECIAL' ? 'bg-purple-500/10 text-purple-400' : 'bg-orange-500/10 text-orange-400'
+                          }`}>
+                            {block.appliesTo === 'SPECIAL' ? 'Special Users Only' : 'Non-Special Users Only'}
+                          </span>
+                        )}
                       </div>
                     </div>
 
@@ -805,6 +845,31 @@ export default function SlotManagement() {
                 <input type="text" value={editForm.reason} onChange={e => setEditForm(f => ({ ...f, reason: e.target.value }))}
                   placeholder="e.g., Pitch maintenance..."
                   className="w-full bg-white/[0.04] border border-white/[0.08] rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-accent/50 placeholder:text-slate-600" />
+              </div>
+
+              {/* Apply Block To */}
+              <div>
+                <label className="block text-[10px] font-medium text-slate-500 mb-2 uppercase tracking-wider">Apply Block To</label>
+                <div className="flex gap-2 flex-wrap">
+                  {[
+                    { value: 'ALL', label: 'All Users' },
+                    { value: 'NON_SPECIAL', label: 'Non-Special Only' },
+                    { value: 'SPECIAL', label: 'Special Only' },
+                  ].map(opt => (
+                    <button
+                      key={opt.value}
+                      type="button"
+                      onClick={() => setEditForm(f => ({ ...f, appliesTo: opt.value }))}
+                      className={`px-2.5 py-1.5 text-[11px] font-medium rounded-lg border transition-all cursor-pointer ${
+                        editForm.appliesTo === opt.value
+                          ? 'bg-accent/15 text-accent border-accent/30'
+                          : 'bg-white/[0.03] text-slate-400 border-white/[0.08] hover:bg-white/[0.06]'
+                      }`}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
               </div>
             </div>
 

@@ -3,7 +3,7 @@ import { prisma } from '@/lib/prisma';
 import { requireAdmin } from '@/lib/adminAuth';
 import { getAuthenticatedUser } from '@/lib/auth';
 
-// GET /api/admin/packages/user-packages?userId=xxx - List user packages
+// GET /api/admin/packages/user-packages?userId=xxx&status=ACTIVE&search=john&packageId=xxx - List user packages
 export async function GET(req: NextRequest) {
   const admin = await requireAdmin(req);
   if (!admin) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -12,10 +12,24 @@ export async function GET(req: NextRequest) {
     const { searchParams } = new URL(req.url);
     const userId = searchParams.get('userId');
     const status = searchParams.get('status');
+    const search = searchParams.get('search');
+    const packageId = searchParams.get('packageId');
 
     const where: any = {};
     if (userId) where.userId = userId;
     if (status) where.status = status;
+    if (packageId) where.packageId = packageId;
+
+    // Search by user name, email, or mobile number
+    if (search) {
+      where.user = {
+        OR: [
+          { name: { contains: search, mode: 'insensitive' } },
+          { email: { contains: search, mode: 'insensitive' } },
+          { mobileNumber: { contains: search } },
+        ],
+      };
+    }
 
     const userPackages = await prisma.userPackage.findMany({
       where,

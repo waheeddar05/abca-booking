@@ -123,6 +123,7 @@ model BlockedSlot {
   machineId     MachineId?
   recurringDays Int[]
   machineIds    String[]
+  appliesTo     String     @default("ALL") // "ALL" | "SPECIAL" | "NON_SPECIAL"
 }
 
 model Package {

@@ -2,8 +2,9 @@
 
 import { useState, useEffect } from 'react';
 import { useSession } from 'next-auth/react';
-import { Users, Loader2, Save, ChevronUp, ChevronDown, Check, Calendar, ListOrdered, Wrench } from 'lucide-react';
+import { Users, Loader2, Save, ChevronUp, ChevronDown, Check, Calendar, ListOrdered, Wrench, CalendarClock, Trash2, Plus } from 'lucide-react';
 import { AdminPageHeader } from '@/components/admin/AdminPageHeader';
+import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { useToast } from '@/components/ui/Toast';
 
 // ─── Types ───────────────────────────────────────────────
@@ -44,11 +45,12 @@ const MACHINE_LABELS: Record<string, { name: string; short: string }> = {
   LEVERAGE_OUTDOOR: { name: 'Leverage Outdoor', short: 'Lev. Outdoor' },
 };
 
-type TabKey = 'schedule' | 'priority';
+type TabKey = 'schedule' | 'priority' | 'dateOverrides';
 
 const TABS: { key: TabKey; label: string; icon: typeof Calendar }[] = [
   { key: 'schedule', label: 'Schedule', icon: Calendar },
   { key: 'priority', label: 'Priority', icon: ListOrdered },
+  { key: 'dateOverrides', label: 'Date Overrides', icon: CalendarClock },
 ];
 
 // ─── OperatorNumberField (numeric input with focus handling) ─
@@ -128,6 +130,14 @@ export default function AdminOperators() {
   const [priorityOrders, setPriorityOrders] = useState<Record<string, string[]>>({});
   const [savingPriorities, setSavingPriorities] = useState(false);
   const [togglingAssignment, setTogglingAssignment] = useState<string | null>(null);
+  const [confirmAction, setConfirmAction] = useState<'schedule' | 'priority' | null>(null);
+
+  // ─── Date Overrides tab state ──────
+  const [dateOverrides, setDateOverrides] = useState<Record<string, { morning: number; evening: number }>>({});
+  const [newOverrideDate, setNewOverrideDate] = useState('');
+  const [newOverrideMorning, setNewOverrideMorning] = useState(1);
+  const [newOverrideEvening, setNewOverrideEvening] = useState(1);
+  const [savingOverrides, setSavingOverrides] = useState(false);
 
 
   // ═══════════════════════════════════════════════════════
@@ -137,6 +147,7 @@ export default function AdminOperators() {
   useEffect(() => {
     fetchOperators();
     fetchOperatorSchedule();
+    fetchDateOverrides();
   }, []);
 
   const fetchOperators = async () => {
@@ -179,6 +190,61 @@ export default function AdminOperators() {
     } catch (error) {
       console.error('Failed to fetch operator schedule:', error);
     }
+  };
+
+  const fetchDateOverrides = async () => {
+    try {
+      const res = await fetch('/api/admin/policies');
+      if (res.ok) {
+        const data = await res.json();
+        const policyArray: { key: string; value: string }[] = Array.isArray(data) ? data : (data.policies || []);
+        const overridePolicy = policyArray.find(p => p.key === 'OPERATOR_DATE_OVERRIDES');
+        if (overridePolicy) {
+          setDateOverrides(JSON.parse(overridePolicy.value));
+        }
+      }
+    } catch (error) {
+      console.error('Failed to fetch date overrides:', error);
+    }
+  };
+
+  const saveDateOverrides = async (overrides: Record<string, { morning: number; evening: number }>) => {
+    setSavingOverrides(true);
+    try {
+      const res = await fetch('/api/admin/policies', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ key: 'OPERATOR_DATE_OVERRIDES', value: JSON.stringify(overrides) }),
+      });
+      if (res.ok) {
+        setDateOverrides(overrides);
+        toast.success('Date overrides saved');
+      } else {
+        toast.error('Failed to save date overrides');
+      }
+    } catch {
+      toast.error('Failed to save date overrides');
+    } finally {
+      setSavingOverrides(false);
+    }
+  };
+
+  const addDateOverride = () => {
+    if (!newOverrideDate) {
+      toast.error('Please select a date');
+      return;
+    }
+    const updated = { ...dateOverrides, [newOverrideDate]: { morning: newOverrideMorning, evening: newOverrideEvening } };
+    saveDateOverrides(updated);
+    setNewOverrideDate('');
+    setNewOverrideMorning(1);
+    setNewOverrideEvening(1);
+  };
+
+  const removeDateOverride = (date: string) => {
+    const updated = { ...dateOverrides };
+    delete updated[date];
+    saveDateOverrides(updated);
   };
 
   // ═══════════════════════════════════════════════════════
@@ -471,7 +537,7 @@ export default function AdminOperators() {
             {/* Save button */}
             <div className="mt-4 flex justify-end">
               <button
-                onClick={saveSchedule}
+                onClick={() => setConfirmAction('schedule')}
                 disabled={savingSchedule}
                 className="flex items-center gap-2 px-4 py-2.5 bg-accent hover:bg-accent-light text-primary text-xs font-semibold rounded-lg transition-colors cursor-pointer disabled:opacity-50"
               >
@@ -615,7 +681,7 @@ export default function AdminOperators() {
             {operators.length > 0 && (
               <div className="mt-4 flex justify-end">
                 <button
-                  onClick={savePriorities}
+                  onClick={() => setConfirmAction('priority')}
                   disabled={savingPriorities}
                   className="flex items-center gap-2 px-4 py-2.5 bg-accent hover:bg-accent-light text-primary text-xs font-semibold rounded-lg transition-colors cursor-pointer disabled:opacity-50"
                 >
@@ -673,6 +739,109 @@ export default function AdminOperators() {
         </div>
       )}
 
+      {/* ═════════════════════════════════════════════ */}
+      {/* TAB 3: DATE OVERRIDES                        */}
+      {/* ═════════════════════════════════════════════ */}
+      {activeTab === 'dateOverrides' && (
+        <div className="space-y-4">
+          {/* Add new override */}
+          <div className="bg-white/[0.03] border border-white/[0.07] rounded-xl p-4">
+            <h3 className="text-xs font-bold text-white uppercase tracking-wider mb-3">Add Date Override</h3>
+            <p className="text-[11px] text-slate-400 mb-4">
+              Set operator count to <strong className="text-amber-400">0</strong> for a slab to make leather machines unavailable and tennis machines self-operate for that date.
+            </p>
+            <div className="grid grid-cols-1 sm:grid-cols-4 gap-3 items-end">
+              <div>
+                <label className="block text-[9px] font-medium text-slate-400 mb-0.5">Date</label>
+                <input
+                  type="date"
+                  value={newOverrideDate}
+                  onChange={e => setNewOverrideDate(e.target.value)}
+                  className="w-full bg-white/[0.04] border border-white/[0.1] text-white rounded-lg px-2 py-1.5 text-[11px] outline-none focus:border-accent"
+                />
+              </div>
+              <OperatorNumberField
+                label="Morning Operators"
+                value={newOverrideMorning}
+                onChange={setNewOverrideMorning}
+                placeholder="0"
+                labelColor="text-amber-400/70"
+              />
+              <OperatorNumberField
+                label="Evening Operators"
+                value={newOverrideEvening}
+                onChange={setNewOverrideEvening}
+                placeholder="0"
+                labelColor="text-blue-400/70"
+              />
+              <button
+                onClick={addDateOverride}
+                disabled={savingOverrides || !newOverrideDate}
+                className="flex items-center justify-center gap-1.5 px-3 py-1.5 bg-accent hover:bg-accent-light text-primary text-[11px] font-semibold rounded-lg transition-colors cursor-pointer disabled:opacity-50"
+              >
+                {savingOverrides ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />}
+                Add
+              </button>
+            </div>
+          </div>
+
+          {/* Existing overrides */}
+          <div className="bg-white/[0.03] border border-white/[0.07] rounded-xl p-4">
+            <h3 className="text-xs font-bold text-white uppercase tracking-wider mb-3">Active Date Overrides</h3>
+            {Object.keys(dateOverrides).length === 0 ? (
+              <p className="text-[11px] text-slate-500 py-4 text-center">No date overrides configured</p>
+            ) : (
+              <div className="space-y-2">
+                {Object.entries(dateOverrides)
+                  .sort(([a], [b]) => a.localeCompare(b))
+                  .map(([date, counts]) => (
+                    <div key={date} className="flex items-center justify-between bg-white/[0.03] rounded-lg px-3 py-2.5 border border-white/[0.06]">
+                      <div className="flex items-center gap-4">
+                        <span className="text-sm font-medium text-white">{date}</span>
+                        <div className="flex gap-3">
+                          <span className={`text-[11px] px-2 py-0.5 rounded-md ${counts.morning === 0 ? 'bg-red-500/15 text-red-400' : 'bg-amber-500/10 text-amber-400'}`}>
+                            Morning: {counts.morning}
+                          </span>
+                          <span className={`text-[11px] px-2 py-0.5 rounded-md ${counts.evening === 0 ? 'bg-red-500/15 text-red-400' : 'bg-blue-500/10 text-blue-400'}`}>
+                            Evening: {counts.evening}
+                          </span>
+                        </div>
+                      </div>
+                      <button
+                        onClick={() => removeDateOverride(date)}
+                        disabled={savingOverrides}
+                        className="p-1.5 text-slate-500 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-colors cursor-pointer disabled:opacity-50"
+                        title="Remove override"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Confirmation Dialog */}
+      <ConfirmDialog
+        open={confirmAction !== null}
+        title={confirmAction === 'schedule' ? 'Save Operator Schedule' : 'Save Operator Priorities'}
+        message={confirmAction === 'schedule'
+          ? 'Are you sure you want to save the operator schedule? This will update the operator count configuration for all days.'
+          : 'Are you sure you want to save the operator priorities? This will update the assignment order for operators.'}
+        confirmLabel={confirmAction === 'schedule' ? 'Save Schedule' : 'Save Priorities'}
+        loading={confirmAction === 'schedule' ? savingSchedule : savingPriorities}
+        onConfirm={async () => {
+          if (confirmAction === 'schedule') {
+            await saveSchedule();
+          } else {
+            await savePriorities();
+          }
+          setConfirmAction(null);
+        }}
+        onCancel={() => setConfirmAction(null)}
+      />
     </div>
   );
 }
