@@ -1,0 +1,37 @@
+src/app/admin/page.tsx
+  e64334e58c832a44 4,7-8,10-19,28-29,31-32,36-37,41-42,46,48-51,64,74-81,91-123,143-153,155-221
+src/app/api/admin/stats/route.ts
+  e64334e58c832a44 4,13-22,34,36-38,41-44,63,66-70,72,79,82-123,133-135,137-138,145,147-148
+src/app/admin/users/page.tsx
+  e64334e58c832a44 26,343,346,352-357,360,367,374,377,555-561
+prisma/migrations/20260408000000_add_last_seen_to_user/migration.sql
+  e64334e58c832a44 1-2
+prisma/schema.prisma
+  e64334e58c832a44 18
+src/app/api/auth/otp/verify/route.ts
+  e64334e58c832a44 39-49
+src/app/api/admin/users/route.ts
+  e64334e58c832a44 58
+src/lib/authOptions.ts
+  e64334e58c832a44 101,105-106,108,110-113
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.5",
+  "base_commit_sha": "8cf44bfc5b0695d20335a93961455fe9be8608a7",
+  "prompts": {
+    "e64334e58c832a44": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "dd174a33-e1d8-46e8-a814-19706f5ec768",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Waheed",
+      "messages": [],
+      "total_additions": 270,
+      "total_deletions": 64,
+      "accepted_lines": 269,
+      "overriden_lines": 0
+    }
+  }
+}
