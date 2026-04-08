@@ -547,7 +547,7 @@ export default function AdminOffers() {
         {createType === 'RECURRING' && (
           <div ref={createFormRef} className="bg-white/[0.03] border border-blue-500/20 rounded-xl p-4 mb-3">
             <h3 className="text-sm font-medium text-white mb-3">New Recurring Offer</h3>
-            <RecurringFormUI onSubmit={handleRecurringSubmit} />
+            {RecurringFormUI({ onSubmit: handleRecurringSubmit })}
           </div>
         )}
 
@@ -619,7 +619,7 @@ export default function AdminOffers() {
                 {editingId === rule.id && editingType === 'RECURRING' && (
                   <div ref={editFormRef} className="bg-white/[0.03] border border-blue-500/20 border-t-0 rounded-b-xl p-4 -mt-1">
                     <h3 className="text-sm font-medium text-white mb-3">Edit Recurring Offer</h3>
-                    <RecurringFormUI onSubmit={handleRecurringSubmit} />
+                    {RecurringFormUI({ onSubmit: handleRecurringSubmit })}
                   </div>
                 )}
               </div>
@@ -646,7 +646,7 @@ export default function AdminOffers() {
         {createType === 'PROMOTIONAL' && (
           <div ref={createFormRef} className="bg-white/[0.03] border border-accent/20 rounded-xl p-4 mb-3">
             <h3 className="text-sm font-medium text-white mb-3">New Promotional Offer</h3>
-            <PromoFormUI onSubmit={handlePromoSubmit} />
+            {PromoFormUI({ onSubmit: handlePromoSubmit })}
           </div>
         )}
 
@@ -724,7 +724,7 @@ export default function AdminOffers() {
                 {editingId === offer.id && editingType === 'PROMOTIONAL' && (
                   <div ref={editFormRef} className="bg-white/[0.03] border border-accent/20 border-t-0 rounded-b-xl p-4 -mt-1">
                     <h3 className="text-sm font-medium text-white mb-3">Edit Promotional Offer</h3>
-                    <PromoFormUI onSubmit={handlePromoSubmit} />
+                    {PromoFormUI({ onSubmit: handlePromoSubmit })}
                   </div>
                 )}
               </div>
