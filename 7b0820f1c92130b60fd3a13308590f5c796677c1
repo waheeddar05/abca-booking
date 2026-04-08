@@ -1,0 +1,33 @@
+src/hooks/usePricing.ts
+  5b307c5031af980b 24-25,188-199,201,213-214
+src/lib/schemas.ts
+  5b307c5031af980b 32-37
+src/components/slots/BookingBar.tsx
+  5b307c5031af980b 18-19,39-40,113-117
+src/app/slots/page.tsx
+  5b307c5031af980b 639-640
+src/app/admin/offers/page.tsx
+  5b307c5031af980b 90-91,167-168,224-225,293-294,315-316,336-337,390-391,489-490,496-497,533,571-574,578-580,632,668-671,685
+src/app/api/slots/available/route.ts
+  5b307c5031af980b 12,36,40-43,83-84,109-115,226-275,339-341,362
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.5",
+  "base_commit_sha": "7b0820f1c92130b60fd3a13308590f5c796677c1",
+  "prompts": {
+    "5b307c5031af980b": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "ef643bd4-3cb0-4c60-9d8f-61ffc603e30b",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Waheed",
+      "messages": [],
+      "total_additions": 158,
+      "total_deletions": 28,
+      "accepted_lines": 154,
+      "overriden_lines": 0
+    }
+  }
+}
