@@ -1,0 +1,23 @@
+src/components/admin/AdminMobileNav.tsx
+  aac66c64908a209b 6,17,33,40
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.5",
+  "base_commit_sha": "9c68c051a3f3574348c0c5b80a874bf3eb33d81a",
+  "prompts": {
+    "aac66c64908a209b": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "21127074-efc2-4f31-9cf8-b2940469f26c",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Waheed",
+      "messages": [],
+      "total_additions": 4,
+      "total_deletions": 3,
+      "accepted_lines": 4,
+      "overriden_lines": 0
+    }
+  }
+}
