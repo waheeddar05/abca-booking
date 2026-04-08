@@ -1,0 +1,25 @@
+src/app/admin/operators/page.tsx
+  aac66c64908a209b 5,10,35,38-39,41-68,70-111,113,116,119,121-132,134-135,145,154-156,160,181-385,388-391,394,396-397,524-526,537,541,546-564,567-575,577,579-589,591-608,610,612-616,618,620-628,630-632,634-635,637-661,663-669,671,673-674,677-715,717-859,862-863,865-866,870-875,877-883,886-921,926-931,935-938,947,1022
+src/app/admin/configuration/page.tsx
+  aac66c64908a209b 5
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.5",
+  "base_commit_sha": "22b2e4b8b12730f7a22b0bf798d7274582fe74ff",
+  "prompts": {
+    "aac66c64908a209b": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "21127074-efc2-4f31-9cf8-b2940469f26c",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Waheed",
+      "messages": [],
+      "total_additions": 882,
+      "total_deletions": 760,
+      "accepted_lines": 693,
+      "overriden_lines": 0
+    }
+  }
+}
