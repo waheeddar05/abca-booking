@@ -58,7 +58,7 @@ export async function POST(req: NextRequest) {
       recurringDays, // New: array of day-of-week numbers (0=Sun, 1=Mon, ..., 6=Sat)
       pitchType,
       reason,
-      appliesTo,    // "ALL" | "SPECIAL" | "NON_SPECIAL"
+      appliesTo,
     } = body;
 
     if (!startDate || !endDate) {

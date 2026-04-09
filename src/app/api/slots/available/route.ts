@@ -37,10 +37,7 @@ export async function GET(req: NextRequest) {
     try {
       const user = await getAuthenticatedUser(req);
       isAdmin = user?.role === 'ADMIN';
-      if (user) {
-        const fullUser = await prisma.user.findUnique({ where: { id: user.id }, select: { isSpecialUser: true } });
-        isSpecialUser = fullUser?.isSpecialUser ?? false;
-      }
+      isSpecialUser = !!user?.isSpecialUser;
     } catch (e) {
       console.error('Error authenticating user in available slots:', e);
     }
@@ -279,10 +276,9 @@ export async function GET(req: NextRequest) {
 
       // Check if slot is blocked by Admin
       const isBlocked = blockedSlots.some(block => {
-        // Check appliesTo: filter by user type
-        const blockAppliesTo = (block as any).appliesTo || 'ALL';
-        if (blockAppliesTo === 'SPECIAL' && !isSpecialUser) return false;
-        if (blockAppliesTo === 'NON_SPECIAL' && isSpecialUser) return false;
+        // Check appliesTo: skip blocks not targeting this user type
+        if (block.appliesTo === 'SPECIAL' && !isSpecialUser) return false;
+        if (block.appliesTo === 'NON_SPECIAL' && isSpecialUser) return false;
 
         // Check recurring days: if block has recurringDays, only block on those days
         if (block.recurringDays && block.recurringDays.length > 0) {

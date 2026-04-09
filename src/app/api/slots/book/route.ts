@@ -301,6 +301,16 @@ export async function POST(req: NextRequest) {
       firstMachineId
     );
 
+    // Special users do NOT get consecutive slot discount — reset to single-slot price
+    if (targetUser.isSpecialUser) {
+      for (const p of pricing) {
+        if (p.discountAmount > 0) {
+          p.price = p.originalPrice;
+          p.discountAmount = 0;
+        }
+      }
+    }
+
     // ── Recurring Slot Discount (Feature 1) ──────────────────────────
     // After consecutive pricing, check for recurring slot discounts and apply as additional flat reduction.
     const recurringDiscountRules = await prisma.recurringSlotDiscount.findMany({
