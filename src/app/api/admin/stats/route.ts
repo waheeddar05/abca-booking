@@ -35,6 +35,8 @@ export async function GET(req: NextRequest) {
       totalDiscountValue,
       packageRevenueValue,
       machineRevenue,
+      selfOperatedBookings,
+      unassignedBookings,
       operatorSummary,
     ] = await Promise.all([
       prisma.booking.count({
@@ -98,6 +100,23 @@ export async function GET(req: NextRequest) {
           ...(hasDateFilter ? { date: dateFilter } : {}),
         },
       }).catch(() => []),
+      // Self-operated bookings
+      prisma.booking.count({
+        where: {
+          status: { not: 'CANCELLED' },
+          operationMode: 'SELF_OPERATE',
+          ...(hasDateFilter ? { date: dateFilter } : {}),
+        },
+      }).catch(() => 0),
+      // Unassigned bookings (WITH_OPERATOR but no operator assigned)
+      prisma.booking.count({
+        where: {
+          status: { not: 'CANCELLED' },
+          operationMode: 'WITH_OPERATOR',
+          operatorId: null,
+          ...(hasDateFilter ? { date: dateFilter } : {}),
+        },
+      }).catch(() => 0),
       // Operator summary
       prisma.booking.groupBy({
         by: ['operatorId'],
@@ -135,6 +154,8 @@ export async function GET(req: NextRequest) {
       packageRevenue: packageRevenueValue,
       totalDiscount: totalDiscountValue,
       machineRevenue,
+      selfOperatedBookings,
+      unassignedBookings,
       operatorSummary,
       systemStatus: 'Healthy',
     }, {

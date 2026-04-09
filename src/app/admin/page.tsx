@@ -29,6 +29,8 @@ interface Stats {
   packageRevenue: number;
   totalDiscount: number;
   machineRevenue: MachineRevenueItem[];
+  selfOperatedBookings: number;
+  unassignedBookings: number;
   operatorSummary: OperatorSummaryItem[];
   systemStatus: string;
 }
@@ -212,18 +214,37 @@ export default function AdminDashboard() {
         )}
       </div>
 
-      {/* Operator Summary */}
+      {/* Booking Distribution */}
       <div className="bg-white/[0.03] backdrop-blur-sm rounded-xl sm:rounded-2xl border border-white/[0.07] p-4">
-        <h2 className="text-sm font-semibold text-slate-400 mb-3 px-1">Operator Summary</h2>
+        <h2 className="text-sm font-semibold text-slate-400 mb-3 px-1">Booking Distribution</h2>
         {!loading ? (
           <div className="space-y-2">
+            {/* Total */}
+            <div className="flex items-center justify-between py-2.5 px-3 bg-white/[0.06] rounded-lg border border-white/[0.08]">
+              <span className="text-sm text-white font-semibold">Total Bookings</span>
+              <span className="text-sm font-bold text-white">{stats?.totalBookings ?? 0}</span>
+            </div>
+
+            {/* Self-operated */}
+            <div className="flex items-center justify-between py-2.5 px-3 bg-white/[0.03] rounded-lg border border-white/[0.06]">
+              <span className="text-sm text-slate-300 font-medium">Self-operated</span>
+              <span className="text-sm font-bold text-emerald-400">{stats?.selfOperatedBookings ?? 0}</span>
+            </div>
+
+            {/* Unassigned */}
+            <div className="flex items-center justify-between py-2.5 px-3 bg-white/[0.03] rounded-lg border border-white/[0.06]">
+              <span className="text-sm text-slate-300 font-medium">Unassigned</span>
+              <span className="text-sm font-bold text-amber-400">{stats?.unassignedBookings ?? 0}</span>
+            </div>
+
+            {/* Operator-wise */}
             {activeOperators.length > 0 ? activeOperators.map(op => (
               <div key={op.id} className="flex items-center justify-between py-2.5 px-3 bg-white/[0.03] rounded-lg border border-white/[0.06]">
-                <span className="text-sm text-white font-medium">{op.name || 'Unnamed'}</span>
-                <span className="text-sm font-bold text-purple-400">{op.bookings} bookings</span>
+                <span className="text-sm text-slate-300 font-medium">{op.name || 'Unnamed'}</span>
+                <span className="text-sm font-bold text-purple-400">{op.bookings}</span>
               </div>
             )) : (
-              <p className="text-sm text-slate-500 text-center py-4">No operator activity in this period</p>
+              <p className="text-[11px] text-slate-500 text-center py-2">No operator bookings in this period</p>
             )}
           </div>
         ) : (
