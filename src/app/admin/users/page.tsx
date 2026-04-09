@@ -340,41 +340,41 @@ export default function AdminUsers() {
         </button>
       </AdminPageHeader>
 
-      <div className="flex gap-2 mb-4 overflow-x-auto pb-1 scrollbar-none">
+      <div className="flex gap-1.5 mb-4 overflow-x-auto pb-1 scrollbar-none">
         <button
           onClick={() => setRoleFilter('')}
-          className={`rounded-xl p-2.5 text-center cursor-pointer transition-all flex-1 min-w-[4.5rem] ${roleFilter === '' ? 'bg-accent/15 ring-1 ring-accent/30' : 'bg-white/[0.04] border border-white/[0.08]'}`}
+          className={`rounded-lg px-2 py-1.5 text-center cursor-pointer transition-all flex-1 min-w-0 ${roleFilter === '' ? 'bg-accent/15 ring-1 ring-accent/30' : 'bg-white/[0.04] border border-white/[0.08]'}`}
         >
-          <div className="text-lg font-bold text-white">{totalUsers}</div>
-          <div className="text-[10px] font-medium text-slate-400 uppercase tracking-wider">All</div>
+          <div className="text-sm font-bold text-white">{totalUsers}</div>
+          <div className="text-[9px] font-medium text-slate-400 uppercase tracking-wider">All</div>
         </button>
         <button
           onClick={() => setRoleFilter(roleFilter === 'USER' ? '' : 'USER')}
-          className={`rounded-xl p-2.5 text-center cursor-pointer transition-all flex-1 min-w-[4.5rem] ${roleFilter === 'USER' ? 'bg-green-500/10 ring-1 ring-green-500/30' : 'bg-white/[0.04] border border-white/[0.08]'}`}
+          className={`rounded-lg px-2 py-1.5 text-center cursor-pointer transition-all flex-1 min-w-0 ${roleFilter === 'USER' ? 'bg-green-500/10 ring-1 ring-green-500/30' : 'bg-white/[0.04] border border-white/[0.08]'}`}
         >
-          <div className="text-lg font-bold text-green-600">{userCount}</div>
-          <div className="text-[10px] font-medium text-green-500 uppercase tracking-wider">Users</div>
+          <div className="text-sm font-bold text-green-600">{userCount}</div>
+          <div className="text-[9px] font-medium text-green-500 uppercase tracking-wider">Users</div>
         </button>
         <button
           onClick={() => setRoleFilter(roleFilter === 'SPECIAL' ? '' : 'SPECIAL')}
-          className={`rounded-xl p-2.5 text-center cursor-pointer transition-all flex-1 min-w-[4.5rem] ${roleFilter === 'SPECIAL' ? 'bg-cyan-500/10 ring-1 ring-cyan-500/30' : 'bg-white/[0.04] border border-white/[0.08]'}`}
+          className={`rounded-lg px-2 py-1.5 text-center cursor-pointer transition-all flex-1 min-w-0 ${roleFilter === 'SPECIAL' ? 'bg-cyan-500/10 ring-1 ring-cyan-500/30' : 'bg-white/[0.04] border border-white/[0.08]'}`}
         >
-          <div className="text-lg font-bold text-cyan-400">{specialCount}</div>
-          <div className="text-[10px] font-medium text-cyan-500 uppercase tracking-wider">Special</div>
+          <div className="text-sm font-bold text-cyan-400">{specialCount}</div>
+          <div className="text-[9px] font-medium text-cyan-500 uppercase tracking-wider">Special</div>
         </button>
         <button
           onClick={() => setRoleFilter(roleFilter === 'OPERATOR' ? '' : 'OPERATOR')}
-          className={`rounded-xl p-2.5 text-center cursor-pointer transition-all flex-1 min-w-[4.5rem] ${roleFilter === 'OPERATOR' ? 'bg-purple-500/10 ring-1 ring-purple-500/30' : 'bg-white/[0.04] border border-white/[0.08]'}`}
+          className={`rounded-lg px-2 py-1.5 text-center cursor-pointer transition-all flex-1 min-w-0 ${roleFilter === 'OPERATOR' ? 'bg-purple-500/10 ring-1 ring-purple-500/30' : 'bg-white/[0.04] border border-white/[0.08]'}`}
         >
-          <div className="text-lg font-bold text-purple-600">{operatorCount}</div>
-          <div className="text-[10px] font-medium text-purple-500 uppercase tracking-wider">Operators</div>
+          <div className="text-sm font-bold text-purple-600">{operatorCount}</div>
+          <div className="text-[9px] font-medium text-purple-500 uppercase tracking-wider">Ops</div>
         </button>
         <button
           onClick={() => setRoleFilter(roleFilter === 'ADMIN' ? '' : 'ADMIN')}
-          className={`rounded-xl p-2.5 text-center cursor-pointer transition-all flex-1 min-w-[4.5rem] ${roleFilter === 'ADMIN' ? 'bg-blue-500/10 ring-1 ring-blue-500/30' : 'bg-white/[0.04] border border-white/[0.08]'}`}
+          className={`rounded-lg px-2 py-1.5 text-center cursor-pointer transition-all flex-1 min-w-0 ${roleFilter === 'ADMIN' ? 'bg-blue-500/10 ring-1 ring-blue-500/30' : 'bg-white/[0.04] border border-white/[0.08]'}`}
         >
-          <div className="text-lg font-bold text-blue-600">{adminCount}</div>
-          <div className="text-[10px] font-medium text-blue-500 uppercase tracking-wider">Admin</div>
+          <div className="text-sm font-bold text-blue-600">{adminCount}</div>
+          <div className="text-[9px] font-medium text-blue-500 uppercase tracking-wider">Admin</div>
         </button>
       </div>
 

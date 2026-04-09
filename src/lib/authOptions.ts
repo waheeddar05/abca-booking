@@ -20,6 +20,7 @@ export const authOptions: NextAuthOptions = {
         token.role = (user as any).role;
         token.image = (user as any).image;
         token.isFreeUser = (user as any).isFreeUser || false;
+        token.isSpecialUser = (user as any).isSpecialUser || false;
         token.mobileVerified = (user as any).mobileVerified || false;
       }
 
@@ -34,11 +35,12 @@ export const authOptions: NextAuthOptions = {
         try {
           const dbUser = await prisma.user.findUnique({
             where: { email: token.email },
-            select: { role: true, isFreeUser: true, mobileVerified: true },
+            select: { role: true, isFreeUser: true, isSpecialUser: true, mobileVerified: true },
           });
           if (dbUser) {
             token.role = dbUser.role;
             token.isFreeUser = dbUser.isFreeUser || false;
+            token.isSpecialUser = dbUser.isSpecialUser || false;
             token.mobileVerified = dbUser.mobileVerified || false;
           }
           token.roleRefreshedAt = now;
@@ -71,6 +73,7 @@ export const authOptions: NextAuthOptions = {
         (session.user as any).role = token.role;
         (session.user as any).isSuperAdmin = token.isSuperAdmin || false;
         (session.user as any).isFreeUser = token.isFreeUser || false;
+        (session.user as any).isSpecialUser = token.isSpecialUser || false;
         (session.user as any).mobileVerified = token.mobileVerified || false;
         if (token.image) {
           session.user.image = token.image as string;
@@ -116,6 +119,7 @@ export const authOptions: NextAuthOptions = {
         (user as any).role = dbUser.role;
         (user as any).image = dbUser.image;
         (user as any).isFreeUser = dbUser.isFreeUser;
+        (user as any).isSpecialUser = dbUser.isSpecialUser;
 
         // If WhatsApp login is not enabled, skip mobile verification gate
         // so users aren't stuck at /verify-mobile with no way to verify

@@ -748,13 +748,15 @@ export default function SlotManagement() {
                             {block.reason}
                           </span>
                         )}
-                        {block.appliesTo && block.appliesTo !== 'ALL' && (
-                          <span className={`text-[10px] font-medium px-2 py-0.5 rounded-md ${
-                            block.appliesTo === 'SPECIAL' ? 'bg-purple-500/10 text-purple-400' : 'bg-orange-500/10 text-orange-400'
-                          }`}>
-                            {block.appliesTo === 'SPECIAL' ? 'Special Users Only' : 'Non-Special Users Only'}
-                          </span>
-                        )}
+                        <span className={`text-[10px] font-medium px-2 py-0.5 rounded-md ${
+                          block.appliesTo === 'SPECIAL' ? 'bg-purple-500/10 text-purple-400' :
+                          block.appliesTo === 'NON_SPECIAL' ? 'bg-orange-500/10 text-orange-400' :
+                          'bg-slate-500/10 text-slate-400'
+                        }`}>
+                          {block.appliesTo === 'SPECIAL' ? 'Special Users Only' :
+                           block.appliesTo === 'NON_SPECIAL' ? 'Non-Special Users Only' :
+                           'All Users'}
+                        </span>
                       </div>
                     </div>
 

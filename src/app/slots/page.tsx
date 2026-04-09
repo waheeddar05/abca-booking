@@ -91,6 +91,7 @@ function SlotsContent() {
   // ─── Hooks ─────────────────────────────────────────────
   const { slots, loading, error, fetchSlots } = useSlots();
   const pkg = usePackages();
+  const isSpecialUser = !!session?.user?.isSpecialUser;
   const pricing = usePricing({
     selectedSlots,
     machineConfig,
@@ -98,6 +99,7 @@ function SlotsContent() {
     isLeatherMachine,
     ballType,
     pitchType,
+    isSpecialUser,
   });
 
   // Reset payment method to ONLINE if cash is disabled
