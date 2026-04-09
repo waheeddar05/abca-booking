@@ -133,7 +133,7 @@ export function BookingCard({ booking, role, renderActions, renderPrice, renderO
         </div>
         {/* Price section */}
         {renderPrice ? renderPrice(booking) : (
-          booking.price != null && (
+          booking.price != null && !isPackageBooking && (
             <div className="flex items-center gap-1">
               <IndianRupee className="w-3 h-3 text-slate-400" />
               <span className="text-xs font-medium text-white">{booking.price}</span>

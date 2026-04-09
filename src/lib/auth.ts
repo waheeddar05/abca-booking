@@ -12,6 +12,7 @@ const AUTH_USER_SELECT = {
   email: true,
   role: true,
   isFreeUser: true,
+  isSpecialUser: true,
   mobileVerified: true,
 } as const;
 
@@ -32,6 +33,7 @@ export async function getAuthenticatedUser(req: NextRequest) {
         email: dbUser.email || undefined,
         isSuperAdmin,
         isFreeUser: dbUser.isFreeUser || false,
+        isSpecialUser: dbUser.isSpecialUser || false,
         mobileVerified: dbUser.mobileVerified || false,
       };
     }

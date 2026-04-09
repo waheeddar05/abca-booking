@@ -7,6 +7,7 @@ declare module "next-auth" {
       role: string
       isSuperAdmin: boolean
       isFreeUser: boolean
+      isSpecialUser: boolean
     } & DefaultSession["user"]
   }
 
@@ -21,5 +22,6 @@ declare module "next-auth/jwt" {
     id: string
     isSuperAdmin?: boolean
     isFreeUser?: boolean
+    isSpecialUser?: boolean
   }
 }

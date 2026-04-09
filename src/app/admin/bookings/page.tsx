@@ -730,7 +730,7 @@ function AdminBookingsContent() {
                           </div>
                         )}
                       </div>
-                      {isEditing ? (
+                      {booking.packageBooking ? null : isEditing ? (
                         <div className="flex items-center gap-1">
                           <span className="text-xs text-slate-400">₹</span>
                           <input
@@ -925,7 +925,9 @@ function AdminBookingsContent() {
                           </div>
                         </td>
                         <td className="px-5 py-3.5">
-                          {isEditing ? (
+                          {booking.packageBooking ? (
+                            <span className="text-[10px] text-slate-500">—</span>
+                          ) : isEditing ? (
                             <div className="flex items-center gap-1">
                               <span className="text-xs text-slate-400">₹</span>
                               <input

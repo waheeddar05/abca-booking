@@ -11,6 +11,7 @@ interface UsePricingParams {
   isLeatherMachine: boolean;
   ballType: string;
   pitchType: string;
+  isSpecialUser?: boolean;
 }
 
 interface UsePricingReturn {
@@ -145,6 +146,7 @@ export function usePricing({
   isLeatherMachine,
   ballType,
   pitchType,
+  isSpecialUser = false,
 }: UsePricingParams): UsePricingReturn {
   const getSlotDisplayPrice = (slot: AvailableSlot): number => {
     return slot.price ?? machineConfig?.defaultSlotPrice ?? 600;
@@ -156,8 +158,9 @@ export function usePricing({
     const hasConsecutiveGroups = groups.length > 0;
     const isConsecutive = isAllConsecutive || hasConsecutiveGroups;
 
+    // Special users do not get consecutive slot discount
     const consecutiveTotal =
-      machineConfig?.pricingConfig
+      !isSpecialUser && machineConfig?.pricingConfig
         ? calcConsecutiveTotal(
             selectedSlots,
             machineConfig.pricingConfig,
@@ -214,5 +217,5 @@ export function usePricing({
       promoLabel,
       getSlotDisplayPrice,
     };
-  }, [selectedSlots, machineConfig, selectedMachineId, isLeatherMachine, ballType, pitchType]);
+  }, [selectedSlots, machineConfig, selectedMachineId, isLeatherMachine, ballType, pitchType, isSpecialUser]);
 }
