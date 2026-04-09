@@ -245,6 +245,26 @@ export default function AdminOperators() {
       if (res.ok) {
         setDateOverrides(overrides);
         toast.success('Date overrides saved');
+
+        // Auto-cancel bookings for zero-operator slots
+        const hasZeroSlots = overrides.some(r => r.morning === 0 || r.evening === 0);
+        if (hasZeroSlots) {
+          try {
+            const cancelRes = await fetch('/api/admin/override-cancellations', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ overrides }),
+            });
+            if (cancelRes.ok) {
+              const result = await cancelRes.json();
+              if (result.cancelled > 0) {
+                toast.success(`${result.cancelled} booking(s) cancelled & refunded to wallets`);
+              }
+            }
+          } catch (err) {
+            console.error('Override cancellation failed:', err);
+          }
+        }
       } else {
         toast.error('Failed to save date overrides');
       }
