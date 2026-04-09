@@ -1,0 +1,93 @@
+src/app/packages/page.tsx
+  1f95ab9ee064dd84 647,790
+src/components/BookingCard.tsx
+  e333fd207f0cdb46 136
+src/app/admin/slots/page.tsx
+  e333fd207f0cdb46 751,755-759
+src/app/admin/users/page.tsx
+  9f2aff83339f2175 343,346,348-349,353,355-356,360,362-363,367,369-370,374,376-377
+src/app/api/admin/slots/block/route.ts
+  e333fd207f0cdb46 61
+src/app/admin/operators/page.tsx
+  cae5c03df5dd0a00 239-242,244-246,249-250,252,769,772-773,782
+  e333fd207f0cdb46 137-138,234-235,238,243,247-248,253,765,767,776,778,781,783,803
+prisma/schema.prisma
+  e333fd207f0cdb46 126
+src/app/admin/packages/page.tsx
+  4f0e1ae168e46544 4,652,662,666,678
+  1f95ab9ee064dd84 651,654-655,660-661,663-665,667-675
+src/app/api/slots/available/route.ts
+  e333fd207f0cdb46 279-281,330
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.6",
+  "base_commit_sha": "606cd6ea932d7644c6504da8c831c478ec03dba4",
+  "prompts": {
+    "1f95ab9ee064dd84": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b49f1db9-d43b-4a52-a2bf-1a6f1db09fdb",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Waheed",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 23,
+      "overriden_lines": 0
+    },
+    "4f0e1ae168e46544": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "bd96d414-9991-44c8-9db6-f87259a927c0",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Waheed",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 5,
+      "overriden_lines": 0
+    },
+    "9f2aff83339f2175": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "df7f37f4-6cfc-405d-870e-a8014c029d9d",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Waheed",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 16,
+      "overriden_lines": 0
+    },
+    "cae5c03df5dd0a00": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "81efdb3e-4e61-44b5-9573-dc705a93d271",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Waheed",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 14,
+      "overriden_lines": 0
+    },
+    "e333fd207f0cdb46": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "2bac33a1-b711-4e80-ab58-ad1efa0bda38",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Waheed",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 597,
+      "overriden_lines": 0
+    }
+  }
+}
