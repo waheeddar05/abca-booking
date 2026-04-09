@@ -1,0 +1,23 @@
+src/app/admin/operators/page.tsx
+  cae5c03df5dd0a00 137-138,234-235,238-250,252-253,765,767,769,772-773,778,781-783,803
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.6",
+  "base_commit_sha": "a6bc361e5c80f3159bd70d1e1145dc2905797ec2",
+  "prompts": {
+    "cae5c03df5dd0a00": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "81efdb3e-4e61-44b5-9573-dc705a93d271",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Waheed",
+      "messages": [],
+      "total_additions": 35,
+      "total_deletions": 11,
+      "accepted_lines": 35,
+      "overriden_lines": 0
+    }
+  }
+}
