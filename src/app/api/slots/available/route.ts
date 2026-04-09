@@ -331,7 +331,7 @@ export async function GET(req: NextRequest) {
       });
 
       const operatorsUsed = operatorUsageMap.get(timeKey) || 0;
-      const numberOfOperators = operatorCountsMap.get(timeKey) || legacyNumberOfOperators;
+      const numberOfOperators = operatorCountsMap.has(timeKey) ? operatorCountsMap.get(timeKey)! : legacyNumberOfOperators;
       const operatorAvailable = operatorsUsed < numberOfOperators;
 
       // Calculate price using pricing config
