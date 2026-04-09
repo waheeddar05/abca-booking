@@ -162,12 +162,16 @@ export default function AdminDashboard() {
         {!loading && machineChartData.length > 0 ? (
           <div className="h-64">
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={machineChartData} margin={{ top: 5, right: 10, left: 10, bottom: 5 }}>
+              <BarChart data={machineChartData} margin={{ top: 5, right: 10, left: 10, bottom: 30 }}>
                 <XAxis
                   dataKey="name"
                   tick={{ fill: '#94a3b8', fontSize: 11 }}
                   axisLine={false}
                   tickLine={false}
+                  angle={-25}
+                  textAnchor="end"
+                  interval={0}
+                  height={50}
                 />
                 <YAxis
                   tick={{ fill: '#94a3b8', fontSize: 11 }}

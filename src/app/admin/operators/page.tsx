@@ -133,7 +133,8 @@ export default function AdminOperators() {
   const [confirmAction, setConfirmAction] = useState<'schedule' | 'priority' | null>(null);
 
   // ─── Date Overrides tab state ──────
-  const [dateOverrides, setDateOverrides] = useState<Record<string, { morning: number; evening: number }>>({});
+  interface OverrideRange { from: string; to: string; morning: number; evening: number }
+  const [dateOverrides, setDateOverrides] = useState<OverrideRange[]>([]);
   const [newOverrideFromDate, setNewOverrideFromDate] = useState('');
   const [newOverrideToDate, setNewOverrideToDate] = useState('');
   const [newOverrideMorning, setNewOverrideMorning] = useState(1);
@@ -201,7 +202,31 @@ export default function AdminOperators() {
         const policyArray: { key: string; value: string }[] = Array.isArray(data) ? data : (data.policies || []);
         const overridePolicy = policyArray.find(p => p.key === 'OPERATOR_DATE_OVERRIDES');
         if (overridePolicy) {
-          setDateOverrides(JSON.parse(overridePolicy.value));
+          const parsed = JSON.parse(overridePolicy.value);
+          // Support legacy format (object with date keys) by converting to range array
+          if (Array.isArray(parsed)) {
+            setDateOverrides(parsed);
+          } else {
+            // Migrate: group consecutive dates with same values into ranges
+            const entries = Object.entries(parsed as Record<string, { morning: number; evening: number }>)
+              .sort(([a], [b]) => a.localeCompare(b));
+            const ranges: OverrideRange[] = [];
+            for (const [date, counts] of entries) {
+              const last = ranges[ranges.length - 1];
+              // Check if this date extends the previous range (consecutive + same values)
+              if (last && last.morning === counts.morning && last.evening === counts.evening) {
+                const nextDay = new Date(last.to + 'T12:00:00');
+                nextDay.setDate(nextDay.getDate() + 1);
+                const nextStr = `${nextDay.getFullYear()}-${String(nextDay.getMonth() + 1).padStart(2, '0')}-${String(nextDay.getDate()).padStart(2, '0')}`;
+                if (nextStr === date) {
+                  last.to = date;
+                  continue;
+                }
+              }
+              ranges.push({ from: date, to: date, morning: counts.morning, evening: counts.evening });
+            }
+            setDateOverrides(ranges);
+          }
         }
       }
     } catch (error) {
@@ -209,7 +234,7 @@ export default function AdminOperators() {
     }
   };
 
-  const saveDateOverrides = async (overrides: Record<string, { morning: number; evening: number }>) => {
+  const saveDateOverrides = async (overrides: OverrideRange[]) => {
     setSavingOverrides(true);
     try {
       const res = await fetch('/api/admin/policies', {
@@ -240,17 +265,13 @@ export default function AdminOperators() {
       toast.error('To date must be on or after from date');
       return;
     }
-    const updated = { ...dateOverrides };
-    const current = new Date(newOverrideFromDate + 'T12:00:00');
-    const end = new Date(toDate + 'T12:00:00');
-    while (current <= end) {
-      const yyyy = current.getFullYear();
-      const mm = String(current.getMonth() + 1).padStart(2, '0');
-      const dd = String(current.getDate()).padStart(2, '0');
-      const dateKey = `${yyyy}-${mm}-${dd}`;
-      updated[dateKey] = { morning: newOverrideMorning, evening: newOverrideEvening };
-      current.setDate(current.getDate() + 1);
-    }
+    const newRange: OverrideRange = {
+      from: newOverrideFromDate,
+      to: toDate,
+      morning: newOverrideMorning,
+      evening: newOverrideEvening,
+    };
+    const updated = [...dateOverrides, newRange].sort((a, b) => a.from.localeCompare(b.from));
     saveDateOverrides(updated);
     setNewOverrideFromDate('');
     setNewOverrideToDate('');
@@ -258,9 +279,8 @@ export default function AdminOperators() {
     setNewOverrideEvening(1);
   };
 
-  const removeDateOverride = (date: string) => {
-    const updated = { ...dateOverrides };
-    delete updated[date];
+  const removeDateOverride = (index: number) => {
+    const updated = dateOverrides.filter((_, i) => i !== index);
     saveDateOverrides(updated);
   };
 
@@ -815,27 +835,27 @@ export default function AdminOperators() {
           {/* Existing overrides */}
           <div className="bg-white/[0.03] border border-white/[0.07] rounded-xl p-4">
             <h3 className="text-xs font-bold text-white uppercase tracking-wider mb-3">Active Date Overrides</h3>
-            {Object.keys(dateOverrides).length === 0 ? (
+            {dateOverrides.length === 0 ? (
               <p className="text-[11px] text-slate-500 py-4 text-center">No date overrides configured</p>
             ) : (
               <div className="space-y-2">
-                {Object.entries(dateOverrides)
-                  .sort(([a], [b]) => a.localeCompare(b))
-                  .map(([date, counts]) => (
-                    <div key={date} className="flex items-center justify-between bg-white/[0.03] rounded-lg px-3 py-2.5 border border-white/[0.06]">
-                      <div className="flex items-center gap-4">
-                        <span className="text-sm font-medium text-white">{date}</span>
+                {dateOverrides.map((range, idx) => (
+                    <div key={`${range.from}-${range.to}-${idx}`} className="flex items-center justify-between bg-white/[0.03] rounded-lg px-3 py-2.5 border border-white/[0.06]">
+                      <div className="flex items-center gap-4 flex-wrap">
+                        <span className="text-sm font-medium text-white">
+                          {range.from === range.to ? range.from : `${range.from} → ${range.to}`}
+                        </span>
                         <div className="flex gap-3">
-                          <span className={`text-[11px] px-2 py-0.5 rounded-md ${counts.morning === 0 ? 'bg-red-500/15 text-red-400' : 'bg-amber-500/10 text-amber-400'}`}>
-                            Morning: {counts.morning}
+                          <span className={`text-[11px] px-2 py-0.5 rounded-md ${range.morning === 0 ? 'bg-red-500/15 text-red-400' : 'bg-amber-500/10 text-amber-400'}`}>
+                            Morning: {range.morning}
                           </span>
-                          <span className={`text-[11px] px-2 py-0.5 rounded-md ${counts.evening === 0 ? 'bg-red-500/15 text-red-400' : 'bg-blue-500/10 text-blue-400'}`}>
-                            Evening: {counts.evening}
+                          <span className={`text-[11px] px-2 py-0.5 rounded-md ${range.evening === 0 ? 'bg-red-500/15 text-red-400' : 'bg-blue-500/10 text-blue-400'}`}>
+                            Evening: {range.evening}
                           </span>
                         </div>
                       </div>
                       <button
-                        onClick={() => removeDateOverride(date)}
+                        onClick={() => removeDateOverride(idx)}
                         disabled={savingOverrides}
                         className="p-1.5 text-slate-500 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-colors cursor-pointer disabled:opacity-50"
                         title="Remove override"

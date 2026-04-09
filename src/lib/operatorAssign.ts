@@ -33,8 +33,34 @@ function getDateStringIST(date: Date): string {
 }
 
 // ─── Operator Date Override Config ────────────────────────
-// Format: { "2026-04-10": { "morning": 0, "evening": 2 }, ... }
-export type OperatorDateOverrides = Record<string, { morning: number; evening: number }>;
+// New range format: [{ from: "2026-04-10", to: "2026-04-15", morning: 0, evening: 2 }, ...]
+export interface OperatorDateOverrideRange {
+  from: string;
+  to: string;
+  morning: number;
+  evening: number;
+}
+
+// Legacy format (individual dates): { "2026-04-10": { morning: 0, evening: 2 } }
+type LegacyOverrides = Record<string, { morning: number; evening: number }>;
+
+/** Check if a YYYY-MM-DD date key falls within any override range */
+function findOverrideForDate(
+  overrides: OperatorDateOverrideRange[] | LegacyOverrides,
+  dateKey: string
+): { morning: number; evening: number } | undefined {
+  // Support new range format (array)
+  if (Array.isArray(overrides)) {
+    for (const range of overrides) {
+      if (dateKey >= range.from && dateKey <= range.to) {
+        return { morning: range.morning, evening: range.evening };
+      }
+    }
+    return undefined;
+  }
+  // Legacy format (object with date keys)
+  return overrides[dateKey];
+}
 
 /**
  * Get the number of operators needed for a given date + time slot.
@@ -52,10 +78,11 @@ export async function getOperatorCount(
   try {
     const overridesStr = await getCachedPolicy('OPERATOR_DATE_OVERRIDES');
     if (overridesStr) {
-      const overrides: OperatorDateOverrides = JSON.parse(overridesStr);
+      const overrides = JSON.parse(overridesStr);
       const dateKey = getDateStringIST(date);
-      if (overrides[dateKey] !== undefined) {
-        const count = overrides[dateKey][slab];
+      const match = findOverrideForDate(overrides, dateKey);
+      if (match !== undefined) {
+        const count = match[slab];
         if (count !== undefined) return Math.max(0, count);
       }
     }
