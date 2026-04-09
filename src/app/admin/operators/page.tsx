@@ -241,10 +241,13 @@ export default function AdminOperators() {
       return;
     }
     const updated = { ...dateOverrides };
-    const current = new Date(newOverrideFromDate + 'T00:00:00');
-    const end = new Date(toDate + 'T00:00:00');
+    const current = new Date(newOverrideFromDate + 'T12:00:00');
+    const end = new Date(toDate + 'T12:00:00');
     while (current <= end) {
-      const dateKey = current.toISOString().split('T')[0];
+      const yyyy = current.getFullYear();
+      const mm = String(current.getMonth() + 1).padStart(2, '0');
+      const dd = String(current.getDate()).padStart(2, '0');
+      const dateKey = `${yyyy}-${mm}-${dd}`;
       updated[dateKey] = { morning: newOverrideMorning, evening: newOverrideEvening };
       current.setDate(current.getDate() + 1);
     }

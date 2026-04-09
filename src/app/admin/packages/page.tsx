@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Package, Plus, Pencil, ToggleLeft, ToggleRight, Loader2, Users, BarChart3, Download, UserPlus, Search, Check, Calendar } from 'lucide-react';
+import { Package, Plus, Pencil, ToggleLeft, ToggleRight, Loader2, Users, BarChart3, Download, UserPlus, Search, Check, Calendar, Zap, Sun, Moon, Clock } from 'lucide-react';
 import { NumberInputDialog } from '@/components/ui/NumberInputDialog';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { AdminPageHeader } from '@/components/admin/AdminPageHeader';
@@ -661,6 +661,19 @@ export default function AdminPackages() {
                           <span className="flex items-center gap-1">
                             <Package className="w-3 h-3 text-slate-500" />
                             {pkg.machineId ? labelMap[pkg.machineId] : `${labelMap[pkg.machineType]} Machine`}
+                          </span>
+                          {pkg.ballType && (
+                            <span className="flex items-center gap-1">
+                              <Zap className="w-3 h-3 text-slate-500" />
+                              {labelMap[pkg.ballType] || pkg.ballType}
+                            </span>
+                          )}
+                          <span className="flex items-center gap-1">
+                            {pkg.wicketType && (labelMap[pkg.wicketType] || pkg.wicketType)}
+                          </span>
+                          <span className="flex items-center gap-1">
+                            {pkg.timingType === 'DAY' ? <Sun className="w-3 h-3 text-slate-500" /> : pkg.timingType === 'EVENING' ? <Moon className="w-3 h-3 text-slate-500" /> : <Clock className="w-3 h-3 text-slate-500" />}
+                            {pkg.timingType === 'DAY' ? 'Day' : pkg.timingType === 'EVENING' ? 'Evening/Night' : 'Day & Evening'}
                           </span>
                           <span className="flex items-center gap-1">
                             <Calendar className="w-3 h-3 text-slate-500" />

@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import { CalendarCheck, Activity, CalendarDays, TrendingUp, IndianRupee, LayoutDashboard, X } from 'lucide-react';
 import { AdminPageHeader } from '@/components/admin/AdminPageHeader';
 import { AdminStatCard } from '@/components/admin/AdminStatCard';
-import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts';
+import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend } from 'recharts';
 import { MACHINES } from '@/lib/constants';
 
 interface MachineRevenueItem {
@@ -33,7 +33,7 @@ interface Stats {
   systemStatus: string;
 }
 
-const MACHINE_COLORS = ['#f59e0b', '#3b82f6', '#10b981', '#8b5cf6'];
+const CHART_BAR_COLOR = '#38bdf8';
 
 export default function AdminDashboard() {
   const [stats, setStats] = useState<Stats | null>(null);
@@ -71,10 +71,12 @@ export default function AdminDashboard() {
     { label: 'Status', value: stats?.systemStatus ?? 'Healthy', icon: Activity, gradient: 'bg-gradient-to-br from-green-500/15 to-green-500/5', iconColor: 'text-green-400', isText: true, href: '/admin/policies' },
   ];
 
-  const machineChartData = (stats?.machineRevenue || []).map(item => ({
-    name: MACHINES[item.machineId as keyof typeof MACHINES]?.shortName || item.machineId,
-    revenue: item._sum.price || 0,
-  }));
+  const machineChartData = (stats?.machineRevenue || [])
+    .map(item => ({
+      name: MACHINES[item.machineId as keyof typeof MACHINES]?.shortName || item.machineId,
+      revenue: item._sum.price || 0,
+    }))
+    .sort((a, b) => b.revenue - a.revenue);
 
   const activeOperators = (stats?.operatorSummary || [])
     .filter(op => op.bookings > 0)
@@ -179,15 +181,17 @@ export default function AdminDashboard() {
                     backgroundColor: '#0f1d2f',
                     border: '1px solid rgba(255,255,255,0.1)',
                     borderRadius: '8px',
-                    color: 'white',
+                    color: '#e2e8f0',
                   }}
-                  labelStyle={{ color: '#94a3b8' }}
+                  labelStyle={{ color: '#e2e8f0' }}
+                  itemStyle={{ color: '#e2e8f0' }}
+                  cursor={{ fill: 'rgba(255,255,255,0.05)' }}
                 />
-                <Bar dataKey="revenue" radius={[6, 6, 0, 0]}>
-                  {machineChartData.map((_, idx) => (
-                    <Cell key={idx} fill={MACHINE_COLORS[idx % MACHINE_COLORS.length]} />
-                  ))}
-                </Bar>
+                <Legend
+                  wrapperStyle={{ color: '#94a3b8', fontSize: 12 }}
+                  formatter={() => 'Revenue'}
+                />
+                <Bar dataKey="revenue" name="Revenue" fill={CHART_BAR_COLOR} radius={[6, 6, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
           </div>
