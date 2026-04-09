@@ -644,8 +644,8 @@ export default function PackagesPage() {
                   value={getTimingLabel(selectedPackage.timingType)}
                   subValue={selectedPackage.timingType === 'DAY' ? '7:00 AM – 5:00 PM' : selectedPackage.timingType === 'EVENING' ? '7:00 PM – 10:30 PM' : 'Any time'}
                 />
-                <DetailItem label="Sessions" value={`${selectedPackage.totalSessions} sessions`} />
-                <DetailItem label="Validity" value={`${selectedPackage.validityDays} days`} />
+                <DetailItem label="Sessions (Per Slot: 30 Minutes)" value={`${selectedPackage.totalSessions} Sessions`} />
+                <DetailItem label="Validity" value={`${selectedPackage.validityDays} Days Validity`} />
                 <DetailItem label="Price" value={`₹${selectedPackage.price}`} highlight />
               </div>
 
@@ -787,7 +787,7 @@ function PackageSection({
                     </span>
                     <span className="text-[10px] text-slate-400 flex items-center gap-1">
                       <Calendar className="w-3 h-3 text-slate-500" />
-                      {pkg.totalSessions} sessions · {pkg.validityDays}d
+                      {pkg.totalSessions} Sessions (Per Slot: 30 Minutes) · {pkg.validityDays} Days Validity
                     </span>
                   </div>
                 </div>

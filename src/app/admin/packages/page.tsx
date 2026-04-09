@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Package, Plus, Pencil, ToggleLeft, ToggleRight, Loader2, Users, BarChart3, Download, UserPlus, Search, Check } from 'lucide-react';
+import { Package, Plus, Pencil, ToggleLeft, ToggleRight, Loader2, Users, BarChart3, Download, UserPlus, Search, Check, Calendar } from 'lucide-react';
 import { NumberInputDialog } from '@/components/ui/NumberInputDialog';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { AdminPageHeader } from '@/components/admin/AdminPageHeader';
@@ -648,36 +648,34 @@ export default function AdminPackages() {
             <div className="space-y-2">
               {packages.map(pkg => (
                 <div key={pkg.id}>
-                  <div className={`bg-white/[0.04] backdrop-blur-sm rounded-xl border ${editingId === pkg.id ? 'border-accent/30' : 'border-white/[0.08]'} p-4`}>
-                    <div className="flex items-start justify-between">
+                  <div className={`bg-white/[0.04] backdrop-blur-sm rounded-xl border ${editingId === pkg.id ? 'border-accent/30' : 'border-white/[0.08]'} hover:border-white/[0.12] transition-colors p-4`}>
+                    <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-2 mb-1">
-                          <span className="text-sm font-semibold text-white">{pkg.name}</span>
-                          <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${pkg.isActive ? 'bg-green-500/15 text-green-400' : 'bg-red-500/15 text-red-400'
-                            }`}>
+                        <div className="flex items-center gap-2 mb-1.5">
+                          <h4 className="text-sm font-semibold text-white leading-tight">{pkg.name}</h4>
+                          <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${pkg.isActive ? 'bg-green-500/15 text-green-400' : 'bg-red-500/15 text-red-400'}`}>
                             {pkg.isActive ? 'Active' : 'Inactive'}
                           </span>
                         </div>
-                        <div className="flex flex-wrap gap-2 text-[11px] text-slate-400 mb-1 min-w-0">
-                          <span className="bg-white/[0.06] px-2 py-0.5 rounded break-words">{pkg.machineId ? labelMap[pkg.machineId] : `${labelMap[pkg.machineType]} Machine`}</span>
-                          {pkg.machineType === 'LEATHER' && (
-                            <span className="bg-white/[0.06] px-2 py-0.5 rounded">Ball: {labelMap[pkg.ballType]}</span>
-                          )}
-                          {pkg.wicketType && pkg.wicketType !== 'BOTH' && (
-                            <span className="bg-white/[0.06] px-2 py-0.5 rounded">Pitch: {labelMap[pkg.wicketType]}</span>
-                          )}
-                          <span className="bg-white/[0.06] px-2 py-0.5 rounded">
-                            {pkg.timingType === 'DAY' ? 'Day (7 AM – 5 PM)' : pkg.timingType === 'EVENING' ? 'Evening (7 PM – 10:30 PM)' : labelMap[pkg.timingType]}
+                        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] text-slate-400">
+                          <span className="flex items-center gap-1">
+                            <Package className="w-3 h-3 text-slate-500" />
+                            {pkg.machineId ? labelMap[pkg.machineId] : `${labelMap[pkg.machineType]} Machine`}
                           </span>
-                        </div>
-                        <div className="flex gap-4 text-xs text-slate-400">
-                          <span>{pkg.totalSessions} sessions</span>
-                          <span>{pkg.validityDays} days</span>
-                          <span className="text-accent font-medium">₹{pkg.price}</span>
-                          {pkg._count && <span>{pkg._count.userPackages} purchased</span>}
+                          <span className="flex items-center gap-1">
+                            <Calendar className="w-3 h-3 text-slate-500" />
+                            {pkg.totalSessions} Sessions · {pkg.validityDays} Days Validity
+                          </span>
+                          <span className="text-sm font-bold text-accent">₹{pkg.price}</span>
+                          {pkg._count && pkg._count.userPackages > 0 && (
+                            <span className="flex items-center gap-1">
+                              <Users className="w-3 h-3 text-slate-500" />
+                              {pkg._count.userPackages} purchased
+                            </span>
+                          )}
                         </div>
                       </div>
-                      <div className="flex items-center gap-1 ml-3">
+                      <div className="flex items-center gap-1 flex-shrink-0">
                         <button
                           onClick={() => startEdit(pkg)}
                           className="p-2 text-slate-400 hover:text-accent hover:bg-accent/10 rounded-lg transition-colors cursor-pointer"
