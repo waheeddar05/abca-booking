@@ -1,0 +1,25 @@
+src/app/api/admin/override-cancellations/route.ts
+  cc7cf52bbb92cf1a 1-195
+src/app/admin/operators/page.tsx
+  cc7cf52bbb92cf1a 248-267
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.6",
+  "base_commit_sha": "48bc6ddbd72582dd5cf6f88be698d8ed61d32c91",
+  "prompts": {
+    "cc7cf52bbb92cf1a": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "7c98c917-0664-4b64-914f-4cd053aaf2e5",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Waheed",
+      "messages": [],
+      "total_additions": 233,
+      "total_deletions": 18,
+      "accepted_lines": 215,
+      "overriden_lines": 0
+    }
+  }
+}
