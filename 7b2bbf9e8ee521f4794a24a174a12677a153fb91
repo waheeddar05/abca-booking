@@ -1,0 +1,47 @@
+src/app/api/slots/available/route.ts
+  cb80f206e2a04a28 36,40,221-224
+src/app/admin/bookings/page.tsx
+  cb80f206e2a04a28 733,928-930
+src/app/api/slots/book/route.ts
+  cb80f206e2a04a28 304-313
+src/lib/authOptions.ts
+  cb80f206e2a04a28 23,38,43,76,119
+src/hooks/usePricing.ts
+  cb80f206e2a04a28 14,147,159,161,204
+src/app/slots/page.tsx
+  cb80f206e2a04a28 94,102
+src/app/admin/slots/page.tsx
+  cb80f206e2a04a28 27,84,92,145,206,284,297,605-631,751-759,851-875
+src/app/api/admin/slots/block/route.ts
+  cb80f206e2a04a28 60-61,118,263,306-309
+src/types/next-auth.d.ts
+  cb80f206e2a04a28 10,25
+prisma/migrations/20260409000000_add_blocked_slot_applies_to/migration.sql
+  cb80f206e2a04a28 1-2
+src/app/bookings/page.tsx
+  cb80f206e2a04a28 316
+prisma/schema.prisma
+  cb80f206e2a04a28 125
+src/lib/auth.ts
+  cb80f206e2a04a28 15,36
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.6",
+  "base_commit_sha": "7b2bbf9e8ee521f4794a24a174a12677a153fb91",
+  "prompts": {
+    "cb80f206e2a04a28": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "75483e79-659e-4daa-89f9-d8794010136f",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Waheed",
+      "messages": [],
+      "total_additions": 116,
+      "total_deletions": 9,
+      "accepted_lines": 116,
+      "overriden_lines": 0
+    }
+  }
+}
