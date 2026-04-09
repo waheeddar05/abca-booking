@@ -134,7 +134,8 @@ export default function AdminOperators() {
 
   // ─── Date Overrides tab state ──────
   const [dateOverrides, setDateOverrides] = useState<Record<string, { morning: number; evening: number }>>({});
-  const [newOverrideDate, setNewOverrideDate] = useState('');
+  const [newOverrideFromDate, setNewOverrideFromDate] = useState('');
+  const [newOverrideToDate, setNewOverrideToDate] = useState('');
   const [newOverrideMorning, setNewOverrideMorning] = useState(1);
   const [newOverrideEvening, setNewOverrideEvening] = useState(1);
   const [savingOverrides, setSavingOverrides] = useState(false);
@@ -230,13 +231,26 @@ export default function AdminOperators() {
   };
 
   const addDateOverride = () => {
-    if (!newOverrideDate) {
-      toast.error('Please select a date');
+    if (!newOverrideFromDate) {
+      toast.error('Please select a from date');
       return;
     }
-    const updated = { ...dateOverrides, [newOverrideDate]: { morning: newOverrideMorning, evening: newOverrideEvening } };
+    const toDate = newOverrideToDate || newOverrideFromDate;
+    if (toDate < newOverrideFromDate) {
+      toast.error('To date must be on or after from date');
+      return;
+    }
+    const updated = { ...dateOverrides };
+    const current = new Date(newOverrideFromDate + 'T00:00:00');
+    const end = new Date(toDate + 'T00:00:00');
+    while (current <= end) {
+      const dateKey = current.toISOString().split('T')[0];
+      updated[dateKey] = { morning: newOverrideMorning, evening: newOverrideEvening };
+      current.setDate(current.getDate() + 1);
+    }
     saveDateOverrides(updated);
-    setNewOverrideDate('');
+    setNewOverrideFromDate('');
+    setNewOverrideToDate('');
     setNewOverrideMorning(1);
     setNewOverrideEvening(1);
   };
@@ -748,15 +762,25 @@ export default function AdminOperators() {
           <div className="bg-white/[0.03] border border-white/[0.07] rounded-xl p-4">
             <h3 className="text-xs font-bold text-white uppercase tracking-wider mb-3">Add Date Override</h3>
             <p className="text-[11px] text-slate-400 mb-4">
-              Set operator count to <strong className="text-amber-400">0</strong> for a slab to make leather machines unavailable and tennis machines self-operate for that date.
+              Set operator count to <strong className="text-amber-400">0</strong> for a slab to make leather machines unavailable and tennis machines self-operate. Select a date range to apply across multiple days.
             </p>
-            <div className="grid grid-cols-1 sm:grid-cols-4 gap-3 items-end">
+            <div className="grid grid-cols-1 sm:grid-cols-5 gap-3 items-end">
               <div>
-                <label className="block text-[9px] font-medium text-slate-400 mb-0.5">Date</label>
+                <label className="block text-[9px] font-medium text-slate-400 mb-0.5">From Date</label>
                 <input
                   type="date"
-                  value={newOverrideDate}
-                  onChange={e => setNewOverrideDate(e.target.value)}
+                  value={newOverrideFromDate}
+                  onChange={e => setNewOverrideFromDate(e.target.value)}
+                  className="w-full bg-white/[0.04] border border-white/[0.1] text-white rounded-lg px-2 py-1.5 text-[11px] outline-none focus:border-accent"
+                />
+              </div>
+              <div>
+                <label className="block text-[9px] font-medium text-slate-400 mb-0.5">To Date</label>
+                <input
+                  type="date"
+                  value={newOverrideToDate}
+                  min={newOverrideFromDate}
+                  onChange={e => setNewOverrideToDate(e.target.value)}
                   className="w-full bg-white/[0.04] border border-white/[0.1] text-white rounded-lg px-2 py-1.5 text-[11px] outline-none focus:border-accent"
                 />
               </div>
@@ -776,7 +800,7 @@ export default function AdminOperators() {
               />
               <button
                 onClick={addDateOverride}
-                disabled={savingOverrides || !newOverrideDate}
+                disabled={savingOverrides || !newOverrideFromDate}
                 className="flex items-center justify-center gap-1.5 px-3 py-1.5 bg-accent hover:bg-accent-light text-primary text-[11px] font-semibold rounded-lg transition-colors cursor-pointer disabled:opacity-50"
               >
                 {savingOverrides ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />}
