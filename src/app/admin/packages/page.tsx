@@ -645,36 +645,25 @@ export default function AdminPackages() {
               <p className="text-sm text-slate-400">No packages created yet</p>
             </div>
           ) : (
-            <div className="space-y-2">
+            <div className="space-y-3">
               {packages.map(pkg => (
                 <div key={pkg.id}>
-                  <div className={`bg-white/[0.04] backdrop-blur-sm rounded-xl border ${editingId === pkg.id ? 'border-accent/30' : 'border-white/[0.08]'} p-4`}>
+                  <div className={`bg-white/[0.04] backdrop-blur-sm rounded-xl border ${editingId === pkg.id ? 'border-accent/30' : 'border-white/[0.08]'} p-5`}>
                     <div className="flex items-start justify-between">
                       <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-2 mb-1">
-                          <span className="text-sm font-semibold text-white">{pkg.name}</span>
-                          <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${pkg.isActive ? 'bg-green-500/15 text-green-400' : 'bg-red-500/15 text-red-400'
-                            }`}>
+                        <div className="flex items-center gap-2 mb-2">
+                          <h3 className="text-sm font-semibold text-white">{pkg.name}</h3>
+                          <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${pkg.isActive ? 'bg-green-500/15 text-green-400' : 'bg-red-500/15 text-red-400'}`}>
                             {pkg.isActive ? 'Active' : 'Inactive'}
                           </span>
                         </div>
-                        <div className="flex flex-wrap gap-2 text-[11px] text-slate-400 mb-1 min-w-0">
-                          <span className="bg-white/[0.06] px-2 py-0.5 rounded break-words">{pkg.machineId ? labelMap[pkg.machineId] : `${labelMap[pkg.machineType]} Machine`}</span>
-                          {pkg.machineType === 'LEATHER' && (
-                            <span className="bg-white/[0.06] px-2 py-0.5 rounded">Ball: {labelMap[pkg.ballType]}</span>
-                          )}
-                          {pkg.wicketType && pkg.wicketType !== 'BOTH' && (
-                            <span className="bg-white/[0.06] px-2 py-0.5 rounded">Pitch: {labelMap[pkg.wicketType]}</span>
-                          )}
-                          <span className="bg-white/[0.06] px-2 py-0.5 rounded">
-                            {pkg.timingType === 'DAY' ? 'Day (7 AM – 5 PM)' : pkg.timingType === 'EVENING' ? 'Evening (7 PM – 10:30 PM)' : labelMap[pkg.timingType]}
-                          </span>
-                        </div>
-                        <div className="flex gap-4 text-xs text-slate-400">
-                          <span>{pkg.totalSessions} sessions</span>
-                          <span>{pkg.validityDays} days</span>
-                          <span className="text-accent font-medium">₹{pkg.price}</span>
-                          {pkg._count && <span>{pkg._count.userPackages} purchased</span>}
+                        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-400">
+                          <span className="text-accent font-semibold text-sm">₹{pkg.price}</span>
+                          <span>{pkg.totalSessions} Sessions (Per Slot: 30 Min)</span>
+                          <span>{pkg.validityDays} Days Validity</span>
+                          <span>{pkg.machineId ? labelMap[pkg.machineId] : `${labelMap[pkg.machineType]} Machine`}</span>
+                          <span>{pkg.timingType === 'DAY' ? 'Day' : pkg.timingType === 'EVENING' ? 'Evening' : labelMap[pkg.timingType]}</span>
+                          {pkg._count && <span className="text-slate-500">{pkg._count.userPackages} purchased</span>}
                         </div>
                       </div>
                       <div className="flex items-center gap-1 ml-3">
