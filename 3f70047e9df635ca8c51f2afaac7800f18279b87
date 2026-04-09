@@ -1,0 +1,27 @@
+src/lib/operatorAssign.ts
+  cc7cf52bbb92cf1a 36-63,81,83-85
+src/app/admin/operators/page.tsx
+  cc7cf52bbb92cf1a 136-137,205-229,237,268-274,282-283,838,842-847,849-850,852-853,858
+src/app/admin/page.tsx
+  cc7cf52bbb92cf1a 165,171-174
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.6",
+  "base_commit_sha": "3f70047e9df635ca8c51f2afaac7800f18279b87",
+  "prompts": {
+    "cc7cf52bbb92cf1a": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "7c98c917-0664-4b64-914f-4cd053aaf2e5",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Waheed",
+      "messages": [],
+      "total_additions": 86,
+      "total_deletions": 35,
+      "accepted_lines": 86,
+      "overriden_lines": 0
+    }
+  }
+}
