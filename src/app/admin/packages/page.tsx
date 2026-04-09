@@ -1,7 +1,7 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import { Package, Plus, Pencil, ToggleLeft, ToggleRight, Loader2, Users, BarChart3, Download, UserPlus, Search, Check, Calendar, Zap, Sun, Moon, Clock } from 'lucide-react';
+import { useState, useEffect, useMemo } from 'react';
+import { Package, Plus, Pencil, ToggleLeft, ToggleRight, Loader2, Users, BarChart3, Download, UserPlus, Search, Check, Calendar, Zap, Sun, Moon, Clock, RotateCcw } from 'lucide-react';
 import { NumberInputDialog } from '@/components/ui/NumberInputDialog';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { AdminPageHeader } from '@/components/admin/AdminPageHeader';
@@ -55,6 +55,15 @@ const defaultExtraChargeRules = {
   timingUpgrade: 125,
 };
 
+type MachineFilter = 'all' | 'GRAVITY' | 'YANTRA' | 'LEVERAGE_INDOOR' | 'LEVERAGE_OUTDOOR';
+
+const PACKAGE_MACHINE_CARDS: { id: MachineFilter; label: string; sub: string; category: string; image: string }[] = [
+  { id: 'GRAVITY', label: 'Gravity', sub: 'Leather Ball', category: 'LEATHER', image: '/images/leathermachine.jpeg' },
+  { id: 'YANTRA', label: 'Yantra', sub: 'Premium Leather', category: 'LEATHER', image: '/images/yantra-machine.jpeg' },
+  { id: 'LEVERAGE_INDOOR', label: 'Leverage Tennis', sub: 'Indoor', category: 'TENNIS', image: '/images/tennismachine.jpeg' },
+  { id: 'LEVERAGE_OUTDOOR', label: 'Leverage Tennis', sub: 'Outdoor', category: 'TENNIS', image: '/images/tennismachine.jpeg' },
+];
+
 const emptyForm = {
   name: '',
   machineId: 'GRAVITY',
@@ -77,6 +86,8 @@ export default function AdminPackages() {
   const [form, setForm] = useState(emptyForm);
   const [message, setMessage] = useState({ text: '', type: '' });
   const [tab, setTab] = useState<'packages' | 'users' | 'reports' | 'assign'>('packages');
+  const [machineFilter, setMachineFilter] = useState<MachineFilter>('all');
+  const [timingFilter, setTimingFilter] = useState<'DAY' | 'EVENING' | ''>('');
   const [reports, setReports] = useState<any>(null);
   const [userPackages, setUserPackages] = useState<any[]>([]);
   const [userPkgStatusFilter, setUserPkgStatusFilter] = useState('');
@@ -354,6 +365,25 @@ export default function AdminPackages() {
     return machine?.type === 'LEATHER';
   };
 
+  const hasActiveFilter = machineFilter !== 'all' || timingFilter !== '';
+  const clearFilters = () => { setMachineFilter('all'); setTimingFilter(''); };
+
+  const filteredPackages = useMemo(() => {
+    let filtered = packages;
+    if (machineFilter !== 'all') {
+      const card = PACKAGE_MACHINE_CARDS.find(c => c.id === machineFilter);
+      if (card) {
+        filtered = filtered.filter(pkg =>
+          pkg.machineId ? pkg.machineId === machineFilter : pkg.machineType === card.category
+        );
+      }
+    }
+    if (timingFilter) {
+      filtered = filtered.filter(pkg => pkg.timingType === timingFilter || pkg.timingType === 'BOTH');
+    }
+    return filtered;
+  }, [packages, machineFilter, timingFilter]);
+
   return (
     <div>
       <AdminPageHeader icon={Package} title="Packages" description="Manage subscription packages">
@@ -384,7 +414,7 @@ export default function AdminPackages() {
       {/* PACKAGES TAB */}
       {tab === 'packages' && (
         <>
-          <div className="mb-4">
+          <div className="flex items-center gap-3 mb-4">
             <button
               onClick={() => { setShowForm(!showForm); setEditingId(null); setForm(emptyForm); }}
               className="inline-flex items-center gap-2 bg-accent hover:bg-accent-light text-primary px-4 py-2.5 rounded-lg text-sm font-medium transition-colors cursor-pointer"
@@ -393,6 +423,78 @@ export default function AdminPackages() {
               {showForm ? 'Cancel' : 'Create Package'}
             </button>
           </div>
+
+          {/* ─── Filters ─── */}
+          {!showForm && (
+            <div className="bg-white/[0.03] rounded-xl border border-white/[0.06] p-4 mb-5">
+              <div className="mb-4">
+                <div className="flex items-center justify-between mb-2">
+                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Machine Type</label>
+                  {hasActiveFilter && (
+                    <button onClick={clearFilters} className="inline-flex items-center gap-1 text-[10px] text-slate-500 hover:text-accent transition-colors cursor-pointer">
+                      <RotateCcw className="w-3 h-3" />
+                      Clear filters
+                    </button>
+                  )}
+                </div>
+                <div className="grid grid-cols-2 gap-1.5 mb-1.5">
+                  {PACKAGE_MACHINE_CARDS.filter(c => c.category === 'LEATHER').map(card => {
+                    const isSelected = machineFilter === card.id;
+                    return (
+                      <button key={card.id} onClick={() => { setMachineFilter(isSelected ? 'all' : card.id); setTimingFilter(''); }}
+                        className={`flex items-center gap-1.5 px-1.5 py-1 rounded-lg transition-all cursor-pointer text-left ${isSelected ? 'bg-accent/15 ring-1 ring-accent/50 shadow-sm' : 'bg-white/[0.04] border border-white/[0.08] hover:border-accent/30'}`}>
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img src={card.image} alt={card.label} className="w-7 h-7 rounded-md object-cover flex-shrink-0" />
+                        <div className="min-w-0">
+                          <span className={`text-[10px] font-bold leading-tight ${isSelected ? 'text-accent' : 'text-slate-300'}`}>{card.label}</span>
+                          <p className={`text-[8px] ${isSelected ? 'text-accent/70' : 'text-slate-500'}`}>{card.sub}</p>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+                <div className="grid grid-cols-2 gap-1.5">
+                  {PACKAGE_MACHINE_CARDS.filter(c => c.category === 'TENNIS').map(card => {
+                    const isSelected = machineFilter === card.id;
+                    return (
+                      <button key={card.id} onClick={() => { setMachineFilter(isSelected ? 'all' : card.id); setTimingFilter(''); }}
+                        className={`flex items-center gap-1.5 px-1.5 py-1 rounded-lg transition-all cursor-pointer text-left ${isSelected ? 'bg-accent/15 ring-1 ring-accent/50 shadow-sm' : 'bg-white/[0.04] border border-white/[0.08] hover:border-accent/30'}`}>
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img src={card.image} alt={card.label} className="w-7 h-7 rounded-md object-cover flex-shrink-0" />
+                        <div className="min-w-0">
+                          <span className={`text-[10px] font-bold leading-tight ${isSelected ? 'text-accent' : 'text-slate-300'}`}>{card.label}</span>
+                          <p className={`text-[8px] ${isSelected ? 'text-accent/70' : 'text-slate-500'}`}>{card.sub}</p>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+              <div>
+                <label className="block text-[10px] font-bold text-slate-400 mb-2 uppercase tracking-wider">Timing</label>
+                <div className="grid grid-cols-2 gap-2">
+                  {([
+                    { key: 'DAY' as const, label: 'Day', sub: '7:00 AM – 5:00 PM', Icon: Sun },
+                    { key: 'EVENING' as const, label: 'Evening / Night', sub: '7:00 PM – 10:30 PM', Icon: Moon },
+                  ]).map(t => {
+                    const active = timingFilter === t.key;
+                    return (
+                      <button key={t.key} onClick={() => setTimingFilter(active ? '' : t.key)}
+                        className={`flex items-center gap-2 px-2 py-1.5 rounded-lg transition-all cursor-pointer text-left ${active ? 'bg-accent/15 ring-1 ring-accent/50 shadow-sm' : 'bg-white/[0.04] border border-white/[0.08] hover:border-accent/30'}`}>
+                        <div className={`w-7 h-7 rounded-md flex items-center justify-center flex-shrink-0 ${active ? 'bg-accent/20' : 'bg-white/[0.06]'}`}>
+                          <t.Icon className={`w-3.5 h-3.5 ${active ? 'text-accent' : 'text-slate-400'}`} />
+                        </div>
+                        <div className="min-w-0">
+                          <span className={`text-[10px] font-bold block ${active ? 'text-accent' : 'text-slate-300'}`}>{t.label}</span>
+                          <span className={`text-[8px] ${active ? 'text-accent/70' : 'text-slate-500'}`}>{t.sub}</span>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+          )}
 
           {showForm && !editingId && (
             <div className="bg-white/[0.03] backdrop-blur-sm rounded-2xl border border-white/[0.07] p-5 mb-5">
@@ -637,16 +739,22 @@ export default function AdminPackages() {
               <Loader2 className="w-5 h-5 animate-spin mr-2" />
               <span className="text-sm">Loading packages...</span>
             </div>
-          ) : packages.length === 0 ? (
+          ) : filteredPackages.length === 0 ? (
             <div className="text-center py-16">
               <div className="w-12 h-12 rounded-full bg-white/[0.04] flex items-center justify-center mx-auto mb-3">
                 <Package className="w-5 h-5 text-slate-500" />
               </div>
-              <p className="text-sm text-slate-400">No packages created yet</p>
+              <p className="text-sm text-slate-400 mb-1">{hasActiveFilter ? 'No packages match your filters' : 'No packages created yet'}</p>
+              {hasActiveFilter && (
+                <button onClick={clearFilters} className="inline-flex items-center gap-1.5 text-xs text-accent hover:text-accent-light transition-colors cursor-pointer mt-2">
+                  <RotateCcw className="w-3.5 h-3.5" />
+                  Clear all filters
+                </button>
+              )}
             </div>
           ) : (
             <div className="space-y-3">
-              {packages.map(pkg => (
+              {filteredPackages.map(pkg => (
                 <div key={pkg.id}>
                   <div className={`bg-white/[0.04] backdrop-blur-sm rounded-xl border ${editingId === pkg.id ? 'border-accent/30' : 'border-white/[0.08]'} hover:border-white/[0.12] transition-colors p-4`}>
                     <div className="flex items-start justify-between gap-3">

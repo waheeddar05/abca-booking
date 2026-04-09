@@ -71,9 +71,16 @@ export default function AdminDashboard() {
     { label: 'Status', value: stats?.systemStatus ?? 'Healthy', icon: Activity, gradient: 'bg-gradient-to-br from-green-500/15 to-green-500/5', iconColor: 'text-green-400', isText: true, href: '/admin/policies' },
   ];
 
+  const CHART_SHORT_NAMES: Record<string, string> = {
+    GRAVITY: 'Gravity',
+    YANTRA: 'Yantra',
+    LEVERAGE_INDOOR: 'Tennis In',
+    LEVERAGE_OUTDOOR: 'Tennis Out',
+  };
+
   const machineChartData = (stats?.machineRevenue || [])
     .map(item => ({
-      name: MACHINES[item.machineId as keyof typeof MACHINES]?.shortName || item.machineId,
+      name: CHART_SHORT_NAMES[item.machineId] || MACHINES[item.machineId as keyof typeof MACHINES]?.shortName || item.machineId,
       revenue: item._sum.price || 0,
     }))
     .sort((a, b) => b.revenue - a.revenue);
@@ -162,16 +169,13 @@ export default function AdminDashboard() {
         {!loading && machineChartData.length > 0 ? (
           <div className="h-64">
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={machineChartData} margin={{ top: 5, right: 10, left: 10, bottom: 30 }}>
+              <BarChart data={machineChartData} margin={{ top: 5, right: 10, left: 10, bottom: 5 }}>
                 <XAxis
                   dataKey="name"
-                  tick={{ fill: '#94a3b8', fontSize: 11 }}
+                  tick={{ fill: '#cbd5e1', fontSize: 10, fontWeight: 500 }}
                   axisLine={false}
                   tickLine={false}
-                  angle={-25}
-                  textAnchor="end"
                   interval={0}
-                  height={50}
                 />
                 <YAxis
                   tick={{ fill: '#94a3b8', fontSize: 11 }}
