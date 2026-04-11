@@ -29,8 +29,15 @@ interface RazorpayOrderResponse {
   keyId: string;
 }
 
+export interface PaymentResult {
+  paymentId: string;
+  razorpayPaymentId: string;
+  type: string;
+  bookings?: Array<{ id: string; status: string }> | null;
+}
+
 interface UseRazorpayOptions {
-  onSuccess?: (data: { paymentId: string; razorpayPaymentId: string; type: string }) => void;
+  onSuccess?: (data: PaymentResult) => void;
   onFailure?: (error: string) => void;
 }
 
@@ -94,6 +101,7 @@ export function useRazorpay(options: UseRazorpayOptions = {}, paymentEnabled = t
       prefill?: { name?: string; email?: string; contact?: string };
       description?: string;
       walletDeduction?: number;
+      bookingPayload?: Record<string, unknown>[];
     }) => {
       if (!scriptLoaded) {
         options.onFailure?.('Razorpay SDK not loaded. Please refresh and try again.');
@@ -114,6 +122,7 @@ export function useRazorpay(options: UseRazorpayOptions = {}, paymentEnabled = t
             slots: params.slots,
             metadata: params.metadata,
             walletDeduction: params.walletDeduction,
+            bookingPayload: params.bookingPayload,
           }),
         });
 
@@ -125,7 +134,7 @@ export function useRazorpay(options: UseRazorpayOptions = {}, paymentEnabled = t
         const order: RazorpayOrderResponse = await orderRes.json();
 
         // Step 2: Open Razorpay checkout
-        return new Promise<{ paymentId: string; razorpayPaymentId: string; type: string } | null>(
+        return new Promise<PaymentResult | null>(
           (resolve) => {
             const rzpOptions: Record<string, unknown> = {
               key: order.keyId,
@@ -162,10 +171,17 @@ export function useRazorpay(options: UseRazorpayOptions = {}, paymentEnabled = t
                   }
 
                   const result = await verifyRes.json();
+
+                  // If verify route reports booking failure (payment captured but booking failed)
+                  if (result.success === false && result.error) {
+                    throw new Error(result.error);
+                  }
+
                   const successData = {
                     paymentId: order.paymentId,
                     razorpayPaymentId: response.razorpay_payment_id,
                     type: params.type,
+                    bookings: result.bookings || null,
                   };
 
                   options.onSuccess?.(successData);

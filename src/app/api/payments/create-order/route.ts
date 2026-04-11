@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 import { getAuthenticatedUser } from '@/lib/auth';
 import {
@@ -22,13 +23,14 @@ export async function POST(req: NextRequest) {
     }
 
     const body = await req.json();
-    const { type, amount, packageId, slots, metadata, walletDeduction } = body as {
+    const { type, amount, packageId, slots, metadata, walletDeduction, bookingPayload } = body as {
       type: 'SLOT_BOOKING' | 'PACKAGE_PURCHASE';
       amount: number;
       packageId?: string;
       slots?: Array<{ date: string; startTime: string; endTime: string }>;
       metadata?: Record<string, string>;
       walletDeduction?: number;
+      bookingPayload?: Record<string, unknown>[];
     };
 
     if (!type || !amount || amount <= 0) {
@@ -64,6 +66,8 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    console.log(`[CreateOrder user=${user.id} name=${user.name || 'N/A'}] type=${type} amount=₹${amount} slots=${slots?.length || 0} bookingPayload=${bookingPayload ? 'yes' : 'no'}`);
+
     // Generate receipt ID
     const receipt = `rcpt_${type === 'PACKAGE_PURCHASE' ? 'pkg' : 'slot'}_${Date.now()}`;
 
@@ -95,8 +99,9 @@ export async function POST(req: NextRequest) {
           packageId: packageId || null,
           slots: slots || null,
           walletDeduction: walletDeduction || 0,
+          ...(bookingPayload ? { bookingPayload: bookingPayload as unknown as Prisma.InputJsonValue } : {}),
           ...metadata,
-        },
+        } as Prisma.InputJsonValue,
       },
     });
 

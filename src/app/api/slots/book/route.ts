@@ -17,6 +17,30 @@ import { autoAssignOperator, getOperatorCount } from '@/lib/operatorAssign';
 import { getAllApplicablePromoDiscounts } from '@/lib/promotionalOffers';
 import { calculateStackedDiscount } from '@/lib/specialUsers';
 
+/** Typed user shape from getAuthenticatedUser */
+export type AuthenticatedUser = {
+  id: string;
+  name?: string;
+  role: string;
+  email?: string;
+  isSuperAdmin: boolean;
+  isFreeUser: boolean;
+  isSpecialUser?: boolean;
+  mobileVerified?: boolean;
+};
+
+/** Error thrown by booking logic — carries HTTP status for the API handler */
+export class BookingServiceError extends Error {
+  status: number;
+  extra?: Record<string, unknown>;
+  constructor(message: string, status = 400, extra?: Record<string, unknown>) {
+    super(message);
+    this.name = 'BookingServiceError';
+    this.status = status;
+    this.extra = extra;
+  }
+}
+
 async function getMachineConfig() {
   const config = await getCachedPolicies([
     'BALL_TYPE_SELECTION_ENABLED',
@@ -83,40 +107,40 @@ function isTransactionAborted(error: unknown): boolean {
   );
 }
 
-export async function POST(req: NextRequest) {
-  // Hoisted so it's accessible in the catch block for auto-refund
-  let onlinePaymentId: string | undefined;
+/**
+ * Core slot booking logic — reusable from both the POST handler and payment verify route.
+ * Throws BookingServiceError for validation/business-logic failures.
+ * Returns booking results array on success.
+ */
+export async function executeSlotBooking(
+  user: AuthenticatedUser,
+  slotsToBook: Record<string, unknown>[],
+  options?: { onlinePaymentId?: string },
+): Promise<Array<{ id: string; status: string }>> {
+  const onlinePaymentId = options?.onlinePaymentId || slotsToBook[0]?.paymentId as string | undefined;
+  const logPrefix = `[Booking user=${user.id} name=${user.name || 'N/A'}]`;
 
   try {
-    const user = await getAuthenticatedUser(req);
-
-    if (!user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
-
-    const body = await req.json();
-    const slotsToBook = Array.isArray(body) ? body : [body];
-
     if (slotsToBook.length === 0) {
-      return NextResponse.json({ error: 'No slots provided' }, { status: 400 });
+      throw new BookingServiceError('No slots provided', 400);
     }
 
     const isAdmin = user.role === 'ADMIN';
     const isSuperAdmin = !!user.isSuperAdmin;
     const createdBy = user.name || user.id;
-    const userId = (isAdmin && slotsToBook[0]?.userId) || user.id;
+    const userId: string = (isAdmin && typeof slotsToBook[0]?.userId === 'string' ? slotsToBook[0].userId : null) || user.id;
 
     // Fetch the target user info
-    const targetUser = await prisma.user.findUnique({ where: { id: userId } });
+    const targetUser = await prisma.user.findUnique({ where: { id: userId as string } });
     if (!targetUser) {
-      return NextResponse.json({ error: 'User not found' }, { status: 404 });
+      throw new BookingServiceError('User not found', 404);
     }
 
     // Free booking: superadmin bookings OR target user is marked as free user
     const isFreeBooking = isSuperAdmin || targetUser.isFreeUser;
 
     if (targetUser.isBlacklisted) {
-      return NextResponse.json({ error: 'Your account is blocked. Please contact admin.' }, { status: 403 });
+      throw new BookingServiceError('Your account is blocked. Please contact admin.', 403);
     }
 
     let userName = targetUser.name;
@@ -129,9 +153,7 @@ export async function POST(req: NextRequest) {
     const isCashPayment = requestedPaymentMethod === 'CASH';
     const isWalletPayment = requestedPaymentMethod === 'WALLET';
 
-    // Online payment ID — if provided, bookings will be linked to this payment
-    // and auto-refunded to wallet if booking fails
-    onlinePaymentId = slotsToBook[0]?.paymentId as string | undefined;
+    console.log(`${logPrefix} Starting booking: ${slotsToBook.length} slot(s), payment=${requestedPaymentMethod || 'ONLINE'}, onlinePaymentId=${onlinePaymentId || 'none'}`);
 
     // Kit rental - read config from policy (server-side truth)
     const kitRentalRequested = !!slotsToBook[0]?.kitRental;
@@ -157,7 +179,7 @@ export async function POST(req: NextRequest) {
       ]);
       const globalCashEnabled = cashPolicy?.value === 'true';
       if (!globalCashEnabled && !cashPaymentUser) {
-        return NextResponse.json({ error: 'Cash payment is not available.' }, { status: 400 });
+        throw new BookingServiceError('Cash payment is not available.', 400);
       }
     }
 
@@ -224,13 +246,13 @@ export async function POST(req: NextRequest) {
       } else {
         // Legacy: use ballType directly
         if (!isValidBallType(ballTypeParam)) {
-          return NextResponse.json({ error: 'Invalid ball type' }, { status: 400 });
+          throw new BookingServiceError('Invalid ball type', 400);
         }
         resolvedBallType = ballTypeParam as BallType;
       }
 
       if (!date || !startTime || !endTime || !playerName) {
-        return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
+        throw new BookingServiceError('Missing required fields', 400);
       }
 
       // Determine operation mode
@@ -251,7 +273,7 @@ export async function POST(req: NextRequest) {
         validatedPitchType = pitchType as PitchType;
       } else if (resolvedBallType === 'TENNIS' && machineConfig.pitchTypeSelectionEnabled && pitchType) {
         if (!isValidPitchType(pitchType)) {
-          return NextResponse.json({ error: 'Invalid pitch type' }, { status: 400 });
+          throw new BookingServiceError('Invalid pitch type', 400);
         }
         validatedPitchType = pitchType as PitchType;
       }
@@ -261,15 +283,15 @@ export async function POST(req: NextRequest) {
       const end = new Date(endTime);
 
       if (!isValid(bookingDate) || !isValid(start) || !isValid(end)) {
-        return NextResponse.json({ error: 'Invalid date/time values' }, { status: 400 });
+        throw new BookingServiceError('Invalid date/time values', 400);
       }
 
       if (!isAfter(end, start)) {
-        return NextResponse.json({ error: 'End time must be after start time' }, { status: 400 });
+        throw new BookingServiceError('End time must be after start time', 400);
       }
 
       if (!isAdmin && !isAfter(start, new Date())) {
-        return NextResponse.json({ error: 'Cannot book in the past' }, { status: 400 });
+        throw new BookingServiceError('Cannot book in the past', 400);
       }
 
       validatedSlots.push({
@@ -431,13 +453,11 @@ export async function POST(req: NextRequest) {
     if (isWalletPayment && !isFreeBooking && !userPackageId) {
       const walletEnabled = await isWalletEnabled();
       if (!walletEnabled) {
-        return NextResponse.json({ error: 'Wallet payments are not enabled' }, { status: 400 });
+        throw new BookingServiceError('Wallet payments are not enabled', 400);
       }
       const balance = await getWalletBalance(userId!);
       if (balance < totalPrice) {
-        return NextResponse.json({
-          error: `Insufficient wallet balance. Required: ₹${totalPrice}, Available: ₹${balance}`,
-        }, { status: 400 });
+        throw new BookingServiceError(`Insufficient wallet balance. Required: ₹${totalPrice}, Available: ₹${balance}`, 400);
       }
     }
 
@@ -459,7 +479,7 @@ export async function POST(req: NextRequest) {
       );
 
       if (!packageValidation.valid) {
-        return NextResponse.json({ error: (packageValidation as any).error || 'Package validation failed' }, { status: 400 });
+        throw new BookingServiceError((packageValidation as any).error || 'Package validation failed', 400);
       }
 
       // Now validate each slot individually to get per-slot extra charges (handles mixed time slabs)
@@ -763,9 +783,7 @@ export async function POST(req: NextRequest) {
         } catch (rollbackErr) {
           console.error('Booking rollback after package deduction failure also failed:', rollbackErr);
         }
-        return NextResponse.json({
-          error: pkgError instanceof Error ? pkgError.message : 'Package deduction failed',
-        }, { status: 500 });
+        throw new BookingServiceError(pkgError instanceof Error ? pkgError.message : 'Package deduction failed', 500);
       }
     }
 
@@ -801,7 +819,7 @@ export async function POST(req: NextRequest) {
           console.error('Failed to rollback bookings after wallet failure:', rollbackErr);
         }
         const msg = walletErr instanceof Error ? walletErr.message : 'Wallet payment failed';
-        return NextResponse.json({ error: msg }, { status: 400 });
+        throw new BookingServiceError(msg, 400);
       }
     }
 
@@ -932,8 +950,8 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    const response = Array.isArray(body) ? results : results[0];
-    return NextResponse.json(response);
+    console.log(`${logPrefix} Booking completed successfully: ${results.length} booking(s) created [${results.map(r => r.id).join(', ')}]`);
+    return results;
   } catch (error: unknown) {
     // ─── Auto-Refund on Booking Failure ─────────────────────────────
     // If an online payment was captured but booking creation failed,
@@ -953,9 +971,6 @@ export async function POST(req: NextRequest) {
             onlinePaymentId,
           );
 
-          // Update payment status to reflect the refund
-          // Note: No Refund record created here because there's no booking to reference
-          // (Refund.bookingId has a FK constraint). The wallet transaction serves as the audit trail.
           await prisma.payment.update({
             where: { id: onlinePaymentId },
             data: {
@@ -967,32 +982,59 @@ export async function POST(req: NextRequest) {
             },
           });
 
-          console.log(`Auto-refunded ₹${refundAmount} to wallet for failed booking (payment: ${onlinePaymentId})`);
+          console.log(`${logPrefix} Auto-refunded ₹${refundAmount} to wallet for failed booking (payment: ${onlinePaymentId})`);
 
-          // Return error with refund info so user knows their money is safe
           const errMessage = error instanceof Error ? error.message : 'Booking failed';
-          return NextResponse.json({
-            error: `${errMessage}. ₹${refundAmount} has been refunded to your wallet.`,
-            refunded: true,
-            refundAmount,
-            walletBalance: walletResult.newBalance,
-          }, { status: error instanceof BookingConflictError || error instanceof OperatorUnavailableError ? 409 : 400 });
+          throw new BookingServiceError(
+            `${errMessage}. ₹${refundAmount} has been refunded to your wallet.`,
+            error instanceof BookingConflictError || error instanceof OperatorUnavailableError ? 409 : 400,
+            { refunded: true, refundAmount, walletBalance: walletResult.newBalance },
+          );
         }
       } catch (refundErr) {
-        console.error('CRITICAL: Auto-refund failed after booking failure:', refundErr);
-        console.error('Original booking error:', error);
-        // Still return the original error — admin will need to manually refund
+        if (refundErr instanceof BookingServiceError) throw refundErr;
+        console.error(`${logPrefix} CRITICAL: Auto-refund failed after booking failure:`, refundErr);
+        console.error(`${logPrefix} Original booking error:`, error);
       }
     }
 
+    if (error instanceof BookingServiceError) throw error;
     if (error instanceof BookingConflictError) {
-      return NextResponse.json({ error: error.message }, { status: 409 });
+      throw new BookingServiceError(error.message, 409);
     }
     if (error instanceof OperatorUnavailableError) {
-      return NextResponse.json({ error: error.message }, { status: 409 });
+      throw new BookingServiceError(error.message, 409);
     }
     const message = error instanceof Error ? error.message : 'Internal server error';
-    console.error('Booking error:', error);
-    return NextResponse.json({ error: message }, { status: 400 });
+    console.error(`${logPrefix} Booking error:`, error);
+    throw new BookingServiceError(message, 400);
+  }
+}
+
+// ─── HTTP Handler ─────────────────────────────────────────────────────────────
+export async function POST(req: NextRequest) {
+  try {
+    const user = await getAuthenticatedUser(req);
+    if (!user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    const body = await req.json();
+    const slotsToBook = Array.isArray(body) ? body : [body];
+
+    const results = await executeSlotBooking(user, slotsToBook);
+
+    const response = Array.isArray(body) ? results : results[0];
+    return NextResponse.json(response);
+  } catch (error) {
+    if (error instanceof BookingServiceError) {
+      return NextResponse.json(
+        { error: error.message, ...error.extra },
+        { status: error.status },
+      );
+    }
+    const message = error instanceof Error ? error.message : 'Internal server error';
+    console.error('[Booking POST] Unexpected error:', error);
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }

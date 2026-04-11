@@ -4,6 +4,7 @@ import { getAuthenticatedUser } from '@/lib/auth';
 import { verifyPaymentSignature } from '@/lib/razorpay';
 import { notifyPaymentSuccess } from '@/lib/notifications';
 import { debitWallet, isWalletEnabled } from '@/lib/wallet';
+import { executeSlotBooking, BookingServiceError } from '@/app/api/slots/book/route';
 
 // POST /api/payments/verify - Verify payment and complete booking/purchase
 export async function POST(req: NextRequest) {
@@ -59,6 +60,7 @@ export async function POST(req: NextRequest) {
     });
 
     if (!isValid) {
+      console.error(`[PaymentVerify user=${user.id} name=${user.name || 'N/A'}] Invalid signature for payment ${paymentId}, order ${razorpay_order_id}`);
       // Mark payment as failed
       await prisma.payment.update({
         where: { id: paymentId },
@@ -72,6 +74,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Payment verification failed' }, { status: 400 });
     }
 
+    console.log(`[PaymentVerify user=${user.id} name=${user.name || 'N/A'}] Payment verified successfully: ${paymentId}, razorpay=${razorpay_payment_id}, type=${payment.paymentType}`);
     // Signature valid — mark as captured
     await prisma.payment.update({
       where: { id: paymentId },
@@ -88,8 +91,48 @@ export async function POST(req: NextRequest) {
     if (payment.paymentType === 'PACKAGE_PURCHASE') {
       result = await completePackagePurchase(payment, user.id);
     }
-    // For SLOT_BOOKING, the frontend will call /api/slots/book after verify succeeds
-    // We just return success with the payment confirmation
+
+    if (payment.paymentType === 'SLOT_BOOKING') {
+      const meta = payment.metadata as Record<string, unknown> | null;
+      const bookingPayload = meta?.bookingPayload as Record<string, unknown>[] | undefined;
+
+      if (bookingPayload && bookingPayload.length > 0) {
+        console.log(`[PaymentVerify user=${user.id} name=${user.name || 'N/A'}] Creating bookings atomically for payment ${payment.id} (${bookingPayload.length} slot(s))`);
+        try {
+          // Attach paymentId to each slot so the booking logic links them
+          const slotsWithPayment = bookingPayload.map(slot => ({
+            ...slot,
+            paymentId: payment.id,
+          }));
+
+          const bookings = await executeSlotBooking(user, slotsWithPayment, {
+            onlinePaymentId: payment.id,
+          });
+
+          console.log(`[PaymentVerify user=${user.id}] Bookings created successfully: ${bookings.map(b => b.id).join(', ')}`);
+          result = { bookings };
+        } catch (bookingErr) {
+          // Booking failed after payment was captured — the executeSlotBooking function
+          // already handles auto-refund to wallet internally. Log and return the error.
+          const errMsg = bookingErr instanceof Error ? bookingErr.message : 'Booking creation failed after payment';
+          console.error(`[PaymentVerify user=${user.id}] Booking creation failed after payment CAPTURED:`, bookingErr);
+
+          const extra = bookingErr instanceof BookingServiceError ? bookingErr.extra : {};
+          return NextResponse.json({
+            success: false,
+            error: errMsg,
+            paymentId: payment.id,
+            razorpayPaymentId: razorpay_payment_id,
+            type: payment.paymentType,
+            ...extra,
+          }, { status: bookingErr instanceof BookingServiceError ? bookingErr.status : 500 });
+        }
+      } else {
+        // Legacy: no bookingPayload stored — frontend will call /api/slots/book separately.
+        // This handles in-flight payments that were created before this code change.
+        console.warn(`[PaymentVerify user=${user.id}] No bookingPayload in payment metadata for ${payment.id} — frontend must call /api/slots/book`);
+      }
+    }
 
     return NextResponse.json({
       success: true,

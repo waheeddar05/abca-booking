@@ -359,6 +359,8 @@ function SlotsContent() {
     if (requiresOnlinePayment) {
       setBookingLoading(true);
       try {
+        // Send the full booking payload with the payment so the server can create
+        // bookings atomically in the verify route — no second client call needed.
         const paymentResult = await initiatePayment({
           type: 'SLOT_BOOKING',
           amount: amountAfterWallet,
@@ -367,6 +369,7 @@ function SlotsContent() {
             startTime: s.startTime,
             endTime: s.endTime,
           })),
+          bookingPayload,
           description: `${selectedSlots.length} slot(s) - ${selectedCard.label} - ${format(selectedDate, 'MMM d')}`,
           prefill: {
             name: session?.user?.name || undefined,
@@ -380,27 +383,19 @@ function SlotsContent() {
           return;
         }
 
-        // Payment succeeded — now create the actual booking
-        // Attach paymentId so the server can link bookings and auto-refund on failure
-        const payloadWithPayment = bookingPayload.map(slot => ({
-          ...slot,
-          paymentId: paymentResult.paymentId,
-        }));
-        const bookingResult = await api.post<Array<{ id: string }>>('/api/slots/book', payloadWithPayment);
-
-        // Link payment to booking IDs (server already does this, but belt-and-suspenders)
-        const bookingIds = Array.isArray(bookingResult)
-          ? bookingResult.map(b => b.id)
-          : [(bookingResult as { id: string }).id];
-
-        await fetch('/api/payments/link-bookings', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            paymentId: paymentResult.paymentId,
-            bookingIds,
-          }),
-        }).catch(() => {}); // Non-critical — server already linked them
+        // Bookings are now created atomically by the verify route.
+        // Belt-and-suspenders: if verify returned bookings, link them (server already does this).
+        if (paymentResult.bookings && paymentResult.bookings.length > 0) {
+          const bookingIds = paymentResult.bookings.map(b => b.id);
+          await fetch('/api/payments/link-bookings', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              paymentId: paymentResult.paymentId,
+              bookingIds,
+            }),
+          }).catch(() => {}); // Non-critical — server already linked them
+        }
 
         toast.success('Payment successful! Booking confirmed.');
         setSelectedSlots([]);
