@@ -1,0 +1,61 @@
+src/app/operator/page.tsx
+  dec21ddcded15869 235-238
+src/lib/constants.ts
+  dec21ddcded15869 18-19,27-28,36,45
+src/app/admin/configuration/page.tsx
+  dec21ddcded15869 99-102,115-118
+src/components/LandingPageClient.tsx
+  dec21ddcded15869 141,169
+src/app/admin/packages/page.tsx
+  dec21ddcded15869 27-30,45-48,61-62,359-360,773,779-782,1255-1268
+src/app/admin/operators/page.tsx
+  dec21ddcded15869 42-45,143,279-287,305,762,764,769-787,793-817,938-953
+src/app/admin/page.tsx
+  dec21ddcded15869 77-80
+src/app/admin/slots/page.tsx
+  dec21ddcded15869 34-37
+src/app/packages/page.tsx
+  dec21ddcded15869 57-58
+src/hooks/useSlots.ts
+  dec21ddcded15869 3,15-22,27,35-50,53,60-61,64,68
+src/components/slots/DateSelector.tsx
+  dec21ddcded15869 3,13-19,26-27,53
+src/components/slots/MachineSelector.tsx
+  dec21ddcded15869 3,12,47,49,77,86
+src/lib/client-constants.ts
+  dec21ddcded15869 22,32,42,52,93-96
+src/components/slots/SlotGrid.tsx
+  dec21ddcded15869 3,25,72,86,180
+src/app/admin/users/page.tsx
+  dec21ddcded15869 741-742
+src/app/admin/offers/page.tsx
+  dec21ddcded15869 39-42
+src/app/api/admin/bookings/export/route.ts
+  dec21ddcded15869 187-188
+src/app/admin/bookings/page.tsx
+  dec21ddcded15869 573-576,771
+src/components/BookingCard.tsx
+  dec21ddcded15869 34-37
+src/components/ui/RefundDialog.tsx
+  dec21ddcded15869 119
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.8",
+  "base_commit_sha": "2caec6c4da4f899d8933a805713461f55ff7f6a1",
+  "prompts": {
+    "dec21ddcded15869": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "2e41b854-b104-402a-bb16-29ace2239dcb",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Waheed",
+      "messages": [],
+      "total_additions": 232,
+      "total_deletions": 146,
+      "accepted_lines": 219,
+      "overriden_lines": 0
+    }
+  }
+}
