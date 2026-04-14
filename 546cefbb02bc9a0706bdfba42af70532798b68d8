@@ -1,0 +1,29 @@
+src/app/admin/slots/page.tsx
+  dec21ddcded15869 34
+src/lib/client-constants.ts
+  dec21ddcded15869 23
+src/app/packages/page.tsx
+  dec21ddcded15869 57
+src/app/admin/packages/page.tsx
+  dec21ddcded15869 61
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.8",
+  "base_commit_sha": "546cefbb02bc9a0706bdfba42af70532798b68d8",
+  "prompts": {
+    "dec21ddcded15869": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "2e41b854-b104-402a-bb16-29ace2239dcb",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Waheed",
+      "messages": [],
+      "total_additions": 4,
+      "total_deletions": 4,
+      "accepted_lines": 4,
+      "overriden_lines": 0
+    }
+  }
+}
