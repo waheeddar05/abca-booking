@@ -738,8 +738,8 @@ export default function AdminUsers() {
                             <div className="flex flex-wrap items-center gap-2 text-[10px] text-slate-400">
                               {booking.machineId && (
                                 <span className="bg-white/[0.06] px-1.5 py-0.5 rounded">
-                                  {booking.machineId === 'GRAVITY' ? 'Gravity Cricket' :
-                                    booking.machineId === 'YANTRA' ? 'Yantra Premium' :
+                                  {booking.machineId === 'GRAVITY' ? 'Gravity' :
+                                    booking.machineId === 'YANTRA' ? 'Yantra' :
                                       booking.machineId === 'LEVERAGE_INDOOR' ? 'Tennis Indoor' :
                                         booking.machineId === 'LEVERAGE_OUTDOOR' ? 'Tennis Outdoor' :
                                           booking.machineId}

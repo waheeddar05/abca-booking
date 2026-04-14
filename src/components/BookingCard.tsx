@@ -31,10 +31,10 @@ const STATUS_CONFIG: Record<string, { label: string; bg: string; text: string; d
 function getMachineLabel(machineId: string | null): string | null {
   if (!machineId) return null;
   const labels: Record<string, string> = {
-    GRAVITY: 'Gravity Cricket',
-    YANTRA: 'Yantra Premium',
-    LEVERAGE_INDOOR: 'Tennis Indoor',
-    LEVERAGE_OUTDOOR: 'Tennis Outdoor',
+    GRAVITY: 'Gravity',
+    YANTRA: 'Yantra',
+    LEVERAGE_INDOOR: 'Leverage Tennis (In)',
+    LEVERAGE_OUTDOOR: 'Leverage Tennis (Out)',
   };
   return labels[machineId] || machineId;
 }

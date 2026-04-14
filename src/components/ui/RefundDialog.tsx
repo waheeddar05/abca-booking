@@ -116,7 +116,7 @@ export function RefundDialog({ open, booking, onConfirm, onCancel }: RefundDialo
 
   const machineLabel = (id?: string) => {
     if (!id) return '';
-    const map: Record<string, string> = { GRAVITY: 'Gravity Cricket', YANTRA: 'Yantra Premium', LEVERAGE_INDOOR: 'Tennis Indoor', LEVERAGE_OUTDOOR: 'Tennis Outdoor' };
+    const map: Record<string, string> = { GRAVITY: 'Gravity', YANTRA: 'Yantra', LEVERAGE_INDOOR: 'Leverage Tennis (In)', LEVERAGE_OUTDOOR: 'Leverage Tennis (Out)' };
     return map[id] || id;
   };
 

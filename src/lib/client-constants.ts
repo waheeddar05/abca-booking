@@ -19,7 +19,7 @@ export interface MachineCard {
 export const MACHINE_CARDS: MachineCard[] = [
   {
     id: 'GRAVITY',
-    label: 'Gravity Cricket Leather',
+    label: 'Gravity',
     shortLabel: 'Leather Ball',
     category: 'LEATHER',
     image: '/images/leathermachine.jpeg',
@@ -29,7 +29,7 @@ export const MACHINE_CARDS: MachineCard[] = [
   },
   {
     id: 'YANTRA',
-    label: 'Yantra Premium Leather',
+    label: 'Yantra',
     shortLabel: 'Premium Leather',
     category: 'LEATHER',
     image: '/images/yantra-machine.jpeg',
@@ -39,7 +39,7 @@ export const MACHINE_CARDS: MachineCard[] = [
   },
   {
     id: 'LEVERAGE_INDOOR',
-    label: 'Leverage Tennis Indoor',
+    label: 'Leverage Tennis',
     shortLabel: 'Indoor',
     category: 'TENNIS',
     image: '/images/tennismachine.jpeg',
@@ -49,7 +49,7 @@ export const MACHINE_CARDS: MachineCard[] = [
   },
   {
     id: 'LEVERAGE_OUTDOOR',
-    label: 'Leverage Tennis Outdoor',
+    label: 'Leverage Tennis',
     shortLabel: 'Outdoor',
     category: 'TENNIS',
     image: '/images/tennismachine.jpeg',
@@ -90,10 +90,10 @@ export const BALL_TYPE_CONFIG: Record<string, { color: string; label: string }> 
 
 // ─── Machine Labels (display names by ID) ───────────────
 export const MACHINE_LABELS: Record<string, string> = {
-  GRAVITY: 'Gravity Cricket Leather',
-  YANTRA: 'Yantra Premium Leather',
-  LEVERAGE_INDOOR: 'Leverage Tennis Indoor',
-  LEVERAGE_OUTDOOR: 'Leverage Tennis Outdoor',
+  GRAVITY: 'Gravity',
+  YANTRA: 'Yantra',
+  LEVERAGE_INDOOR: 'Leverage Tennis',
+  LEVERAGE_OUTDOOR: 'Leverage Tennis',
 };
 
 // ─── Pitch Labels (display names) ────────────────────────

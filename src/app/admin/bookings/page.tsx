@@ -570,10 +570,10 @@ function AdminBookingsContent() {
               className="w-full bg-white/[0.06] border border-white/[0.15] text-white rounded-lg px-3 py-2.5 text-sm outline-none focus:border-accent focus:ring-1 focus:ring-accent/20 cursor-pointer"
             >
               <option value="">All Machines</option>
-              <option value="GRAVITY">Gravity Cricket Leather</option>
-              <option value="YANTRA">Yantra Premium Leather</option>
-              <option value="LEVERAGE_INDOOR">Leverage Tennis Indoor</option>
-              <option value="LEVERAGE_OUTDOOR">Leverage Tennis Outdoor</option>
+              <option value="GRAVITY">Gravity</option>
+              <option value="YANTRA">Yantra</option>
+              <option value="LEVERAGE_INDOOR">Leverage Tennis (Indoor)</option>
+              <option value="LEVERAGE_OUTDOOR">Leverage Tennis (Outdoor)</option>
             </select>
           </div>
           <div>
@@ -768,7 +768,7 @@ function AdminBookingsContent() {
                       </span>
                       {booking.machineId && (
                         <span className="text-[10px] px-1.5 py-0.5 rounded bg-white/[0.04] text-slate-400 font-medium">
-                          {booking.machineId === 'GRAVITY' ? 'Gravity Cricket' : booking.machineId === 'YANTRA' ? 'Yantra Premium' : booking.machineId === 'LEVERAGE_INDOOR' ? 'Tennis Indoor' : 'Tennis Outdoor'}
+                          {booking.machineId === 'GRAVITY' ? 'Gravity' : booking.machineId === 'YANTRA' ? 'Yantra' : booking.machineId === 'LEVERAGE_INDOOR' ? 'Lev. Tennis In' : 'Lev. Tennis Out'}
                         </span>
                       )}
                       {booking.pitchType && (

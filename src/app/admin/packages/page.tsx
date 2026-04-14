@@ -24,10 +24,10 @@ interface PackageData {
 }
 
 const MACHINE_OPTIONS = [
-  { id: 'GRAVITY', label: 'Gravity Cricket Leather', type: 'LEATHER' },
-  { id: 'YANTRA', label: 'Yantra Premium Leather', type: 'LEATHER' },
-  { id: 'LEVERAGE_INDOOR', label: 'Leverage Tennis Indoor', type: 'TENNIS' },
-  { id: 'LEVERAGE_OUTDOOR', label: 'Leverage Tennis Outdoor', type: 'TENNIS' },
+  { id: 'GRAVITY', label: 'Gravity', type: 'LEATHER' },
+  { id: 'YANTRA', label: 'Yantra', type: 'LEATHER' },
+  { id: 'LEVERAGE_INDOOR', label: 'Leverage Tennis (Indoor)', type: 'TENNIS' },
+  { id: 'LEVERAGE_OUTDOOR', label: 'Leverage Tennis (Outdoor)', type: 'TENNIS' },
 ];
 const BALL_TYPES = ['MACHINE', 'LEATHER'];
 const TIMING_TYPES = ['DAY', 'EVENING'];
@@ -42,8 +42,8 @@ const ALL_WICKET_UPGRADE_PATHS = [
 
 // All possible machine upgrade paths
 const ALL_MACHINE_UPGRADE_PATHS = [
-  { from: 'GRAVITY', to: 'YANTRA', label: 'Gravity Cricket → Yantra Premium' },
-  { from: 'YANTRA', to: 'GRAVITY', label: 'Yantra Premium → Gravity Cricket' },
+  { from: 'GRAVITY', to: 'YANTRA', label: 'Gravity → Yantra' },
+  { from: 'YANTRA', to: 'GRAVITY', label: 'Yantra → Gravity' },
   { from: 'LEVERAGE_INDOOR', to: 'LEVERAGE_OUTDOOR', label: 'Tennis Indoor → Tennis Outdoor' },
   { from: 'LEVERAGE_OUTDOOR', to: 'LEVERAGE_INDOOR', label: 'Tennis Outdoor → Tennis Indoor' },
 ];
@@ -58,8 +58,8 @@ const defaultExtraChargeRules = {
 type MachineFilter = 'all' | 'GRAVITY' | 'YANTRA' | 'LEVERAGE_INDOOR' | 'LEVERAGE_OUTDOOR';
 
 const PACKAGE_MACHINE_CARDS: { id: MachineFilter; label: string; sub: string; category: string; image: string }[] = [
-  { id: 'GRAVITY', label: 'Gravity Cricket', sub: 'Leather Ball', category: 'LEATHER', image: '/images/leathermachine.jpeg' },
-  { id: 'YANTRA', label: 'Yantra Premium', sub: 'Leather Ball', category: 'LEATHER', image: '/images/yantra-machine.jpeg' },
+  { id: 'GRAVITY', label: 'Gravity', sub: 'Leather Ball', category: 'LEATHER', image: '/images/leathermachine.jpeg' },
+  { id: 'YANTRA', label: 'Yantra', sub: 'Premium Leather', category: 'LEATHER', image: '/images/yantra-machine.jpeg' },
   { id: 'LEVERAGE_INDOOR', label: 'Leverage Tennis', sub: 'Indoor', category: 'TENNIS', image: '/images/tennismachine.jpeg' },
   { id: 'LEVERAGE_OUTDOOR', label: 'Leverage Tennis', sub: 'Outdoor', category: 'TENNIS', image: '/images/tennismachine.jpeg' },
 ];
@@ -356,8 +356,8 @@ export default function AdminPackages() {
     LEATHER: 'Leather', TENNIS: 'Tennis', MACHINE: 'Machine Ball',
     BOTH: 'Both', CEMENT: 'Cement', ASTRO: 'Astro Turf', NATURAL: 'Natural Turf',
     DAY: 'Day (7:00 AM – 5:00 PM)', EVENING: 'Evening/Night (7:00 PM – 10:30 PM)',
-    GRAVITY: 'Gravity Cricket Leather', YANTRA: 'Yantra Premium Leather',
-    LEVERAGE_INDOOR: 'Leverage Tennis Indoor', LEVERAGE_OUTDOOR: 'Leverage Tennis Outdoor',
+    GRAVITY: 'Gravity', YANTRA: 'Yantra',
+    LEVERAGE_INDOOR: 'Leverage Tennis (Indoor)', LEVERAGE_OUTDOOR: 'Leverage Tennis (Outdoor)',
   };
 
   const isLeatherMachine = (machineId: string) => {

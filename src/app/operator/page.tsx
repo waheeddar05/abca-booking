@@ -232,10 +232,10 @@ export default function OperatorDashboard() {
                 className="w-full bg-white/[0.06] border border-white/[0.15] text-white rounded-lg px-3 py-2.5 text-sm outline-none focus:border-accent focus:ring-1 focus:ring-accent/20 cursor-pointer"
               >
                 <option value="">All Machines</option>
-                <option value="GRAVITY">Gravity Cricket Leather</option>
-                <option value="YANTRA">Yantra Premium Leather</option>
-                <option value="LEVERAGE_INDOOR">Leverage Tennis Indoor</option>
-                <option value="LEVERAGE_OUTDOOR">Leverage Tennis Outdoor</option>
+                <option value="GRAVITY">Gravity</option>
+                <option value="YANTRA">Yantra</option>
+                <option value="LEVERAGE_INDOOR">Leverage Tennis (Indoor)</option>
+                <option value="LEVERAGE_OUTDOOR">Leverage Tennis (Outdoor)</option>
               </select>
             </div>
             <div>

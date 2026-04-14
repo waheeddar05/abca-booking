@@ -74,10 +74,10 @@ export default function AdminDashboard() {
   ];
 
   const CHART_SHORT_NAMES: Record<string, string> = {
-    GRAVITY: 'Gravity Cricket',
-    YANTRA: 'Yantra Premium',
-    LEVERAGE_INDOOR: 'Tennis Indoor',
-    LEVERAGE_OUTDOOR: 'Tennis Outdoor',
+    GRAVITY: 'Gravity',
+    YANTRA: 'Yantra',
+    LEVERAGE_INDOOR: 'Lev. Tennis In',
+    LEVERAGE_OUTDOOR: 'Lev. Tennis Out',
   };
 
   const machineChartData = (stats?.machineRevenue || [])

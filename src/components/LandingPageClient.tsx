@@ -138,7 +138,7 @@ export default function LandingPageClient() {
                 />
                 <div className="absolute inset-0 bg-gradient-to-t from-[#030712]/90 via-[#030712]/20 to-transparent"></div>
                 <div className="absolute bottom-1.5 left-1.5 md:bottom-3 md:left-3">
-                  <h4 className="text-[11px] md:text-lg font-black text-accent uppercase italic leading-none drop-shadow-[0_2px_8px_rgba(0,0,0,0.9)]">Gravity Cricket</h4>
+                  <h4 className="text-[11px] md:text-lg font-black text-accent uppercase italic leading-none drop-shadow-[0_2px_8px_rgba(0,0,0,0.9)]">Gravity</h4>
                 </div>
                 <div className="absolute bottom-1.5 right-1.5 md:bottom-3 md:right-3">
                   <span className="px-1.5 py-0.5 md:px-2 md:py-0.5 rounded-full bg-black/40 backdrop-blur-md border border-red-500/25 text-red-400 text-[7px] md:text-[10px] font-bold uppercase tracking-wider">Leather</span>
@@ -166,7 +166,7 @@ export default function LandingPageClient() {
                 />
                 <div className="absolute inset-0 bg-gradient-to-t from-[#030712]/90 via-[#030712]/20 to-transparent"></div>
                 <div className="absolute bottom-1.5 left-1.5 md:bottom-3 md:left-3">
-                  <h4 className="text-[11px] md:text-lg font-black text-accent uppercase italic leading-none drop-shadow-[0_2px_8px_rgba(0,0,0,0.9)]">Yantra Premium</h4>
+                  <h4 className="text-[11px] md:text-lg font-black text-accent uppercase italic leading-none drop-shadow-[0_2px_8px_rgba(0,0,0,0.9)]">Yantra</h4>
                 </div>
                 <div className="absolute bottom-1.5 right-1.5 md:bottom-3 md:right-3">
                   <span className="px-1.5 py-0.5 md:px-2 md:py-0.5 rounded-full bg-black/40 backdrop-blur-md border border-amber-500/25 text-amber-400 text-[7px] md:text-[10px] font-bold uppercase tracking-wider">Premium Leather</span>

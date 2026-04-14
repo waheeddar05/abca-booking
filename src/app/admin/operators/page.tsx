@@ -39,10 +39,10 @@ const DAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const DAY_NUMBERS = [0, 1, 2, 3, 4, 5, 6];
 
 const MACHINE_LABELS: Record<string, { name: string; short: string }> = {
-  GRAVITY: { name: 'Gravity Cricket Leather', short: 'Gravity Cricket' },
-  YANTRA: { name: 'Yantra Premium Leather', short: 'Yantra Premium' },
-  LEVERAGE_INDOOR: { name: 'Leverage Tennis Indoor', short: 'Tennis Indoor' },
-  LEVERAGE_OUTDOOR: { name: 'Leverage Tennis Outdoor', short: 'Tennis Outdoor' },
+  GRAVITY: { name: 'Gravity', short: 'Gravity' },
+  YANTRA: { name: 'Yantra', short: 'Yantra' },
+  LEVERAGE_INDOOR: { name: 'Leverage Tennis', short: 'Lev. Tennis' },
+  LEVERAGE_OUTDOOR: { name: 'Leverage Tennis', short: 'Lev. Tennis' },
 };
 
 type TabKey = 'schedule' | 'priority' | 'dateOverrides';
@@ -771,13 +771,13 @@ export default function AdminOperators() {
               <span className="text-[9px] text-slate-500 font-medium uppercase">Operator</span>
               {VALID_MACHINES.map(mid => {
                 const abbr: Record<string, string[]> = {
-                  GRAVITY: ['Gravity', 'Cricket'],
-                  YANTRA: ['Yantra', 'Prem.'],
-                  LEVERAGE_INDOOR: ['Tennis', 'Indoor'],
-                  LEVERAGE_OUTDOOR: ['Tennis', 'Outdoor'],
+                  GRAVITY: ['Gravity'],
+                  YANTRA: ['Yantra'],
+                  LEVERAGE_INDOOR: ['Lev.', 'Indoor'],
+                  LEVERAGE_OUTDOOR: ['Lev.', 'Outdoor'],
                 };
                 return (
-                  <span key={mid} className="text-[7px] text-slate-500 font-medium text-center leading-tight">
+                  <span key={mid} className="text-[8px] text-slate-500 font-medium text-center leading-tight">
                     {(abbr[mid] || [mid]).map((w, i) => <span key={i} className="block">{w}</span>)}
                   </span>
                 );
