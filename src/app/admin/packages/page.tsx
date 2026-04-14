@@ -58,7 +58,7 @@ const defaultExtraChargeRules = {
 type MachineFilter = 'all' | 'GRAVITY' | 'YANTRA' | 'LEVERAGE_INDOOR' | 'LEVERAGE_OUTDOOR';
 
 const PACKAGE_MACHINE_CARDS: { id: MachineFilter; label: string; sub: string; category: string; image: string }[] = [
-  { id: 'GRAVITY', label: 'Gravity', sub: 'Leather Ball', category: 'LEATHER', image: '/images/leathermachine.jpeg' },
+  { id: 'GRAVITY', label: 'Gravity', sub: 'Leather', category: 'LEATHER', image: '/images/leathermachine.jpeg' },
   { id: 'YANTRA', label: 'Yantra', sub: 'Premium Leather', category: 'LEATHER', image: '/images/yantra-machine.jpeg' },
   { id: 'LEVERAGE_INDOOR', label: 'Leverage Tennis', sub: 'Indoor', category: 'TENNIS', image: '/images/tennismachine.jpeg' },
   { id: 'LEVERAGE_OUTDOOR', label: 'Leverage Tennis', sub: 'Outdoor', category: 'TENNIS', image: '/images/tennismachine.jpeg' },

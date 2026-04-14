@@ -31,7 +31,7 @@ type TabId = 'block' | 'active';
 type ScheduleType = 'dateRange' | 'recurring';
 
 const MACHINES = [
-  { id: 'GRAVITY', label: 'Gravity', sub: 'Leather Ball', image: '/images/leathermachine.jpeg' },
+  { id: 'GRAVITY', label: 'Gravity', sub: 'Leather', image: '/images/leathermachine.jpeg' },
   { id: 'YANTRA', label: 'Yantra', sub: 'Premium Leather', image: '/images/yantra-machine.jpeg' },
   { id: 'LEVERAGE_INDOOR', label: 'Leverage Tennis', sub: 'Indoor', image: '/images/tennismachine.jpeg' },
   { id: 'LEVERAGE_OUTDOOR', label: 'Leverage Tennis', sub: 'Outdoor', image: '/images/tennismachine.jpeg' },

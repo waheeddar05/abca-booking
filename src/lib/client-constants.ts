@@ -20,7 +20,7 @@ export const MACHINE_CARDS: MachineCard[] = [
   {
     id: 'GRAVITY',
     label: 'Gravity',
-    shortLabel: 'Leather Ball',
+    shortLabel: 'Leather',
     category: 'LEATHER',
     image: '/images/leathermachine.jpeg',
     dotColor: 'bg-transparent',
