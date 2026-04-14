@@ -1,0 +1,51 @@
+src/app/admin/operators/page.tsx
+  dec21ddcded15869 42-45,774-777,780
+src/lib/client-constants.ts
+  dec21ddcded15869 22,32,42,52,93-96
+src/components/ui/RefundDialog.tsx
+  dec21ddcded15869 119
+src/app/admin/page.tsx
+  dec21ddcded15869 77-80
+src/app/admin/slots/page.tsx
+  dec21ddcded15869 34-35
+src/app/admin/configuration/page.tsx
+  dec21ddcded15869 99-102,115-118
+src/app/packages/page.tsx
+  dec21ddcded15869 57-58
+src/components/BookingCard.tsx
+  dec21ddcded15869 34-37
+src/app/admin/users/page.tsx
+  dec21ddcded15869 741-742
+src/app/operator/page.tsx
+  dec21ddcded15869 235-238
+src/lib/constants.ts
+  dec21ddcded15869 18-19,27-28,36,45
+src/app/admin/packages/page.tsx
+  dec21ddcded15869 27-30,45-46,61-62,359-360
+src/app/admin/bookings/page.tsx
+  dec21ddcded15869 573-576,771
+src/app/admin/offers/page.tsx
+  dec21ddcded15869 39-42
+src/components/LandingPageClient.tsx
+  dec21ddcded15869 141,169
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.8",
+  "base_commit_sha": "43c96c2842a4dd07334d9f3c34ad4dcc2fdd3b81",
+  "prompts": {
+    "dec21ddcded15869": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "2e41b854-b104-402a-bb16-29ace2239dcb",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Waheed",
+      "messages": [],
+      "total_additions": 71,
+      "total_deletions": 71,
+      "accepted_lines": 71,
+      "overriden_lines": 0
+    }
+  }
+}
