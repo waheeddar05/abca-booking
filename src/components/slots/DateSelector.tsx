@@ -1,5 +1,6 @@
 'use client';
 
+import { memo, useMemo } from 'react';
 import { addDays } from 'date-fns';
 import { format } from 'date-fns';
 
@@ -9,16 +10,21 @@ interface DateSelectorProps {
   daysAhead?: number;
 }
 
-export function DateSelector({ selectedDate, onSelect, daysAhead = 15 }: DateSelectorProps) {
+export const DateSelector = memo(function DateSelector({ selectedDate, onSelect, daysAhead = 15 }: DateSelectorProps) {
+  const selectedStr = format(selectedDate, 'yyyy-MM-dd');
+  const dates = useMemo(() =>
+    Array.from({ length: daysAhead }, (_, days) => addDays(new Date(), days)),
+    [daysAhead]
+  );
+
   return (
     <div className="mb-5">
       <label className="block text-[10px] font-medium text-accent mb-2 uppercase tracking-wider">
         Date
       </label>
       <div className="flex gap-2 overflow-x-auto pb-2 -mx-4 px-4 scrollbar-hide">
-        {Array.from({ length: daysAhead }).map((_, days) => {
-          const date = addDays(new Date(), days);
-          const isSelected = format(selectedDate, 'yyyy-MM-dd') === format(date, 'yyyy-MM-dd');
+        {dates.map((date, days) => {
+          const isSelected = selectedStr === format(date, 'yyyy-MM-dd');
           const isToday = days === 0;
 
           return (
@@ -44,4 +50,4 @@ export function DateSelector({ selectedDate, onSelect, daysAhead = 15 }: DateSel
       </div>
     </div>
   );
-}
+});

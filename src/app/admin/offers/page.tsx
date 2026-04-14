@@ -36,10 +36,10 @@ interface RecurringDiscountRule {
 }
 
 const MACHINE_OPTIONS = [
-  { id: 'GRAVITY', label: 'Gravity' },
-  { id: 'YANTRA', label: 'Yantra' },
-  { id: 'LEVERAGE_INDOOR', label: 'Indoor' },
-  { id: 'LEVERAGE_OUTDOOR', label: 'Outdoor' },
+  { id: 'GRAVITY', label: 'Gravity Cricket Leather' },
+  { id: 'YANTRA', label: 'Yantra Premium Leather' },
+  { id: 'LEVERAGE_INDOOR', label: 'Leverage Tennis Indoor' },
+  { id: 'LEVERAGE_OUTDOOR', label: 'Leverage Tennis Outdoor' },
 ];
 
 const PITCH_TYPES = [

@@ -1,5 +1,6 @@
 'use client';
 
+import { memo } from 'react';
 import { MACHINE_CARDS, type MachineCard } from '@/lib/client-constants';
 import type { MachineId } from '@/lib/schemas';
 
@@ -8,7 +9,7 @@ interface MachineSelectorProps {
   onSelect: (id: MachineId) => void;
 }
 
-export function MachineSelector({ selectedMachineId, onSelect }: MachineSelectorProps) {
+export const MachineSelector = memo(function MachineSelector({ selectedMachineId, onSelect }: MachineSelectorProps) {
   const leatherMachines = MACHINE_CARDS.filter(c => c.category === 'LEATHER');
   const tennisMachines = MACHINE_CARDS.filter(c => c.category === 'TENNIS');
 
@@ -43,9 +44,9 @@ export function MachineSelector({ selectedMachineId, onSelect }: MachineSelector
       </div>
     </div>
   );
-}
+});
 
-function MachineCardButton({
+const MachineCardButton = memo(function MachineCardButton({
   card,
   isSelected,
   onSelect,
@@ -73,7 +74,7 @@ function MachineCardButton({
         className="w-7 h-7 rounded-md object-cover flex-shrink-0"
       />
       <div className="min-w-0">
-        <span className={`text-[11px] font-bold leading-tight ${isSelected ? 'text-accent' : 'text-slate-300'}`}>
+        <span className={`block text-[11px] font-bold leading-tight truncate ${isSelected ? 'text-accent' : 'text-slate-300'}`}>
           {card.label}
         </span>
         <p className={`text-[9px] ${isSelected ? 'text-accent/70' : 'text-slate-500'}`}>
@@ -82,4 +83,4 @@ function MachineCardButton({
       </div>
     </button>
   );
-}
+});

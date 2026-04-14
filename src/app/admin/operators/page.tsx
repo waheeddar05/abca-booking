@@ -39,10 +39,10 @@ const DAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const DAY_NUMBERS = [0, 1, 2, 3, 4, 5, 6];
 
 const MACHINE_LABELS: Record<string, { name: string; short: string }> = {
-  GRAVITY: { name: 'Gravity (Leather)', short: 'Gravity' },
-  YANTRA: { name: 'Yantra (Premium Leather)', short: 'Yantra' },
-  LEVERAGE_INDOOR: { name: 'Leverage Indoor', short: 'Lev. Indoor' },
-  LEVERAGE_OUTDOOR: { name: 'Leverage Outdoor', short: 'Lev. Outdoor' },
+  GRAVITY: { name: 'Gravity Cricket Leather', short: 'Gravity Cricket' },
+  YANTRA: { name: 'Yantra Premium Leather', short: 'Yantra Premium' },
+  LEVERAGE_INDOOR: { name: 'Leverage Tennis Indoor', short: 'Tennis Indoor' },
+  LEVERAGE_OUTDOOR: { name: 'Leverage Tennis Outdoor', short: 'Tennis Outdoor' },
 };
 
 type TabKey = 'schedule' | 'priority' | 'dateOverrides';
@@ -140,6 +140,7 @@ export default function AdminOperators() {
   const [newOverrideMorning, setNewOverrideMorning] = useState(1);
   const [newOverrideEvening, setNewOverrideEvening] = useState(1);
   const [savingOverrides, setSavingOverrides] = useState(false);
+  const [pendingOverrides, setPendingOverrides] = useState<OverrideRange[] | null>(null);
 
 
   // ═══════════════════════════════════════════════════════
@@ -275,6 +276,15 @@ export default function AdminOperators() {
     }
   };
 
+  const confirmAndSaveOverrides = (updated: OverrideRange[]) => {
+    const hasZeroSlots = updated.some(r => r.morning === 0 || r.evening === 0);
+    if (hasZeroSlots) {
+      setPendingOverrides(updated);
+    } else {
+      saveDateOverrides(updated);
+    }
+  };
+
   const addDateOverride = () => {
     if (!newOverrideFromDate) {
       toast.error('Please select a from date');
@@ -292,7 +302,7 @@ export default function AdminOperators() {
       evening: newOverrideEvening,
     };
     const updated = [...dateOverrides, newRange].sort((a, b) => a.from.localeCompare(b.from));
-    saveDateOverrides(updated);
+    confirmAndSaveOverrides(updated);
     setNewOverrideFromDate('');
     setNewOverrideToDate('');
     setNewOverrideMorning(1);
@@ -749,46 +759,62 @@ export default function AdminOperators() {
             )}
           </div>
 
-          {/* Machine Assignments (quick toggles) */}
+          {/* Machine Assignments (compact grid) */}
           <div className="bg-white/[0.03] border border-white/[0.07] rounded-xl p-4">
-            <div className="flex items-center gap-2 mb-1">
+            <div className="flex items-center gap-2 mb-3">
               <Wrench className="w-4 h-4 text-accent" />
               <h3 className="text-xs font-bold text-white uppercase tracking-wider">Machine Assignments</h3>
             </div>
-            <p className="text-[10px] text-slate-500 mb-3">Toggle which machines each operator can be assigned to.</p>
 
+            {/* Header row */}
+            <div className="grid items-center gap-1.5 mb-1" style={{ gridTemplateColumns: 'minmax(80px, 1fr) repeat(4, 44px)' }}>
+              <span className="text-[9px] text-slate-500 font-medium uppercase">Operator</span>
+              {VALID_MACHINES.map(mid => {
+                const abbr: Record<string, string[]> = {
+                  GRAVITY: ['Gravity', 'Cricket'],
+                  YANTRA: ['Yantra', 'Prem.'],
+                  LEVERAGE_INDOOR: ['Tennis', 'Indoor'],
+                  LEVERAGE_OUTDOOR: ['Tennis', 'Outdoor'],
+                };
+                return (
+                  <span key={mid} className="text-[7px] text-slate-500 font-medium text-center leading-tight">
+                    {(abbr[mid] || [mid]).map((w, i) => <span key={i} className="block">{w}</span>)}
+                  </span>
+                );
+              })}
+            </div>
+
+            {/* Operator rows */}
             {operators.map(op => {
               const assignedMachines = new Set(
                 (op.operatorAssignments || []).map(a => a.machineId)
               );
               return (
-                <div key={op.id} className="flex items-center gap-3 py-2 border-b border-white/[0.04] last:border-0">
-                  <p className="text-xs text-white flex-shrink-0 w-24 truncate">{op.name || 'Unnamed'}</p>
-                  <div className="flex flex-wrap gap-1.5">
-                    {VALID_MACHINES.map(mid => {
-                      const isAssigned = assignedMachines.has(mid);
-                      const isToggling = togglingAssignment === `${op.id}-${mid}`;
-                      return (
-                        <button
-                          key={mid}
-                          onClick={() => toggleMachineAssignment(op.id, mid, isAssigned)}
-                          disabled={!!togglingAssignment}
-                          className={`flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-medium transition-all cursor-pointer disabled:opacity-60 ${
-                            isAssigned
-                              ? 'bg-accent/15 text-accent border border-accent/30'
-                              : 'bg-white/[0.04] text-slate-500 border border-white/[0.08] hover:bg-white/[0.08]'
-                          }`}
-                        >
-                          {isToggling ? (
-                            <Loader2 className="w-3 h-3 animate-spin" />
-                          ) : isAssigned ? (
-                            <Check className="w-3 h-3" />
-                          ) : null}
-                          {MACHINE_LABELS[mid]?.short}
-                        </button>
-                      );
-                    })}
-                  </div>
+                <div key={op.id} className="grid items-center gap-1.5 py-1.5 border-t border-white/[0.04]" style={{ gridTemplateColumns: 'minmax(80px, 1fr) repeat(4, 44px)' }}>
+                  <p className="text-[11px] text-white truncate" title={op.name || 'Unnamed'}>{op.name || 'Unnamed'}</p>
+                  {VALID_MACHINES.map(mid => {
+                    const isAssigned = assignedMachines.has(mid);
+                    const isToggling = togglingAssignment === `${op.id}-${mid}`;
+                    return (
+                      <button
+                        key={mid}
+                        onClick={() => toggleMachineAssignment(op.id, mid, isAssigned)}
+                        disabled={!!togglingAssignment}
+                        className={`mx-auto flex items-center justify-center w-7 h-7 rounded-lg transition-all cursor-pointer disabled:opacity-60 ${
+                          isAssigned
+                            ? 'bg-accent/15 text-accent border border-accent/30'
+                            : 'bg-white/[0.04] text-slate-600 border border-white/[0.06] hover:bg-white/[0.08]'
+                        }`}
+                        title={`${isAssigned ? 'Remove' : 'Assign'} ${MACHINE_LABELS[mid]?.name}`}
+                      >
+                        {isToggling ? (
+                          <Loader2 className="w-3 h-3 animate-spin" />
+                        ) : isAssigned ? (
+                          <Check className="w-3.5 h-3.5" />
+                        ) : null}
+                      </button>
+                    );
+                  })}
                 </div>
               );
             })}
@@ -908,6 +934,22 @@ export default function AdminOperators() {
           setConfirmAction(null);
         }}
         onCancel={() => setConfirmAction(null)}
+      />
+
+      {/* Zero-operator override warning */}
+      <ConfirmDialog
+        open={pendingOverrides !== null}
+        title="Cancel Existing Bookings?"
+        message="Setting operator count to 0 will automatically cancel all existing bookings for the affected slots. Refunds will be credited to users' wallets and they will be notified. Are you sure you want to proceed?"
+        confirmLabel="Yes, Cancel Bookings & Save"
+        loading={savingOverrides}
+        onConfirm={async () => {
+          if (pendingOverrides) {
+            await saveDateOverrides(pendingOverrides);
+          }
+          setPendingOverrides(null);
+        }}
+        onCancel={() => setPendingOverrides(null)}
       />
     </div>
   );

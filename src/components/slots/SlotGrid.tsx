@@ -1,5 +1,6 @@
 'use client';
 
+import { memo } from 'react';
 import { format, parseISO } from 'date-fns';
 import { Check, AlertTriangle, Calendar } from 'lucide-react';
 import { SlotSkeleton } from '@/components/ui/LoadingState';
@@ -21,7 +22,7 @@ interface SlotGridProps {
   getSlotDisplayPrice: (slot: AvailableSlot) => number;
 }
 
-export function SlotGrid({
+export const SlotGrid = memo(function SlotGrid({
   slots,
   selectedSlots,
   loading,
@@ -68,7 +69,7 @@ export function SlotGrid({
       )}
     </div>
   );
-}
+});
 
 // ─── Individual Slot Card ────────────────────────────────
 interface SlotCardProps {
@@ -82,7 +83,7 @@ interface SlotCardProps {
   onToggle: (slot: AvailableSlot) => void;
 }
 
-function SlotCard({
+const SlotCard = memo(function SlotCard({
   slot,
   isSelected,
   isLeatherMachine,
@@ -176,4 +177,4 @@ function SlotCard({
       )}
     </button>
   );
-}
+});

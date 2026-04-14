@@ -24,10 +24,10 @@ interface PackageData {
 }
 
 const MACHINE_OPTIONS = [
-  { id: 'GRAVITY', label: 'Gravity (Leather)', type: 'LEATHER' },
-  { id: 'YANTRA', label: 'Yantra (Premium Leather)', type: 'LEATHER' },
-  { id: 'LEVERAGE_INDOOR', label: 'Leverage High Speed Tennis (Indoor)', type: 'TENNIS' },
-  { id: 'LEVERAGE_OUTDOOR', label: 'Leverage High Speed Tennis (Outdoor)', type: 'TENNIS' },
+  { id: 'GRAVITY', label: 'Gravity Cricket Leather', type: 'LEATHER' },
+  { id: 'YANTRA', label: 'Yantra Premium Leather', type: 'LEATHER' },
+  { id: 'LEVERAGE_INDOOR', label: 'Leverage Tennis Indoor', type: 'TENNIS' },
+  { id: 'LEVERAGE_OUTDOOR', label: 'Leverage Tennis Outdoor', type: 'TENNIS' },
 ];
 const BALL_TYPES = ['MACHINE', 'LEATHER'];
 const TIMING_TYPES = ['DAY', 'EVENING'];
@@ -42,10 +42,10 @@ const ALL_WICKET_UPGRADE_PATHS = [
 
 // All possible machine upgrade paths
 const ALL_MACHINE_UPGRADE_PATHS = [
-  { from: 'GRAVITY', to: 'YANTRA', label: 'Gravity → Yantra' },
-  { from: 'YANTRA', to: 'GRAVITY', label: 'Yantra → Gravity' },
-  { from: 'LEVERAGE_INDOOR', to: 'LEVERAGE_OUTDOOR', label: 'Leverage Indoor → Outdoor' },
-  { from: 'LEVERAGE_OUTDOOR', to: 'LEVERAGE_INDOOR', label: 'Leverage Outdoor → Indoor' },
+  { from: 'GRAVITY', to: 'YANTRA', label: 'Gravity Cricket → Yantra Premium' },
+  { from: 'YANTRA', to: 'GRAVITY', label: 'Yantra Premium → Gravity Cricket' },
+  { from: 'LEVERAGE_INDOOR', to: 'LEVERAGE_OUTDOOR', label: 'Tennis Indoor → Tennis Outdoor' },
+  { from: 'LEVERAGE_OUTDOOR', to: 'LEVERAGE_INDOOR', label: 'Tennis Outdoor → Tennis Indoor' },
 ];
 
 const defaultExtraChargeRules = {
@@ -58,8 +58,8 @@ const defaultExtraChargeRules = {
 type MachineFilter = 'all' | 'GRAVITY' | 'YANTRA' | 'LEVERAGE_INDOOR' | 'LEVERAGE_OUTDOOR';
 
 const PACKAGE_MACHINE_CARDS: { id: MachineFilter; label: string; sub: string; category: string; image: string }[] = [
-  { id: 'GRAVITY', label: 'Gravity', sub: 'Leather Ball', category: 'LEATHER', image: '/images/leathermachine.jpeg' },
-  { id: 'YANTRA', label: 'Yantra', sub: 'Premium Leather', category: 'LEATHER', image: '/images/yantra-machine.jpeg' },
+  { id: 'GRAVITY', label: 'Gravity Cricket', sub: 'Leather Ball', category: 'LEATHER', image: '/images/leathermachine.jpeg' },
+  { id: 'YANTRA', label: 'Yantra Premium', sub: 'Leather Ball', category: 'LEATHER', image: '/images/yantra-machine.jpeg' },
   { id: 'LEVERAGE_INDOOR', label: 'Leverage Tennis', sub: 'Indoor', category: 'TENNIS', image: '/images/tennismachine.jpeg' },
   { id: 'LEVERAGE_OUTDOOR', label: 'Leverage Tennis', sub: 'Outdoor', category: 'TENNIS', image: '/images/tennismachine.jpeg' },
 ];
@@ -356,8 +356,8 @@ export default function AdminPackages() {
     LEATHER: 'Leather', TENNIS: 'Tennis', MACHINE: 'Machine Ball',
     BOTH: 'Both', CEMENT: 'Cement', ASTRO: 'Astro Turf', NATURAL: 'Natural Turf',
     DAY: 'Day (7:00 AM – 5:00 PM)', EVENING: 'Evening/Night (7:00 PM – 10:30 PM)',
-    GRAVITY: 'Gravity (Leather)', YANTRA: 'Yantra (Premium Leather)',
-    LEVERAGE_INDOOR: 'Leverage High Speed Tennis (Indoor)', LEVERAGE_OUTDOOR: 'Leverage High Speed Tennis (Outdoor)',
+    GRAVITY: 'Gravity Cricket Leather', YANTRA: 'Yantra Premium Leather',
+    LEVERAGE_INDOOR: 'Leverage Tennis Indoor', LEVERAGE_OUTDOOR: 'Leverage Tennis Outdoor',
   };
 
   const isLeatherMachine = (machineId: string) => {
@@ -770,10 +770,16 @@ export default function AdminPackages() {
                             <Package className="w-3 h-3 text-slate-500" />
                             {pkg.machineId ? labelMap[pkg.machineId] : `${labelMap[pkg.machineType]} Machine`}
                           </span>
-                          {pkg.ballType && (
+                          {pkg.ballType && pkg.machineType !== 'TENNIS' && (
                             <span className="flex items-center gap-1">
                               <Zap className="w-3 h-3 text-slate-500" />
                               {labelMap[pkg.ballType] || pkg.ballType}
+                            </span>
+                          )}
+                          {pkg.machineType === 'TENNIS' && (
+                            <span className="flex items-center gap-1">
+                              <Zap className="w-3 h-3 text-slate-500" />
+                              Tennis Ball
                             </span>
                           )}
                           <span className="flex items-center gap-1">
@@ -1246,19 +1252,20 @@ export default function AdminPackages() {
                   ))}
                 </select>
               </div>
-              <div>
-                <label className="block text-[10px] font-medium text-slate-400 mb-1">Ball Type</label>
-                <select
-                  value={assignForm.ballType}
-                  onChange={e => setAssignForm(prev => ({ ...prev, ballType: e.target.value }))}
-                  className="w-full bg-white/[0.04] border border-white/[0.1] text-white text-sm rounded-xl px-3 py-3 outline-none focus:border-accent"
-                  disabled={assignForm.machineType === 'TENNIS'}
-                >
-                  {BALL_TYPES.map(b => (
-                    <option key={b} value={b}>{b === 'MACHINE' ? 'Machine Ball' : 'Leather'}</option>
-                  ))}
-                </select>
-              </div>
+              {assignForm.machineType !== 'TENNIS' && (
+                <div>
+                  <label className="block text-[10px] font-medium text-slate-400 mb-1">Ball Type</label>
+                  <select
+                    value={assignForm.ballType}
+                    onChange={e => setAssignForm(prev => ({ ...prev, ballType: e.target.value }))}
+                    className="w-full bg-white/[0.04] border border-white/[0.1] text-white text-sm rounded-xl px-3 py-3 outline-none focus:border-accent"
+                  >
+                    {BALL_TYPES.map(b => (
+                      <option key={b} value={b}>{b === 'MACHINE' ? 'Machine Ball' : 'Leather'}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
             </div>
 
             <div className="grid grid-cols-2 gap-3">

@@ -96,10 +96,10 @@ const DEFAULT_MACHINE_PITCH_CONFIG: MachinePitchConfig = {
 };
 
 const MACHINE_LABELS: Record<MachineId, { name: string; category: string }> = {
-  GRAVITY: { name: 'Gravity (Leather)', category: 'Leather' },
-  YANTRA: { name: 'Yantra (Premium Leather)', category: 'Leather' },
-  LEVERAGE_INDOOR: { name: 'Leverage Indoor', category: 'Tennis' },
-  LEVERAGE_OUTDOOR: { name: 'Leverage Outdoor', category: 'Tennis' },
+  GRAVITY: { name: 'Gravity Cricket Leather', category: 'Leather' },
+  YANTRA: { name: 'Yantra Premium Leather', category: 'Leather' },
+  LEVERAGE_INDOOR: { name: 'Leverage Tennis Indoor', category: 'Tennis' },
+  LEVERAGE_OUTDOOR: { name: 'Leverage Tennis Outdoor', category: 'Tennis' },
 };
 
 const PITCH_TYPE_LABELS: Record<PitchType, string> = {
@@ -112,10 +112,10 @@ const ALL_MACHINE_IDS: MachineId[] = ['GRAVITY', 'YANTRA', 'LEVERAGE_INDOOR', 'L
 const ALL_PITCH_TYPES: PitchType[] = ['ASTRO', 'CEMENT', 'NATURAL'];
 
 const PRICING_TABS = [
-  { key: 'leather', label: 'Gravity · Leather' },
-  { key: 'yantra', label: 'Yantra · Leather' },
-  { key: 'machine', label: 'Gravity · Machine' },
-  { key: 'yantra_machine', label: 'Yantra · Machine' },
+  { key: 'leather', label: 'Gravity Cricket · Leather' },
+  { key: 'yantra', label: 'Yantra Premium · Leather' },
+  { key: 'machine', label: 'Gravity Cricket · Machine' },
+  { key: 'yantra_machine', label: 'Yantra Premium · Machine' },
   { key: 'tennis', label: 'Tennis' },
 ] as const;
 
