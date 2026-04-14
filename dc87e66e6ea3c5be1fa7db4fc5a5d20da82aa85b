@@ -1,0 +1,27 @@
+src/app/admin/page.tsx
+  dec21ddcded15869 79-80
+src/app/admin/operators/page.tsx
+  dec21ddcded15869 44-45,776-777
+src/app/admin/bookings/page.tsx
+  dec21ddcded15869 771
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.8",
+  "base_commit_sha": "dc87e66e6ea3c5be1fa7db4fc5a5d20da82aa85b",
+  "prompts": {
+    "dec21ddcded15869": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "2e41b854-b104-402a-bb16-29ace2239dcb",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Waheed",
+      "messages": [],
+      "total_additions": 7,
+      "total_deletions": 7,
+      "accepted_lines": 7,
+      "overriden_lines": 0
+    }
+  }
+}
