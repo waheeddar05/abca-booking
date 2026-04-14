@@ -76,8 +76,8 @@ export default function AdminDashboard() {
   const CHART_SHORT_NAMES: Record<string, string> = {
     GRAVITY: 'Gravity',
     YANTRA: 'Yantra',
-    LEVERAGE_INDOOR: 'Lev. Tennis In',
-    LEVERAGE_OUTDOOR: 'Lev. Tennis Out',
+    LEVERAGE_INDOOR: 'Tennis In',
+    LEVERAGE_OUTDOOR: 'Tennis Out',
   };
 
   const machineChartData = (stats?.machineRevenue || [])

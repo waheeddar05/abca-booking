@@ -768,7 +768,7 @@ function AdminBookingsContent() {
                       </span>
                       {booking.machineId && (
                         <span className="text-[10px] px-1.5 py-0.5 rounded bg-white/[0.04] text-slate-400 font-medium">
-                          {booking.machineId === 'GRAVITY' ? 'Gravity' : booking.machineId === 'YANTRA' ? 'Yantra' : booking.machineId === 'LEVERAGE_INDOOR' ? 'Lev. Tennis In' : 'Lev. Tennis Out'}
+                          {booking.machineId === 'GRAVITY' ? 'Gravity' : booking.machineId === 'YANTRA' ? 'Yantra' : booking.machineId === 'LEVERAGE_INDOOR' ? 'Tennis In' : 'Tennis Out'}
                         </span>
                       )}
                       {booking.pitchType && (

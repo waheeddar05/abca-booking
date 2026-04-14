@@ -41,8 +41,8 @@ const DAY_NUMBERS = [0, 1, 2, 3, 4, 5, 6];
 const MACHINE_LABELS: Record<string, { name: string; short: string }> = {
   GRAVITY: { name: 'Gravity', short: 'Gravity' },
   YANTRA: { name: 'Yantra', short: 'Yantra' },
-  LEVERAGE_INDOOR: { name: 'Leverage Tennis', short: 'Lev. Tennis' },
-  LEVERAGE_OUTDOOR: { name: 'Leverage Tennis', short: 'Lev. Tennis' },
+  LEVERAGE_INDOOR: { name: 'Leverage Tennis', short: 'Tennis In' },
+  LEVERAGE_OUTDOOR: { name: 'Leverage Tennis', short: 'Tennis Out' },
 };
 
 type TabKey = 'schedule' | 'priority' | 'dateOverrides';
@@ -773,8 +773,8 @@ export default function AdminOperators() {
                 const abbr: Record<string, string[]> = {
                   GRAVITY: ['Gravity'],
                   YANTRA: ['Yantra'],
-                  LEVERAGE_INDOOR: ['Lev.', 'Indoor'],
-                  LEVERAGE_OUTDOOR: ['Lev.', 'Outdoor'],
+                  LEVERAGE_INDOOR: ['Tennis', 'In'],
+                  LEVERAGE_OUTDOOR: ['Tennis', 'Out'],
                 };
                 return (
                   <span key={mid} className="text-[8px] text-slate-500 font-medium text-center leading-tight">
