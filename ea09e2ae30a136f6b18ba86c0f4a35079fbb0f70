@@ -1,0 +1,21 @@
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.8",
+  "base_commit_sha": "ea09e2ae30a136f6b18ba86c0f4a35079fbb0f70",
+  "prompts": {
+    "25184637fd13df0a": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "50c06ad5-3fc3-4c49-ab15-7d6a11aeedf9",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Waheed",
+      "messages": [],
+      "total_additions": 917,
+      "total_deletions": 0,
+      "accepted_lines": 917,
+      "overriden_lines": 0
+    }
+  }
+}
