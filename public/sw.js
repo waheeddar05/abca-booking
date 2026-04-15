@@ -1,4 +1,4 @@
-const CACHE_NAME = 'playorbit-v5';
+const CACHE_NAME = 'playorbit-v6';
 
 // Only precache truly static/public assets (no auth-protected pages)
 const PRECACHE_ASSETS = [
@@ -55,10 +55,25 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Static assets (icons, images, fonts, JS/CSS): cache-first
+  // Next.js hashed bundles: network-first (filenames change on each build,
+  // so cache-first serves stale JS when a new deploy lands — this caused
+  // the orphaned-payment bug where old client code missed the atomic booking fix).
+  if (url.pathname.startsWith('/_next/static/')) {
+    event.respondWith(
+      fetch(request)
+        .then((response) => {
+          const clone = response.clone();
+          caches.open(CACHE_NAME).then((cache) => cache.put(request, clone));
+          return response;
+        })
+        .catch(() => caches.match(request))
+    );
+    return;
+  }
+
+  // Truly static assets (icons, images, manifest): cache-first is fine
   if (url.pathname.startsWith('/icons/') ||
       url.pathname.startsWith('/images/') ||
-      url.pathname.startsWith('/_next/static/') ||
       url.pathname === '/manifest.json') {
     event.respondWith(
       caches.match(request).then((cached) => {
