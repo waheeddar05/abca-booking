@@ -133,12 +133,13 @@ export default function AdminOperators() {
   const [confirmAction, setConfirmAction] = useState<'schedule' | 'priority' | null>(null);
 
   // ─── Date Overrides tab state ──────
-  interface OverrideRange { from: string; to: string; morning: number; evening: number }
+  interface OverrideRange { from: string; to: string; morning: number; evening: number; recurringDays?: number[] }
   const [dateOverrides, setDateOverrides] = useState<OverrideRange[]>([]);
   const [newOverrideFromDate, setNewOverrideFromDate] = useState('');
   const [newOverrideToDate, setNewOverrideToDate] = useState('');
   const [newOverrideMorning, setNewOverrideMorning] = useState(1);
   const [newOverrideEvening, setNewOverrideEvening] = useState(1);
+  const [newOverrideRecurringDays, setNewOverrideRecurringDays] = useState<number[]>([]);
   const [savingOverrides, setSavingOverrides] = useState(false);
   const [pendingOverrides, setPendingOverrides] = useState<OverrideRange[] | null>(null);
 
@@ -300,6 +301,7 @@ export default function AdminOperators() {
       to: toDate,
       morning: newOverrideMorning,
       evening: newOverrideEvening,
+      ...(newOverrideRecurringDays.length > 0 ? { recurringDays: [...newOverrideRecurringDays].sort((a, b) => a - b) } : {}),
     };
     const updated = [...dateOverrides, newRange].sort((a, b) => a.from.localeCompare(b.from));
     confirmAndSaveOverrides(updated);
@@ -307,6 +309,7 @@ export default function AdminOperators() {
     setNewOverrideToDate('');
     setNewOverrideMorning(1);
     setNewOverrideEvening(1);
+    setNewOverrideRecurringDays([]);
   };
 
   const removeDateOverride = (index: number) => {
@@ -876,6 +879,32 @@ export default function AdminOperators() {
                 Add
               </button>
             </div>
+            {/* Recurring day-of-week filter (optional) */}
+            <div className="mt-4">
+              <label className="block text-[9px] font-medium text-slate-400 mb-1.5 uppercase tracking-wider">
+                Repeat on (optional) &mdash; leave empty to apply every day in range
+              </label>
+              <div className="grid grid-cols-4 sm:grid-cols-7 gap-1.5">
+                {DAY_NUMBERS.map(day => {
+                  const selected = newOverrideRecurringDays.includes(day);
+                  return (
+                    <button
+                      key={day}
+                      type="button"
+                      onClick={() => setNewOverrideRecurringDays(prev =>
+                        prev.includes(day) ? prev.filter(d => d !== day) : [...prev, day]
+                      )}
+                      className={`py-1.5 rounded-lg text-[11px] font-semibold transition-all cursor-pointer ${selected
+                          ? 'bg-accent/20 text-accent ring-1 ring-accent/30'
+                          : 'bg-white/[0.04] text-slate-400 hover:bg-white/[0.06]'
+                        }`}
+                    >
+                      {DAY_LABELS[day]}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
           </div>
 
           {/* Existing overrides */}
@@ -898,6 +927,11 @@ export default function AdminOperators() {
                           <span className={`text-[11px] px-2 py-0.5 rounded-md ${range.evening === 0 ? 'bg-red-500/15 text-red-400' : 'bg-blue-500/10 text-blue-400'}`}>
                             Evening: {range.evening}
                           </span>
+                          {range.recurringDays && range.recurringDays.length > 0 && (
+                            <span className="text-[11px] px-2 py-0.5 rounded-md bg-accent/10 text-accent">
+                              {[...range.recurringDays].sort((a, b) => a - b).map(d => DAY_LABELS[d]).join(', ')}
+                            </span>
+                          )}
                         </div>
                       </div>
                       <button

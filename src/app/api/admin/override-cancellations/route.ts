@@ -10,6 +10,7 @@ interface OverrideRange {
   to: string;
   morning: number;
   evening: number;
+  recurringDays?: number[]; // 0=Sun..6=Sat; empty/undefined = every day in range
 }
 
 /**
@@ -42,13 +43,13 @@ export async function POST(req: NextRequest) {
     }
 
     // Find ranges where morning=0 or evening=0
-    const zeroSlabRanges: Array<{ from: string; to: string; slab: 'morning' | 'evening' }> = [];
+    const zeroSlabRanges: Array<{ from: string; to: string; slab: 'morning' | 'evening'; recurringDays?: number[] }> = [];
     for (const range of overrides) {
       if (range.morning === 0) {
-        zeroSlabRanges.push({ from: range.from, to: range.to, slab: 'morning' });
+        zeroSlabRanges.push({ from: range.from, to: range.to, slab: 'morning', recurringDays: range.recurringDays });
       }
       if (range.evening === 0) {
-        zeroSlabRanges.push({ from: range.from, to: range.to, slab: 'evening' });
+        zeroSlabRanges.push({ from: range.from, to: range.to, slab: 'evening', recurringDays: range.recurringDays });
       }
     }
 
@@ -61,13 +62,17 @@ export async function POST(req: NextRequest) {
     let totalCancelled = 0;
     let totalRefunded = 0;
 
-    for (const { from, to, slab } of zeroSlabRanges) {
+    for (const { from, to, slab, recurringDays } of zeroSlabRanges) {
       // Build date range — expand from..to into individual UTC dates
+      // If recurringDays is set, only include dates matching those days of week
       const dates: Date[] = [];
       const current = new Date(from + 'T00:00:00.000Z');
       const end = new Date(to + 'T00:00:00.000Z');
+      const hasRecurringFilter = Array.isArray(recurringDays) && recurringDays.length > 0;
       while (current <= end) {
-        dates.push(new Date(current));
+        if (!hasRecurringFilter || recurringDays!.includes(current.getUTCDay())) {
+          dates.push(new Date(current));
+        }
         current.setUTCDate(current.getUTCDate() + 1);
       }
 

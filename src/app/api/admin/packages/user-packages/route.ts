@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { requireAdmin } from '@/lib/adminAuth';
 import { getAuthenticatedUser } from '@/lib/auth';
+import { creditWallet } from '@/lib/wallet';
+import { notifyWalletCredit } from '@/lib/notifications';
 
 // GET /api/admin/packages/user-packages?userId=xxx&status=ACTIVE&search=john&packageId=xxx - List user packages
 export async function GET(req: NextRequest) {
@@ -72,11 +74,73 @@ export async function POST(req: NextRequest) {
 
     const userPackage = await prisma.userPackage.findUnique({
       where: { id: userPackageId },
-      include: { package: true },
+      include: { package: true, user: { select: { id: true, mobileNumber: true } } },
     });
 
     if (!userPackage) {
       return NextResponse.json({ error: 'User package not found' }, { status: 404 });
+    }
+
+    // ─── Special-case CANCEL: pro-rata wallet refund ───────────
+    if (action === 'CANCEL') {
+      if (userPackage.status === 'CANCELLED') {
+        return NextResponse.json({ error: 'Package already cancelled' }, { status: 400 });
+      }
+      const total = userPackage.totalSessions;
+      const used = userPackage.usedSessions;
+      const unused = Math.max(0, total - used);
+      const perSession = total > 0 ? userPackage.amountPaid / total : 0;
+      const refundAmount = Math.round(perSession * unused * 100) / 100;
+
+      let walletTxnId: string | null = null;
+      let newBalance: number | null = null;
+      if (refundAmount > 0) {
+        const res = await creditWallet(
+          userPackage.userId,
+          refundAmount,
+          'CREDIT_REFUND',
+          `Pro-rata refund for cancelled package "${userPackage.package.name}" (${unused} of ${total} sessions unused)`,
+          userPackageId,
+        );
+        walletTxnId = res.transactionId;
+        newBalance = res.newBalance;
+      }
+
+      const [updated] = await prisma.$transaction([
+        prisma.userPackage.update({
+          where: { id: userPackageId },
+          data: { status: 'CANCELLED', usedSessions: total }, // invalidate remaining sessions
+          include: { package: true },
+        }),
+        prisma.packageAuditLog.create({
+          data: {
+            userPackageId,
+            action: 'CANCEL',
+            details: {
+              previousStatus: userPackage.status,
+              totalSessions: total,
+              usedSessions: used,
+              unusedSessions: unused,
+              pricePerSession: perSession,
+              refundAmount,
+              walletTransactionId: walletTxnId,
+              adminId,
+            },
+            performedBy: adminId,
+          },
+        }),
+      ]);
+
+      if (refundAmount > 0 && newBalance !== null) {
+        notifyWalletCredit(userPackage.userId, {
+          amount: refundAmount,
+          reason: `Package cancelled — ${unused} unused session${unused === 1 ? '' : 's'} refunded`,
+          newBalance,
+          mobileNumber: userPackage.user?.mobileNumber ?? null,
+        }).catch(err => console.warn('[PackageCancel] Wallet notification failed:', err));
+      }
+
+      return NextResponse.json({ ...updated, refundAmount, walletTransactionId: walletTxnId });
     }
 
     let updateData: any = {};
@@ -120,12 +184,6 @@ export async function POST(req: NextRequest) {
       case 'RESET_SESSIONS': {
         updateData = { usedSessions: 0 };
         auditDetails = { oldUsed: userPackage.usedSessions };
-        break;
-      }
-
-      case 'CANCEL': {
-        updateData = { status: 'CANCELLED' };
-        auditDetails = { previousStatus: userPackage.status };
         break;
       }
 

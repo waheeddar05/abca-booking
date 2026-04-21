@@ -16,11 +16,13 @@ export async function GET(req: NextRequest) {
       data: { status: 'EXPIRED' },
     });
 
+    const VALID_STATUSES: ('ACTIVE' | 'EXPIRED')[] = ['ACTIVE', 'EXPIRED'];
+
     const [
       activePackages,
       expiredPackages,
       cancelledPackages,
-      allUserPackages,
+      validUserPackages,
       packageBookings,
       packages,
     ] = await Promise.all([
@@ -28,9 +30,11 @@ export async function GET(req: NextRequest) {
       prisma.userPackage.count({ where: { status: 'EXPIRED' } }),
       prisma.userPackage.count({ where: { status: 'CANCELLED' } }),
       prisma.userPackage.findMany({
+        where: { status: { in: VALID_STATUSES } },
         select: { totalSessions: true, usedSessions: true, amountPaid: true, packageId: true },
       }),
       prisma.packageBooking.findMany({
+        where: { userPackage: { status: { in: VALID_STATUSES } } },
         select: { extraCharge: true, sessionsUsed: true },
       }),
       prisma.package.findMany({
@@ -38,15 +42,15 @@ export async function GET(req: NextRequest) {
       }),
     ]);
 
-    const totalSessionsSold = allUserPackages.reduce((sum, up) => sum + up.totalSessions, 0);
-    const totalSessionsConsumed = allUserPackages.reduce((sum, up) => sum + up.usedSessions, 0);
+    const totalSessionsSold = validUserPackages.reduce((sum, up) => sum + up.totalSessions, 0);
+    const totalSessionsConsumed = validUserPackages.reduce((sum, up) => sum + up.usedSessions, 0);
     const totalExtraChargesCollected = packageBookings.reduce((sum, pb) => sum + pb.extraCharge, 0);
-    const totalRevenue = allUserPackages.reduce((sum, up) => sum + up.amountPaid, 0);
+    const totalRevenue = validUserPackages.reduce((sum, up) => sum + up.amountPaid, 0);
 
-    // Revenue per package type
+    // Revenue per package type (excludes cancelled)
     const packageNameMap = new Map(packages.map(p => [p.id, p.name]));
     const revenueByPackage: Record<string, { revenue: number; sold: number; sessionsUsed: number }> = {};
-    for (const up of allUserPackages) {
+    for (const up of validUserPackages) {
       const name = packageNameMap.get(up.packageId) || up.packageId;
       if (!revenueByPackage[name]) {
         revenueByPackage[name] = { revenue: 0, sold: 0, sessionsUsed: 0 };

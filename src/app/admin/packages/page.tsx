@@ -13,6 +13,7 @@ interface PackageData {
   machineType: string;
   ballType: string;
   wicketType: string;
+  pitchTypes: string[];
   timingType: string;
   totalSessions: number;
   validityDays: number;
@@ -32,6 +33,7 @@ const MACHINE_OPTIONS = [
 const BALL_TYPES = ['MACHINE', 'LEATHER'];
 const TIMING_TYPES = ['DAY', 'EVENING'];
 const WICKET_TYPES = ['ASTRO', 'CEMENT', 'NATURAL'];
+const PITCH_TYPES = ['ASTRO', 'TURF', 'CEMENT', 'NATURAL'];
 
 // All possible pitch upgrade paths
 const ALL_WICKET_UPGRADE_PATHS = [
@@ -70,6 +72,7 @@ const emptyForm = {
   machineType: 'LEATHER',
   ballType: 'LEATHER',
   wicketType: 'ASTRO',
+  pitchTypes: [] as string[],
   timingType: 'DAY',
   totalSessions: 4,
   validityDays: 30,
@@ -322,6 +325,7 @@ export default function AdminPackages() {
       machineType: pkg.machineType,
       ballType: pkg.ballType === 'BOTH' ? 'LEATHER' : pkg.ballType,
       wicketType: pkg.wicketType || 'ASTRO',
+      pitchTypes: Array.isArray(pkg.pitchTypes) ? pkg.pitchTypes : [],
       timingType: pkg.timingType === 'BOTH' ? 'DAY' : pkg.timingType,
       totalSessions: pkg.totalSessions,
       validityDays: pkg.validityDays,
@@ -566,6 +570,34 @@ export default function AdminPackages() {
                         </button>
                       ))}
                     </div>
+                  </div>
+                  {/* Supported Pitch Types (multi-select) */}
+                  <div>
+                    <label className="block text-[11px] font-medium text-slate-400 mb-1">Supported Pitch Types (shown to users)</label>
+                    <div className="flex gap-2 flex-wrap">
+                      {PITCH_TYPES.map(t => {
+                        const selected = form.pitchTypes.includes(t);
+                        return (
+                          <button
+                            key={t}
+                            type="button"
+                            onClick={() => setForm({
+                              ...form,
+                              pitchTypes: selected
+                                ? form.pitchTypes.filter(p => p !== t)
+                                : [...form.pitchTypes, t],
+                            })}
+                            className={`px-2.5 py-1.5 rounded-lg text-[11px] font-semibold transition-all cursor-pointer ${selected
+                                ? 'bg-accent text-primary shadow-sm'
+                                : 'bg-white/[0.04] text-slate-400 border border-white/[0.08] hover:border-accent/20'
+                              }`}
+                          >
+                            {labelMap[t] || t}
+                          </button>
+                        );
+                      })}
+                    </div>
+                    <p className="text-[10px] text-slate-500 mt-1">Leave empty to default to Base Pitch Type.</p>
                   </div>
                   <div>
                     <label className="block text-[11px] font-medium text-slate-400 mb-1">Timing</label>
@@ -846,6 +878,17 @@ export default function AdminPackages() {
                             <label className="block text-[11px] font-medium text-slate-400 mb-1">Base Pitch Type</label>
                             <div className="flex gap-2">
                               {WICKET_TYPES.map(t => (<button key={t} type="button" onClick={() => setForm({ ...form, wicketType: t })} className={`flex-1 px-2 py-2 rounded-lg text-[11px] font-semibold transition-all cursor-pointer text-center ${form.wicketType === t ? 'bg-accent text-primary shadow-sm' : 'bg-white/[0.04] text-slate-400 border border-white/[0.08] hover:border-accent/20'}`}>{labelMap[t]}</button>))}
+                            </div>
+                          </div>
+                          <div>
+                            <label className="block text-[11px] font-medium text-slate-400 mb-1">Supported Pitch Types</label>
+                            <div className="flex gap-2 flex-wrap">
+                              {PITCH_TYPES.map(t => {
+                                const selected = form.pitchTypes.includes(t);
+                                return (
+                                  <button key={t} type="button" onClick={() => setForm({ ...form, pitchTypes: selected ? form.pitchTypes.filter(p => p !== t) : [...form.pitchTypes, t] })} className={`px-2.5 py-1.5 rounded-lg text-[11px] font-semibold transition-all cursor-pointer ${selected ? 'bg-accent text-primary shadow-sm' : 'bg-white/[0.04] text-slate-400 border border-white/[0.08] hover:border-accent/20'}`}>{labelMap[t] || t}</button>
+                                );
+                              })}
                             </div>
                           </div>
                           <div>

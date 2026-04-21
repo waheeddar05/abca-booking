@@ -91,6 +91,18 @@ export default function AdminDashboard() {
     .filter(op => op.bookings > 0)
     .sort((a, b) => b.bookings - a.bookings);
 
+  type DistributionRow = { key: string; label: string; value: number; color: string };
+  const distributionRows: DistributionRow[] = [
+    { key: 'self', label: 'Self-operated', value: stats?.selfOperatedBookings ?? 0, color: 'text-emerald-400' },
+    { key: 'unassigned', label: 'Unassigned', value: stats?.unassignedBookings ?? 0, color: 'text-amber-400' },
+    ...activeOperators.map(op => ({
+      key: op.id,
+      label: op.name || 'Unnamed',
+      value: op.bookings,
+      color: 'text-purple-400',
+    })),
+  ].sort((a, b) => b.value - a.value);
+
   return (
     <div className="space-y-5">
       <AdminPageHeader
@@ -225,27 +237,13 @@ export default function AdminDashboard() {
               <span className="text-sm font-bold text-white">{stats?.totalBookings ?? 0}</span>
             </div>
 
-            {/* Self-operated */}
-            <div className="flex items-center justify-between py-2.5 px-3 bg-white/[0.03] rounded-lg border border-white/[0.06]">
-              <span className="text-sm text-slate-300 font-medium">Self-operated</span>
-              <span className="text-sm font-bold text-emerald-400">{stats?.selfOperatedBookings ?? 0}</span>
-            </div>
-
-            {/* Unassigned */}
-            <div className="flex items-center justify-between py-2.5 px-3 bg-white/[0.03] rounded-lg border border-white/[0.06]">
-              <span className="text-sm text-slate-300 font-medium">Unassigned</span>
-              <span className="text-sm font-bold text-amber-400">{stats?.unassignedBookings ?? 0}</span>
-            </div>
-
-            {/* Operator-wise */}
-            {activeOperators.length > 0 ? activeOperators.map(op => (
-              <div key={op.id} className="flex items-center justify-between py-2.5 px-3 bg-white/[0.03] rounded-lg border border-white/[0.06]">
-                <span className="text-sm text-slate-300 font-medium">{op.name || 'Unnamed'}</span>
-                <span className="text-sm font-bold text-purple-400">{op.bookings}</span>
+            {/* Distribution rows sorted by count descending */}
+            {distributionRows.map(row => (
+              <div key={row.key} className="flex items-center justify-between py-2.5 px-3 bg-white/[0.03] rounded-lg border border-white/[0.06]">
+                <span className="text-sm text-slate-300 font-medium">{row.label}</span>
+                <span className={`text-sm font-bold ${row.color}`}>{row.value}</span>
               </div>
-            )) : (
-              <p className="text-[11px] text-slate-500 text-center py-2">No operator bookings in this period</p>
-            )}
+            ))}
           </div>
         ) : (
           <div className="flex items-center justify-center py-8">
