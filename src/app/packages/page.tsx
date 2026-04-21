@@ -20,6 +20,7 @@ interface PackageInfo {
   machineType: string;
   ballType: string;
   wicketType: string;
+  pitchTypes: string[];
   timingType: string;
   totalSessions: number;
   validityDays: number;
@@ -785,6 +786,20 @@ function PackageSection({
                       {pkg.timingType === 'DAY' ? <Sun className="w-3 h-3 text-slate-500" /> : pkg.timingType === 'EVENING' ? <Moon className="w-3 h-3 text-slate-500" /> : <Clock className="w-3 h-3 text-slate-500" />}
                       {getTimingLabel(pkg.timingType)}
                     </span>
+                    {(() => {
+                      const pitches = (pkg.pitchTypes && pkg.pitchTypes.length > 0)
+                        ? pkg.pitchTypes
+                        : (pkg.wicketType ? [pkg.wicketType] : []);
+                      if (pitches.length === 0) return null;
+                      return (
+                        <span className="text-[10px] text-slate-400 flex items-center gap-1">
+                          <span className="text-slate-500">Pitch:</span>
+                          <span className="text-slate-300">
+                            {pitches.map(p => labelMap[p] || p).join(', ')}
+                          </span>
+                        </span>
+                      );
+                    })()}
                     <span className="text-[10px] text-slate-400 flex items-center gap-1">
                       <Calendar className="w-3 h-3 text-slate-500" />
                       {pkg.totalSessions} Sessions (Per Slot: 30 Minutes) · {pkg.validityDays} Days Validity

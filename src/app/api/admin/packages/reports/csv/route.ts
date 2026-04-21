@@ -39,6 +39,23 @@ export async function GET(req: NextRequest) {
       orderBy: { activationDate: 'desc' },
     });
 
+    // Fetch refund transactions keyed by userPackageId
+    const userPackageIds = userPackages.map(up => up.id);
+    const refundTxns = userPackageIds.length > 0
+      ? await prisma.walletTransaction.findMany({
+          where: {
+            type: 'CREDIT_REFUND',
+            referenceId: { in: userPackageIds },
+          },
+          select: { referenceId: true, amount: true },
+        })
+      : [];
+    const refundByPackage = new Map<string, number>();
+    for (const txn of refundTxns) {
+      if (!txn.referenceId) continue;
+      refundByPackage.set(txn.referenceId, (refundByPackage.get(txn.referenceId) || 0) + txn.amount);
+    }
+
     // Build CSV
     const headers = [
       'User Name',
@@ -50,6 +67,7 @@ export async function GET(req: NextRequest) {
       'Used Sessions',
       'Remaining Sessions',
       'Amount Paid',
+      'Refunded Amount',
       'Package Price',
       'Status',
       'Activation Date',
@@ -66,6 +84,7 @@ export async function GET(req: NextRequest) {
       up.usedSessions,
       up.totalSessions - up.usedSessions,
       up.amountPaid,
+      refundByPackage.get(up.id) || 0,
       up.package?.price || '',
       up.status,
       new Date(up.activationDate).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata' }),

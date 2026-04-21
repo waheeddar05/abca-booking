@@ -48,6 +48,7 @@ export async function POST(req: NextRequest) {
       machineType,
       ballType,
       wicketType,
+      pitchTypes,
       timingType,
       totalSessions,
       validityDays = 30,
@@ -72,6 +73,11 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Invalid wicketType' }, { status: 400 });
     }
 
+    const validPitchTypes = ['ASTRO', 'TURF', 'CEMENT', 'NATURAL'];
+    const cleanPitchTypes: string[] = Array.isArray(pitchTypes)
+      ? pitchTypes.filter((p: unknown): p is string => typeof p === 'string' && validPitchTypes.includes(p))
+      : [];
+
     const pkg = await prisma.package.create({
       data: {
         name,
@@ -79,6 +85,7 @@ export async function POST(req: NextRequest) {
         machineType,
         ballType: ballType || null,
         wicketType: wicketType || null,
+        pitchTypes: cleanPitchTypes as ('ASTRO' | 'TURF' | 'CEMENT' | 'NATURAL')[],
         timingType,
         totalSessions,
         validityDays,
@@ -113,11 +120,18 @@ export async function PUT(req: NextRequest) {
     }
 
     // Only allow updating specific fields
-    const allowedFields = ['name', 'machineId', 'machineType', 'ballType', 'wicketType', 'timingType', 'totalSessions', 'validityDays', 'price', 'extraChargeRules', 'isActive'];
+    const allowedFields = ['name', 'machineId', 'machineType', 'ballType', 'wicketType', 'pitchTypes', 'timingType', 'totalSessions', 'validityDays', 'price', 'extraChargeRules', 'isActive'];
     const data: any = {};
     for (const field of allowedFields) {
       if (updateData[field] !== undefined) {
-        data[field] = updateData[field];
+        if (field === 'pitchTypes') {
+          const validPitchTypes = ['ASTRO', 'TURF', 'CEMENT', 'NATURAL'];
+          data.pitchTypes = Array.isArray(updateData.pitchTypes)
+            ? updateData.pitchTypes.filter((p: unknown) => typeof p === 'string' && validPitchTypes.includes(p))
+            : [];
+        } else {
+          data[field] = updateData[field];
+        }
       }
     }
 
