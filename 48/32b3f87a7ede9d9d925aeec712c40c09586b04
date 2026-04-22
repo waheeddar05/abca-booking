@@ -1,0 +1,27 @@
+src/app/api/admin/stats/route.ts
+  3e21fe0987777d5e 84-113
+src/app/api/admin/packages/reports/route.ts
+  3e21fe0987777d5e 23,25,32,37-41,47-63,65-69,71,74,79-80,92
+src/app/api/admin/packages/route.ts
+  3e21fe0987777d5e 116,120
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.2",
+  "base_commit_sha": "4832b3f87a7ede9d9d925aeec712c40c09586b04",
+  "prompts": {
+    "3e21fe0987777d5e": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b50cc39d-d7e2-455a-85e2-cba10c82d75a",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Waheed",
+      "messages": [],
+      "total_additions": 67,
+      "total_deletions": 80,
+      "accepted_lines": 289,
+      "overriden_lines": 0
+    }
+  }
+}
