@@ -33,6 +33,7 @@ interface MyPackage {
   machineType: string;
   ballType: string;
   wicketType: string;
+  pitchTypes?: string[];
   timingType: string;
   totalSessions: number;
   usedSessions: number;
@@ -371,6 +372,18 @@ export default function PackagesPage() {
                                 `${daysRemaining} day${daysRemaining === 1 ? '' : 's'} remaining`
                               )}
                             </span>
+                            {(() => {
+                              const pitches = (up.pitchTypes && up.pitchTypes.length > 0)
+                                ? up.pitchTypes
+                                : (up.wicketType ? [up.wicketType] : []);
+                              if (pitches.length === 0) return null;
+                              return (
+                                <span className="flex items-center gap-1">
+                                  <span className="text-slate-500">Pitch:</span>
+                                  <span className="text-slate-300">{pitches.map(p => labelMap[p] || p).join(', ')}</span>
+                                </span>
+                              );
+                            })()}
                           </div>
                         </div>
                         {isActive && remaining > 0 && (
