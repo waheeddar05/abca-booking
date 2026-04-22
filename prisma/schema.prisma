@@ -133,7 +133,6 @@ model Package {
   machineType      MachineType
   ballType         PackageBallType?
   wicketType       PackageWicketType?
-  pitchTypes       PitchType[]
   timingType       TimingType
   totalSessions    Int
   validityDays     Int                @default(30)
