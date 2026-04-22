@@ -39,10 +39,17 @@ export interface OperatorDateOverrideRange {
   to: string;
   morning: number;
   evening: number;
+  recurringDays?: number[]; // 0=Sun..6=Sat; empty/undefined = every day in range
 }
 
 // Legacy format (individual dates): { "2026-04-10": { morning: 0, evening: 2 } }
 type LegacyOverrides = Record<string, { morning: number; evening: number }>;
+
+/** Day-of-week (0=Sun..6=Sat) for a YYYY-MM-DD date string */
+function dayOfWeekFromDateKey(dateKey: string): number {
+  const [y, m, d] = dateKey.split('-').map(Number);
+  return new Date(Date.UTC(y, (m || 1) - 1, d || 1)).getUTCDay();
+}
 
 /** Check if a YYYY-MM-DD date key falls within any override range */
 function findOverrideForDate(
@@ -51,10 +58,11 @@ function findOverrideForDate(
 ): { morning: number; evening: number } | undefined {
   // Support new range format (array)
   if (Array.isArray(overrides)) {
+    const dow = dayOfWeekFromDateKey(dateKey);
     for (const range of overrides) {
-      if (dateKey >= range.from && dateKey <= range.to) {
-        return { morning: range.morning, evening: range.evening };
-      }
+      if (dateKey < range.from || dateKey > range.to) continue;
+      if (range.recurringDays && range.recurringDays.length > 0 && !range.recurringDays.includes(dow)) continue;
+      return { morning: range.morning, evening: range.evening };
     }
     return undefined;
   }
