@@ -80,6 +80,7 @@ function formatUserPackage(up: any) {
     machineId: up.package.machineId || null,
     ballType: up.package.ballType,
     wicketType: up.package.wicketType,
+    pitchTypes: up.package.pitchTypes || [],
     timingType: up.package.timingType,
     totalSessions: up.totalSessions,
     usedSessions: up.usedSessions,
