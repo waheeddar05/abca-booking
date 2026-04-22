@@ -81,14 +81,36 @@ export async function GET(req: NextRequest) {
           ...(hasDateFilter ? { date: dateFilter } : {}),
         },
       }).then(r => r._sum.discountAmount || 0).catch(() => 0),
-      // Package revenue
-      prisma.userPackage.aggregate({
-        _sum: { amountPaid: true },
-        where: {
-          status: { in: ['ACTIVE', 'EXPIRED'] },
-          ...(hasDateFilter ? { createdAt: dateFilter } : {}),
-        },
-      }).then(r => r._sum.amountPaid || 0).catch(() => 0),
+      // Package revenue — net retained across ALL statuses:
+      // sum(amountPaid) across every UserPackage minus CREDIT_REFUND txns
+      // referenced to those packages (handles partial-refund cancellations).
+      (async () => {
+        try {
+          const ups = await prisma.userPackage.findMany({
+            where: hasDateFilter ? { createdAt: dateFilter } : {},
+            select: { id: true, amountPaid: true },
+          });
+          if (ups.length === 0) return 0;
+          const refundRows = await prisma.walletTransaction.findMany({
+            where: {
+              type: 'CREDIT_REFUND',
+              referenceId: { in: ups.map(u => u.id) },
+            },
+            select: { referenceId: true, amount: true },
+          });
+          const refundById = new Map<string, number>();
+          for (const r of refundRows) {
+            if (!r.referenceId) continue;
+            refundById.set(r.referenceId, (refundById.get(r.referenceId) || 0) + r.amount);
+          }
+          return ups.reduce(
+            (sum, up) => sum + Math.max(0, up.amountPaid - (refundById.get(up.id) || 0)),
+            0,
+          );
+        } catch {
+          return 0;
+        }
+      })(),
       // Machine-wise revenue
       prisma.booking.groupBy({
         by: ['machineId'],
