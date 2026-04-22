@@ -133,17 +133,53 @@ export async function GET(req: NextRequest) {
           return 0;
         }
       })(),
-      // Machine-wise revenue
-      prisma.booking.groupBy({
-        by: ['machineId'],
-        _sum: { price: true },
-        where: {
-          status: { in: ['BOOKED', 'DONE'] },
-          isSuperAdminBooking: false,
-          machineId: { not: null },
-          ...(hasDateFilter ? { date: dateFilter } : {}),
-        },
-      }).catch(() => []),
+      // Machine-wise revenue = per-machine Paid − Refunded.
+      (async () => {
+        try {
+          const [paidGroups, refundGroups] = await Promise.all([
+            prisma.booking.groupBy({
+              by: ['machineId'],
+              _sum: { price: true },
+              where: {
+                isSuperAdminBooking: false,
+                machineId: { not: null },
+                ...(hasDateFilter ? { date: dateFilter } : {}),
+              },
+            }),
+            // Sum processed refunds grouped via booking.machineId.
+            // groupBy on Refund can't reach booking.machineId directly, so fetch
+            // processed refunds with their booking's machineId and aggregate in-memory.
+            prisma.refund.findMany({
+              where: {
+                status: 'PROCESSED',
+                booking: {
+                  isSuperAdminBooking: false,
+                  machineId: { not: null },
+                  ...(hasDateFilter ? { date: dateFilter } : {}),
+                },
+              },
+              select: {
+                amount: true,
+                booking: { select: { machineId: true } },
+              },
+            }),
+          ]);
+          const refundByMachine = new Map<string, number>();
+          for (const r of refundGroups) {
+            const mid = r.booking?.machineId;
+            if (!mid) continue;
+            refundByMachine.set(mid, (refundByMachine.get(mid) || 0) + r.amount);
+          }
+          return paidGroups.map(g => ({
+            machineId: g.machineId,
+            _sum: {
+              price: Math.max(0, (g._sum.price || 0) - (refundByMachine.get(g.machineId as string) || 0)),
+            },
+          }));
+        } catch {
+          return [];
+        }
+      })(),
       // Self-operated bookings
       prisma.booking.count({
         where: {
