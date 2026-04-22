@@ -798,6 +798,12 @@ function PackageSection({
                       {pkg.timingType === 'DAY' ? <Sun className="w-3 h-3 text-slate-500" /> : pkg.timingType === 'EVENING' ? <Moon className="w-3 h-3 text-slate-500" /> : <Clock className="w-3 h-3 text-slate-500" />}
                       {getTimingLabel(pkg.timingType)}
                     </span>
+                    {pkg.wicketType && (
+                      <span className="text-[10px] text-slate-400 flex items-center gap-1">
+                        <span className="text-slate-500">Pitch:</span>
+                        <span className="text-slate-300">{labelMap[pkg.wicketType] || pkg.wicketType}</span>
+                      </span>
+                    )}
                     <span className="text-[10px] text-slate-400 flex items-center gap-1">
                       <Calendar className="w-3 h-3 text-slate-500" />
                       {pkg.totalSessions} Sessions (Per Slot: 30 Minutes) · {pkg.validityDays} Days Validity
