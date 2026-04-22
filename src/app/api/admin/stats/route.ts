@@ -62,15 +62,37 @@ export async function GET(req: NextRequest) {
         },
       }),
       prisma.slot.count().catch(() => 0),
-      // Booking revenue
-      prisma.booking.aggregate({
-        _sum: { price: true },
-        where: {
-          status: { in: ['BOOKED', 'DONE'] },
-          isSuperAdminBooking: false,
-          ...(hasDateFilter ? { date: dateFilter } : {}),
-        },
-      }).then(r => r._sum.price || 0).catch(() => 0),
+      // Booking revenue = Total paid − Total refunded (net retained).
+      // Paid side includes BOOKED / DONE / CANCELLED (any booking where payment
+      // was collected). Refund side sums processed refunds for those bookings.
+      (async () => {
+        try {
+          const [paidAgg, refundAgg] = await Promise.all([
+            prisma.booking.aggregate({
+              _sum: { price: true },
+              where: {
+                isSuperAdminBooking: false,
+                ...(hasDateFilter ? { date: dateFilter } : {}),
+              },
+            }),
+            prisma.refund.aggregate({
+              _sum: { amount: true },
+              where: {
+                status: 'PROCESSED',
+                booking: {
+                  isSuperAdminBooking: false,
+                  ...(hasDateFilter ? { date: dateFilter } : {}),
+                },
+              },
+            }),
+          ]);
+          const paid = paidAgg._sum.price || 0;
+          const refunded = refundAgg._sum.amount || 0;
+          return Math.max(0, paid - refunded);
+        } catch {
+          return 0;
+        }
+      })(),
       // Discount
       prisma.booking.aggregate({
         _sum: { discountAmount: true },
