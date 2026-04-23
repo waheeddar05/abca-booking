@@ -62,33 +62,37 @@ export async function GET(req: NextRequest) {
         },
       }),
       prisma.slot.count().catch(() => 0),
-      // Booking revenue = Total paid − Total refunded (net retained).
-      // Paid side includes BOOKED / DONE / CANCELLED (any booking where payment
-      // was collected). Refund side sums processed refunds for those bookings.
+      // Booking revenue — mirrors the bookings CSV export exactly:
+      //   Revenue = Σ(Amount column) − Σ(Refund Amount column)
+      // where per-row Amount = regular ? price : (extraCharge + kitRentalCharge)
+      // and per-row Refund Amount = regular ? Σ(refund.amount where status!='FAILED') : 0.
+      // No Math.max clamp, no isSuperAdminBooking filter — we match the CSV 1:1.
       (async () => {
         try {
-          const [paidAgg, refundAgg] = await Promise.all([
-            prisma.booking.aggregate({
-              _sum: { price: true },
-              where: {
-                isSuperAdminBooking: false,
-                ...(hasDateFilter ? { date: dateFilter } : {}),
-              },
-            }),
-            prisma.refund.aggregate({
-              _sum: { amount: true },
-              where: {
-                status: 'PROCESSED',
-                booking: {
-                  isSuperAdminBooking: false,
-                  ...(hasDateFilter ? { date: dateFilter } : {}),
-                },
-              },
-            }),
-          ]);
-          const paid = paidAgg._sum.price || 0;
-          const refunded = refundAgg._sum.amount || 0;
-          return Math.max(0, paid - refunded);
+          const bookings = await prisma.booking.findMany({
+            where: hasDateFilter ? { date: dateFilter } : {},
+            select: {
+              price: true,
+              kitRentalCharge: true,
+              packageBooking: { select: { extraCharge: true } },
+              refunds: { select: { amount: true, status: true } },
+            },
+          });
+          let paid = 0;
+          let refunded = 0;
+          for (const b of bookings) {
+            const isPkg = !!b.packageBooking;
+            if (isPkg) {
+              paid += (b.packageBooking?.extraCharge || 0) + (b.kitRentalCharge || 0);
+              // Package bookings: Refund Amount column is 'NA' in CSV, so contribute 0.
+            } else {
+              paid += b.price || 0;
+              for (const r of b.refunds) {
+                if (r.status !== 'FAILED') refunded += r.amount;
+              }
+            }
+          }
+          return paid - refunded;
         } catch {
           return 0;
         }
@@ -103,13 +107,13 @@ export async function GET(req: NextRequest) {
           ...(hasDateFilter ? { date: dateFilter } : {}),
         },
       }).then(r => r._sum.discountAmount || 0).catch(() => 0),
-      // Package revenue — net retained across ALL statuses:
-      // sum(amountPaid) across every UserPackage minus CREDIT_REFUND txns
-      // referenced to those packages (handles partial-refund cancellations).
+      // Package revenue — mirrors the packages CSV export exactly:
+      //   Revenue = Σ(Amount Paid) − Σ(Refunded Amount)
+      // Date filter keyed by activationDate (same as the CSV export). No clamp.
       (async () => {
         try {
           const ups = await prisma.userPackage.findMany({
-            where: hasDateFilter ? { createdAt: dateFilter } : {},
+            where: hasDateFilter ? { activationDate: dateFilter } : {},
             select: { id: true, amountPaid: true },
           });
           if (ups.length === 0) return 0;
@@ -125,56 +129,52 @@ export async function GET(req: NextRequest) {
             if (!r.referenceId) continue;
             refundById.set(r.referenceId, (refundById.get(r.referenceId) || 0) + r.amount);
           }
-          return ups.reduce(
-            (sum, up) => sum + Math.max(0, up.amountPaid - (refundById.get(up.id) || 0)),
-            0,
-          );
+          let paid = 0;
+          let refunded = 0;
+          for (const up of ups) {
+            paid += up.amountPaid;
+            refunded += refundById.get(up.id) || 0;
+          }
+          return paid - refunded;
         } catch {
           return 0;
         }
       })(),
-      // Machine-wise revenue = per-machine Paid − Refunded.
+      // Machine-wise revenue — uses the same per-booking Amount / Refund Amount
+      // logic as the bookings CSV export, grouped by machineId. No clamp.
       (async () => {
         try {
-          const [paidGroups, refundGroups] = await Promise.all([
-            prisma.booking.groupBy({
-              by: ['machineId'],
-              _sum: { price: true },
-              where: {
-                isSuperAdminBooking: false,
-                machineId: { not: null },
-                ...(hasDateFilter ? { date: dateFilter } : {}),
-              },
-            }),
-            // Sum processed refunds grouped via booking.machineId.
-            // groupBy on Refund can't reach booking.machineId directly, so fetch
-            // processed refunds with their booking's machineId and aggregate in-memory.
-            prisma.refund.findMany({
-              where: {
-                status: 'PROCESSED',
-                booking: {
-                  isSuperAdminBooking: false,
-                  machineId: { not: null },
-                  ...(hasDateFilter ? { date: dateFilter } : {}),
-                },
-              },
-              select: {
-                amount: true,
-                booking: { select: { machineId: true } },
-              },
-            }),
-          ]);
-          const refundByMachine = new Map<string, number>();
-          for (const r of refundGroups) {
-            const mid = r.booking?.machineId;
-            if (!mid) continue;
-            refundByMachine.set(mid, (refundByMachine.get(mid) || 0) + r.amount);
-          }
-          return paidGroups.map(g => ({
-            machineId: g.machineId,
-            _sum: {
-              price: Math.max(0, (g._sum.price || 0) - (refundByMachine.get(g.machineId as string) || 0)),
+          const bookings = await prisma.booking.findMany({
+            where: {
+              machineId: { not: null },
+              ...(hasDateFilter ? { date: dateFilter } : {}),
             },
+            select: {
+              machineId: true,
+              price: true,
+              kitRentalCharge: true,
+              packageBooking: { select: { extraCharge: true } },
+              refunds: { select: { amount: true, status: true } },
+            },
+          });
+          const byMachine = new Map<string, number>();
+          for (const b of bookings) {
+            const mid = b.machineId as string;
+            const isPkg = !!b.packageBooking;
+            let net = 0;
+            if (isPkg) {
+              net += (b.packageBooking?.extraCharge || 0) + (b.kitRentalCharge || 0);
+            } else {
+              net += b.price || 0;
+              for (const r of b.refunds) {
+                if (r.status !== 'FAILED') net -= r.amount;
+              }
+            }
+            byMachine.set(mid, (byMachine.get(mid) || 0) + net);
+          }
+          return Array.from(byMachine.entries()).map(([machineId, price]) => ({
+            machineId,
+            _sum: { price },
           }));
         } catch {
           return [];
