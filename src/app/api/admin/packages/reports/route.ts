@@ -52,9 +52,11 @@ export async function GET(req: NextRequest) {
       refundByPackage.set(txn.referenceId, (refundByPackage.get(txn.referenceId) || 0) + txn.amount);
     }
 
-    // Net revenue per package = amountPaid − refunded (floored at 0)
+    // Net revenue per package = amountPaid − refunded.
+    // Mirrors the packages CSV export exactly: raw subtraction, no floor,
+    // so totals match Σ(Amount Paid) − Σ(Refunded Amount) from the CSV.
     const netRevenueForUP = (up: typeof allUserPackages[number]) =>
-      Math.max(0, up.amountPaid - (refundByPackage.get(up.id) || 0));
+      up.amountPaid - (refundByPackage.get(up.id) || 0);
 
     // Non-cancelled packages count toward "sold"; session metrics cover actual usage across all statuses
     const nonCancelled = allUserPackages.filter(up => up.status !== 'CANCELLED');
