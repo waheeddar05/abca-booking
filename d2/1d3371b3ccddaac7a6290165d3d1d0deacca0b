@@ -1,0 +1,23 @@
+src/app/centers/page.tsx
+  e0175fb4b4f942a5 3,33-49
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "d21d3371b3ccddaac7a6290165d3d1d0deacca0b",
+  "prompts": {
+    "e0175fb4b4f942a5": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "f3864c65-ac36-4572-a64e-c1d488c0cbdf",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Waheed",
+      "messages": [],
+      "total_additions": 18,
+      "total_deletions": 1,
+      "accepted_lines": 614,
+      "overriden_lines": 0
+    }
+  }
+}
