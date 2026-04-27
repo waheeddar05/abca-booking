@@ -1,0 +1,199 @@
+src/components/admin/centers/CenterPaymentTab.tsx
+  e0175fb4b4f942a5 1-117
+src/app/api/admin/slots/block/route.ts
+  e0175fb4b4f942a5 7,10,20,22,24-31,115-120,124
+src/app/api/slots/book/route.ts
+  e0175fb4b4f942a5 16,119,123,176-177,181-183,459,463,632,803,975,1030-1036,1040
+src/app/api/payments/verify/route.ts
+  e0175fb4b4f942a5 4,55-58,110,157,221,225
+CLAUDE.md
+  e0175fb4b4f942a5 7-9,40-41,59,74-79,81-83,86,88-90,93-101,128-235
+src/app/api/admin/wallet/route.ts
+  e0175fb4b4f942a5 2-3,14-19,27-33,41,43,48,58-59,68-74,92,110
+scripts/seed-centers.ts
+  e0175fb4b4f942a5 1-166
+src/app/api/admin/operators/route.ts
+  e0175fb4b4f942a5 4-5,9-35,41-56,121-126,129,170-174,202-207,209,233-238,240
+src/app/api/admin/users/route.ts
+  e0175fb4b4f942a5 274-279
+src/app/api/admin/recurring-discounts/route.ts
+  e0175fb4b4f942a5 4-5,7,15-28,30,87-93,96
+src/lib/packages.ts
+  e0175fb4b4f942a5 2,18,139
+src/app/api/admin/centers/[id]/route.ts
+  e0175fb4b4f942a5 1-141
+src/app/api/packages/my/route.ts
+  e0175fb4b4f942a5 4,17-24,30,41-44,62-66
+src/app/admin/centers/[id]/page.tsx
+  e0175fb4b4f942a5 1-178
+src/app/api/admin/offers/route.ts
+  e0175fb4b4f942a5 6-7,43,50-63,65,85-91,117
+src/app/api/admin/packages/reports/csv/route.ts
+  e0175fb4b4f942a5 4-5,7,19-30,34
+src/middleware.ts
+  e0175fb4b4f942a5 15-18
+src/app/api/slots/book-resource/route.ts
+  e0175fb4b4f942a5 1-244
+src/app/api/admin/stats/route.ts
+  e0175fb4b4f942a5 4-5,18,26-39,61,66-69,71,74,78,86,95,126,139-142,175,213,222,234
+src/app/api/admin/packages/route.ts
+  e0175fb4b4f942a5 4-5,7,15-18,21-27,88-94,97
+src/app/api/operator/bookings/route.ts
+  e0175fb4b4f942a5 4-5,31-44,55-60,71,74
+src/app/api/admin/slots/bulk/route.ts
+  e0175fb4b4f942a5 4-5,37-43,58,70,80,85
+src/app/api/admin/machine-types/route.ts
+  e0175fb4b4f942a5 1-59
+src/app/admin/layout.tsx
+  e0175fb4b4f942a5 6,9,20-24,37,98-102
+src/app/api/payments/config/route.ts
+  e0175fb4b4f942a5 4-5,7,35-37,39-53,78-83,87
+src/app/api/admin/bookings/export/route.ts
+  e0175fb4b4f942a5 4-5,45-48,51-57
+src/app/api/webhooks/razorpay/route.ts
+  e0175fb4b4f942a5 3-4,9,11-18,20,25,32-40,42-48,51-55,57-60,62,64-66,69-75,77-79,81-87,170
+prisma/schema.prisma
+  e0175fb4b4f942a5 11-104,107-257,275-276,279,287-290,294-319,323,326-357,360-362,364-391,396,410-413,418,421,435-438,496-507,511-512,517,519-521,529,531,544-545,590-593,682-688,691,696-697,700-703,706-707,709-710,712-714,717,723-730,732-734,736-738,745-746,749-752,754-755,760-761,765-768,772-792,796-801,804-812
+prisma/migrations/20260427100000_resource_based_bookings/migration.sql
+  e0175fb4b4f942a5 1-71
+src/lib/resource-booking.ts
+  e0175fb4b4f942a5 1-559
+src/app/api/admin/override-cancellations/route.ts
+  e0175fb4b4f942a5 125
+src/app/api/admin/centers/[id]/resources/[resourceId]/route.ts
+  e0175fb4b4f942a5 1-12,14-63
+src/lib/auth.ts
+  e0175fb4b4f942a5 5,7-9,18,22-28,31-88,96,108,114-148
+src/app/api/admin/packages/user-packages/route.ts
+  e0175fb4b4f942a5 5,20-31,34,112-113,116
+src/components/admin/centers/CenterGeneralTab.tsx
+  e0175fb4b4f942a5 1-232
+src/app/slots/page.tsx
+  e0175fb4b4f942a5 26-27,33,38-55
+src/app/api/wallet/transactions/route.ts
+  e0175fb4b4f942a5 3,7-8,12,16-22,31
+src/app/api/bookings/route.ts
+  e0175fb4b4f942a5 4,29,34-36,38-41,150
+src/components/LandingPageClient.tsx
+  e0175fb4b4f942a5 4,6,9,13-14,104-114
+src/app/api/admin/payments/route.ts
+  e0175fb4b4f942a5 4,24,26,28-34,61-63,65,118,121
+src/app/api/centers/select/route.ts
+  e0175fb4b4f942a5 1-61
+src/app/api/slots/occupied/route.ts
+  e0175fb4b4f942a5 5-6,22-27,30,37
+src/lib/resource-pricing.ts
+  e0175fb4b4f942a5 1-90
+src/app/api/admin/bookings/route.ts
+  e0175fb4b4f942a5 5,63-69,71-77,331,399,401,407,459,462,672-673,677
+src/lib/razorpay.ts
+  e0175fb4b4f942a5 5-99,101-107,109-110,112-114,116-119,121,124-125,170-171,173-176,179-180,185,188-191,196,203-208,210,214,218,226-278,281,286,301,303-304
+src/app/api/admin/centers/[id]/members/[membershipId]/route.ts
+  e0175fb4b4f942a5 1-7,9-57
+src/app/api/payments/create-order/route.ts
+  e0175fb4b4f942a5 5,26-33,83,85,99
+src/components/admin/centers/centerForms.tsx
+  e0175fb4b4f942a5 1-118
+src/app/api/wallet/route.ts
+  e0175fb4b4f942a5 3,7-11,15,19-25,30,35-36
+src/app/api/slots/available/route.ts
+  e0175fb4b4f942a5 15,38,40-42,47-54,97,108,114,116,118,121
+src/app/api/admin/centers/[id]/machines/[machineId]/route.ts
+  e0175fb4b4f942a5 1-11,13-81
+src/app/admin/centers/page.tsx
+  e0175fb4b4f942a5 1-330
+src/components/CenterSelector.tsx
+  e0175fb4b4f942a5 1-106
+src/app/api/admin/machine-types/[id]/route.ts
+  e0175fb4b4f942a5 1-37
+src/components/admin/centers/CenterPoliciesTab.tsx
+  e0175fb4b4f942a5 1-213
+src/components/admin/CenterSwitcher.tsx
+  e0175fb4b4f942a5 1-157
+src/app/api/packages/purchase/route.ts
+  e0175fb4b4f942a5 68-70,72,77,87
+src/app/api/admin/centers/[id]/policies/route.ts
+  e0175fb4b4f942a5 1-92
+src/lib/centers.ts
+  e0175fb4b4f942a5 1-176
+src/app/api/admin/refund/route.ts
+  e0175fb4b4f942a5 104,106,166-168,171
+src/app/api/admin/centers/[id]/members/route.ts
+  e0175fb4b4f942a5 1-174
+src/app/api/centers/me/route.ts
+  e0175fb4b4f942a5 1-27
+src/app/slots/ResourceSlotsPage.tsx
+  e0175fb4b4f942a5 1-526
+src/lib/wallet.ts
+  e0175fb4b4f942a5 5-13,15,19-20,27,40-45,51,54,56-57,59,65,67,69,76,81,91-92,124-125,129,139,174,178,184,193,197,213,257-273,275-276
+src/components/Navbar.tsx
+  e0175fb4b4f942a5 9,110-115
+src/components/ContactFooter.tsx
+  e0175fb4b4f942a5 3,5,12-20,25-32,42-46,49-66,78-94,110
+src/lib/policy.ts
+  e0175fb4b4f942a5 1-130
+src/app/api/slots/cancel/route.ts
+  e0175fb4b4f942a5 247,327,338,343,346,403,406
+src/lib/center-context.tsx
+  e0175fb4b4f942a5 1-131
+src/app/api/admin/operators/stats/route.ts
+  e0175fb4b4f942a5 4-5,39-50,73-74,76-78,91
+src/app/api/admin/packages/assign/route.ts
+  e0175fb4b4f942a5 5,55-60,68
+src/components/Providers.tsx
+  e0175fb4b4f942a5 4,9
+scripts/assign-all-operators.ts
+  e0175fb4b4f942a5 11-13,37
+src/app/api/admin/centers/[id]/machines/route.ts
+  e0175fb4b4f942a5 1-94
+src/app/api/packages/route.ts
+  e0175fb4b4f942a5 1,3-4,6-7,9-14,16,20
+prisma/migrations/20260427000000_multi_center_foundation/migration.sql
+  e0175fb4b4f942a5 1-370
+src/app/api/admin/payments/recover-orphaned/route.ts
+  e0175fb4b4f942a5 84
+src/app/api/admin/slots/route.ts
+  e0175fb4b4f942a5 4-5,27-30,33-39,72-73,75,140-146,148,151,163
+src/components/admin/centers/CenterResourcesTab.tsx
+  e0175fb4b4f942a5 1-217
+src/components/admin/centers/CenterMembersTab.tsx
+  e0175fb4b4f942a5 1-225
+src/app/api/admin/user-cleanup/route.ts
+  e0175fb4b4f942a5 70-71,73,79-83,94-96,131,137-144,177,180,183,294-296,300-302,305-306,308-312,318-319,324,330-331,333,339-340,342,383,385,391,393,468-469,471-476
+src/lib/adminAuth.ts
+  e0175fb4b4f942a5 6-7,31,35-39,48-54
+src/app/api/admin/centers/route.ts
+  e0175fb4b4f942a5 1-109
+src/components/admin/centers/CenterMachinesTab.tsx
+  e0175fb4b4f942a5 1-254
+src/app/api/admin/packages/reports/route.ts
+  e0175fb4b4f942a5 4-5,7,13-31,34,49-51,53,57,60-62,64-68,72
+src/app/centers/page.tsx
+  e0175fb4b4f942a5 1-236
+src/lib/authOptions.ts
+  e0175fb4b4f942a5 38,42,67-72,100-102,112,117-120,125-126
+src/app/api/slots/resource-availability/route.ts
+  e0175fb4b4f942a5 1-223
+src/app/api/admin/centers/[id]/resources/route.ts
+  e0175fb4b4f942a5 1-72
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "6f2adcaa5621c2db441db0336bd8d4d444c55a6b",
+  "prompts": {
+    "e0175fb4b4f942a5": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "f3864c65-ac36-4572-a64e-c1d488c0cbdf",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Waheed",
+      "messages": [],
+      "total_additions": 8785,
+      "total_deletions": 606,
+      "accepted_lines": 8619,
+      "overriden_lines": 3
+    }
+  }
+}
