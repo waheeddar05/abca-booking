@@ -65,14 +65,16 @@ export async function POST(req: NextRequest) {
       include: { package: true },
     });
 
-    // Handle wallet payment if requested
+    // Handle wallet payment if requested. Wallets are center-scoped, so
+    // we use the package's own center (Package.centerId) — purchasing a
+    // Toplay package debits a Toplay wallet, ABCA package debits ABCA.
     if (paymentMethod === 'WALLET' && walletDeduction && walletDeduction > 0) {
-      const walletEnabled = await isWalletEnabled();
+      const walletEnabled = await isWalletEnabled(pkg.centerId);
       if (!walletEnabled) {
         return NextResponse.json({ error: 'Wallet is not enabled' }, { status: 400 });
       }
 
-      const balance = await getWalletBalance(user.id);
+      const balance = await getWalletBalance(user.id, pkg.centerId);
       if (balance < walletDeduction) {
         // Rollback the package creation
         await prisma.userPackage.delete({ where: { id: userPackage.id } });
@@ -82,6 +84,7 @@ export async function POST(req: NextRequest) {
       try {
         await debitWallet(
           user.id,
+          pkg.centerId,
           walletDeduction,
           'DEBIT_BOOKING',
           `Package purchase: ${pkg.name}`,

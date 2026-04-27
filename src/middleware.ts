@@ -12,6 +12,10 @@ export async function middleware(req: NextRequest) {
     pathname === "/login" ||
     pathname === "/otp" ||
     pathname === "/maintenance" ||
+    // /centers and the related read-only API are part of the multi-center
+    // public surface so a brand-new visitor can pick a center before sign-in.
+    pathname === "/centers" ||
+    pathname.startsWith("/api/centers") ||
     pathname.startsWith("/api/auth") ||
     pathname.startsWith("/api/webhooks/") ||
     pathname.startsWith("/api/maintenance") ||

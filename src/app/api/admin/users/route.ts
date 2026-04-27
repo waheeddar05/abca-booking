@@ -271,11 +271,12 @@ export async function DELETE(req: NextRequest) {
         await tx.packageBooking.deleteMany({ where: { userPackageId: { in: userPackageIds } } });
       }
 
-      // 4. Delete wallet and its transactions
-      const wallet = await tx.wallet.findUnique({ where: { userId: id } });
-      if (wallet) {
-        await tx.walletTransaction.deleteMany({ where: { walletId: wallet.id } });
-        await tx.wallet.delete({ where: { id: wallet.id } });
+      // 4. Delete every wallet (across centers) and its transactions
+      const wallets = await tx.wallet.findMany({ where: { userId: id } });
+      if (wallets.length > 0) {
+        const walletIds = wallets.map((w) => w.id);
+        await tx.walletTransaction.deleteMany({ where: { walletId: { in: walletIds } } });
+        await tx.wallet.deleteMany({ where: { id: { in: walletIds } } });
       }
 
       // 5. Nullify operatorId on bookings where this user was the operator

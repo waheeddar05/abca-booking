@@ -6,6 +6,7 @@ import { useSession, signOut } from 'next-auth/react';
 import { usePathname, useRouter } from 'next/navigation';
 import { useState, useEffect } from 'react';
 import { Shield, Power, LogIn, ArrowLeft, Calendar, ClipboardList, Package, Wallet, Bell, Headset } from 'lucide-react';
+import { CenterSelector } from './CenterSelector';
 
 export default function Navbar() {
   const { data: session, status } = useSession();
@@ -106,6 +107,12 @@ export default function Navbar() {
 
           {/* Right side actions */}
           <div className="flex items-center gap-1.5">
+            {/* Center selector — visible to everyone (logged in or not) when 2+ centers exist.
+                Auto-hides itself in the single-center case so this looks identical to before. */}
+            {!isInAdminMode && !isInOperatorMode && (
+              <CenterSelector compact />
+            )}
+
             {isLoggedIn ? (
               <>
                 {/* Admin/Operator mode: Switch to User Mode */}

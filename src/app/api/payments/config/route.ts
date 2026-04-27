@@ -1,8 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { getAuthenticatedUser } from '@/lib/auth';
+import { resolveCurrentCenter } from '@/lib/centers';
+import { getCenterRazorpayCredentials } from '@/lib/razorpay';
 
-const RAZORPAY_PUBLIC_KEY = process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID
+const ENV_RAZORPAY_PUBLIC_KEY = process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID
   || process.env.RAZORPAY_KEY_ID
   || '';
 
@@ -30,13 +32,25 @@ export async function GET(req: NextRequest) {
 
     const globalCashEnabled = config['CASH_PAYMENT_ENABLED'] === 'true';
 
-    // Check per-user cash payment override
+    // Check per-user cash payment override at the user's current center.
+    // CashPaymentUser is center-scoped — a user may have cash access at
+    // ABCA but not Toplay (or vice versa).
     let userHasCashAccess = false;
-    if (user) {
-      const cashPaymentUser = await prisma.cashPaymentUser.findUnique({
-        where: { userId: user.id },
-      });
-      userHasCashAccess = !!cashPaymentUser;
+    let centerRazorpayKeyId: string | null = null;
+    const center = await resolveCurrentCenter(req, user);
+    if (center) {
+      // Resolve which Razorpay account the client should initialize against.
+      // This may be the center's own keyId or the env fallback. The secret
+      // never leaves the server.
+      const creds = await getCenterRazorpayCredentials(center.id);
+      centerRazorpayKeyId = creds?.keyId ?? null;
+
+      if (user) {
+        const cashPaymentUser = await prisma.cashPaymentUser.findUnique({
+          where: { centerId_userId: { centerId: center.id, userId: user.id } },
+        });
+        userHasCashAccess = !!cashPaymentUser;
+      }
     }
 
     const paymentEnabled = config['PAYMENT_GATEWAY_ENABLED'] === 'true';
@@ -61,10 +75,16 @@ export async function GET(req: NextRequest) {
       paymentEnabled,
       slotPaymentRequired: config['SLOT_PAYMENT_REQUIRED'] === 'true',
       packagePaymentRequired: config['PACKAGE_PAYMENT_REQUIRED'] === 'true',
-      razorpayKeyId: paymentEnabled ? RAZORPAY_PUBLIC_KEY : '',
+      // Per-center keyId when the center configured one; env fallback
+      // otherwise. The client uses this to bootstrap the Razorpay
+      // checkout for the right merchant account.
+      razorpayKeyId: paymentEnabled
+        ? (centerRazorpayKeyId || ENV_RAZORPAY_PUBLIC_KEY)
+        : '',
       cashPaymentEnabled: globalCashEnabled || userHasCashAccess,
       walletEnabled: config['WALLET_ENABLED'] === 'true',
       kitRentalConfig,
+      centerId: center?.id ?? null,
     });
   } catch (error) {
     console.error('Payment config error:', error);

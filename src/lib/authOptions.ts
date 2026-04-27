@@ -35,10 +35,11 @@ export const authOptions: NextAuthOptions = {
         try {
           const dbUser = await prisma.user.findUnique({
             where: { email: token.email },
-            select: { role: true, isFreeUser: true, isSpecialUser: true, mobileVerified: true },
+            select: { role: true, isSuperAdmin: true, isFreeUser: true, isSpecialUser: true, mobileVerified: true },
           });
           if (dbUser) {
             token.role = dbUser.role;
+            token.isSuperAdmin = dbUser.isSuperAdmin || false;
             token.isFreeUser = dbUser.isFreeUser || false;
             token.isSpecialUser = dbUser.isSpecialUser || false;
             token.mobileVerified = dbUser.mobileVerified || false;
@@ -63,8 +64,12 @@ export const authOptions: NextAuthOptions = {
         }
       }
 
-      // Always compute from token email so existing sessions pick it up
-      token.isSuperAdmin = !!(token.email && SUPER_ADMIN_EMAIL && token.email === SUPER_ADMIN_EMAIL);
+      // Always compute from token email so existing sessions pick it up.
+      // The DB flag (User.isSuperAdmin) is also refreshed via the periodic
+      // role refresh above; either source promotes the user.
+      token.isSuperAdmin =
+        token.isSuperAdmin === true ||
+        !!(token.email && SUPER_ADMIN_EMAIL && token.email === SUPER_ADMIN_EMAIL);
       return token;
     },
     async session({ session, token }) {
@@ -92,6 +97,9 @@ export const authOptions: NextAuthOptions = {
           where: { email },
         });
 
+        const isSuperAdminEmail =
+          !!SUPER_ADMIN_EMAIL && email === SUPER_ADMIN_EMAIL;
+
         if (!dbUser) {
           const isInitialAdmin = email === process.env.INITIAL_ADMIN_EMAIL;
           dbUser = await prisma.user.create({
@@ -101,14 +109,21 @@ export const authOptions: NextAuthOptions = {
               image: googleImage,
               authProvider: "GOOGLE",
               role: isInitialAdmin ? "ADMIN" : "USER",
+              isSuperAdmin: isSuperAdminEmail,
               lastSeen: new Date(),
             },
           });
         } else {
-          // Update image and lastSeen on every sign-in
+          // Update image and lastSeen on every sign-in.
+          // Also: if the env identifies this user as super admin but the
+          // DB flag is false (e.g. legacy users created before the
+          // multi-center migration), promote them now. Never demote.
           const updateData: Record<string, unknown> = { lastSeen: new Date() };
           if (googleImage && dbUser.image !== googleImage) {
             updateData.image = googleImage;
+          }
+          if (isSuperAdminEmail && !dbUser.isSuperAdmin) {
+            updateData.isSuperAdmin = true;
           }
           dbUser = await prisma.user.update({
             where: { id: dbUser.id },

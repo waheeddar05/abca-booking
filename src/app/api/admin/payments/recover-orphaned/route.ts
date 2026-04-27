@@ -81,6 +81,7 @@ export async function POST(req: NextRequest) {
       try {
         const walletResult = await creditWallet(
           payment.userId,
+          payment.centerId,
           payment.amount,
           'CREDIT_REFUND',
           `Auto-recovery: orphaned payment refund`,

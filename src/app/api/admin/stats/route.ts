@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { requireAdmin } from '@/lib/adminAuth';
+import { getAuthenticatedUser } from '@/lib/auth';
+import { resolveCurrentCenter } from '@/lib/centers';
 import { getISTTodayUTC, getISTLastMonthRange, dateStringToUTC } from '@/lib/time';
 
 export async function GET(req: NextRequest) {
@@ -13,12 +15,27 @@ export async function GET(req: NextRequest) {
     const { searchParams } = new URL(req.url);
     const fromParam = searchParams.get('from');
     const toParam = searchParams.get('to');
+    const allCenters = searchParams.get('allCenters') === 'true';
 
     // Build date filter for queries
     const dateFilter: Record<string, Date> = {};
     if (fromParam) dateFilter.gte = dateStringToUTC(fromParam);
     if (toParam) dateFilter.lte = dateStringToUTC(toParam);
     const hasDateFilter = Object.keys(dateFilter).length > 0;
+
+    // Center scope. The dashboard shows the current center's numbers
+    // unless the super admin asks for the platform aggregate.
+    const adminUser = await getAuthenticatedUser(req);
+    const center = adminUser ? await resolveCurrentCenter(req, adminUser) : null;
+    let centerId: string | null = null;
+    if (!allCenters && center) {
+      centerId = center.id;
+    } else if (!allCenters && !center) {
+      return NextResponse.json({ error: 'No center selected' }, { status: 400 });
+    } else if (allCenters && !adminUser?.isSuperAdmin) {
+      return NextResponse.json({ error: 'allCenters requires super admin' }, { status: 403 });
+    }
+    const centerFilter: { centerId?: string } = centerId ? { centerId } : {};
 
     const todayUTC = getISTTodayUTC();
     const lastMonthRange = getISTLastMonthRange();
@@ -41,19 +58,24 @@ export async function GET(req: NextRequest) {
     ] = await Promise.all([
       prisma.booking.count({
         where: {
+          ...centerFilter,
           status: { not: 'CANCELLED' },
           ...(hasDateFilter ? { date: dateFilter } : {}),
         },
       }),
-      prisma.user.count({ where: { role: 'ADMIN' } }),
+      // "Active admins" = ADMIN users at this center (or globally for super admin platform view).
+      centerId
+        ? prisma.centerMembership.count({ where: { centerId, role: 'ADMIN', isActive: true } })
+        : prisma.user.count({ where: { role: 'ADMIN' } }),
       prisma.booking.count({
-        where: { date: todayUTC, status: { not: 'CANCELLED' } },
+        where: { ...centerFilter, date: todayUTC, status: { not: 'CANCELLED' } },
       }),
       prisma.booking.count({
-        where: { date: { gt: todayUTC }, status: 'BOOKED' },
+        where: { ...centerFilter, date: { gt: todayUTC }, status: 'BOOKED' },
       }),
       prisma.booking.count({
         where: {
+          ...centerFilter,
           date: {
             gte: lastMonthRange.start,
             lte: lastMonthRange.end,
@@ -61,7 +83,7 @@ export async function GET(req: NextRequest) {
           status: { not: 'CANCELLED' },
         },
       }),
-      prisma.slot.count().catch(() => 0),
+      prisma.slot.count({ where: centerFilter }).catch(() => 0),
       // Booking revenue — mirrors the bookings CSV export exactly:
       //   Revenue = Σ(Amount column) − Σ(Refund Amount column)
       // where per-row Amount = regular ? price : (extraCharge + kitRentalCharge)
@@ -70,7 +92,7 @@ export async function GET(req: NextRequest) {
       (async () => {
         try {
           const bookings = await prisma.booking.findMany({
-            where: hasDateFilter ? { date: dateFilter } : {},
+            where: { ...centerFilter, ...(hasDateFilter ? { date: dateFilter } : {}) },
             select: {
               price: true,
               kitRentalCharge: true,
@@ -101,6 +123,7 @@ export async function GET(req: NextRequest) {
       prisma.booking.aggregate({
         _sum: { discountAmount: true },
         where: {
+          ...centerFilter,
           status: { in: ['BOOKED', 'DONE'] },
           isSuperAdminBooking: false,
           discountAmount: { gt: 0 },
@@ -113,7 +136,10 @@ export async function GET(req: NextRequest) {
       (async () => {
         try {
           const ups = await prisma.userPackage.findMany({
-            where: hasDateFilter ? { activationDate: dateFilter } : {},
+            where: {
+              ...(centerId ? { package: { centerId } } : {}),
+              ...(hasDateFilter ? { activationDate: dateFilter } : {}),
+            },
             select: { id: true, amountPaid: true },
           });
           if (ups.length === 0) return 0;
@@ -146,6 +172,7 @@ export async function GET(req: NextRequest) {
         try {
           const bookings = await prisma.booking.findMany({
             where: {
+              ...centerFilter,
               machineId: { not: null },
               ...(hasDateFilter ? { date: dateFilter } : {}),
             },
@@ -183,6 +210,7 @@ export async function GET(req: NextRequest) {
       // Self-operated bookings
       prisma.booking.count({
         where: {
+          ...centerFilter,
           status: { not: 'CANCELLED' },
           operationMode: 'SELF_OPERATE',
           ...(hasDateFilter ? { date: dateFilter } : {}),
@@ -191,6 +219,7 @@ export async function GET(req: NextRequest) {
       // Unassigned bookings (WITH_OPERATOR but no operator assigned)
       prisma.booking.count({
         where: {
+          ...centerFilter,
           status: { not: 'CANCELLED' },
           operationMode: 'WITH_OPERATOR',
           operatorId: null,
@@ -202,6 +231,7 @@ export async function GET(req: NextRequest) {
         by: ['operatorId'],
         _count: { _all: true },
         where: {
+          ...centerFilter,
           status: { not: 'CANCELLED' },
           operatorId: { not: null },
           ...(hasDateFilter ? { date: dateFilter } : {}),

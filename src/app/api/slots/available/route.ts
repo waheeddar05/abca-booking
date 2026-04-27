@@ -12,6 +12,7 @@ import type { MachinePitchConfig } from '@/lib/constants';
 import { getPricingConfig, getTimeSlabConfig, getSlotPrice, getTimeSlab, timeToMinutes } from '@/lib/pricing';
 import { getCachedPolicies } from '@/lib/policy-cache';
 import { getAuthenticatedUser } from '@/lib/auth';
+import { resolveCurrentCenter } from '@/lib/centers';
 import { getOperatorCount } from '@/lib/operatorAssign';
 
 function isValidPitchTypeValue(val: string): val is PitchType {
@@ -34,13 +35,22 @@ export async function GET(req: NextRequest) {
 
     let isAdmin = false;
     let isSpecialUser = false;
+    let authedUser: Awaited<ReturnType<typeof getAuthenticatedUser>> = null;
     try {
-      const user = await getAuthenticatedUser(req);
-      isAdmin = user?.role === 'ADMIN';
-      isSpecialUser = !!user?.isSpecialUser;
+      authedUser = await getAuthenticatedUser(req);
+      isAdmin = authedUser?.role === 'ADMIN';
+      isSpecialUser = !!authedUser?.isSpecialUser;
     } catch (e) {
       console.error('Error authenticating user in available slots:', e);
     }
+
+    // Resolve the center the slot list applies to. Anonymous public visitors
+    // get the default active center; authed users get their cookie/membership.
+    const center = await resolveCurrentCenter(req, authedUser);
+    if (!center) {
+      return NextResponse.json({ error: 'No center available' }, { status: 503 });
+    }
+    const centerId = center.id;
 
     // Determine the machine and ball type
     let machineId: MachineId | null = null;
@@ -84,6 +94,7 @@ export async function GET(req: NextRequest) {
       getTimeSlabConfig(),
       prisma.blockedSlot.findMany({
         where: {
+          centerId,
           startDate: { lte: dateUTC },
           endDate: { gte: dateUTC },
         },
@@ -94,18 +105,20 @@ export async function GET(req: NextRequest) {
       // Single booking query for both occupancy and operator usage (replaces two separate queries)
       prisma.booking.findMany({
         where: {
+          centerId,
           date: dateUTC,
           status: 'BOOKED',
         },
         select: { startTime: true, ballType: true, operationMode: true, machineId: true, pitchType: true },
       }),
-      // Fetch active recurring slot discounts for badge display
+      // Fetch active recurring slot discounts at this center
       prisma.recurringSlotDiscount.findMany({
-        where: { enabled: true },
+        where: { centerId, enabled: true },
       }).catch(() => []),
-      // Fetch active promotional offers for the selected date
+      // Fetch active promotional offers for the selected date at this center
       prisma.promotionalOffer.findMany({
         where: {
+          centerId,
           isActive: true,
           startDate: { lte: dateUTC },
           endDate: { gte: dateUTC },

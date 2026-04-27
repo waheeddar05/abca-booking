@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 import { getAuthenticatedUser } from '@/lib/auth';
+import { resolveCurrentCenter } from '@/lib/centers';
 import {
   createRazorpayOrder,
   isPaymentEnabled,
@@ -20,6 +21,14 @@ export async function POST(req: NextRequest) {
     const enabled = await isPaymentEnabled();
     if (!enabled) {
       return NextResponse.json({ error: 'Payment gateway is not enabled' }, { status: 400 });
+    }
+
+    // Payments are center-scoped — bind the order to the user's current
+    // center. Phase 6 will additionally route the Razorpay account by
+    // center.razorpayKeyId.
+    const center = await resolveCurrentCenter(req, user);
+    if (!center) {
+      return NextResponse.json({ error: 'No center selected' }, { status: 400 });
     }
 
     const body = await req.json();
@@ -71,8 +80,9 @@ export async function POST(req: NextRequest) {
     // Generate receipt ID
     const receipt = `rcpt_${type === 'PACKAGE_PURCHASE' ? 'pkg' : 'slot'}_${Date.now()}`;
 
-    // Create Razorpay order
+    // Create Razorpay order against the center's Razorpay account.
     const razorpayOrder = await createRazorpayOrder({
+      centerId: center.id,
       amount,
       receipt,
       notes: {
@@ -86,6 +96,7 @@ export async function POST(req: NextRequest) {
     // Create Payment record in DB
     const payment = await prisma.payment.create({
       data: {
+        centerId: center.id,
         userId: user.id,
         amount,
         currency: 'INR',

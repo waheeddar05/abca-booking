@@ -3,6 +3,8 @@ import { prisma } from '@/lib/prisma';
 import { requireAdmin } from '@/lib/adminAuth';
 import { DiscountType, MachineId, PitchType } from '@prisma/client';
 import { z } from 'zod';
+import { getAuthenticatedUser } from '@/lib/auth';
+import { resolveCurrentCenter } from '@/lib/centers';
 
 // Validation schema
 const CreateOfferSchema = z.object({
@@ -38,14 +40,29 @@ const OFFER_SELECT = {
   updatedAt: true,
 } as const;
 
-// GET: List all offers
+// GET: List offers at the admin's current center
 export async function GET(req: NextRequest) {
   try {
     if (!(await requireAdmin(req))) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 403 });
     }
 
+    const { searchParams } = new URL(req.url);
+    const allCenters = searchParams.get('allCenters') === 'true';
+    const adminUser = await getAuthenticatedUser(req);
+    const center = adminUser ? await resolveCurrentCenter(req, adminUser) : null;
+
+    const where: { centerId?: string } = {};
+    if (!allCenters && center) {
+      where.centerId = center.id;
+    } else if (!allCenters && !center) {
+      return NextResponse.json({ error: 'No center selected' }, { status: 400 });
+    } else if (allCenters && !adminUser?.isSuperAdmin) {
+      return NextResponse.json({ error: 'allCenters requires super admin' }, { status: 403 });
+    }
+
     const offers = await prisma.promotionalOffer.findMany({
+      where,
       select: OFFER_SELECT,
       orderBy: { createdAt: 'desc' },
     });
@@ -63,6 +80,13 @@ export async function POST(req: NextRequest) {
   try {
     if (!(await requireAdmin(req))) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 403 });
+    }
+
+    // Promotional offers are center-scoped — bind to admin's current center.
+    const admin = await getAuthenticatedUser(req);
+    const center = admin ? await resolveCurrentCenter(req, admin) : null;
+    if (!center) {
+      return NextResponse.json({ error: 'No center selected' }, { status: 400 });
     }
 
     const body = await req.json();
@@ -90,6 +114,7 @@ export async function POST(req: NextRequest) {
 
     const offer = await prisma.promotionalOffer.create({
       data: {
+        centerId: center.id,
         name: parsed.name,
         startDate: new Date(parsed.startDate),
         endDate: new Date(parsed.endDate),

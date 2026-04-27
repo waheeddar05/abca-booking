@@ -122,6 +122,7 @@ export async function POST(req: NextRequest) {
           if (refundAmount > 0) {
             const walletResult = await creditWallet(
               userId,
+              booking.centerId,
               refundAmount,
               'CREDIT_REFUND',
               `Refund for cancelled ${slab} booking on ${booking.date.toISOString().split('T')[0]} — operator unavailable`,

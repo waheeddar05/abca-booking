@@ -3,9 +3,10 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useSession } from 'next-auth/react';
-import { LayoutDashboard, CalendarCheck, Users, Settings, Clock, Wrench, Package, Zap, SlidersHorizontal, ArrowLeft, Power, DatabaseZap, UserCog, Tag } from 'lucide-react';
+import { LayoutDashboard, CalendarCheck, Users, Settings, Clock, Wrench, Package, Zap, SlidersHorizontal, ArrowLeft, Power, DatabaseZap, UserCog, Tag, Building2 } from 'lucide-react';
 import { signOut } from 'next-auth/react';
 import { AdminMobileNav } from '@/components/admin/AdminMobileNav';
+import { CenterSwitcher } from '@/components/admin/CenterSwitcher';
 
 const SUPER_ADMIN_EMAIL = 'waheeddar8@gmail.com';
 
@@ -16,7 +17,11 @@ export default function AdminLayout({
 }) {
   const pathname = usePathname();
   const { data: session } = useSession();
-  const isSuperAdmin = session?.user?.email === SUPER_ADMIN_EMAIL;
+  // Source of truth for super admin is now the DB column, exposed on the
+  // session as `user.isSuperAdmin`. Email match kept as a defensive fallback
+  // so a stale token doesn't lock the project owner out of admin pages.
+  const sessionUser = session?.user as { email?: string | null; isSuperAdmin?: boolean } | undefined;
+  const isSuperAdmin = sessionUser?.isSuperAdmin === true || sessionUser?.email === SUPER_ADMIN_EMAIL;
 
   const links = [
     { href: '/admin', label: 'Dashboard', icon: LayoutDashboard },
@@ -29,6 +34,7 @@ export default function AdminLayout({
     { href: '/admin/configuration', label: 'Settings', icon: SlidersHorizontal },
     { href: '/admin/policies', label: 'Policies', icon: Settings },
     ...(isSuperAdmin ? [
+      { href: '/admin/centers', label: 'Centers', icon: Building2 },
       { href: '/admin/user-management', label: 'User Mgmt', icon: UserCog },
       { href: '/admin/maintenance', label: 'Maintenance', icon: Wrench },
       { href: '/admin/db-cleanup', label: 'DB Cleanup', icon: DatabaseZap },
@@ -87,6 +93,11 @@ export default function AdminLayout({
                 <p className="text-[9px] text-slate-600 font-medium">PlayOrbit</p>
               </div>
             </div>
+          </div>
+
+          {/* Center switcher (super admins + multi-center admins) */}
+          <div className="px-3 pb-2">
+            <CenterSwitcher />
           </div>
 
           {/* Nav Links */}

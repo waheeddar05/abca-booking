@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { requireAdmin } from '@/lib/adminAuth';
 import { getAuthenticatedUser } from '@/lib/auth';
+import { resolveCurrentCenter } from '@/lib/centers';
 
 // POST /api/admin/packages/assign - Assign a custom package to a user
 export async function POST(req: NextRequest) {
@@ -51,6 +52,12 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'User not found' }, { status: 404 });
     }
 
+    // Custom packages are center-scoped — bind to admin's current center.
+    const center = authUser ? await resolveCurrentCenter(req, authUser) : null;
+    if (!center) {
+      return NextResponse.json({ error: 'No center selected' }, { status: 400 });
+    }
+
     // Far-future placeholder dates (recalculated on first booking)
     const farFuture = new Date('2099-12-31T23:59:59.999Z');
 
@@ -58,6 +65,7 @@ export async function POST(req: NextRequest) {
       // Create the custom package template
       const pkg = await tx.package.create({
         data: {
+          centerId: center.id,
           name,
           machineId: machineId || null,
           machineType,

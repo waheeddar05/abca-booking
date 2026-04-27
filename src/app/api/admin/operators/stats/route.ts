@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { requireAdmin } from '@/lib/adminAuth';
+import { getAuthenticatedUser } from '@/lib/auth';
+import { resolveCurrentCenter } from '@/lib/centers';
 import { getISTTodayUTC, getISTTime } from '@/lib/time';
 import { subDays } from 'date-fns';
 
@@ -34,6 +36,18 @@ export async function GET(req: NextRequest) {
       );
     }
 
+    const allCenters = searchParams.get('allCenters') === 'true';
+    const adminUser = await getAuthenticatedUser(req);
+    const center = adminUser ? await resolveCurrentCenter(req, adminUser) : null;
+    let centerId: string | null = null;
+    if (!allCenters && center) {
+      centerId = center.id;
+    } else if (!allCenters && !center) {
+      return NextResponse.json({ error: 'No center selected' }, { status: 400 });
+    } else if (allCenters && !adminUser?.isSuperAdmin) {
+      return NextResponse.json({ error: 'allCenters requires super admin' }, { status: 403 });
+    }
+
     // Get IST dates
     const todayUTC = getISTTodayUTC();
     const nowIST = getISTTime();
@@ -56,9 +70,12 @@ export async function GET(req: NextRequest) {
     }
     // For 'all', dateRangeStart and dateRangeEnd remain null
 
-    // Fetch all operators (users with OPERATOR role)
+    // Fetch operators — filtered to those with active membership at the
+    // current center when not in allCenters mode.
     const operators = await prisma.user.findMany({
-      where: { role: 'OPERATOR' },
+      where: centerId
+        ? { role: 'OPERATOR', centerMemberships: { some: { centerId, isActive: true } } }
+        : { role: 'OPERATOR' },
       select: {
         id: true,
         name: true,
@@ -71,6 +88,7 @@ export async function GET(req: NextRequest) {
       operatorId: { in: operators.map(op => op.id) },
       status: { not: 'CANCELLED' },
     };
+    if (centerId) bookingWhereClause.centerId = centerId;
 
     if (dateRangeStart && dateRangeEnd) {
       bookingWhereClause.date = {

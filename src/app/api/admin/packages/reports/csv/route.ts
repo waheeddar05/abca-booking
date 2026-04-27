@@ -1,8 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { requireAdmin } from '@/lib/adminAuth';
+import { getAuthenticatedUser } from '@/lib/auth';
+import { resolveCurrentCenter } from '@/lib/centers';
 
-// GET /api/admin/packages/reports/csv - Download user packages as CSV
+// GET /api/admin/packages/reports/csv - Download user packages as CSV (current center)
 export async function GET(req: NextRequest) {
   const admin = await requireAdmin(req);
   if (!admin) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -14,9 +16,22 @@ export async function GET(req: NextRequest) {
     const userId = searchParams.get('userId');
     const fromDate = searchParams.get('fromDate');
     const toDate = searchParams.get('toDate');
+    const allCenters = searchParams.get('allCenters') === 'true';
+
+    const adminUser = await getAuthenticatedUser(req);
+    const center = adminUser ? await resolveCurrentCenter(req, adminUser) : null;
+    let centerId: string | null = null;
+    if (!allCenters && center) {
+      centerId = center.id;
+    } else if (!allCenters && !center) {
+      return NextResponse.json({ error: 'No center selected' }, { status: 400 });
+    } else if (allCenters && !adminUser?.isSuperAdmin) {
+      return NextResponse.json({ error: 'allCenters requires super admin' }, { status: 403 });
+    }
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const where: any = {};
+    if (centerId) where.package = { centerId };
     if (status) where.status = status;
     if (packageId) where.packageId = packageId;
     if (userId) where.userId = userId;

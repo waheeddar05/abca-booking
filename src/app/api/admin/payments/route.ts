@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { getAuthenticatedUser } from '@/lib/auth';
+import { resolveCurrentCenter } from '@/lib/centers';
 
 // GET /api/admin/payments - List all payments with filtering
 export async function GET(req: NextRequest) {
@@ -20,8 +21,17 @@ export async function GET(req: NextRequest) {
     const to = searchParams.get('to');
 
     const bookingId = searchParams.get('bookingId');
+    const allCenters = searchParams.get('allCenters') === 'true';
 
+    const center = await resolveCurrentCenter(req, user);
     const where: Record<string, unknown> = {};
+    if (!allCenters && center) {
+      where.centerId = center.id;
+    } else if (!allCenters && !center) {
+      return NextResponse.json({ error: 'No center selected' }, { status: 400 });
+    } else if (allCenters && !user.isSuperAdmin) {
+      return NextResponse.json({ error: 'allCenters requires super admin' }, { status: 403 });
+    }
     if (status) where.status = status;
     if (type) where.paymentType = type;
     if (userId) where.userId = userId;
@@ -48,9 +58,11 @@ export async function GET(req: NextRequest) {
       prisma.payment.count({ where }),
     ]);
 
-    // Summary stats
+    // Summary stats — same center scope as the payment list
+    const statsWhere: Record<string, unknown> = { status: 'CAPTURED' };
+    if (where.centerId) statsWhere.centerId = where.centerId;
     const stats = await prisma.payment.aggregate({
-      where: { status: 'CAPTURED' },
+      where: statsWhere,
       _sum: { amount: true, refundAmount: true },
       _count: true,
     });
@@ -103,9 +115,10 @@ export async function PATCH(req: NextRequest) {
       return NextResponse.json({ error: 'No Razorpay payment ID to refund' }, { status: 400 });
     }
 
-    // Initiate refund via Razorpay
+    // Initiate refund via the originating center's Razorpay account.
     const { initiateRefund } = await import('@/lib/razorpay');
     const refund = await initiateRefund({
+      centerId: payment.centerId,
       paymentId: payment.razorpayPaymentId,
       notes: { refundedBy: user.id, reason: 'Admin initiated refund' },
     });

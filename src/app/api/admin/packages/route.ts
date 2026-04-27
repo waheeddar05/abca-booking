@@ -1,8 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { requireAdmin } from '@/lib/adminAuth';
+import { getAuthenticatedUser } from '@/lib/auth';
+import { resolveCurrentCenter } from '@/lib/centers';
 
-// GET /api/admin/packages - List all packages (with filters)
+// GET /api/admin/packages - List packages at the admin's current center
 export async function GET(req: NextRequest) {
   const admin = await requireAdmin(req);
   if (!admin) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -10,8 +12,19 @@ export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
     const activeOnly = searchParams.get('activeOnly') === 'true';
+    const allCenters = searchParams.get('allCenters') === 'true';
+
+    const adminUser = await getAuthenticatedUser(req);
+    const center = adminUser ? await resolveCurrentCenter(req, adminUser) : null;
 
     const where: any = { isCustom: false };
+    if (!allCenters && center) {
+      where.centerId = center.id;
+    } else if (!allCenters && !center) {
+      return NextResponse.json({ error: 'No center selected' }, { status: 400 });
+    } else if (allCenters && !adminUser?.isSuperAdmin) {
+      return NextResponse.json({ error: 'allCenters requires super admin' }, { status: 403 });
+    }
     if (activeOnly) where.isActive = true;
 
     const packages = await prisma.package.findMany({
@@ -72,8 +85,16 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Invalid wicketType' }, { status: 400 });
     }
 
+    // Packages are center-scoped — bind to the admin's current center.
+    const authUser = await getAuthenticatedUser(req);
+    const center = authUser ? await resolveCurrentCenter(req, authUser) : null;
+    if (!center) {
+      return NextResponse.json({ error: 'No center selected' }, { status: 400 });
+    }
+
     const pkg = await prisma.package.create({
       data: {
+        centerId: center.id,
         name,
         machineId: machineId || null,
         machineType,

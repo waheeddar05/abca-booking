@@ -3,6 +3,8 @@ import { getToken } from 'next-auth/jwt';
 import { verifyToken } from '@/lib/jwt';
 import { prisma } from '@/lib/prisma';
 
+const SUPER_ADMIN_EMAIL = process.env.SUPER_ADMIN_EMAIL || process.env.INITIAL_ADMIN_EMAIL || '';
+
 export async function getAdminSession(req: NextRequest) {
   let email: string | null = null;
 
@@ -26,16 +28,30 @@ export async function getAdminSession(req: NextRequest) {
   // Always fetch the current role from DB so admin-promoted roles take effect immediately
   const dbUser = await prisma.user.findUnique({
     where: { email },
-    select: { role: true },
+    select: { id: true, role: true, isSuperAdmin: true },
   });
   if (!dbUser) return null;
 
-  return { role: dbUser.role, email };
+  // Compute super-admin from DB column with bootstrap email fallback.
+  const isSuperAdmin =
+    dbUser.isSuperAdmin || (!!SUPER_ADMIN_EMAIL && email === SUPER_ADMIN_EMAIL);
+
+  return { id: dbUser.id, role: dbUser.role, email, isSuperAdmin };
 }
 
 export async function requireAdmin(req: NextRequest) {
   const session = await getAdminSession(req);
   if (session?.role !== 'ADMIN') return null;
+  return session;
+}
+
+/**
+ * Allow only super admins. Use for cross-center operations:
+ * managing centers, machine catalog, super-admin-only data fixes.
+ */
+export async function requireSuperAdmin(req: NextRequest) {
+  const session = await getAdminSession(req);
+  if (!session?.isSuperAdmin) return null;
   return session;
 }
 

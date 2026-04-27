@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { requireAdmin } from '@/lib/adminAuth';
+import { getAuthenticatedUser } from '@/lib/auth';
+import { resolveCurrentCenter } from '@/lib/centers';
 import { startOfDay, endOfDay, parseISO } from 'date-fns';
 
 function isTableMissingError(error: any): boolean {
@@ -22,8 +24,19 @@ export async function GET(req: NextRequest) {
     const from = searchParams.get('from');
     const to = searchParams.get('to');
     const activeOnly = searchParams.get('activeOnly') === 'true';
+    const allCenters = searchParams.get('allCenters') === 'true';
+
+    const adminUser = await getAuthenticatedUser(req);
+    const center = adminUser ? await resolveCurrentCenter(req, adminUser) : null;
 
     const where: any = {};
+    if (!allCenters && center) {
+      where.centerId = center.id;
+    } else if (!allCenters && !center) {
+      return NextResponse.json({ error: 'No center selected' }, { status: 400 });
+    } else if (allCenters && !adminUser?.isSuperAdmin) {
+      return NextResponse.json({ error: 'allCenters requires super admin' }, { status: 403 });
+    }
 
     if (date) {
       where.date = new Date(date);
@@ -56,8 +69,10 @@ export async function GET(req: NextRequest) {
     }
 
     // Fetch bookings for the same date range in a single query using the same
-    // where clause (avoids passing a potentially huge array of dates)
+    // where clause (avoids passing a potentially huge array of dates).
+    // Scoped to the same center as the slot list.
     const bookingWhere: any = { status: 'BOOKED' };
+    if (where.centerId) bookingWhere.centerId = where.centerId;
     if (where.date) {
       bookingWhere.date = where.date;
     }
@@ -122,10 +137,18 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Start time must be before end time' }, { status: 400 });
     }
 
+    // Slots are center-scoped — bind to admin's current center.
+    const admin = await getAuthenticatedUser(req);
+    const center = admin ? await resolveCurrentCenter(req, admin) : null;
+    if (!center) {
+      return NextResponse.json({ error: 'No center selected' }, { status: 400 });
+    }
+
     try {
-      // Check for overlapping slots
+      // Check for overlapping slots at this center
       const existing = await prisma.slot.findFirst({
         where: {
+          centerId: center.id,
           date: startOfDay(slotDate),
           startTime: start,
         },
@@ -137,6 +160,7 @@ export async function POST(req: NextRequest) {
 
       const slot = await prisma.slot.create({
         data: {
+          centerId: center.id,
           date: startOfDay(slotDate),
           startTime: start,
           endTime: end,

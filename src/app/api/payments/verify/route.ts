@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { getAuthenticatedUser } from '@/lib/auth';
-import { verifyPaymentSignature } from '@/lib/razorpay';
+import { verifyPaymentSignatureForCenter } from '@/lib/razorpay';
 import { notifyPaymentSuccess } from '@/lib/notifications';
 import { debitWallet, isWalletEnabled } from '@/lib/wallet';
 import { executeSlotBooking, BookingServiceError } from '@/app/api/slots/book/route';
@@ -52,8 +52,10 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Order ID mismatch' }, { status: 400 });
     }
 
-    // Verify signature
-    const isValid = verifyPaymentSignature({
+    // Verify signature against the center's Razorpay secret. Different
+    // centers can have different merchant accounts with different keys.
+    const isValid = await verifyPaymentSignatureForCenter({
+      centerId: payment.centerId,
       orderId: razorpay_order_id,
       paymentId: razorpay_payment_id,
       signature: razorpay_signature,
@@ -105,7 +107,7 @@ export async function POST(req: NextRequest) {
             paymentId: payment.id,
           }));
 
-          const bookings = await executeSlotBooking(user, slotsWithPayment, {
+          const bookings = await executeSlotBooking(user, slotsWithPayment, payment.centerId, {
             onlinePaymentId: payment.id,
           });
 
@@ -152,7 +154,7 @@ export async function POST(req: NextRequest) {
  * Complete a package purchase after successful payment
  */
 async function completePackagePurchase(
-  payment: { id: string; amount: number; metadata: unknown },
+  payment: { id: string; amount: number; metadata: unknown; centerId: string },
   userId: string,
 ) {
   const meta = payment.metadata as Record<string, unknown> | null;
@@ -216,10 +218,11 @@ async function completePackagePurchase(
   // Debit wallet if wallet deduction was specified
   if (walletDeduction > 0) {
     try {
-      const walletEnabled = await isWalletEnabled();
+      const walletEnabled = await isWalletEnabled(payment.centerId);
       if (walletEnabled) {
         await debitWallet(
           userId,
+          payment.centerId,
           walletDeduction,
           'DEBIT_BOOKING',
           `Package purchase: ${pkg.name}`,

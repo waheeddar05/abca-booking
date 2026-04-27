@@ -101,7 +101,9 @@ export async function POST(req: NextRequest) {
       // Call Razorpay refund API first — if it fails, don't create DB records
       let razorpayRefund: any;
       try {
+        // Use the originating center's Razorpay account.
         razorpayRefund = await initiateRefund({
+          centerId: booking.centerId,
           paymentId: payment.razorpayPaymentId,
           amount: refundAmount,
           notes: {
@@ -161,9 +163,12 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ refund });
     }
 
-    // Wallet refund — works for ANY booking (online, cash, wallet, free)
+    // Wallet refund — works for ANY booking (online, cash, wallet, free).
+    // Wallets are center-scoped, so the refund credits the booking's
+    // own-center wallet.
     const walletResult = await creditWallet(
       booking.userId,
+      booking.centerId,
       refundAmount,
       'CREDIT_REFUND',
       `Admin refund: ${reason.trim()}`,
