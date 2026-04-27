@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { requireAdmin } from '@/lib/adminAuth';
+import { getAuthenticatedUser } from '@/lib/auth';
+import { resolveCurrentCenter } from '@/lib/centers';
 import { generateSlotsForDateDualWindow } from '@/lib/time';
 import { getTimeSlabConfig } from '@/lib/pricing';
 import { parseISO, startOfDay, addDays } from 'date-fns';
@@ -32,6 +34,13 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'fromDate must be before or equal to toDate' }, { status: 400 });
     }
 
+    // Slots are center-scoped — bind bulk creation to admin's current center.
+    const admin = await getAuthenticatedUser(req);
+    const center = admin ? await resolveCurrentCenter(req, admin) : null;
+    if (!center) {
+      return NextResponse.json({ error: 'No center selected' }, { status: 400 });
+    }
+
     // Fetch time slab config and slot duration from policies
     const timeSlabConfig = await getTimeSlabConfig();
 
@@ -46,6 +55,7 @@ export async function POST(req: NextRequest) {
     const slotPrice = Number(price) || (policyMap['DEFAULT_SLOT_PRICE'] ? parseFloat(policyMap['DEFAULT_SLOT_PRICE']) : 600);
 
     const slotsToCreate: Array<{
+      centerId: string;
       date: Date;
       startTime: Date;
       endTime: Date;
@@ -57,6 +67,7 @@ export async function POST(req: NextRequest) {
       const daySlots = generateSlotsForDateDualWindow(currentDate, timeSlabConfig, slotDuration);
       for (const slot of daySlots) {
         slotsToCreate.push({
+          centerId: center.id,
           date: startOfDay(currentDate),
           startTime: slot.startTime,
           endTime: slot.endTime,
@@ -66,11 +77,12 @@ export async function POST(req: NextRequest) {
       currentDate = addDays(currentDate, 1);
     }
 
-    // Filter out slots that already exist
+    // Filter out slots that already exist at this center
     let existingSlots: { date: Date; startTime: Date }[] = [];
     try {
       existingSlots = await prisma.slot.findMany({
         where: {
+          centerId: center.id,
           date: {
             gte: startOfDay(from),
             lte: startOfDay(to),

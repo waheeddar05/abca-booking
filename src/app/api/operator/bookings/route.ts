@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { getOperatorSession } from '@/lib/adminAuth';
+import { getAuthenticatedUser } from '@/lib/auth';
+import { resolveCurrentCenter } from '@/lib/centers';
 import { getISTTodayUTC, getISTLastMonthRange, dateStringToUTC } from '@/lib/time';
 
 export async function GET(req: NextRequest) {
@@ -26,6 +28,20 @@ export async function GET(req: NextRequest) {
     const page = Math.max(1, parseInt(searchParams.get('page') || '1'));
     const limit = Math.min(50, Math.max(1, parseInt(searchParams.get('limit') || '20')));
 
+    // Resolve current center. Operators see only bookings at the center
+    // they're currently selected at; admins can pass `?allCenters=true`.
+    const allCenters = searchParams.get('allCenters') === 'true';
+    const authUser = await getAuthenticatedUser(req);
+    const center = authUser ? await resolveCurrentCenter(req, authUser) : null;
+    let centerId: string | null = null;
+    if (!allCenters && center) {
+      centerId = center.id;
+    } else if (!allCenters && !center) {
+      return NextResponse.json({ error: 'No center selected' }, { status: 400 });
+    } else if (allCenters && !authUser?.isSuperAdmin) {
+      return NextResponse.json({ error: 'allCenters requires super admin' }, { status: 403 });
+    }
+
     // Build booking filter based on role
     const ALL_MACHINES = ['GRAVITY', 'YANTRA', 'LEVERAGE_INDOOR', 'LEVERAGE_OUTDOOR'];
     let machineIds: string[];
@@ -36,7 +52,12 @@ export async function GET(req: NextRequest) {
       assignedMachineIds = ALL_MACHINES;
     } else {
       const assignments = await prisma.operatorAssignment.findMany({
-        where: { userId: session.userId },
+        // Operator assignments are center-scoped; only consider this
+        // operator's assignments at the current center.
+        where: {
+          userId: session.userId,
+          ...(centerId ? { centerId } : {}),
+        },
         select: { machineId: true },
       });
       assignedMachineIds = assignments.map((a) => a.machineId);
@@ -47,9 +68,10 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    // Base where clause
+    // Base where clause — scoped to the current center.
     const bookingWhere: any = {
       machineId: { in: machineIds as any },
+      ...(centerId ? { centerId } : {}),
     };
 
     // If a specific machine filter is set, narrow down further (must still be in allowed machines)

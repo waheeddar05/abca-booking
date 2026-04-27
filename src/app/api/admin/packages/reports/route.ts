@@ -1,16 +1,37 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { requireAdmin } from '@/lib/adminAuth';
+import { getAuthenticatedUser } from '@/lib/auth';
+import { resolveCurrentCenter } from '@/lib/centers';
 
-// GET /api/admin/packages/reports - Package analytics & reporting
+// GET /api/admin/packages/reports - Package analytics for the current center
 export async function GET(req: NextRequest) {
   const admin = await requireAdmin(req);
   if (!admin) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   try {
+    const { searchParams } = new URL(req.url);
+    const allCenters = searchParams.get('allCenters') === 'true';
+    const adminUser = await getAuthenticatedUser(req);
+    const center = adminUser ? await resolveCurrentCenter(req, adminUser) : null;
+    let centerId: string | null = null;
+    if (!allCenters && center) {
+      centerId = center.id;
+    } else if (!allCenters && !center) {
+      return NextResponse.json({ error: 'No center selected' }, { status: 400 });
+    } else if (allCenters && !adminUser?.isSuperAdmin) {
+      return NextResponse.json({ error: 'allCenters requires super admin' }, { status: 403 });
+    }
+
+    // UserPackage doesn't carry centerId directly — derive via Package.centerId.
+    const upCenterFilter = centerId ? { package: { centerId } } : {};
+    const pbCenterFilter = centerId
+      ? { userPackage: { package: { centerId } } }
+      : {};
+
     const now = new Date();
 
-    // Auto-expire packages
+    // Auto-expire packages (across all centers — expiry is centre-agnostic)
     await prisma.userPackage.updateMany({
       where: { status: 'ACTIVE', expiryDate: { lt: now } },
       data: { status: 'EXPIRED' },
@@ -25,21 +46,30 @@ export async function GET(req: NextRequest) {
       refundTxns,
       packages,
     ] = await Promise.all([
-      prisma.userPackage.count({ where: { status: 'ACTIVE' } }),
-      prisma.userPackage.count({ where: { status: 'EXPIRED' } }),
-      prisma.userPackage.count({ where: { status: 'CANCELLED' } }),
+      prisma.userPackage.count({ where: { ...upCenterFilter, status: 'ACTIVE' } }),
+      prisma.userPackage.count({ where: { ...upCenterFilter, status: 'EXPIRED' } }),
+      prisma.userPackage.count({ where: { ...upCenterFilter, status: 'CANCELLED' } }),
       prisma.userPackage.findMany({
+        where: upCenterFilter,
         select: { id: true, totalSessions: true, usedSessions: true, amountPaid: true, packageId: true, status: true },
       }),
       prisma.packageBooking.findMany({
+        where: pbCenterFilter,
         select: { extraCharge: true, sessionsUsed: true },
       }),
-      // Refunds tied to a userPackage (package cancellations)
+      // Refunds tied to a userPackage (package cancellations).
+      // We filter to refunds in this center's wallets; phase-1 made
+      // wallets center-scoped so this is safe.
       prisma.walletTransaction.findMany({
-        where: { type: 'CREDIT_REFUND', referenceId: { not: null } },
+        where: {
+          type: 'CREDIT_REFUND',
+          referenceId: { not: null },
+          ...(centerId ? { wallet: { centerId } } : {}),
+        },
         select: { referenceId: true, amount: true },
       }),
       prisma.package.findMany({
+        where: centerId ? { centerId } : {},
         select: { id: true, name: true },
       }),
     ]);

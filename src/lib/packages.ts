@@ -1,5 +1,5 @@
 import { prisma } from '@/lib/prisma';
-import { type MachineType, type PackageBallType, type PackageWicketType, type TimingType, type BallType, type PitchType } from '@prisma/client';
+import { type PackageMachineType, type PackageBallType, type PackageWicketType, type TimingType, type BallType, type PitchType } from '@prisma/client';
 import { getTimeSlab, getTimeSlabConfig, type TimeSlabConfig } from '@/lib/pricing';
 
 export interface ExtraChargeRules {
@@ -15,7 +15,7 @@ export interface ExtraChargeRules {
  * LEATHER machine → LEATHER/MACHINE ball types
  * TENNIS machine → TENNIS ball type
  */
-export function isMachineTypeCompatible(packageMachineType: MachineType, bookingBallType: BallType): boolean {
+export function isMachineTypeCompatible(packageMachineType: PackageMachineType, bookingBallType: BallType): boolean {
   if (packageMachineType === 'LEATHER') {
     return bookingBallType === 'LEATHER' || bookingBallType === 'MACHINE';
   }
@@ -136,7 +136,7 @@ export function getTimingExtraCharge(
 export function calculatePackageExtraCharge(
   pkg: {
     machineId?: string | null;
-    machineType: MachineType;
+    machineType: PackageMachineType;
     ballType: PackageBallType | null;
     wicketType: PackageWicketType | null;
     timingType: TimingType;

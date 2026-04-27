@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { getAuthenticatedUser } from '@/lib/auth';
+import { resolveCurrentCenter } from '@/lib/centers';
 import { getUserActivePackages } from '@/lib/packages';
 
 // GET /api/packages/my - User's packages dashboard
@@ -13,12 +14,20 @@ export async function GET(req: NextRequest) {
 
     const { searchParams } = new URL(req.url);
     const includeAll = searchParams.get('all') === 'true';
+    const allCenters = searchParams.get('allCenters') === 'true';
+
+    // UserPackage doesn't carry centerId directly — derive via Package.centerId.
+    let centerFilter: { centerId: string } | undefined;
+    if (!allCenters) {
+      const center = await resolveCurrentCenter(req, user);
+      if (center) centerFilter = { centerId: center.id };
+    }
 
     if (includeAll) {
       // Return all packages (active, expired, cancelled)
       const now = new Date();
 
-      // Auto-expire
+      // Auto-expire (across all centers — expiry is centre-agnostic)
       await prisma.userPackage.updateMany({
         where: {
           userId: user.id,
@@ -29,7 +38,10 @@ export async function GET(req: NextRequest) {
       });
 
       const packages = await prisma.userPackage.findMany({
-        where: { userId: user.id },
+        where: {
+          userId: user.id,
+          ...(centerFilter ? { package: centerFilter } : {}),
+        },
         include: {
           package: true,
           packageBookings: {
@@ -47,8 +59,11 @@ export async function GET(req: NextRequest) {
       return response;
     }
 
-    // Return only active packages
-    const activePackages = await getUserActivePackages(user.id);
+    // Return only active packages, scoped to current center unless allCenters=true
+    const activePackages = (await getUserActivePackages(user.id)).filter((up) => {
+      if (!centerFilter) return true;
+      return up.package.centerId === centerFilter.centerId;
+    });
     
     // Add no-cache headers to ensure the browser always gets the latest data
     const response = NextResponse.json(activePackages.map(formatUserPackage));

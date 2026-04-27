@@ -8,39 +8,253 @@ datasource db {
   directUrl = env("POSTGRES_URL")
 }
 
-model User {
-  id            String         @id @default(cuid())
-  name          String?
-  email         String?        @unique
-  mobileNumber  String?        @unique
-  authProvider  AuthProvider
-  createdAt     DateTime       @default(now())
-  lastSeen      DateTime?
-  role          UserRole       @default(USER)
-  image         String?
-  isBlacklisted Boolean        @default(false)
-  isFreeUser           Boolean              @default(false)
-  isSpecialUser        Boolean              @default(false)
-  specialDiscountType  DiscountType?
-  specialDiscountValue Float?
-  phonePromptDismissed Boolean              @default(false)
-  mobileVerified       Boolean              @default(false)
-  bookings             Booking[]
-  notifications        Notification[]
-  otps                 Otp[]
-  userPackages         UserPackage[]
-  payments             Payment[]
-  operatorPriority          Int                  @default(0)
-  operatorMorningPriority   Int                  @default(0)
-  operatorEveningPriority   Int                  @default(0)
-  operatorDayPriorities     Json?                // { "0": { "morning": 1, "evening": 2 }, ... } day-specific priorities
-  operatorAssignments       OperatorAssignment[]
-  operatedBookings     Booking[]            @relation("OperatorBookings")
-  cashPaymentUser      CashPaymentUser?
-  wallet               Wallet?
-  adminRefunds         Refund[]           @relation("AdminRefunds")
+// ─── Multi-Center Foundation ─────────────────────────────────────────
+//
+// A "Center" is an independent operational unit (e.g. ABCA, Toplay).
+// Each center has its own infrastructure, machines, admins, payment
+// gateway and config. Most domain rows (Booking, Slot, Package, etc.)
+// are center-scoped via a `centerId` FK.
+//
+// Resolution order for any configurable value:
+//   center-specific row  →  global row (centerId IS NULL)  →  hardcoded default
+
+model Center {
+  id           String  @id @default(cuid())
+  slug         String  @unique // e.g. "abca", "toplay" — used in URLs and code
+  name         String
+  shortName    String?
+  description  String?
+  isActive     Boolean @default(true)
+  displayOrder Int     @default(0)
+
+  // Booking engine selection — different centers may use different
+  // booking models (legacy machine/pitch vs. resource-pool).
+  bookingModel BookingModel @default(MACHINE_PITCH)
+
+  // Contact + location
+  addressLine1 String?
+  addressLine2 String?
+  city         String?
+  state        String?
+  pincode      String?
+  latitude     Float?
+  longitude    Float?
+  contactPhone String?
+  contactEmail String?
+  mapUrl       String?
+  logoUrl      String?
+  themeColor   String?
+
+  // Per-center Razorpay credentials. Keep null to fall back to env.
+  // SECURITY: keySecret is plaintext today — flag for encryption-at-rest
+  // before exposing edit UI to non-super-admins.
+  razorpayKeyId         String?
+  razorpayKeySecret     String?
+  razorpayWebhookSecret String?
+
+  // Free-form per-center configuration (operating hours, holidays, etc.)
+  metadata Json?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  memberships         CenterMembership[]
+  resources           Resource[]
+  machines            Machine[]
+  bookings            Booking[]
+  slots               Slot[]
+  packages            Package[]
+  blockedSlots        BlockedSlot[]
+  payments            Payment[]
+  promotionalOffers   PromotionalOffer[]
+  recurringDiscounts  RecurringSlotDiscount[]
+  cashPaymentUsers    CashPaymentUser[]
+  operatorAssignments OperatorAssignment[]
+  centerPolicies      CenterPolicy[]
+  wallets             Wallet[]
 }
 
+enum BookingModel {
+  // Legacy: Booking is unique on (date, startTime, machineId, pitchType).
+  // Used by ABCA. Each machine has its own implicit "lane".
+  MACHINE_PITCH
+  // Toplay: Bookings consume named Resources (nets, courts, staff).
+  // Availability = "all required resources free for this slot."
+  RESOURCE_BASED
+}
+
+model CenterMembership {
+  id        String         @id @default(cuid())
+  userId    String
+  centerId  String
+  role      MembershipRole
+  isActive  Boolean        @default(true)
+  // Optional per-center metadata (e.g. coach specialties, sidearm staff
+  // weekly schedule, operator-priority overrides). Free-form to avoid
+  // schema churn while the resource-based engine evolves.
+  metadata  Json?
+  createdAt DateTime       @default(now())
+  updatedAt DateTime       @updatedAt
+
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  center Center @relation(fields: [centerId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, centerId, role])
+  @@index([centerId, role])
+  @@index([userId])
+}
+
+enum MembershipRole {
+  ADMIN
+  OPERATOR
+  COACH
+  SIDEARM_STAFF
+}
+
+// A physical, bookable thing at a center: a net, a turf wicket, a court.
+// Resources are the "supply side" of the resource-based booking model.
+// (ABCA centers can ignore this table entirely until they migrate.)
+model Resource {
+  id           String           @id @default(cuid())
+  centerId     String
+  name         String // "Indoor Net 1", "Outdoor Turf 1"
+  type         ResourceType
+  category     ResourceCategory
+  capacity     Int              @default(1) // future: a wicket that can host two batsmen
+  isActive     Boolean          @default(true)
+  displayOrder Int              @default(0)
+  metadata     Json?
+  createdAt    DateTime         @default(now())
+  updatedAt    DateTime         @updatedAt
+
+  center             Center                      @relation(fields: [centerId], references: [id], onDelete: Cascade)
+  machines           Machine[]
+  bookingAssignments BookingResourceAssignment[]
+
+  @@index([centerId, type])
+  @@index([centerId, isActive])
+}
+
+enum ResourceType {
+  NET
+  TURF_WICKET
+  CEMENT_WICKET
+  COURT // a logical resource composed of multiple nets (e.g. full indoor court)
+}
+
+enum ResourceCategory {
+  INDOOR
+  OUTDOOR
+}
+
+// Catalog of machine types (Yantra, Leverage, Gravity, …). Adding a new
+// machine model is a data-only operation: insert a row, then create
+// per-center Machine rows.
+model MachineType {
+  id          String   @id @default(cuid())
+  code        String   @unique // "YANTRA", "LEVERAGE", "GRAVITY"
+  name        String
+  ballType    BallType
+  description String?
+  isActive    Boolean  @default(true)
+  metadata    Json?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  machines Machine[]
+}
+
+// A specific machine instance at a specific center. ABCA's existing four
+// machines are seeded with `legacyMachineId` set, so the existing enum-
+// based booking code keeps working untouched while new code can address
+// machines by `Machine.id`.
+model Machine {
+  id              String     @id @default(cuid())
+  centerId        String
+  machineTypeId   String
+  // Bridge to the legacy MachineId enum — set for ABCA's existing machines,
+  // null for any newly-created machine at any center. To be deprecated once
+  // every booking query reads from this table.
+  legacyMachineId MachineId?
+  name            String // "Yantra 1"
+  shortName       String?
+  resourceId      String? // optional: which net/wicket this machine sits on
+  isActive        Boolean    @default(true)
+  displayOrder    Int        @default(0)
+  // Pitch compatibility, slab pricing tweaks, etc. — overrides the global
+  // MACHINE_PITCH_CONFIG policy.
+  metadata        Json?
+  createdAt       DateTime   @default(now())
+  updatedAt       DateTime   @updatedAt
+
+  center      Center      @relation(fields: [centerId], references: [id], onDelete: Cascade)
+  machineType MachineType @relation(fields: [machineTypeId], references: [id])
+  resource    Resource?   @relation(fields: [resourceId], references: [id])
+  bookings    Booking[]   @relation("BookingMachine")
+
+  @@unique([centerId, legacyMachineId])
+  @@index([centerId, isActive])
+}
+
+// Per-center policy overrides. `Policy` (below) holds the global default;
+// if a row exists here for the same key, it wins. Resolution helper lives
+// in `src/lib/policy.ts`.
+model CenterPolicy {
+  id        String   @id @default(cuid())
+  centerId  String
+  key       String
+  value     String
+  updatedAt DateTime @updatedAt
+
+  center Center @relation(fields: [centerId], references: [id], onDelete: Cascade)
+
+  @@unique([centerId, key])
+  @@index([key])
+}
+
+// ─── User & Auth ─────────────────────────────────────────────────────
+
+model User {
+  id                      String               @id @default(cuid())
+  name                    String?
+  email                   String?              @unique
+  mobileNumber            String?              @unique
+  authProvider            AuthProvider
+  createdAt               DateTime             @default(now())
+  lastSeen                DateTime?
+  role                    UserRole             @default(USER)
+  // Persistent super-admin flag. Source of truth from now on; the
+  // SUPER_ADMIN_EMAIL env var is kept as a bootstrap fallback.
+  isSuperAdmin            Boolean              @default(false)
+  image                   String?
+  isBlacklisted           Boolean              @default(false)
+  isFreeUser              Boolean              @default(false)
+  isSpecialUser           Boolean              @default(false)
+  specialDiscountType     DiscountType?
+  specialDiscountValue    Float?
+  phonePromptDismissed    Boolean              @default(false)
+  mobileVerified          Boolean              @default(false)
+  bookings                Booking[]
+  notifications           Notification[]
+  otps                    Otp[]
+  userPackages            UserPackage[]
+  payments                Payment[]
+  operatorPriority        Int                  @default(0)
+  operatorMorningPriority Int                  @default(0)
+  operatorEveningPriority Int                  @default(0)
+  operatorDayPriorities   Json? // { "0": { "morning": 1, "evening": 2 }, ... } day-specific priorities
+  operatorAssignments     OperatorAssignment[]
+  operatedBookings        Booking[]            @relation("OperatorBookings")
+  coachedBookings         Booking[]            @relation("BookingCoach")
+  sidearmBookings         Booking[]            @relation("BookingStaff")
+  cashPaymentUsers        CashPaymentUser[]
+  wallets                 Wallet[]
+  adminRefunds            Refund[]             @relation("AdminRefunds")
+  centerMemberships       CenterMembership[]
+}
+
+// Global policy / feature flags. Keys without a centerId in
+// `CenterPolicy` use these values directly.
 model Policy {
   id        String   @id @default(cuid())
   key       String   @unique
@@ -58,8 +272,11 @@ model Otp {
   user      User     @relation(fields: [userId], references: [id])
 }
 
+// ─── Center-scoped Domain Tables ─────────────────────────────────────
+
 model Slot {
   id        String   @id @default(cuid())
+  centerId  String
   date      DateTime @db.Date
   startTime DateTime
   endTime   DateTime
@@ -67,50 +284,116 @@ model Slot {
   isActive  Boolean  @default(true)
   createdAt DateTime @default(now())
 
-  @@unique([date, startTime])
+  center Center @relation(fields: [centerId], references: [id], onDelete: Cascade)
+
+  @@unique([centerId, date, startTime])
+  @@index([centerId, date])
 }
 
 model Booking {
-  id                 String          @id @default(cuid())
-  userId             String?
-  date               DateTime        @db.Date
-  startTime          DateTime
-  endTime            DateTime
-  status             BookingStatus   @default(BOOKED)
-  ballType           BallType        @default(TENNIS)
-  playerName         String
-  createdAt          DateTime        @default(now())
-  discountAmount     Float?
-  discountType       DiscountType?
-  extraCharge        Float?
-  operationMode      OperationMode   @default(WITH_OPERATOR)
-  originalPrice      Float?
-  pitchType          PitchType?
-  price              Float?
-  cancellationReason String?
-  cancelledBy        String?
-  createdBy          String?
-  machineId          MachineId?
-  isSuperAdminBooking Boolean              @default(false)
+  id                  String                @id @default(cuid())
+  centerId            String
+  userId              String?
+  date                DateTime              @db.Date
+  startTime           DateTime
+  endTime             DateTime
+  status              BookingStatus         @default(BOOKED)
+  ballType            BallType              @default(TENNIS)
+  playerName          String
+  createdAt           DateTime              @default(now())
+  discountAmount      Float?
+  discountType        DiscountType?
+  extraCharge         Float?
+  operationMode       OperationMode         @default(WITH_OPERATOR)
+  originalPrice       Float?
+  pitchType           PitchType?
+  price               Float?
+  cancellationReason  String?
+  cancelledBy         String?
+  createdBy           String?
+  // Legacy machine reference (used by ABCA's MACHINE_PITCH booking model).
+  // For RESOURCE_BASED centers this is null; the assigned Machine row is
+  // recorded via `assignedMachineId` and the resource(s) consumed via
+  // `BookingResourceAssignment`.
+  machineId           MachineId?
+  isSuperAdminBooking Boolean               @default(false)
   operatorId          String?
   paymentMethod       BookingPaymentMethod?
   paymentStatus       BookingPaymentStatus?
-  kitRental           Boolean              @default(false)
+  kitRental           Boolean               @default(false)
   kitRentalCharge     Float?
-  user               User?           @relation(fields: [userId], references: [id])
-  operator           User?           @relation("OperatorBookings", fields: [operatorId], references: [id])
-  packageBooking     PackageBooking?
-  refunds            Refund[]
 
-  @@unique([date, startTime, machineId, pitchType])
+  // ─── Resource-based booking model (phase 5) ─────────────────────
+  //
+  // `category` discriminates what kind of session this is:
+  //   MACHINE        — bowling machine session (Yantra/Leverage/Gravity).
+  //   SIDEARM        — sidearm staff bowls; consumes 1 net + 1 staff.
+  //   COACHING       — personal coaching; consumes 1 net + 1 coach.
+  //   FULL_COURT     — full indoor court; consumes ALL indoor nets.
+  //   CORPORATE_BATCH — corporate group session; admin-only.
+  // Defaults to MACHINE so every existing ABCA booking is unaffected.
+  category BookingCategory @default(MACHINE)
+
+  // Optional FKs surfaced for fast joins / dashboards. Real source of
+  // truth for which Resources a booking holds is `BookingResourceAssignment`.
+  assignedMachineId String?
+  assignedCoachId   String?
+  assignedStaffId   String?
+
+  center              Center                      @relation(fields: [centerId], references: [id])
+  user                User?                       @relation(fields: [userId], references: [id])
+  operator            User?                       @relation("OperatorBookings", fields: [operatorId], references: [id])
+  assignedMachine     Machine?                    @relation("BookingMachine", fields: [assignedMachineId], references: [id])
+  assignedCoach       User?                       @relation("BookingCoach", fields: [assignedCoachId], references: [id])
+  assignedStaff       User?                       @relation("BookingStaff", fields: [assignedStaffId], references: [id])
+  packageBooking      PackageBooking?
+  refunds             Refund[]
+  resourceAssignments BookingResourceAssignment[]
+
+  // Center-scoped uniqueness so two centers don't collide on the same
+  // (date, startTime, machineId, pitchType) triple. Resource-based
+  // bookings have machineId=null and pitchType=null, so this constraint
+  // never fires for them — overlap is enforced via BookingResourceAssignment.
+  @@unique([centerId, date, startTime, machineId, pitchType])
   @@index([status])
   @@index([userId, status])
-  @@index([date, status])
+  @@index([centerId, date, status])
+  @@index([centerId, status])
+  @@index([centerId, category, date])
   @@index([operatorId])
+  @@index([assignedMachineId])
+  @@index([assignedCoachId])
+  @@index([assignedStaffId])
+}
+
+enum BookingCategory {
+  MACHINE
+  SIDEARM
+  COACHING
+  FULL_COURT
+  CORPORATE_BATCH
+}
+
+// Many-to-many between a Booking and the Resources (nets/courts/turf
+// wickets) it consumes. A FULL_COURT booking has 4 rows here (one per
+// indoor net); a single-net booking has 1. Used to compute "is resource
+// X free during [t1, t2)?".
+model BookingResourceAssignment {
+  id         String   @id @default(cuid())
+  bookingId  String
+  resourceId String
+  createdAt  DateTime @default(now())
+
+  booking  Booking  @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  resource Resource @relation(fields: [resourceId], references: [id])
+
+  @@unique([bookingId, resourceId])
+  @@index([resourceId])
 }
 
 model BlockedSlot {
   id            String     @id @default(cuid())
+  centerId      String
   startDate     DateTime   @db.Date
   endDate       DateTime   @db.Date
   startTime     DateTime?
@@ -124,13 +407,18 @@ model BlockedSlot {
   recurringDays Int[]
   machineIds    String[]
   appliesTo     String     @default("ALL") // "ALL", "SPECIAL", "NON_SPECIAL"
+
+  center Center @relation(fields: [centerId], references: [id], onDelete: Cascade)
+
+  @@index([centerId, startDate, endDate])
 }
 
 model Package {
   id               String             @id @default(cuid())
+  centerId         String
   name             String
   machineId        MachineId?
-  machineType      MachineType
+  machineType      PackageMachineType
   ballType         PackageBallType?
   wicketType       PackageWicketType?
   pitchTypes       PitchType[]
@@ -144,6 +432,10 @@ model Package {
   createdAt        DateTime           @default(now())
   updatedAt        DateTime           @updatedAt
   userPackages     UserPackage[]
+
+  center Center @relation(fields: [centerId], references: [id], onDelete: Cascade)
+
+  @@index([centerId, isActive])
 }
 
 model UserPackage {
@@ -201,15 +493,32 @@ model Notification {
 }
 
 // ─── Wallet ──────────────────────────────────────────────────────────
+//
+// Wallets are CENTER-SCOPED: each user has at most one wallet per center.
+// A refund issued at ABCA credits an ABCA wallet; balances cannot be
+// spent across centers. (Razorpay accounts are also per-center, so this
+// matches the money-flow boundary.)
+//
+// Future option — global wallets: add a `WALLET_SCOPE` policy ('CENTER'
+// or 'GLOBAL'); when GLOBAL, code resolves a single wallet per user and
+// ignores the centerId column (which would be relaxed to nullable). Not
+// implemented today; flagged for when the business asks for it.
+//
+// `Center` relation:                       wallets        Wallet[]
 
 model Wallet {
   id           String              @id @default(cuid())
-  userId       String              @unique
+  userId       String
+  centerId     String
   balance      Float               @default(0)
   createdAt    DateTime            @default(now())
   updatedAt    DateTime            @updatedAt
   user         User                @relation(fields: [userId], references: [id])
+  center       Center              @relation(fields: [centerId], references: [id], onDelete: Cascade)
   transactions WalletTransaction[]
+
+  @@unique([userId, centerId])
+  @@index([centerId])
 }
 
 model WalletTransaction {
@@ -217,9 +526,9 @@ model WalletTransaction {
   walletId    String
   type        WalletTransactionType
   amount      Float
-  balance     Float                 // Balance after this transaction
+  balance     Float // Balance after this transaction
   description String?
-  referenceId String?               // Booking ID, Payment ID, etc.
+  referenceId String? // Booking ID, Payment ID, etc.
   createdAt   DateTime              @default(now())
   wallet      Wallet                @relation(fields: [walletId], references: [id])
 
@@ -232,6 +541,8 @@ enum UserRole {
   USER
   ADMIN
   OPERATOR
+  COACH
+  SIDEARM_STAFF
 }
 
 enum AuthProvider {
@@ -276,7 +587,10 @@ enum OperationMode {
   SELF_OPERATE
 }
 
-enum MachineType {
+// Renamed from `MachineType` to free that name for the new `MachineType`
+// model. Only used by `Package`. The Postgres enum type is renamed via the
+// migration; existing data is preserved (LEATHER / TENNIS values unchanged).
+enum PackageMachineType {
   LEATHER
   TENNIS
 }
@@ -365,116 +679,135 @@ enum WhatsAppMessageStatus {
 }
 
 model Payment {
-  id                String        @id @default(cuid())
-  userId            String
-  amount            Float
-  currency          String        @default("INR")
-  status            PaymentStatus @default(CREATED)
-  paymentType       PaymentType
+  id          String        @id @default(cuid())
+  centerId    String
+  userId      String
+  amount      Float
+  currency    String        @default("INR")
+  status      PaymentStatus @default(CREATED)
+  paymentType PaymentType
 
   // Razorpay fields
-  razorpayOrderId   String        @unique
+  razorpayOrderId   String  @unique
   razorpayPaymentId String?
   razorpaySignature String?
 
   // Reference to what was paid for
-  bookingIds        String[]      // Array of booking IDs for slot bookings
-  userPackageId     String?       // For package purchases
+  bookingIds    String[] // Array of booking IDs for slot bookings
+  userPackageId String? // For package purchases
 
   // Refund tracking
-  refundId          String?
-  refundAmount      Float?
-  refundedAt        DateTime?
-  refundMethod      RefundMethod?
+  refundId     String?
+  refundAmount Float?
+  refundedAt   DateTime?
+  refundMethod RefundMethod?
 
   // Metadata
-  metadata          Json?         // Store any extra info (slot details, package info, etc.)
-  failureReason     String?
+  metadata      Json? // Store any extra info (slot details, package info, etc.)
+  failureReason String?
 
-  createdAt         DateTime      @default(now())
-  updatedAt         DateTime      @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  user              User          @relation(fields: [userId], references: [id])
-  refunds           Refund[]
+  center  Center   @relation(fields: [centerId], references: [id])
+  user    User     @relation(fields: [userId], references: [id])
+  refunds Refund[]
 
   @@index([userId])
+  @@index([centerId, status])
   @@index([razorpayOrderId])
   @@index([status])
 }
 
 model Refund {
-  id                String       @id @default(cuid())
-  bookingId         String
-  paymentId         String?      // Optional: null for wallet-only refunds on non-online bookings
-  amount            Float        // Amount in rupees
-  method            RefundMethod
-  status            RefundStatus @default(INITIATED)
-  reason            String
-  razorpayRefundId  String?
+  id                  String       @id @default(cuid())
+  bookingId           String
+  paymentId           String? // Optional: null for wallet-only refunds on non-online bookings
+  amount              Float // Amount in rupees
+  method              RefundMethod
+  status              RefundStatus @default(INITIATED)
+  reason              String
+  razorpayRefundId    String?
   walletTransactionId String?
-  initiatedById     String       // Admin user who initiated the refund
-  createdAt         DateTime     @default(now())
-  updatedAt         DateTime     @updatedAt
+  initiatedById       String // Admin user who initiated the refund
+  createdAt           DateTime     @default(now())
+  updatedAt           DateTime     @updatedAt
 
-  booking           Booking      @relation(fields: [bookingId], references: [id])
-  payment           Payment?     @relation(fields: [paymentId], references: [id])
-  initiatedBy       User         @relation("AdminRefunds", fields: [initiatedById], references: [id])
+  booking     Booking  @relation(fields: [bookingId], references: [id])
+  payment     Payment? @relation(fields: [paymentId], references: [id])
+  initiatedBy User     @relation("AdminRefunds", fields: [initiatedById], references: [id])
 
   @@index([bookingId])
   @@index([paymentId])
 }
 
 model OperatorAssignment {
-  id        String   @id @default(cuid())
+  id        String    @id @default(cuid())
+  centerId  String
   userId    String
   machineId MachineId
-  days      Int[]     // Day-of-week filter: 0=Sun..6=Sat. Empty = all days.
-  createdAt DateTime @default(now())
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  days      Int[] // Day-of-week filter: 0=Sun..6=Sat. Empty = all days.
+  createdAt DateTime  @default(now())
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  center    Center    @relation(fields: [centerId], references: [id], onDelete: Cascade)
 
-  @@unique([userId, machineId])
+  @@unique([centerId, userId, machineId])
+  @@index([centerId])
 }
 
 model CashPaymentUser {
   id        String   @id @default(cuid())
-  userId    String   @unique
+  centerId  String
+  userId    String
   enabledBy String
   createdAt DateTime @default(now())
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  center    Center   @relation(fields: [centerId], references: [id], onDelete: Cascade)
+
+  @@unique([centerId, userId])
+  @@index([centerId])
 }
 
 model PromotionalOffer {
-  id              String        @id @default(cuid())
-  name            String
-  startDate       DateTime      @db.Date
-  endDate         DateTime      @db.Date
-  timeSlotStart   String?       // HH:MM — null means all day
-  timeSlotEnd     String?       // HH:MM — null means all day
-  days            Int[]         // Day-of-week filter: 0=Sun..6=Sat. Empty = all days.
-  machineIds      MachineId[]   // empty = applies to all machines
-  pitchTypes      PitchType[]   // empty = applies to all pitches
-  discountType    DiscountType
-  discountValue   Float         // percentage (0-100) or flat ₹ amount
-  isActive        Boolean       @default(true)
-  appliesTo       String        @default("ALL") // "ALL" = all users, "SPECIAL" = special users only
-  createdAt       DateTime      @default(now())
-  updatedAt       DateTime      @updatedAt
+  id            String       @id @default(cuid())
+  centerId      String
+  name          String
+  startDate     DateTime     @db.Date
+  endDate       DateTime     @db.Date
+  timeSlotStart String? // HH:MM — null means all day
+  timeSlotEnd   String? // HH:MM — null means all day
+  days          Int[] // Day-of-week filter: 0=Sun..6=Sat. Empty = all days.
+  machineIds    MachineId[] // empty = applies to all machines
+  pitchTypes    PitchType[] // empty = applies to all pitches
+  discountType  DiscountType
+  discountValue Float // percentage (0-100) or flat ₹ amount
+  isActive      Boolean      @default(true)
+  appliesTo     String       @default("ALL") // "ALL" = all users, "SPECIAL" = special users only
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
 
-  @@index([startDate, endDate])
-  @@index([isActive])
+  center Center @relation(fields: [centerId], references: [id], onDelete: Cascade)
+
+  @@index([centerId, startDate, endDate])
+  @@index([centerId, isActive])
 }
 
 model RecurringSlotDiscount {
-  id              String    @id @default(cuid())
-  enabled         Boolean   @default(true)
-  days            Int[]     // Array of day-of-week numbers: 0=Sun, 1=Mon, ..., 6=Sat
-  slotStartTime   String    // HH:MM format e.g. "08:00"
-  slotEndTime     String    // HH:MM format e.g. "08:30"
+  id              String      @id @default(cuid())
+  centerId        String
+  enabled         Boolean     @default(true)
+  days            Int[] // Array of day-of-week numbers: 0=Sun, 1=Mon, ..., 6=Sat
+  slotStartTime   String // HH:MM format e.g. "08:00"
+  slotEndTime     String // HH:MM format e.g. "08:30"
   machineIds      MachineId[] // empty = applies to all machines
   pitchTypes      PitchType[] // empty = applies to all pitches
-  oneSlotDiscount   Float   // flat ₹ discount for 1 matching slot
-  twoSlotDiscount   Float   // flat ₹ discount for 2 consecutive matching slots
-  appliesTo       String    @default("ALL") // "ALL" = all users, "SPECIAL" = special users only
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
+  oneSlotDiscount Float // flat ₹ discount for 1 matching slot
+  twoSlotDiscount Float // flat ₹ discount for 2 consecutive matching slots
+  appliesTo       String      @default("ALL") // "ALL" = all users, "SPECIAL" = special users only
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+
+  center Center @relation(fields: [centerId], references: [id], onDelete: Cascade)
+
+  @@index([centerId, enabled])
 }

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { requireAdmin } from '@/lib/adminAuth';
 import { getAuthenticatedUser } from '@/lib/auth';
+import { resolveCurrentCenter } from '@/lib/centers';
 import { creditWallet } from '@/lib/wallet';
 import { notifyWalletCredit } from '@/lib/notifications';
 
@@ -16,8 +17,21 @@ export async function GET(req: NextRequest) {
     const status = searchParams.get('status');
     const search = searchParams.get('search');
     const packageId = searchParams.get('packageId');
+    const allCenters = searchParams.get('allCenters') === 'true';
+
+    const adminUser = await getAuthenticatedUser(req);
+    const center = adminUser ? await resolveCurrentCenter(req, adminUser) : null;
+    let centerId: string | null = null;
+    if (!allCenters && center) {
+      centerId = center.id;
+    } else if (!allCenters && !center) {
+      return NextResponse.json({ error: 'No center selected' }, { status: 400 });
+    } else if (allCenters && !adminUser?.isSuperAdmin) {
+      return NextResponse.json({ error: 'allCenters requires super admin' }, { status: 403 });
+    }
 
     const where: any = {};
+    if (centerId) where.package = { centerId };
     if (userId) where.userId = userId;
     if (status) where.status = status;
     if (packageId) where.packageId = packageId;
@@ -95,8 +109,11 @@ export async function POST(req: NextRequest) {
       let walletTxnId: string | null = null;
       let newBalance: number | null = null;
       if (refundAmount > 0) {
+        // Refund credits the package's own center wallet (Package is
+        // center-scoped, so userPackage.package.centerId is authoritative).
         const res = await creditWallet(
           userPackage.userId,
+          userPackage.package.centerId,
           refundAmount,
           'CREDIT_REFUND',
           `Pro-rata refund for cancelled package "${userPackage.package.name}" (${unused} of ${total} sessions unused)`,

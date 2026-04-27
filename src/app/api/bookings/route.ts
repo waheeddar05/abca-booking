@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { getAuthenticatedUser } from '@/lib/auth';
+import { resolveCurrentCenter } from '@/lib/centers';
 
 // Safe select: only columns guaranteed to exist (pre-migration)
 const SAFE_BOOKING_SELECT = {
@@ -25,11 +26,19 @@ export async function GET(req: NextRequest) {
     const userId = user.id;
     const { searchParams } = new URL(req.url);
     const tab = searchParams.get('tab'); // all, upcoming, inProgress, completed, cancelled
+    const allCenters = searchParams.get('allCenters') === 'true';
     const page = parseInt(searchParams.get('page') || '1');
     const limit = parseInt(searchParams.get('limit') || '20');
     const skip = (page - 1) * limit;
 
+    // Filter by current center by default, matching the multi-center "each
+    // center is independent" model. Pass `?allCenters=true` to see history
+    // across every center the user has booked at.
     const where: any = { userId };
+    if (!allCenters) {
+      const center = await resolveCurrentCenter(req, user);
+      if (center) where.centerId = center.id;
+    }
     const now = new Date();
 
     if (tab === 'upcoming') {
@@ -138,6 +147,7 @@ export async function GET(req: NextRequest) {
 
     const mappedBookings = bookings.map((b: any) => ({
       id: b.id,
+      centerId: b.centerId ?? null,
       date: b.date.toISOString(),
       startTime: b.startTime.toISOString(),
       endTime: b.endTime.toISOString(),

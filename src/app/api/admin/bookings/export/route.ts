@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { requireAdmin } from '@/lib/adminAuth';
+import { getAuthenticatedUser } from '@/lib/auth';
+import { resolveCurrentCenter } from '@/lib/centers';
 import { getISTTodayUTC, getISTLastMonthRange, dateStringToUTC, formatIST } from '@/lib/time';
 
 const SAFE_BOOKING_SELECT = {
@@ -40,8 +42,19 @@ export async function GET(req: NextRequest) {
     const from = searchParams.get('from');
     const to = searchParams.get('to');
     const status = searchParams.get('status');
+    const allCenters = searchParams.get('allCenters') === 'true';
+
+    const adminUser = await getAuthenticatedUser(req);
+    const center = adminUser ? await resolveCurrentCenter(req, adminUser) : null;
 
     const where: any = {};
+    if (!allCenters && center) {
+      where.centerId = center.id;
+    } else if (!allCenters && !center) {
+      return NextResponse.json({ error: 'No center selected' }, { status: 400 });
+    } else if (allCenters && !adminUser?.isSuperAdmin) {
+      return NextResponse.json({ error: 'allCenters requires super admin' }, { status: 403 });
+    }
     const todayUTC = getISTTodayUTC();
 
     if (category === 'today') {

@@ -23,14 +23,36 @@ import { MACHINE_CARDS, PITCH_TYPE_LABELS, getMachineCard } from '@/lib/client-c
 import { useRazorpay, usePaymentConfig } from '@/lib/useRazorpay';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { useToast } from '@/components/ui/Toast';
+import { useCenter } from '@/lib/center-context';
+import ResourceSlotsPage from './ResourceSlotsPage';
 import type { MachineId, MachineConfig, AvailableSlot, OperationMode } from '@/lib/schemas';
 
 export default function SlotsPage() {
   return (
     <Suspense fallback={<div className="flex items-center justify-center min-h-screen"><Loader2 className="w-8 h-8 animate-spin text-blue-600" /></div>}>
-      <SlotsContent />
+      <SlotsRouter />
     </Suspense>
   );
+}
+
+/**
+ * Routes to the right slot-booking experience for the active center.
+ * - MACHINE_PITCH (ABCA, default): existing legacy UI in this file.
+ * - RESOURCE_BASED (Toplay et al.): new ResourceSlotsPage component.
+ */
+function SlotsRouter() {
+  const { currentCenter, loading } = useCenter();
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
+      </div>
+    );
+  }
+  if (currentCenter?.bookingModel === 'RESOURCE_BASED') {
+    return <ResourceSlotsPage />;
+  }
+  return <SlotsContent />;
 }
 
 function SlotsContent() {

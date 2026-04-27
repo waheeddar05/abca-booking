@@ -4,9 +4,10 @@ import { getAuthenticatedUser } from '@/lib/auth';
 import { dateStringToUTC, formatIST } from '@/lib/time';
 import { isValidMachineId, LEATHER_MACHINES, MACHINES } from '@/lib/constants';
 import { notifyBookingCancelled } from '@/lib/notifications';
+import { resolveCurrentCenter } from '@/lib/centers';
 import type { MachineId } from '@prisma/client';
 
-// GET /api/admin/slots/block - List blocked slots
+// GET /api/admin/slots/block - List blocked slots at the admin's current center
 export async function GET(req: NextRequest) {
   try {
     const admin = await getAuthenticatedUser(req);
@@ -16,8 +17,18 @@ export async function GET(req: NextRequest) {
 
     const { searchParams } = new URL(req.url);
     const includeExpired = searchParams.get('includeExpired') === 'true';
+    const allCenters = searchParams.get('allCenters') === 'true';
 
+    const center = await resolveCurrentCenter(req, admin);
     const where: any = {};
+    if (!allCenters && center) {
+      where.centerId = center.id;
+    } else if (!allCenters && !center) {
+      return NextResponse.json({ error: 'No center selected' }, { status: 400 });
+    } else if (allCenters && !admin.isSuperAdmin) {
+      return NextResponse.json({ error: 'allCenters requires super admin' }, { status: 403 });
+    }
+
     if (!includeExpired) {
       // Only show blocks whose endDate is today or in the future
       const today = new Date();
@@ -101,9 +112,16 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    // BlockedSlot is center-scoped — bind to admin's current center.
+    const center = await resolveCurrentCenter(req, admin);
+    if (!center) {
+      return NextResponse.json({ error: 'No center selected' }, { status: 400 });
+    }
+
     // 1. Create a single BlockedSlot record
     const blockedSlot = await prisma.blockedSlot.create({
       data: {
+        centerId: center.id,
         startDate: start,
         endDate: end,
         startTime: startT,

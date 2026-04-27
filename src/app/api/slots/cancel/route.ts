@@ -244,6 +244,7 @@ export async function POST(req: NextRequest) {
         if (remainingRefund > 0) {
           const walletResult = await creditWallet(
             booking.userId,
+            booking.centerId,
             remainingRefund,
             'CREDIT_REFUND',
             `Refund for cancelled booking`,
@@ -323,7 +324,7 @@ export async function POST(req: NextRequest) {
             // 1. Explicit request from user/admin
             // 2. Admin-configured default
             // 3. Fallback: WALLET if enabled, otherwise RAZORPAY
-            const walletEnabled = await isWalletEnabled();
+            const walletEnabled = await isWalletEnabled(booking.centerId);
             let resolvedMethod: 'WALLET' | 'RAZORPAY';
 
             if (requestedRefundMethod === 'RAZORPAY' || requestedRefundMethod === 'WALLET') {
@@ -334,14 +335,15 @@ export async function POST(req: NextRequest) {
               }
             } else {
               resolvedMethod = walletEnabled
-                ? await getDefaultRefundMethod()
+                ? await getDefaultRefundMethod(booking.centerId)
                 : 'RAZORPAY';
             }
 
             if (resolvedMethod === 'WALLET' && booking.userId) {
-              // Credit to wallet
+              // Credit to wallet (booking's own center)
               const walletResult = await creditWallet(
                 booking.userId,
+                booking.centerId,
                 remainingRefund,
                 'CREDIT_REFUND',
                 `Refund for cancelled booking`,
@@ -398,9 +400,10 @@ export async function POST(req: NextRequest) {
                 console.error('Wallet credit notification failed:', notifErr);
               }
             } else {
-              // Razorpay refund
+              // Razorpay refund — use the originating center's account.
               const { initiateRefund } = await import('@/lib/razorpay');
               const refund = await initiateRefund({
+                centerId: booking.centerId,
                 paymentId: payment.razorpayPaymentId,
                 amount: remainingRefund,
                 notes: { bookingId, cancelledBy: cancelledByName },

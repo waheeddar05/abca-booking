@@ -13,6 +13,7 @@ import { getPricingConfig, getTimeSlabConfig, calculateNewPricing, getTimeSlab }
 import { getCachedPolicies } from '@/lib/policy-cache';
 import { validatePackageBooking } from '@/lib/packages';
 import { creditWallet, debitWallet, rollbackWalletDebit, isWalletEnabled, getWalletBalance } from '@/lib/wallet';
+import { resolveCurrentCenter } from '@/lib/centers';
 import { autoAssignOperator, getOperatorCount } from '@/lib/operatorAssign';
 import { getAllApplicablePromoDiscounts } from '@/lib/promotionalOffers';
 import { calculateStackedDiscount } from '@/lib/specialUsers';
@@ -115,10 +116,11 @@ function isTransactionAborted(error: unknown): boolean {
 export async function executeSlotBooking(
   user: AuthenticatedUser,
   slotsToBook: Record<string, unknown>[],
+  centerId: string,
   options?: { onlinePaymentId?: string },
 ): Promise<Array<{ id: string; status: string }>> {
   const onlinePaymentId = options?.onlinePaymentId || slotsToBook[0]?.paymentId as string | undefined;
-  const logPrefix = `[Booking user=${user.id} name=${user.name || 'N/A'}]`;
+  const logPrefix = `[Booking user=${user.id} name=${user.name || 'N/A'} center=${centerId}]`;
 
   try {
     if (slotsToBook.length === 0) {
@@ -171,11 +173,14 @@ export async function executeSlotBooking(
       }
     }
 
-    // Server-side: reject cash payment if disabled globally and user has no cash access
+    // Server-side: reject cash payment if disabled globally and user has
+    // no cash access at *this* center (CashPaymentUser is center-scoped).
     if (isCashPayment) {
       const [cashPolicy, cashPaymentUser] = await Promise.all([
         prisma.policy.findUnique({ where: { key: 'CASH_PAYMENT_ENABLED' } }),
-        prisma.cashPaymentUser.findUnique({ where: { userId: user.id } }),
+        prisma.cashPaymentUser.findUnique({
+          where: { centerId_userId: { centerId, userId: user.id } },
+        }),
       ]);
       const globalCashEnabled = cashPolicy?.value === 'true';
       if (!globalCashEnabled && !cashPaymentUser) {
@@ -451,11 +456,11 @@ export async function executeSlotBooking(
     const totalPrice = slotsTotalPrice + totalKitRentalCharge;
     const totalRecurringDiscountDisplay = totalRecurringDiscount; // For notification display
     if (isWalletPayment && !isFreeBooking && !userPackageId) {
-      const walletEnabled = await isWalletEnabled();
+      const walletEnabled = await isWalletEnabled(centerId);
       if (!walletEnabled) {
         throw new BookingServiceError('Wallet payments are not enabled', 400);
       }
-      const balance = await getWalletBalance(userId!);
+      const balance = await getWalletBalance(userId!, centerId);
       if (balance < totalPrice) {
         throw new BookingServiceError(`Insufficient wallet balance. Required: ₹${totalPrice}, Available: ₹${balance}`, 400);
       }
@@ -624,6 +629,7 @@ export async function executeSlotBooking(
             const priceWithKit = effectivePrice + slotKitCharge;
 
             const bookingData: Prisma.BookingUncheckedCreateInput = {
+              centerId,
               userId: userId!,
               date: slot.date,
               startTime: slot.startTime,
@@ -794,6 +800,7 @@ export async function executeSlotBooking(
         const bookingIds = results.map(r => r.id).join(', ');
         const result = await debitWallet(
           userId!,
+          centerId,
           totalPrice,
           'DEBIT_BOOKING',
           `Booking payment (${results.length} slot${results.length > 1 ? 's' : ''})`,
@@ -965,6 +972,7 @@ export async function executeSlotBooking(
           const refundAmount = payment.amount;
           const walletResult = await creditWallet(
             payment.userId,
+            payment.centerId,
             refundAmount,
             'CREDIT_REFUND',
             `Auto-refund: slot booking failed after payment`,
@@ -1019,10 +1027,17 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
+    // Resolve the center the user is booking at — from `?center=<slug>`,
+    // the `selectedCenterId` cookie, or the user's first membership.
+    const center = await resolveCurrentCenter(req, user);
+    if (!center) {
+      return NextResponse.json({ error: 'No center selected' }, { status: 400 });
+    }
+
     const body = await req.json();
     const slotsToBook = Array.isArray(body) ? body : [body];
 
-    const results = await executeSlotBooking(user, slotsToBook);
+    const results = await executeSlotBooking(user, slotsToBook, center.id);
 
     const response = Array.isArray(body) ? results : results[0];
     return NextResponse.json(response);

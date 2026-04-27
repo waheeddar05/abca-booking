@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { requireAdmin } from '@/lib/adminAuth';
 import { getAuthenticatedUser } from '@/lib/auth';
+import { resolveCurrentCenter } from '@/lib/centers';
 import { getISTTodayUTC, getISTLastMonthRange, dateStringToUTC, formatIST } from '@/lib/time';
 import { MACHINES } from '@/lib/constants';
 import { notifyBookingCancelled, notifyWalletCredit, notifyOperatorBookingCancelled } from '@/lib/notifications';
@@ -59,7 +60,21 @@ export async function GET(req: NextRequest) {
     const sortBy = searchParams.get('sortBy') || 'date';
     const sortOrder = searchParams.get('sortOrder') || 'desc';
 
+    // Scope by the admin's current center. Super admins can pass
+    // `?allCenters=true` to view aggregate data across centers — useful
+    // for the platform-wide dashboard.
+    const allCenters = searchParams.get('allCenters') === 'true';
+    const adminUser = await getAuthenticatedUser(req);
+    const center = adminUser ? await resolveCurrentCenter(req, adminUser) : null;
+
     const where: any = {};
+    if (!allCenters && center) {
+      where.centerId = center.id;
+    } else if (!allCenters && !center) {
+      return NextResponse.json({ error: 'No center selected' }, { status: 400 });
+    } else if (allCenters && !adminUser?.isSuperAdmin) {
+      return NextResponse.json({ error: 'allCenters requires super admin' }, { status: 403 });
+    }
     const todayUTC = getISTTodayUTC();
 
     if (category === 'today') {
@@ -313,6 +328,7 @@ export async function PATCH(req: NextRequest) {
           if (remainingRefund > 0) {
             const walletResult = await creditWallet(
               booking.userId,
+              booking.centerId,
               remainingRefund,
               'CREDIT_REFUND',
               `Refund for booking cancelled by admin (${adminName})`,
@@ -380,14 +396,15 @@ export async function PATCH(req: NextRequest) {
             const remainingRefund = fullRefundAmount - alreadyRefunded;
 
             if (remainingRefund > 0) {
-              const walletEnabled = await isWalletEnabled();
+              const walletEnabled = await isWalletEnabled(booking.centerId);
               const resolvedMethod = walletEnabled
-                ? await getDefaultRefundMethod()
+                ? await getDefaultRefundMethod(booking.centerId)
                 : 'RAZORPAY';
 
               if (resolvedMethod === 'WALLET') {
                 const walletResult = await creditWallet(
                   booking.userId,
+                  booking.centerId,
                   remainingRefund,
                   'CREDIT_REFUND',
                   `Refund for booking cancelled by admin (${adminName})`,
@@ -439,9 +456,10 @@ export async function PATCH(req: NextRequest) {
                   console.error('Wallet credit notification failed:', notifErr);
                 }
               } else {
-                // Razorpay refund
+                // Razorpay refund — use the originating center's account.
                 const { initiateRefund } = await import('@/lib/razorpay');
                 const refund = await initiateRefund({
+                  centerId: booking.centerId,
                   paymentId: payment.razorpayPaymentId,
                   amount: remainingRefund,
                   notes: { bookingId, cancelledBy: adminName },
@@ -651,10 +669,12 @@ export async function POST(req: NextRequest) {
         );
       }
 
-      // Start transaction to create new booking and update source booking price
+      // Start transaction to create new booking and update source booking price.
+      // The new (consecutive) booking inherits the source booking's center.
       const [newBooking] = await prisma.$transaction([
         prisma.booking.create({
           data: {
+            centerId: sourceBooking.centerId,
             userId: sourceBooking.userId,
             date: sourceBooking.date,
             startTime: nextStartTime,

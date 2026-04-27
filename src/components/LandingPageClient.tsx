@@ -1,13 +1,17 @@
 'use client';
 
 import React, { useState } from 'react';
+import Link from 'next/link';
 import Image from 'next/image';
-import { Calendar, Zap, Clock, Instagram, Phone, Target, Shield, Users, Star, ArrowRight, MapPin } from 'lucide-react';
+import { Calendar, Zap, Clock, Instagram, Phone, Target, Shield, Users, Star, ArrowRight, MapPin, Building2 } from 'lucide-react';
 import LoginModal from './LoginModal';
 import { CONTACT_NUMBERS, INSTAGRAM_URL, LOCATION_URL } from '@/lib/client-constants';
+import { useCenter } from '@/lib/center-context';
 
 export default function LandingPageClient() {
   const [loginOpen, setLoginOpen] = useState(false);
+  const { centers } = useCenter();
+  const hasMultipleCenters = centers.length >= 2;
 
   const openLogin = () => setLoginOpen(true);
   const closeLogin = () => setLoginOpen(false);
@@ -97,6 +101,17 @@ export default function LandingPageClient() {
             <span className="text-white/10">&middot;</span>
             <span className="flex items-center gap-1"><Zap className="w-3 h-3 md:w-3.5 md:h-3.5" /> Instant Access</span>
           </div>
+
+          {hasMultipleCenters && (
+            <Link
+              href="/centers"
+              className="mt-4 md:mt-5 inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-accent/10 hover:bg-accent/20 border border-accent/20 hover:border-accent/40 text-accent text-[11px] md:text-xs font-semibold transition-all animate-fade-in delay-500"
+            >
+              <Building2 className="w-3 h-3 md:w-3.5 md:h-3.5" />
+              {centers.length} locations available
+              <ArrowRight className="w-3 h-3" />
+            </Link>
+          )}
         </div>
       </section>
 

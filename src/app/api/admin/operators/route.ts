@@ -1,32 +1,59 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { requireAdmin } from '@/lib/adminAuth';
+import { getAuthenticatedUser } from '@/lib/auth';
+import { resolveCurrentCenter } from '@/lib/centers';
 
 const VALID_MACHINES = ['GRAVITY', 'YANTRA', 'LEVERAGE_INDOOR', 'LEVERAGE_OUTDOOR'];
 
-const OPERATOR_QUERY = {
-  where: { role: 'OPERATOR' as const },
-  select: {
-    id: true,
-    name: true,
-    email: true,
-    mobileNumber: true,
-    operatorPriority: true,
-    operatorMorningPriority: true,
-    operatorEveningPriority: true,
-    operatorDayPriorities: true,
-    operatorAssignments: { select: { id: true, machineId: true, days: true, createdAt: true } },
-  },
-  orderBy: { operatorPriority: 'asc' as const },
-} as const;
+function buildOperatorQuery(centerId: string | null) {
+  return {
+    // Show every OPERATOR user, but only memberships at this center.
+    // (Operators may exist as users without a membership at this center;
+    // they show up with zero assignments here.)
+    where: centerId
+      ? { role: 'OPERATOR' as const, centerMemberships: { some: { centerId, isActive: true } } }
+      : { role: 'OPERATOR' as const },
+    select: {
+      id: true,
+      name: true,
+      email: true,
+      mobileNumber: true,
+      operatorPriority: true,
+      operatorMorningPriority: true,
+      operatorEveningPriority: true,
+      operatorDayPriorities: true,
+      operatorAssignments: {
+        where: centerId ? { centerId } : undefined,
+        select: { id: true, machineId: true, days: true, createdAt: true },
+      },
+    },
+    orderBy: { operatorPriority: 'asc' as const },
+  };
+}
 
-// GET: List all operators with their machine assignments
+// GET: List operators (filtered to admin's current center) with their assignments
 export async function GET(req: NextRequest) {
   try {
     if (!(await requireAdmin(req))) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 403 });
     }
-    const operators = await prisma.user.findMany(OPERATOR_QUERY);
+
+    const { searchParams } = new URL(req.url);
+    const allCenters = searchParams.get('allCenters') === 'true';
+    const adminUser = await getAuthenticatedUser(req);
+    const center = adminUser ? await resolveCurrentCenter(req, adminUser) : null;
+
+    let centerId: string | null = null;
+    if (!allCenters && center) {
+      centerId = center.id;
+    } else if (!allCenters && !center) {
+      return NextResponse.json({ error: 'No center selected' }, { status: 400 });
+    } else if (allCenters && !adminUser?.isSuperAdmin) {
+      return NextResponse.json({ error: 'allCenters requires super admin' }, { status: 403 });
+    }
+
+    const operators = await prisma.user.findMany(buildOperatorQuery(centerId));
 
     // Auto-assign priority to new operators (priority 0) so they appear at the end
     const maxPriority = operators.reduce((max, op) => Math.max(max, op.operatorPriority), 0);
@@ -91,8 +118,15 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'User must have OPERATOR role before assigning machines' }, { status: 400 });
     }
 
+    const admin = await getAuthenticatedUser(req);
+    const center = admin ? await resolveCurrentCenter(req, admin) : null;
+    if (!center) {
+      return NextResponse.json({ error: 'No center selected' }, { status: 400 });
+    }
+
     const assignment = await prisma.operatorAssignment.create({
       data: {
+        centerId: center.id,
         userId,
         machineId,
         days: days || [],
@@ -133,7 +167,11 @@ export async function PATCH(req: NextRequest) {
       )
     );
 
-    const updated = await prisma.user.findMany(OPERATOR_QUERY);
+    // Re-fetch using the same center scope as the GET handler so the UI
+    // sees a consistent list after a priority update.
+    const adminUser = await getAuthenticatedUser(req);
+    const center = adminUser ? await resolveCurrentCenter(req, adminUser) : null;
+    const updated = await prisma.user.findMany(buildOperatorQuery(center?.id ?? null));
     return NextResponse.json({ operators: updated });
   } catch (error: any) {
     console.error('Admin operator priority update error:', error);
@@ -161,8 +199,14 @@ export async function PUT(req: NextRequest) {
       return NextResponse.json({ error: 'days must contain integers 0-6 (0=Sun..6=Sat)' }, { status: 400 });
     }
 
+    const admin = await getAuthenticatedUser(req);
+    const center = admin ? await resolveCurrentCenter(req, admin) : null;
+    if (!center) {
+      return NextResponse.json({ error: 'No center selected' }, { status: 400 });
+    }
+
     const assignment = await prisma.operatorAssignment.update({
-      where: { userId_machineId: { userId, machineId } },
+      where: { centerId_userId_machineId: { centerId: center.id, userId, machineId } },
       data: { days },
     });
     return NextResponse.json({ assignment });
@@ -186,8 +230,14 @@ export async function DELETE(req: NextRequest) {
       return NextResponse.json({ error: 'userId and machineId are required' }, { status: 400 });
     }
 
+    const admin = await getAuthenticatedUser(req);
+    const center = admin ? await resolveCurrentCenter(req, admin) : null;
+    if (!center) {
+      return NextResponse.json({ error: 'No center selected' }, { status: 400 });
+    }
+
     await prisma.operatorAssignment.delete({
-      where: { userId_machineId: { userId, machineId } },
+      where: { centerId_userId_machineId: { centerId: center.id, userId, machineId } },
     });
     return NextResponse.json({ success: true });
   } catch (error: any) {

@@ -67,13 +67,19 @@ export async function GET(req: NextRequest) {
       prisma.packageBooking.count({
         where: { userPackage: { userId } },
       }),
-      prisma.wallet.findUnique({
+      // Wallets are center-scoped — sum across every center the user has one at.
+      prisma.wallet.findMany({
         where: { userId },
-        select: { balance: true, _count: { select: { transactions: true } } },
+        select: { centerId: true, balance: true, _count: { select: { transactions: true } } },
       }),
       prisma.booking.count({ where: { operatorId: userId } }),
       prisma.notification.count({ where: { userId } }),
     ]);
+
+    // `wallet` is now an array (one entry per center). Aggregate.
+    const wallets = wallet as Array<{ centerId: string; balance: number; _count: { transactions: number } }>;
+    const walletBalance = wallets.reduce((sum, w) => sum + w.balance, 0);
+    const walletTransactions = wallets.reduce((sum, w) => sum + w._count.transactions, 0);
 
     return NextResponse.json({
       user,
@@ -85,8 +91,9 @@ export async function GET(req: NextRequest) {
         payments,
         refunds,
         packageBookings,
-        walletBalance: wallet?.balance ?? 0,
-        walletTransactions: wallet?._count?.transactions ?? 0,
+        walletBalance,
+        walletTransactions,
+        walletByCenter: wallets.map(w => ({ centerId: w.centerId, balance: w.balance, transactions: w._count.transactions })),
         operatedBookings,
         notifications,
       },
@@ -121,11 +128,19 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Only super admin can perform cleanup' }, { status: 403 });
     }
 
-    const { userId, action, walletAmount, walletDescription } = await req.json();
+    const { userId, action, walletAmount, walletDescription, centerId: bodyCenterId } = await req.json();
 
     if (!userId || !action) {
       return NextResponse.json({ error: 'userId and action are required' }, { status: 400 });
     }
+
+    // Wallet mutations are center-scoped — admin can pass `centerId` in
+    // the body to target a specific center, otherwise we default to ABCA
+    // (which is the only center in the world today). Phase 2's super-admin
+    // UI will surface a center picker.
+    const walletCenterId: string = typeof bodyCenterId === 'string' && bodyCenterId.length > 0
+      ? bodyCenterId
+      : 'ctr_abca';
 
     const user = await prisma.user.findUnique({ where: { id: userId } });
     if (!user) {
@@ -159,13 +174,13 @@ export async function POST(req: NextRequest) {
         return await cleanWallet(userId);
 
       case 'ADD_WALLET':
-        return await modifyWallet(userId, Number(walletAmount), 'add', walletDescription || `Admin credit by super admin`);
+        return await modifyWallet(userId, walletCenterId, Number(walletAmount), 'add', walletDescription || `Admin credit by super admin`);
 
       case 'SUBTRACT_WALLET':
-        return await modifyWallet(userId, Number(walletAmount), 'subtract', walletDescription || `Admin debit by super admin`);
+        return await modifyWallet(userId, walletCenterId, Number(walletAmount), 'subtract', walletDescription || `Admin debit by super admin`);
 
       case 'SET_WALLET':
-        return await setWallet(userId, Number(walletAmount), walletDescription || `Wallet set by super admin`);
+        return await setWallet(userId, walletCenterId, Number(walletAmount), walletDescription || `Wallet set by super admin`);
 
       case 'FULL_CLEANUP':
         return await fullCleanup(userId);
@@ -276,48 +291,55 @@ async function deleteNotifications(userId: string) {
 }
 
 /**
- * Reset wallet to 0, delete all transactions
+ * Reset every wallet (across all centers) for the user to 0, delete all
+ * transactions. Multi-center: this is a super-admin "purge everything"
+ * action and intentionally spans all centers.
  */
 async function cleanWallet(userId: string) {
   const result = await prisma.$transaction(async (tx) => {
-    const wallet = await tx.wallet.findUnique({ where: { userId } });
-    if (!wallet) {
-      return { previousBalance: 0, transactionsDeleted: 0 };
+    const wallets = await tx.wallet.findMany({ where: { userId } });
+    if (wallets.length === 0) {
+      return { previousBalance: 0, transactionsDeleted: 0, centersAffected: 0 };
     }
 
-    const previousBalance = wallet.balance;
+    const walletIds = wallets.map((w) => w.id);
+    const previousBalance = wallets.reduce((sum, w) => sum + w.balance, 0);
 
-    await tx.walletTransaction.deleteMany({ where: { walletId: wallet.id } });
-    await tx.wallet.update({
-      where: { id: wallet.id },
+    const txnDelete = await tx.walletTransaction.deleteMany({
+      where: { walletId: { in: walletIds } },
+    });
+    await tx.wallet.updateMany({
+      where: { id: { in: walletIds } },
       data: { balance: 0 },
     });
 
     return {
       previousBalance,
-      transactionsDeleted: await tx.walletTransaction.count({ where: { walletId: wallet.id } }),
+      transactionsDeleted: txnDelete.count,
+      centersAffected: wallets.length,
     };
   });
 
   return NextResponse.json({
-    message: `Wallet cleaned. Previous balance: ₹${result.previousBalance}`,
+    message: `Wallet cleaned across ${result.centersAffected} center(s). Previous total balance: ₹${result.previousBalance}`,
     ...result,
   });
 }
 
 /**
- * Add or subtract from wallet
+ * Add or subtract from a user's wallet at a specific center.
+ * If centerId is omitted the action targets ABCA (the default seed center).
  */
-async function modifyWallet(userId: string, amount: number, operation: 'add' | 'subtract', description: string) {
+async function modifyWallet(userId: string, centerId: string, amount: number, operation: 'add' | 'subtract', description: string) {
   if (isNaN(amount) || amount <= 0) {
     return NextResponse.json({ error: 'Amount must be a positive number' }, { status: 400 });
   }
 
   const result = await prisma.$transaction(async (tx) => {
-    // Get or create wallet
-    let wallet = await tx.wallet.findUnique({ where: { userId } });
+    // Get or create wallet for (user, center)
+    let wallet = await tx.wallet.findUnique({ where: { userId_centerId: { userId, centerId } } });
     if (!wallet) {
-      wallet = await tx.wallet.create({ data: { userId, balance: 0 } });
+      wallet = await tx.wallet.create({ data: { userId, centerId, balance: 0 } });
     }
 
     const previousBalance = wallet.balance;
@@ -358,17 +380,17 @@ async function modifyWallet(userId: string, amount: number, operation: 'add' | '
 }
 
 /**
- * Set wallet to an exact amount
+ * Set the user's wallet at a specific center to an exact amount.
  */
-async function setWallet(userId: string, amount: number, description: string) {
+async function setWallet(userId: string, centerId: string, amount: number, description: string) {
   if (isNaN(amount) || amount < 0) {
     return NextResponse.json({ error: 'Amount must be a non-negative number' }, { status: 400 });
   }
 
   const result = await prisma.$transaction(async (tx) => {
-    let wallet = await tx.wallet.findUnique({ where: { userId } });
+    let wallet = await tx.wallet.findUnique({ where: { userId_centerId: { userId, centerId } } });
     if (!wallet) {
-      wallet = await tx.wallet.create({ data: { userId, balance: 0 } });
+      wallet = await tx.wallet.create({ data: { userId, centerId, balance: 0 } });
     }
 
     const previousBalance = wallet.balance;
@@ -443,14 +465,15 @@ async function fullCleanup(userId: string) {
       packageBookingsDeleted += pbExtra.count;
     }
 
-    // 6. Delete wallet and transactions
-    let walletCleaned = false;
+    // 6. Delete every wallet (across all centers) and their transactions
+    const wallets = await tx.wallet.findMany({ where: { userId } });
     let previousBalance = 0;
-    const wallet = await tx.wallet.findUnique({ where: { userId } });
-    if (wallet) {
-      previousBalance = wallet.balance;
-      await tx.walletTransaction.deleteMany({ where: { walletId: wallet.id } });
-      await tx.wallet.delete({ where: { id: wallet.id } });
+    let walletCleaned = false;
+    if (wallets.length > 0) {
+      previousBalance = wallets.reduce((sum, w) => sum + w.balance, 0);
+      const walletIds = wallets.map((w) => w.id);
+      await tx.walletTransaction.deleteMany({ where: { walletId: { in: walletIds } } });
+      await tx.wallet.deleteMany({ where: { id: { in: walletIds } } });
       walletCleaned = true;
     }
 
