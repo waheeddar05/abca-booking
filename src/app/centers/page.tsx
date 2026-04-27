@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { Suspense, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Building2, MapPin, Phone, Mail, Check, Loader2, Navigation, ArrowRight } from 'lucide-react';
 import { useCenter, type PublicCenter } from '@/lib/center-context';
@@ -30,6 +30,23 @@ function distanceKm(lat1: number, lon1: number, lat2: number, lon2: number): num
  */
 
 export default function CentersPage() {
+  // useSearchParams() forces client-side bailout from prerender — Next.js
+  // requires the consumer to be inside a Suspense boundary so SSG can emit
+  // a fallback shell.
+  return (
+    <Suspense
+      fallback={
+        <div className="min-h-screen flex items-center justify-center text-slate-400">
+          <Loader2 className="w-5 h-5 animate-spin" />
+        </div>
+      }
+    >
+      <CentersPageInner />
+    </Suspense>
+  );
+}
+
+function CentersPageInner() {
   const router = useRouter();
   const search = useSearchParams();
   const next = search.get('next') || '/slots';
