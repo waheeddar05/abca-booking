@@ -35,7 +35,7 @@ export async function GET(req: NextRequest, ctx: { params: Promise<Params> }) {
     where: { centerId },
     orderBy: [{ displayOrder: 'asc' }, { createdAt: 'asc' }],
     include: {
-      machineType: { select: { id: true, code: true, name: true, ballType: true } },
+      machineType: { select: { id: true, code: true, name: true, ballType: true, imageUrl: true } },
       resource: { select: { id: true, name: true, type: true } },
     },
   });
@@ -86,7 +86,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<Params> }) {
       metadata: (parsed.data.metadata as never) ?? undefined,
     },
     include: {
-      machineType: { select: { id: true, code: true, name: true, ballType: true } },
+      machineType: { select: { id: true, code: true, name: true, ballType: true, imageUrl: true } },
       resource: { select: { id: true, name: true, type: true } },
     },
   });

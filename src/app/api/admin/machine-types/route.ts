@@ -17,6 +17,7 @@ const MachineTypeCreateSchema = z.object({
   name: z.string().min(1).max(120),
   ballType: z.enum(['LEATHER', 'TENNIS', 'MACHINE']),
   description: z.string().max(500).optional().nullable(),
+  imageUrl: z.string().max(500).optional().nullable(),
   isActive: z.boolean().default(true),
 });
 

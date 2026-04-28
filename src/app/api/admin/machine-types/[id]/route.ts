@@ -7,6 +7,7 @@ const MachineTypePatchSchema = z.object({
   name: z.string().min(1).max(120).optional(),
   ballType: z.enum(['LEATHER', 'TENNIS', 'MACHINE']).optional(),
   description: z.string().max(500).optional().nullable(),
+  imageUrl: z.string().max(500).optional().nullable(),
   isActive: z.boolean().optional(),
 });
 

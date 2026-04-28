@@ -156,6 +156,10 @@ model MachineType {
   name        String
   ballType    BallType
   description String?
+  // Public image URL shown on the user-facing machine picker (e.g.
+  // `/images/yantra-machine.jpeg`). Inherited by every Machine instance
+  // of this type so any Yantra at any center renders the Yantra photo.
+  imageUrl    String?
   isActive    Boolean  @default(true)
   metadata    Json?
   createdAt   DateTime @default(now())
