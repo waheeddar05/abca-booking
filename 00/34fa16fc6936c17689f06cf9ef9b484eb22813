@@ -1,0 +1,37 @@
+src/app/api/admin/centers/[id]/machines/route.ts
+  e0175fb4b4f942a5 17-19,27-30,93-94
+src/app/api/admin/centers/[id]/machines/[machineId]/route.ts
+  e0175fb4b4f942a5 6-8,15-20
+src/app/api/slots/book-resource/route.ts
+  e0175fb4b4f942a5 54-60,117-120,125-130,136-155,225-234
+prisma/schema.prisma
+  e0175fb4b4f942a5 176-178,182-195,198-200
+prisma/migrations/20260428070000_machine_supported_pitch_ball_types/migration.sql
+  e0175fb4b4f942a5 1-40
+src/components/admin/centers/CenterMachinesTab.tsx
+  e0175fb4b4f942a5 7-9,18-19,27-39,80,137-159,209-214,218-226,245-246,299-318,333-381
+src/app/slots/ResourceSlotsPage.tsx
+  e0175fb4b4f942a5 83-85,90-95,111-123,155-156,174-175,180-185,202-204,208,281-293,310-311,441-472,621-670
+src/app/api/centers/[id]/machines/route.ts
+  e0175fb4b4f942a5 1-48
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "0034fa16fc6936c17689f06cf9ef9b484eb22813",
+  "prompts": {
+    "e0175fb4b4f942a5": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "f3864c65-ac36-4572-a64e-c1d488c0cbdf",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Waheed",
+      "messages": [],
+      "total_additions": 434,
+      "total_deletions": 17,
+      "accepted_lines": 3956,
+      "overriden_lines": 3
+    }
+  }
+}
