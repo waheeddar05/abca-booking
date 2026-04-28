@@ -3,12 +3,21 @@ import { prisma } from '@/lib/prisma';
 import { requireSuperAdmin } from '@/lib/adminAuth';
 import { z } from 'zod';
 
+const PitchTypeEnum = z.enum(['ASTRO', 'TURF', 'CEMENT', 'NATURAL']);
+const BallTypeEnum = z.enum(['TENNIS', 'LEATHER', 'MACHINE']);
+
 const MachinePatchSchema = z.object({
   name: z.string().min(1).max(120).optional(),
   shortName: z.string().max(60).optional().nullable(),
   resourceId: z.string().optional().nullable(),
   isActive: z.boolean().optional(),
   displayOrder: z.number().int().optional(),
+  /** Per-machine pitch compatibility — drives the user-facing chip row.
+   *  Empty means "no pitch picker shown". Replaces the legacy global
+   *  MACHINE_PITCH_CONFIG policy for any new center. */
+  supportedPitchTypes: z.array(PitchTypeEnum).optional(),
+  /** Per-machine ball compatibility (e.g. Yantra → leather + machine). */
+  supportedBallTypes: z.array(BallTypeEnum).optional(),
   metadata: z.record(z.string(), z.unknown()).optional().nullable(),
 });
 

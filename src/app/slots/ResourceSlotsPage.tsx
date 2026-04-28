@@ -80,10 +80,19 @@ interface ResourceAvailabilityResponse {
   slots: ResourceSlot[];
 }
 
+type PitchTypeId = 'ASTRO' | 'TURF' | 'CEMENT' | 'NATURAL';
+type BallTypeId = 'TENNIS' | 'LEATHER' | 'MACHINE';
+
 interface MachineLite {
   id: string;
   name: string;
   isActive: boolean;
+  /** Pitch types the admin enabled for this machine. Empty = no pitch
+   *  picker shown (lets centers that don't differentiate by surface keep
+   *  the UI simpler). */
+  supportedPitchTypes: PitchTypeId[];
+  /** Ball types the admin enabled. Empty = falls back to machineType.ballType. */
+  supportedBallTypes: BallTypeId[];
   machineType: {
     id: string;
     code: string;
@@ -98,6 +107,19 @@ interface MachineLite {
    *  users see what they'll actually play on. Null = roaming. */
   resource?: { id: string; name: string; type: string } | null;
 }
+
+const PITCH_TYPE_LABELS: Record<PitchTypeId, string> = {
+  ASTRO:   'Astro Turf',
+  TURF:    'Turf',
+  CEMENT:  'Cement',
+  NATURAL: 'Natural',
+};
+
+const BALL_TYPE_LABELS: Record<BallTypeId, string> = {
+  LEATHER: 'Leather',
+  TENNIS:  'Tennis',
+  MACHINE: 'Machine balls',
+};
 
 /**
  * Human-readable surface from the Resource enum (NET / TURF_WICKET / …).
@@ -130,6 +152,8 @@ export default function ResourceSlotsPage() {
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
   const [category, setCategory] = useState<Category>('MACHINE');
   const [machineId, setMachineId] = useState<string | null>(null);
+  const [pitchType, setPitchType] = useState<PitchTypeId | null>(null);
+  const [ballType, setBallType] = useState<BallTypeId | null>(null);
   const [coachId, setCoachId] = useState<string | null>(null);
   const [staffId, setStaffId] = useState<string | null>(null);
 
@@ -147,9 +171,17 @@ export default function ResourceSlotsPage() {
   useEffect(() => {
     setSelectedSlots([]);
     setMachineId(null);
+    setPitchType(null);
+    setBallType(null);
     setCoachId(null);
     setStaffId(null);
   }, [category]);
+
+  // Picking a different machine wipes pitch/ball — they're per-machine.
+  useEffect(() => {
+    setPitchType(null);
+    setBallType(null);
+  }, [machineId]);
 
   // Reset selected slots when date changes (availability is per-date)
   useEffect(() => { setSelectedSlots([]); }, [selectedDate]);
@@ -167,11 +199,13 @@ export default function ResourceSlotsPage() {
       .finally(() => setLoading(false));
   }, [selectedDate, currentCenter]);
 
-  // Fetch machines once per center (used for the MACHINE category picker)
+  // Fetch machines once per center (used for the MACHINE category picker).
+  // Uses the public `/api/centers/[id]/machines` endpoint — the admin one
+  // is super-admin gated and would 403 for regular users.
   useEffect(() => {
     if (!currentCenter) return;
     setMachinesLoading(true);
-    fetch(`/api/admin/centers/${currentCenter.id}/machines`)
+    fetch(`/api/centers/${currentCenter.id}/machines`)
       .then((r) => r.ok ? r.json() : [])
       .then((rows: MachineLite[]) => setMachines(rows.filter((m) => m.isActive)))
       .catch(() => setMachines([]))
@@ -244,6 +278,19 @@ export default function ResourceSlotsPage() {
       toast.error('Select a machine first');
       return;
     }
+    // Pitch/ball type are required only when the admin enabled a chip
+    // row with more than one option — single-option rows auto-select.
+    if (category === 'MACHINE' && machineId) {
+      const m = filteredMachines.find((x) => x.id === machineId);
+      if (m && m.supportedPitchTypes.length > 1 && !pitchType) {
+        toast.error('Select a pitch type');
+        return;
+      }
+      if (m && m.supportedBallTypes.length > 1 && !ballType) {
+        toast.error('Select a ball type');
+        return;
+      }
+    }
     if (category === 'COACHING' && !coachId) {
       // Allowed — engine picks the first free coach if not pinned. But UX
       // is better if user explicitly chose. We'll let it through.
@@ -260,6 +307,8 @@ export default function ResourceSlotsPage() {
         category,
         playerName: 'Player', // Phase 5b minimal: ask in confirm dialog later
         machineId: category === 'MACHINE' ? machineId : undefined,
+        pitchType: category === 'MACHINE' ? pitchType : undefined,
+        ballType: category === 'MACHINE' ? ballType : undefined,
         coachId: category === 'COACHING' ? coachId : undefined,
         staffId: category === 'SIDEARM' ? staffId : undefined,
       };
@@ -388,6 +437,38 @@ export default function ResourceSlotsPage() {
             )}
           </PickerRow>
         )}
+
+        {/* Pitch + ball type chips — driven by what the admin enabled on
+            the selected machine (Center → Machines → supported pitch/ball
+            types). Hidden when nothing is configured. */}
+        {category === 'MACHINE' && machineId && (() => {
+          const m = filteredMachines.find((x) => x.id === machineId);
+          if (!m) return null;
+          const pitchOptions = m.supportedPitchTypes ?? [];
+          const ballOptions = m.supportedBallTypes ?? [];
+          return (
+            <>
+              {pitchOptions.length > 0 && (
+                <ChipSelector
+                  label="Pitch type"
+                  required={pitchOptions.length > 1}
+                  options={pitchOptions.map((id) => ({ id, label: PITCH_TYPE_LABELS[id] }))}
+                  value={pitchType}
+                  onChange={(v) => setPitchType(v as PitchTypeId | null)}
+                />
+              )}
+              {ballOptions.length > 0 && (
+                <ChipSelector
+                  label="Ball type"
+                  required={ballOptions.length > 1}
+                  options={ballOptions.map((id) => ({ id, label: BALL_TYPE_LABELS[id] }))}
+                  value={ballType}
+                  onChange={(v) => setBallType(v as BallTypeId | null)}
+                />
+              )}
+            </>
+          );
+        })()}
 
         {category === 'COACHING' && (
           <PeoplePicker
@@ -534,6 +615,56 @@ function PickerRow({
       </label>
       {children}
     </div>
+  );
+}
+
+/**
+ * Single-select chip row. When `required` is true and only one option
+ * exists we auto-pick it on first render — saves the user a tap when
+ * the admin only enabled one pitch/ball type.
+ */
+function ChipSelector({
+  label,
+  required,
+  options,
+  value,
+  onChange,
+}: {
+  label: string;
+  required?: boolean;
+  options: Array<{ id: string; label: string }>;
+  value: string | null;
+  onChange: (v: string | null) => void;
+}) {
+  // Auto-select the only option when picker is required and length=1.
+  useEffect(() => {
+    if (required && options.length === 1 && value !== options[0].id) {
+      onChange(options[0].id);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [options.map((o) => o.id).join(','), required]);
+
+  return (
+    <PickerRow label={label} required={required}>
+      <div className="flex flex-wrap gap-2">
+        {options.map((opt) => {
+          const active = value === opt.id;
+          return (
+            <button
+              key={opt.id}
+              onClick={() => onChange(active ? null : opt.id)}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold border cursor-pointer transition-all ${
+                active
+                  ? 'bg-accent/15 text-accent border-accent/40'
+                  : 'bg-white/[0.04] text-slate-300 border-white/[0.08] hover:border-accent/30'
+              }`}
+            >
+              {opt.label}
+            </button>
+          );
+        })}
+      </div>
+    </PickerRow>
   );
 }
 

@@ -14,6 +14,9 @@ import { z } from 'zod';
  * based engine assigns a machine to a free net dynamically.
  */
 
+const PitchTypeEnum = z.enum(['ASTRO', 'TURF', 'CEMENT', 'NATURAL']);
+const BallTypeEnum = z.enum(['TENNIS', 'LEATHER', 'MACHINE']);
+
 const MachineCreateSchema = z.object({
   machineTypeId: z.string().min(1, 'machineTypeId is required'),
   name: z.string().min(1).max(120),
@@ -21,6 +24,10 @@ const MachineCreateSchema = z.object({
   resourceId: z.string().optional().nullable(),
   isActive: z.boolean().default(true),
   displayOrder: z.number().int().optional(),
+  /** Pitch compatibility chips shown to the user. Empty = no chip row. */
+  supportedPitchTypes: z.array(PitchTypeEnum).default([]),
+  /** Ball compatibility chips. Empty = falls back to MachineType.ballType. */
+  supportedBallTypes: z.array(BallTypeEnum).default([]),
   metadata: z.record(z.string(), z.unknown()).optional().nullable(),
 });
 
@@ -83,6 +90,8 @@ export async function POST(req: NextRequest, ctx: { params: Promise<Params> }) {
       resourceId: parsed.data.resourceId || null,
       isActive: parsed.data.isActive,
       displayOrder: parsed.data.displayOrder ?? 0,
+      supportedPitchTypes: parsed.data.supportedPitchTypes,
+      supportedBallTypes: parsed.data.supportedBallTypes,
       metadata: (parsed.data.metadata as never) ?? undefined,
     },
     include: {

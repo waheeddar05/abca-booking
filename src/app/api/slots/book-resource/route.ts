@@ -51,6 +51,13 @@ const BodySchema = z.object({
   machineId: z.string().optional().nullable(),
   coachId: z.string().optional().nullable(),
   staffId: z.string().optional().nullable(),
+  /** Optional user-picked pitch type (chip row driven by
+   *  Machine.supportedPitchTypes). Validated server-side against the
+   *  machine's supported list to prevent client tampering. */
+  pitchType: z.enum(['ASTRO', 'TURF', 'CEMENT', 'NATURAL']).optional().nullable(),
+  /** Optional user-picked ball type (chip row driven by
+   *  Machine.supportedBallTypes). Validated server-side. */
+  ballType: z.enum(['TENNIS', 'LEATHER', 'MACHINE']).optional().nullable(),
   userId: z.string().optional(),
   paymentMethod: z.enum(['ONLINE', 'CASH']).optional(),
 });
@@ -107,16 +114,45 @@ export async function POST(req: NextRequest) {
     const isFreeBooking = !!user.isSuperAdmin || targetUser.isFreeUser;
 
     // Resolve machine type (if MACHINE category) for price overrides.
+    // Also validates that any user-picked pitch/ball is within the
+    // admin-configured set for this machine — so client tampering can't
+    // sneak in a "Cement" booking on a machine the admin only enabled
+    // for "Astro".
     let machineTypeCode: string | null = null;
     if (body.category === 'MACHINE' && body.machineId) {
       const m = await prisma.machine.findUnique({
         where: { id: body.machineId },
-        select: { centerId: true, machineType: { select: { code: true } } },
+        select: {
+          centerId: true,
+          supportedPitchTypes: true,
+          supportedBallTypes: true,
+          machineType: { select: { code: true } },
+        },
       });
       if (!m || m.centerId !== center.id) {
         return NextResponse.json({ error: 'Machine not found at this center' }, { status: 400 });
       }
       machineTypeCode = m.machineType.code;
+
+      if (body.pitchType && !m.supportedPitchTypes.includes(body.pitchType)) {
+        return NextResponse.json(
+          { error: `Pitch type "${body.pitchType}" is not available for this machine` },
+          { status: 400 },
+        );
+      }
+      if (body.ballType && !m.supportedBallTypes.includes(body.ballType)) {
+        return NextResponse.json(
+          { error: `Ball type "${body.ballType}" is not available for this machine` },
+          { status: 400 },
+        );
+      }
+      // If the admin gave us multiple options, require the user to pick.
+      if (m.supportedPitchTypes.length > 1 && !body.pitchType) {
+        return NextResponse.json({ error: 'Pitch type is required' }, { status: 400 });
+      }
+      if (m.supportedBallTypes.length > 1 && !body.ballType) {
+        return NextResponse.json({ error: 'Ball type is required' }, { status: 400 });
+      }
     }
 
     // Validate every slot's plan up front (without taking any locks).
@@ -186,7 +222,16 @@ export async function POST(req: NextRequest) {
                   startTime: plan.startTime,
                   endTime: plan.endTime,
                   status: 'BOOKED',
-                  ballType: 'TENNIS', // not meaningful for resource bookings, kept for legacy compatibility
+                  // ballType column on Booking is non-null. For resource
+                  // bookings: use the user pick when present; otherwise
+                  // fall back to the machine type's default; otherwise
+                  // TENNIS (legacy default kept for back-compat).
+                  ballType: body.ballType ?? (machineTypeCode === 'YANTRA' || machineTypeCode === 'GRAVITY'
+                    ? 'LEATHER'
+                    : machineTypeCode === 'LEVERAGE'
+                      ? 'TENNIS'
+                      : 'TENNIS'),
+                  pitchType: body.pitchType ?? null,
                   playerName: body.playerName,
                   category: plan.category,
                   assignedMachineId: assignment.machineId,

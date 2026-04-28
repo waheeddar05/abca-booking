@@ -4,6 +4,9 @@ import { useEffect, useState } from 'react';
 import { Plus, Loader2, Trash2, Pencil, Check, X } from 'lucide-react';
 import { Field, TextInput, NumberInput, SelectInput, PrimaryButton, SecondaryButton, Banner } from './centerForms';
 
+type PitchTypeId = 'ASTRO' | 'TURF' | 'CEMENT' | 'NATURAL';
+type BallTypeId = 'TENNIS' | 'LEATHER' | 'MACHINE';
+
 type MachineRow = {
   id: string;
   name: string;
@@ -12,12 +15,27 @@ type MachineRow = {
   displayOrder: number;
   legacyMachineId: string | null;
   resourceId: string | null;
+  supportedPitchTypes: PitchTypeId[];
+  supportedBallTypes: BallTypeId[];
   machineType: { id: string; code: string; name: string; ballType: string };
   resource: { id: string; name: string; type: string } | null;
 };
 
 type MachineType = { id: string; code: string; name: string; ballType: string; isActive: boolean };
 type ResourceLite = { id: string; name: string; type: string; category: string; isActive: boolean };
+
+const PITCH_TYPE_OPTIONS: Array<{ id: PitchTypeId; label: string }> = [
+  { id: 'ASTRO',   label: 'Astro Turf' },
+  { id: 'TURF',    label: 'Turf' },
+  { id: 'CEMENT',  label: 'Cement' },
+  { id: 'NATURAL', label: 'Natural' },
+];
+
+const BALL_TYPE_OPTIONS: Array<{ id: BallTypeId; label: string }> = [
+  { id: 'LEATHER', label: 'Leather' },
+  { id: 'TENNIS',  label: 'Tennis' },
+  { id: 'MACHINE', label: 'Machine balls' },
+];
 
 export function CenterMachinesTab({ centerId }: { centerId: string }) {
   const [machines, setMachines] = useState<MachineRow[]>([]);
@@ -59,7 +77,7 @@ export function CenterMachinesTab({ centerId }: { centerId: string }) {
     return (
       <Banner kind="info">
         No machine types exist yet. Create at least one machine type via the API <code>POST /api/admin/machine-types</code> before adding machines.
-        ABCA's three default types (Yantra, Gravity, Leverage) are seeded automatically on migration.
+        ABCA&apos;s three default types (Yantra, Gravity, Leverage) are seeded automatically on migration.
       </Banner>
     );
   }
@@ -116,6 +134,29 @@ export function CenterMachinesTab({ centerId }: { centerId: string }) {
                       {m.machineType.name} ({m.machineType.ballType.toLowerCase()})
                       {m.resource && <> · default lane: {m.resource.name}</>}
                     </div>
+                    <div className="flex flex-wrap gap-1 mt-1.5">
+                      {m.supportedPitchTypes.length > 0 && m.supportedPitchTypes.map((p) => (
+                        <span
+                          key={`p-${p}`}
+                          className="text-[9px] uppercase tracking-wide px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-300 border border-blue-500/20"
+                        >
+                          {PITCH_TYPE_OPTIONS.find((o) => o.id === p)?.label ?? p}
+                        </span>
+                      ))}
+                      {m.supportedBallTypes.length > 0 && m.supportedBallTypes.map((b) => (
+                        <span
+                          key={`b-${b}`}
+                          className="text-[9px] uppercase tracking-wide px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-300 border border-amber-500/20"
+                        >
+                          {BALL_TYPE_OPTIONS.find((o) => o.id === b)?.label ?? b}
+                        </span>
+                      ))}
+                      {m.supportedPitchTypes.length === 0 && m.supportedBallTypes.length === 0 && (
+                        <span className="text-[10px] text-slate-600 italic">
+                          No pitch / ball types configured — user-side picker hidden.
+                        </span>
+                      )}
+                    </div>
                   </div>
                   <div className="flex gap-1 flex-shrink-0">
                     <button
@@ -165,8 +206,23 @@ function MachineEditor({
   const [resourceId, setResourceId] = useState(initial?.resourceId || '');
   const [displayOrder, setDisplayOrder] = useState(initial?.displayOrder ?? 0);
   const [isActive, setIsActive] = useState(initial?.isActive ?? true);
+  const [supportedPitchTypes, setSupportedPitchTypes] = useState<PitchTypeId[]>(
+    initial?.supportedPitchTypes ?? [],
+  );
+  const [supportedBallTypes, setSupportedBallTypes] = useState<BallTypeId[]>(
+    initial?.supportedBallTypes ?? [],
+  );
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+
+  const togglePitch = (id: PitchTypeId) =>
+    setSupportedPitchTypes((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id],
+    );
+  const toggleBall = (id: BallTypeId) =>
+    setSupportedBallTypes((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id],
+    );
 
   const save = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -186,6 +242,8 @@ function MachineEditor({
           resourceId: resourceId || null,
           displayOrder,
           isActive,
+          supportedPitchTypes,
+          supportedBallTypes,
         }),
       });
       const data = await res.json();
@@ -238,6 +296,26 @@ function MachineEditor({
         </Field>
       </div>
 
+      {/* Pitch + ball type compatibility — drives the user-facing chip
+          rows on the resource-based slot picker. Leave empty to hide the
+          picker entirely (e.g. centers that don't differentiate). */}
+      <div className="space-y-3">
+        <ChipPicker
+          label="Supported pitch types"
+          help="Which pitches users can pick when booking this machine. Empty = no pitch picker shown."
+          options={PITCH_TYPE_OPTIONS}
+          selected={supportedPitchTypes}
+          onToggle={(id) => togglePitch(id as PitchTypeId)}
+        />
+        <ChipPicker
+          label="Supported ball types"
+          help={`Which ball types users can pick. Empty = falls back to the machine type's default (${types.find((t) => t.id === machineTypeId)?.ballType?.toLowerCase() ?? '—'}).`}
+          options={BALL_TYPE_OPTIONS}
+          selected={supportedBallTypes}
+          onToggle={(id) => toggleBall(id as BallTypeId)}
+        />
+      </div>
+
       {err && <Banner kind="error">{err}</Banner>}
 
       <div className="flex justify-end gap-2">
@@ -250,5 +328,54 @@ function MachineEditor({
         </PrimaryButton>
       </div>
     </form>
+  );
+}
+
+/**
+ * Multi-select chip picker. Used by the machine editor for pitch + ball
+ * compatibility. Mirrors the look of the legacy `/admin/configuration`
+ * pitch-compatibility tiles so admins moving from ABCA to a new center
+ * recognise the UX.
+ */
+function ChipPicker({
+  label,
+  help,
+  options,
+  selected,
+  onToggle,
+}: {
+  label: string;
+  help?: string;
+  options: Array<{ id: string; label: string }>;
+  selected: string[];
+  onToggle: (id: string) => void;
+}) {
+  return (
+    <div>
+      <div className="text-[10px] font-medium text-slate-400 uppercase tracking-wider mb-1">
+        {label}
+      </div>
+      {help && <div className="text-[10px] text-slate-500 mb-2">{help}</div>}
+      <div className="flex flex-wrap gap-1.5">
+        {options.map((opt) => {
+          const active = selected.includes(opt.id);
+          return (
+            <button
+              key={opt.id}
+              type="button"
+              onClick={() => onToggle(opt.id)}
+              className={`flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-semibold border cursor-pointer transition-all ${
+                active
+                  ? 'bg-accent/15 text-accent border-accent/40'
+                  : 'bg-white/[0.04] text-slate-400 border-white/[0.08] hover:border-accent/30'
+              }`}
+            >
+              {active && <Check className="w-3 h-3" />}
+              {opt.label}
+            </button>
+          );
+        })}
+      </div>
+    </div>
   );
 }

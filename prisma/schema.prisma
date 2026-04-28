@@ -173,23 +173,31 @@ model MachineType {
 // based booking code keeps working untouched while new code can address
 // machines by `Machine.id`.
 model Machine {
-  id              String     @id @default(cuid())
-  centerId        String
-  machineTypeId   String
+  id                  String      @id @default(cuid())
+  centerId            String
+  machineTypeId       String
   // Bridge to the legacy MachineId enum — set for ABCA's existing machines,
   // null for any newly-created machine at any center. To be deprecated once
   // every booking query reads from this table.
-  legacyMachineId MachineId?
-  name            String // "Yantra 1"
-  shortName       String?
-  resourceId      String? // optional: which net/wicket this machine sits on
-  isActive        Boolean    @default(true)
-  displayOrder    Int        @default(0)
+  legacyMachineId     MachineId?
+  name                String // "Yantra 1"
+  shortName           String?
+  resourceId          String? // optional: which net/wicket this machine sits on
+  isActive            Boolean     @default(true)
+  displayOrder        Int         @default(0)
+  // Per-instance pitch + ball compatibility. Drives the user-facing
+  // pitch/ball chips on the resource-based slot picker, replacing the
+  // legacy global `MACHINE_PITCH_CONFIG` policy for any new center.
+  // ABCA's four seeded machines are backfilled from that policy in the
+  // accompanying migration so the legacy ABCA flow stays unchanged while
+  // new centers (Toplay, …) configure compatibility per machine row.
+  supportedPitchTypes PitchType[] @default([])
+  supportedBallTypes  BallType[]  @default([])
   // Pitch compatibility, slab pricing tweaks, etc. — overrides the global
   // MACHINE_PITCH_CONFIG policy.
-  metadata        Json?
-  createdAt       DateTime   @default(now())
-  updatedAt       DateTime   @updatedAt
+  metadata            Json?
+  createdAt           DateTime    @default(now())
+  updatedAt           DateTime    @updatedAt
 
   center      Center      @relation(fields: [centerId], references: [id], onDelete: Cascade)
   machineType MachineType @relation(fields: [machineTypeId], references: [id])
