@@ -19,6 +19,7 @@
  */
 
 import { useEffect, useMemo, useState } from 'react';
+import Image from 'next/image';
 import { format } from 'date-fns';
 import {
   AlertTriangle,
@@ -61,6 +62,10 @@ interface ResourceSlot {
     COACHING: number;
     FULL_COURT: number;
   };
+  /** Per-machine final price for this slot, keyed by machineId — honours
+   *  per-machine-type overrides (e.g. Yantra premium). Empty when the
+   *  center has no active machines. */
+  machinePrices?: Record<string, number>;
 }
 
 interface ResourceAvailabilityResponse {
@@ -79,7 +84,35 @@ interface MachineLite {
   id: string;
   name: string;
   isActive: boolean;
-  machineType: { id: string; code: string; name: string; ballType: string };
+  machineType: {
+    id: string;
+    code: string;
+    name: string;
+    ballType: string;
+    /** Optional public asset path inherited from the type — every Yantra
+     *  instance shows the same Yantra photo without per-instance config. */
+    imageUrl?: string | null;
+  };
+  /** Default lane / surface this machine usually sits on. Surfaces the
+   *  configured pitch type ("Turf 1", "Cement 2", …) on the picker so
+   *  users see what they'll actually play on. Null = roaming. */
+  resource?: { id: string; name: string; type: string } | null;
+}
+
+/**
+ * Human-readable surface from the Resource enum (NET / TURF_WICKET / …).
+ * Used as a tiny secondary label on the machine pill so the configured
+ * lane is obvious before the user picks a slot.
+ */
+function describeResourceType(type: string | null | undefined): string {
+  if (!type) return '';
+  switch (type) {
+    case 'NET':           return 'indoor net';
+    case 'TURF_WICKET':   return 'turf';
+    case 'CEMENT_WICKET': return 'cement';
+    case 'COURT':         return 'court';
+    default:              return type.toLowerCase().replace(/_/g, ' ');
+  }
 }
 
 const CATEGORIES: Array<{ key: Category; label: string; icon: typeof Settings2; sub: string }> = [
@@ -175,9 +208,21 @@ export default function ResourceSlotsPage() {
     return { ok: false };
   };
 
+  /** Final ₹ for this slot under the active category — honours per-machine
+   *  override (e.g. Yantra premium) when MACHINE category has a machine
+   *  selected. Falls back to the base category rate otherwise. */
+  const slotPriceFor = (s: ResourceSlot): number => {
+    if (category === 'MACHINE' && machineId && s.machinePrices?.[machineId] != null) {
+      return s.machinePrices[machineId];
+    }
+    return s.prices[category] || 0;
+  };
+
   const totalPrice = useMemo(() => {
-    return selectedSlots.reduce((sum, s) => sum + (s.prices[category] || 0), 0);
-  }, [selectedSlots, category]);
+    return selectedSlots.reduce((sum, s) => sum + slotPriceFor(s), 0);
+    // slotPriceFor depends on `category` and `machineId`, so list them.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedSlots, category, machineId]);
 
   const filteredMachines = useMemo(() => {
     // Phase 5b doesn't filter by ball type; the engine accepts any active machine.
@@ -298,19 +343,43 @@ export default function ResourceSlotsPage() {
               <div className="flex flex-wrap gap-2">
                 {filteredMachines.map((m) => {
                   const active = machineId === m.id;
+                  const imageUrl = m.machineType.imageUrl;
+                  const surface = describeResourceType(m.resource?.type);
+                  // Two info bits: ball type (e.g. "leather") + lane/pitch
+                  // (e.g. "turf — Turf 1"). Joined with a dot when both are
+                  // present so the pill stays scannable.
+                  const subParts = [
+                    m.machineType.ballType.toLowerCase(),
+                    m.resource ? `${surface}: ${m.resource.name}` : null,
+                  ].filter(Boolean);
                   return (
                     <button
                       key={m.id}
                       onClick={() => setMachineId(active ? null : m.id)}
-                      className={`px-3 py-1.5 rounded-lg text-xs font-semibold border cursor-pointer transition-all ${
+                      className={`flex items-center gap-2 pl-1.5 pr-3 py-1 rounded-lg text-xs font-semibold border cursor-pointer transition-all ${
                         active
                           ? 'bg-accent/15 text-accent border-accent/40'
                           : 'bg-white/[0.04] text-slate-300 border-white/[0.08] hover:border-accent/30'
                       }`}
                     >
-                      {m.name}
-                      <span className="text-[10px] text-slate-500 ml-1.5">
-                        {m.machineType.ballType.toLowerCase()}
+                      {imageUrl ? (
+                        <Image
+                          src={imageUrl}
+                          alt={m.machineType.name}
+                          width={28}
+                          height={28}
+                          className="w-7 h-7 rounded-md object-cover bg-white/5"
+                        />
+                      ) : (
+                        <div className="w-7 h-7 rounded-md bg-white/5 flex items-center justify-center">
+                          <Settings2 className="w-3.5 h-3.5 text-slate-500" />
+                        </div>
+                      )}
+                      <span className="leading-tight text-left">
+                        <span className="block">{m.name}</span>
+                        <span className="block text-[10px] text-slate-500 font-medium">
+                          {subParts.join(' · ')}
+                        </span>
                       </span>
                     </button>
                   );
@@ -364,7 +433,7 @@ export default function ResourceSlotsPage() {
               {data.slots.map((slot) => {
                 const bookable = slotIsBookable(slot, category);
                 const selected = selectedSlots.some((s) => s.startTime === slot.startTime);
-                const price = slot.prices[category];
+                const price = slotPriceFor(slot);
                 return (
                   <button
                     key={slot.startTime}

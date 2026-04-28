@@ -53,7 +53,7 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<Params> }) 
     where: { id: machineId },
     data,
     include: {
-      machineType: { select: { id: true, code: true, name: true, ballType: true } },
+      machineType: { select: { id: true, code: true, name: true, ballType: true, imageUrl: true } },
       resource: { select: { id: true, name: true, type: true } },
     },
   });

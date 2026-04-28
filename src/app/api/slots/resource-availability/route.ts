@@ -78,6 +78,7 @@ export async function GET(req: NextRequest) {
       resources,
       coaches,
       staff,
+      machines,
       bookings,
       batchConfig,
     ] = await Promise.all([
@@ -87,6 +88,13 @@ export async function GET(req: NextRequest) {
       getCenterResources(center.id),
       getCenterCoaches(center.id),
       getCenterStaff(center.id),
+      prisma.machine.findMany({
+        where: { centerId: center.id, isActive: true },
+        select: {
+          id: true,
+          machineType: { select: { code: true } },
+        },
+      }),
       prisma.booking.findMany({
         where: { centerId: center.id, date: dateUTC, status: { not: 'CANCELLED' } },
         select: {
@@ -152,8 +160,11 @@ export async function GET(req: NextRequest) {
 
         const timeSlab = getTimeSlab(slot.startTime, timeSlabConfig);
 
-        // Pre-compute per-category prices (machine = base; Yantra override
-        // surfaces if/when the user picks one).
+        // Pre-compute per-category prices. MACHINE is the base — when the
+        // user picks a specific machine the UI swaps in the entry from
+        // `machinePrices` below, which honours per-machine-type overrides
+        // (so a Yantra at Toplay shows ₹800/₹1000 even when the default is
+        // ₹600/₹800).
         const prices = {
           MACHINE: await getResourceSlotPrice({
             category: 'MACHINE',
@@ -181,6 +192,20 @@ export async function GET(req: NextRequest) {
           }),
         };
 
+        // Per-machine price map: machineId → final ₹ for this slot under
+        // that machine type. Lets the picker show "Yantra ₹800" alongside
+        // "Leverage ₹600" for the same time window.
+        const machinePrices: Record<string, number> = {};
+        for (const m of machines) {
+          machinePrices[m.id] = await getResourceSlotPrice({
+            category: 'MACHINE',
+            machineTypeCode: m.machineType.code,
+            startTime: slot.startTime,
+            pricingConfig,
+            timeSlabConfig,
+          });
+        }
+
         return {
           startTime: slot.startTime.toISOString(),
           endTime: slot.endTime.toISOString(),
@@ -200,6 +225,7 @@ export async function GET(req: NextRequest) {
           fullCourtAvailable: availability.fullCourtAvailable,
           corporateBatchHolds: availability.corporateBatchNetsHeld,
           prices,
+          machinePrices,
         };
       }),
     );
