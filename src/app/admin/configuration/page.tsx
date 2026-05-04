@@ -7,6 +7,7 @@ import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { AdminPageHeader } from '@/components/admin/AdminPageHeader';
 import { AdminCard } from '@/components/admin/AdminCard';
 import { AdminToggle } from '@/components/admin/AdminToggle';
+import { ScopeBadge, ScopeBanner } from '@/components/admin/ScopeBadge';
 
 interface SlabPricing {
   single: number;
@@ -390,6 +391,13 @@ export default function ConfigurationPage() {
         icon={Settings}
         title="Configuration"
         description="Payment, machines & pricing"
+      >
+        <ScopeBadge scope="platform" />
+      </AdminPageHeader>
+
+      <ScopeBanner
+        scope="platform"
+        hint="These are the platform-wide defaults. Every center inherits them. To diverge for a specific center, add an override under Admin → Centers → [center] → Policies."
       />
 
       {/* ─── Payment Settings ─────────────────────── */}

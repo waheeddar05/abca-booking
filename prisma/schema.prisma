@@ -384,6 +384,11 @@ enum BookingCategory {
   COACHING
   FULL_COURT
   CORPORATE_BATCH
+  // Bare-net booking — user reserves a single net (indoor or outdoor)
+  // with no machine, no staff, no coach. Pitch type is picked by the
+  // user from the per-center NET_PITCH_TYPES policy. Mostly used for
+  // bring-your-own-bowler practice or warm-up sessions.
+  NET
 }
 
 // Many-to-many between a Booking and the Resources (nets/courts/turf

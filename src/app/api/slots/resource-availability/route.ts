@@ -20,6 +20,7 @@ import {
   computeSlotAvailability,
 } from '@/lib/resource-booking';
 import { getResourcePricingConfig, getResourceSlotPrice } from '@/lib/resource-pricing';
+import { getSidearmPitchTypes, getNetPitchTypes } from '@/lib/pitch-config';
 
 /**
  * GET /api/slots/resource-availability?date=YYYY-MM-DD[&center=<slug>]
@@ -79,6 +80,8 @@ export async function GET(req: NextRequest) {
       coaches,
       staff,
       machines,
+      sidearmPitchTypes,
+      netPitchTypes,
       bookings,
       batchConfig,
     ] = await Promise.all([
@@ -95,6 +98,8 @@ export async function GET(req: NextRequest) {
           machineType: { select: { code: true } },
         },
       }),
+      getSidearmPitchTypes(center.id),
+      getNetPitchTypes(center.id),
       prisma.booking.findMany({
         where: { centerId: center.id, date: dateUTC, status: { not: 'CANCELLED' } },
         select: {
@@ -190,6 +195,12 @@ export async function GET(req: NextRequest) {
             pricingConfig,
             timeSlabConfig,
           }),
+          NET: await getResourceSlotPrice({
+            category: 'NET',
+            startTime: slot.startTime,
+            pricingConfig,
+            timeSlabConfig,
+          }),
         };
 
         // Per-machine price map: machineId → final ₹ for this slot under
@@ -238,6 +249,11 @@ export async function GET(req: NextRequest) {
       outdoorResourcesTotal: resources.filter((r) => r.category === 'OUTDOOR').length,
       coachesTotal: coaches.length,
       sidearmStaffTotal: staff.length,
+      // Pitch-type lists for the categories that aren't tied to a single
+      // machine row. Sidearm + Net read from the per-center policies; the
+      // per-machine list is fetched separately by the picker.
+      sidearmPitchTypes,
+      netPitchTypes,
       corporateBatchConfig: batchConfig,
       slots: result,
     });

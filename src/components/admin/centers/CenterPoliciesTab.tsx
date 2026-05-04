@@ -16,6 +16,12 @@ const COMMON_KEYS = [
   'PRICING_CONFIG',
   'TIME_SLAB_CONFIG',
   'MACHINE_PITCH_CONFIG',
+  'RESOURCE_PRICING_CONFIG',
+  'CORPORATE_BATCH_CONFIG',
+  // Pitch types offered when booking SIDEARM / NET (resource-based centers).
+  // Stored as a JSON array, e.g. ["ASTRO","CEMENT"]. Defaults to all four.
+  'SIDEARM_PITCH_TYPES',
+  'NET_PITCH_TYPES',
   'PAYMENT_GATEWAY_ENABLED',
   'SLOT_PAYMENT_REQUIRED',
   'PACKAGE_PAYMENT_REQUIRED',

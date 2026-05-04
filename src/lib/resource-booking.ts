@@ -475,6 +475,19 @@ export async function planBooking(plan: BookingPlan): Promise<PlannedAssignment>
         staffId: null,
       };
     }
+    case 'NET': {
+      // Bare-net booking: 1 net, nothing else. Pitch type is captured
+      // on Booking.pitchType but doesn't influence resource selection
+      // here — the engine only cares that *some* net is free.
+      const net = await pickNetFor({ plan, availability, resources, occupancy });
+      return {
+        category: 'NET',
+        resourceIds: [net.id],
+        machineId: null,
+        coachId: null,
+        staffId: null,
+      };
+    }
   }
 }
 

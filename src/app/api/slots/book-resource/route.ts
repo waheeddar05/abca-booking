@@ -11,6 +11,12 @@ import {
   type BookingPlan,
 } from '@/lib/resource-booking';
 import { getResourceSlotPrice } from '@/lib/resource-pricing';
+import {
+  effectivePitchTypes,
+  effectiveBallTypes,
+  getSidearmPitchTypes,
+  getNetPitchTypes,
+} from '@/lib/pitch-config';
 import { dateStringToUTC } from '@/lib/time';
 
 /**
@@ -45,7 +51,7 @@ const SlotSchema = z.object({
 
 const BodySchema = z.object({
   slots: z.array(SlotSchema).min(1).max(8),
-  category: z.enum(['MACHINE', 'SIDEARM', 'COACHING', 'FULL_COURT', 'CORPORATE_BATCH']),
+  category: z.enum(['MACHINE', 'SIDEARM', 'COACHING', 'FULL_COURT', 'CORPORATE_BATCH', 'NET']),
   playerName: z.string().min(1).max(120),
   resourceIds: z.array(z.string()).optional(),
   machineId: z.string().optional().nullable(),
@@ -114,10 +120,9 @@ export async function POST(req: NextRequest) {
     const isFreeBooking = !!user.isSuperAdmin || targetUser.isFreeUser;
 
     // Resolve machine type (if MACHINE category) for price overrides.
-    // Also validates that any user-picked pitch/ball is within the
-    // admin-configured set for this machine — so client tampering can't
-    // sneak in a "Cement" booking on a machine the admin only enabled
-    // for "Astro".
+    // Validates picked pitch/ball against the *effective* list (configured
+    // values, or the universe when the admin left them empty) so client
+    // tampering can't sneak in unsupported types.
     let machineTypeCode: string | null = null;
     if (body.category === 'MACHINE' && body.machineId) {
       const m = await prisma.machine.findUnique({
@@ -126,7 +131,7 @@ export async function POST(req: NextRequest) {
           centerId: true,
           supportedPitchTypes: true,
           supportedBallTypes: true,
-          machineType: { select: { code: true } },
+          machineType: { select: { code: true, ballType: true } },
         },
       });
       if (!m || m.centerId !== center.id) {
@@ -134,24 +139,50 @@ export async function POST(req: NextRequest) {
       }
       machineTypeCode = m.machineType.code;
 
-      if (body.pitchType && !m.supportedPitchTypes.includes(body.pitchType)) {
+      const effPitch = effectivePitchTypes(m.supportedPitchTypes);
+      const effBall = effectiveBallTypes(
+        m.supportedBallTypes as Array<'TENNIS' | 'LEATHER' | 'MACHINE'>,
+        m.machineType.ballType,
+      );
+
+      if (body.pitchType && !effPitch.includes(body.pitchType)) {
         return NextResponse.json(
           { error: `Pitch type "${body.pitchType}" is not available for this machine` },
           { status: 400 },
         );
       }
-      if (body.ballType && !m.supportedBallTypes.includes(body.ballType)) {
+      if (body.ballType && !effBall.includes(body.ballType)) {
         return NextResponse.json(
           { error: `Ball type "${body.ballType}" is not available for this machine` },
           { status: 400 },
         );
       }
-      // If the admin gave us multiple options, require the user to pick.
-      if (m.supportedPitchTypes.length > 1 && !body.pitchType) {
+      if (effPitch.length > 1 && !body.pitchType) {
         return NextResponse.json({ error: 'Pitch type is required' }, { status: 400 });
       }
-      if (m.supportedBallTypes.length > 1 && !body.ballType) {
+      if (effBall.length > 1 && !body.ballType) {
         return NextResponse.json({ error: 'Ball type is required' }, { status: 400 });
+      }
+    }
+
+    // SIDEARM / NET also accept a pitch type — read from the per-center
+    // policy so we can validate the picked value and reject anything not
+    // in the allow-list. Required when the policy has more than one type.
+    if (body.category === 'SIDEARM' || body.category === 'NET') {
+      const allowed =
+        body.category === 'SIDEARM'
+          ? await getSidearmPitchTypes(center.id)
+          : await getNetPitchTypes(center.id);
+      if (body.pitchType && !allowed.includes(body.pitchType)) {
+        return NextResponse.json(
+          {
+            error: `Pitch type "${body.pitchType}" is not available for ${body.category.toLowerCase()} bookings at this center`,
+          },
+          { status: 400 },
+        );
+      }
+      if (allowed.length > 1 && !body.pitchType) {
+        return NextResponse.json({ error: 'Pitch type is required' }, { status: 400 });
       }
     }
 
