@@ -570,7 +570,14 @@ export default function ConfigurationPage() {
         </div>
       </AdminCard>
 
-      {/* ─── Machine Configuration ────────────────── */}
+      {/* ─── Machine Configuration ──────────────────
+          Hardcoded against the legacy MachineId enum (Gravity / Yantra /
+          Leverage Indoor / Leverage Outdoor) so it only makes sense for
+          ABCA-style centers using the MACHINE_PITCH booking model.
+          Resource-based centers manage their machines per-instance via
+          Admin → Centers → [center] → Machines, so we hide the section
+          entirely there to prevent the four-machine ghost UI. */}
+      {currentCenter?.bookingModel !== 'RESOURCE_BASED' && (
       <AdminCard
         title="Machine Configuration"
         icon={<Zap className="w-4 h-4 text-accent" />}
@@ -794,6 +801,36 @@ export default function ConfigurationPage() {
           </div>
         )}
       </AdminCard>
+      )}
+
+      {/* Resource-based hint — points the admin at the right place to
+          configure pricing + per-machine pitch/ball compatibility. */}
+      {currentCenter?.bookingModel === 'RESOURCE_BASED' && (
+        <AdminCard
+          title="Machine Configuration"
+          icon={<Zap className="w-4 h-4 text-accent" />}
+          collapsible
+          defaultOpen={true}
+        >
+          <div className="text-xs text-slate-400 leading-relaxed">
+            {currentCenter.name} uses the resource-based booking model.
+            Machines, pitch + ball compatibility, and per-machine pricing
+            are configured per-instance under{' '}
+            <a
+              href={`/admin/centers/${currentCenter.id}`}
+              className="text-accent underline hover:text-accent/80"
+            >
+              Admin → Centers → {currentCenter.shortName ?? currentCenter.name} → Machines
+            </a>
+            . Resource-category pricing (Machine / Sidearm / Coaching /
+            Net / Full Court) lives in the per-center{' '}
+            <code className="px-1.5 py-0.5 rounded bg-white/[0.04] text-accent/90 text-[10px]">
+              RESOURCE_PRICING_CONFIG
+            </code>{' '}
+            policy override.
+          </div>
+        </AdminCard>
+      )}
 
       {/* Machine Config Save Confirmation */}
       <ConfirmDialog

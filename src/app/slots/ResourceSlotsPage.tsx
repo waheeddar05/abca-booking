@@ -671,9 +671,10 @@ function PickerRow({
 }
 
 /**
- * Single-select chip row. When `required` is true and only one option
- * exists we auto-pick it on first render — saves the user a tap when
- * the admin only enabled one pitch/ball type.
+ * Single-select chip row. Hides itself entirely when there's only one
+ * option (no point making the user tap a chip they can't change), and
+ * silently auto-applies that single value so server-side validation
+ * still passes. When `options` is empty the row also doesn't render.
  */
 function ChipSelector({
   label,
@@ -688,13 +689,18 @@ function ChipSelector({
   value: string | null;
   onChange: (v: string | null) => void;
 }) {
-  // Auto-select the only option when picker is required and length=1.
+  // Auto-apply the single available value. The list-of-ids string is
+  // the dep so we re-run when the underlying option set changes (e.g.
+  // user picks a different machine).
   useEffect(() => {
-    if (required && options.length === 1 && value !== options[0].id) {
+    if (options.length === 1 && value !== options[0].id) {
       onChange(options[0].id);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [options.map((o) => o.id).join(','), required]);
+  }, [options.map((o) => o.id).join(',')]);
+
+  // Nothing to choose between — hide the row.
+  if (options.length <= 1) return null;
 
   return (
     <PickerRow label={label} required={required}>
