@@ -38,16 +38,22 @@ export function effectivePitchTypes(machinePitchTypes: PitchType[]): PitchType[]
   return machinePitchTypes.length > 0 ? machinePitchTypes : ALL_PITCH_TYPES;
 }
 
-/** Same idea for ball types. */
+/**
+ * Same idea for ball types — empty configured list means "no admin
+ * restriction; offer the natural set for this machine type". A leather-
+ * type machine (Yantra, Gravity) physically supports both leather and
+ * machine balls, so the fallback for those exposes both. Tennis-type
+ * machines fall back to TENNIS only. Anything else falls back to the
+ * full universe so the chip row stays visible.
+ */
 export function effectiveBallTypes(
   machineBallTypes: BallTypeId[],
   fallbackTypeBall: string | null | undefined,
 ): BallTypeId[] {
   if (machineBallTypes.length > 0) return machineBallTypes;
-  // Fall back to the MachineType.ballType (single value, e.g. 'LEATHER').
-  if (fallbackTypeBall && (ALL_BALL_TYPES as string[]).includes(fallbackTypeBall)) {
-    return [fallbackTypeBall as BallTypeId];
-  }
+  if (fallbackTypeBall === 'LEATHER') return ['LEATHER', 'MACHINE'];
+  if (fallbackTypeBall === 'TENNIS') return ['TENNIS'];
+  if (fallbackTypeBall === 'MACHINE') return ['MACHINE'];
   return ALL_BALL_TYPES;
 }
 

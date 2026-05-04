@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useSession } from 'next-auth/react';
-import { LayoutDashboard, CalendarCheck, Users, Settings, Clock, Wrench, Package, Zap, SlidersHorizontal, ArrowLeft, Power, DatabaseZap, UserCog, Tag, Building2 } from 'lucide-react';
+import { LayoutDashboard, CalendarCheck, Users, Clock, Wrench, Package, Zap, SlidersHorizontal, ArrowLeft, Power, DatabaseZap, UserCog, Tag, Building2 } from 'lucide-react';
 import { signOut } from 'next-auth/react';
 import { AdminMobileNav } from '@/components/admin/AdminMobileNav';
 import { CenterSwitcher } from '@/components/admin/CenterSwitcher';
@@ -35,7 +35,9 @@ export default function AdminLayout({
     { href: '/admin/offers', label: 'Offers', icon: Tag },
     { href: '/admin/packages', label: 'Packages', icon: Package },
     { href: '/admin/configuration', label: 'Settings', icon: SlidersHorizontal },
-    { href: '/admin/policies', label: 'Policies', icon: Settings },
+    // /admin/policies removed — its raw key/value editor was confusing
+    // and overlapped the structured forms here on Settings. Per-center
+    // overrides for advanced keys still live under Centers → Policies.
     ...(isSuperAdmin
       ? [
           { href: '/admin/centers', label: 'Centers', icon: Building2 },
