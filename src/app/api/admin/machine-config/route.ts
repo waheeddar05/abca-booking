@@ -10,6 +10,12 @@ import type { MachinePitchConfig } from '@/lib/constants';
 import { invalidatePolicyCache } from '@/lib/policy-cache';
 import { getPolicyValue, invalidatePolicy } from '@/lib/policy';
 
+type Scope = 'center' | 'global';
+
+function readScope(req: NextRequest): Scope {
+  return new URL(req.url).searchParams.get('scope') === 'global' ? 'global' : 'center';
+}
+
 const MACHINE_CONFIG_KEYS = [
   'BALL_TYPE_SELECTION_ENABLED',
   'LEATHER_PITCH_TYPE_SELECTION_ENABLED',
@@ -32,20 +38,33 @@ export async function GET(req: NextRequest) {
     }
 
     const user = await getAuthenticatedUser(req);
-    const center = await resolveCurrentCenter(req, user);
-    if (!center) {
-      return NextResponse.json({ error: 'No center selected' }, { status: 400 });
-    }
+    const scope = readScope(req);
 
-    // Read with center → global → null cascade so the page displays
-    // whatever the current center will actually use at booking time.
+    // Read source — center cascade by default, global-only when the
+    // super admin explicitly opts in. Anything outside the bare global
+    // table is filtered out in global mode so the editor doesn't
+    // misleadingly inherit center overrides.
     const config: Record<string, string> = {};
-    await Promise.all(
-      MACHINE_CONFIG_KEYS.map(async (key) => {
-        const v = await getPolicyValue(key, center.id, null);
-        if (v !== null) config[key] = v;
-      }),
-    );
+    if (scope === 'global') {
+      if (!user?.isSuperAdmin) {
+        return NextResponse.json({ error: 'Super admin required' }, { status: 403 });
+      }
+      const rows = await prisma.policy.findMany({
+        where: { key: { in: MACHINE_CONFIG_KEYS } },
+      });
+      for (const row of rows) config[row.key] = row.value;
+    } else {
+      const center = await resolveCurrentCenter(req, user);
+      if (!center) {
+        return NextResponse.json({ error: 'No center selected' }, { status: 400 });
+      }
+      await Promise.all(
+        MACHINE_CONFIG_KEYS.map(async (key) => {
+          const v = await getPolicyValue(key, center.id, null);
+          if (v !== null) config[key] = v;
+        }),
+      );
+    }
 
     let pricingConfig: PricingConfig = DEFAULT_PRICING_CONFIG;
     if (config['PRICING_CONFIG']) {
@@ -116,8 +135,12 @@ export async function POST(req: NextRequest) {
     }
 
     const user = await getAuthenticatedUser(req);
-    const center = await resolveCurrentCenter(req, user);
-    if (!center) {
+    const scope = readScope(req);
+    if (scope === 'global' && !user?.isSuperAdmin) {
+      return NextResponse.json({ error: 'Super admin required' }, { status: 403 });
+    }
+    const center = scope === 'center' ? await resolveCurrentCenter(req, user) : null;
+    if (scope === 'center' && !center) {
       return NextResponse.json({ error: 'No center selected' }, { status: 400 });
     }
 
@@ -191,22 +214,33 @@ export async function POST(req: NextRequest) {
       updates.push({ key: 'MACHINE_PITCH_CONFIG', value: JSON.stringify(machinePitchConfig) });
     }
 
-    // Persist as per-center overrides. The legacy global Policy rows are
-    // intentionally untouched — they remain the cross-center fallback.
-    await Promise.all(
-      updates.map(({ key, value }) =>
-        prisma.centerPolicy.upsert({
-          where: { centerId_key: { centerId: center.id, key } },
-          update: { value },
-          create: { centerId: center.id, key, value },
-        }),
-      ),
-    );
-
-    // Invalidate both cache layers — the new resolver and the legacy
-    // global cache — so reads pick up the change immediately for this
-    // center while leaving other centers' caches untouched.
-    for (const { key } of updates) invalidatePolicy(key, center.id);
+    // Persist either to CenterPolicy(currentCenter) or to the global
+    // Policy table depending on the requested scope. Same `updates`
+    // shape either way; only the table changes.
+    if (scope === 'global') {
+      await Promise.all(
+        updates.map(({ key, value }) =>
+          prisma.policy.upsert({
+            where: { key },
+            update: { value },
+            create: { key, value },
+          }),
+        ),
+      );
+      for (const { key } of updates) invalidatePolicy(key, null);
+    } else {
+      const centerId = center!.id;
+      await Promise.all(
+        updates.map(({ key, value }) =>
+          prisma.centerPolicy.upsert({
+            where: { centerId_key: { centerId, key } },
+            update: { value },
+            create: { centerId, key, value },
+          }),
+        ),
+      );
+      for (const { key } of updates) invalidatePolicy(key, centerId);
+    }
     invalidatePolicyCache(...updates.map((u) => u.key));
 
     return NextResponse.json({ message: 'Machine configuration updated successfully' });
