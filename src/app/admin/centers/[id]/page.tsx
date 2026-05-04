@@ -4,7 +4,7 @@ import { useEffect, useState, use } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useSession } from 'next-auth/react';
-import { Building2, ArrowLeft, Loader2, Trash2, MapPin, CreditCard, Users, Settings2, FileText, SlidersHorizontal } from 'lucide-react';
+import { Building2, ArrowLeft, Loader2, Trash2, MapPin, CreditCard, Users, Settings2, SlidersHorizontal } from 'lucide-react';
 import { AdminPageHeader } from '@/components/admin/AdminPageHeader';
 import { AdminCard } from '@/components/admin/AdminCard';
 import { CenterGeneralTab, type CenterDetail } from '@/components/admin/centers/CenterGeneralTab';
@@ -13,7 +13,6 @@ import { CenterMachinesTab } from '@/components/admin/centers/CenterMachinesTab'
 import { CenterResourcesTab } from '@/components/admin/centers/CenterResourcesTab';
 import { CenterMembersTab } from '@/components/admin/centers/CenterMembersTab';
 import { CenterPoliciesTab } from '@/components/admin/centers/CenterPoliciesTab';
-import { ScopeBadge, ScopeBanner } from '@/components/admin/ScopeBadge';
 
 type TabKey = 'general' | 'payment' | 'machines' | 'resources' | 'members' | 'policies';
 
@@ -118,7 +117,6 @@ export default function CenterEditPage({ params }: { params: Promise<{ id: strin
         title={center.name}
         description={`Slug: ${center.slug} · ${center.bookingModel === 'RESOURCE_BASED' ? 'Resource-based' : 'Machine/Pitch'} · ${center._count.memberships} member(s) · ${center._count.machines} machine(s) · ${center._count.resources} resource(s)`}
       >
-        <ScopeBadge scope="center" centerName={center.shortName ?? center.name} />
         {center.isActive && (
           <button
             onClick={deactivate}
@@ -128,10 +126,6 @@ export default function CenterEditPage({ params }: { params: Promise<{ id: strin
           </button>
         )}
       </AdminPageHeader>
-
-      <div className="mb-4">
-        <ScopeBanner scope="center" centerName={center.name} />
-      </div>
 
       {/* Tabs */}
       <div className="flex gap-1 overflow-x-auto -mx-1 px-1 pb-2 mb-4 border-b border-white/[0.06] no-scrollbar">

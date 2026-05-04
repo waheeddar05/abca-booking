@@ -1,11 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { requireAdmin } from '@/lib/adminAuth';
+import { getAuthenticatedUser } from '@/lib/auth';
+import { resolveCurrentCenter } from '@/lib/centers';
 import { DEFAULT_PRICING_CONFIG, DEFAULT_TIME_SLABS, normalizePricingConfig } from '@/lib/pricing';
 import type { PricingConfig, TimeSlabConfig } from '@/lib/pricing';
 import { DEFAULT_MACHINE_PITCH_CONFIG, ALL_MACHINE_IDS, MACHINES } from '@/lib/constants';
 import type { MachinePitchConfig } from '@/lib/constants';
-import { getCachedPolicies, invalidatePolicyCache } from '@/lib/policy-cache';
+import { invalidatePolicyCache } from '@/lib/policy-cache';
+import { getPolicyValue, invalidatePolicy } from '@/lib/policy';
 
 const MACHINE_CONFIG_KEYS = [
   'BALL_TYPE_SELECTION_ENABLED',
@@ -28,7 +31,21 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 403 });
     }
 
-    const config = await getCachedPolicies(MACHINE_CONFIG_KEYS);
+    const user = await getAuthenticatedUser(req);
+    const center = await resolveCurrentCenter(req, user);
+    if (!center) {
+      return NextResponse.json({ error: 'No center selected' }, { status: 400 });
+    }
+
+    // Read with center → global → null cascade so the page displays
+    // whatever the current center will actually use at booking time.
+    const config: Record<string, string> = {};
+    await Promise.all(
+      MACHINE_CONFIG_KEYS.map(async (key) => {
+        const v = await getPolicyValue(key, center.id, null);
+        if (v !== null) config[key] = v;
+      }),
+    );
 
     let pricingConfig: PricingConfig = DEFAULT_PRICING_CONFIG;
     if (config['PRICING_CONFIG']) {
@@ -96,6 +113,12 @@ export async function POST(req: NextRequest) {
     const session = await requireAdmin(req);
     if (!session) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 403 });
+    }
+
+    const user = await getAuthenticatedUser(req);
+    const center = await resolveCurrentCenter(req, user);
+    if (!center) {
+      return NextResponse.json({ error: 'No center selected' }, { status: 400 });
     }
 
     const body = await req.json();
@@ -168,18 +191,23 @@ export async function POST(req: NextRequest) {
       updates.push({ key: 'MACHINE_PITCH_CONFIG', value: JSON.stringify(machinePitchConfig) });
     }
 
+    // Persist as per-center overrides. The legacy global Policy rows are
+    // intentionally untouched — they remain the cross-center fallback.
     await Promise.all(
       updates.map(({ key, value }) =>
-        prisma.policy.upsert({
-          where: { key },
+        prisma.centerPolicy.upsert({
+          where: { centerId_key: { centerId: center.id, key } },
           update: { value },
-          create: { key, value },
-        })
-      )
+          create: { centerId: center.id, key, value },
+        }),
+      ),
     );
 
-    // Invalidate cache so subsequent reads pick up the new values
-    invalidatePolicyCache(...updates.map(u => u.key));
+    // Invalidate both cache layers — the new resolver and the legacy
+    // global cache — so reads pick up the change immediately for this
+    // center while leaving other centers' caches untouched.
+    for (const { key } of updates) invalidatePolicy(key, center.id);
+    invalidatePolicyCache(...updates.map((u) => u.key));
 
     return NextResponse.json({ message: 'Machine configuration updated successfully' });
   } catch (error: any) {

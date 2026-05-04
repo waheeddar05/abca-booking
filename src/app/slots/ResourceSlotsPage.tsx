@@ -117,11 +117,14 @@ interface MachineLite {
   resource?: { id: string; name: string; type: string } | null;
 }
 
+// Three surfaces only — see lib/pitch-config.ts. The legacy 'TURF'
+// label is intentionally omitted; rows that still reference it are read-
+// only history and won't be offered as a fresh booking option.
 const PITCH_TYPE_LABELS: Record<PitchTypeId, string> = {
   ASTRO:   'Astro Turf',
-  TURF:    'Turf',
+  TURF:    'Turf', // legacy — not offered, kept so old rows render
   CEMENT:  'Cement',
-  NATURAL: 'Natural',
+  NATURAL: 'Natural Turf',
 };
 
 const BALL_TYPE_LABELS: Record<BallTypeId, string> = {

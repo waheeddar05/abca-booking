@@ -14,7 +14,10 @@ import { z } from 'zod';
  * based engine assigns a machine to a free net dynamically.
  */
 
-const PitchTypeEnum = z.enum(['ASTRO', 'TURF', 'CEMENT', 'NATURAL']);
+// Three surfaces only — see lib/pitch-config.ts. 'TURF' is intentionally
+// dropped from the Zod allow-list so admins can't save it via the form;
+// the enum value remains in the DB schema for back-compat with old rows.
+const PitchTypeEnum = z.enum(['ASTRO', 'CEMENT', 'NATURAL']);
 const BallTypeEnum = z.enum(['TENNIS', 'LEATHER', 'MACHINE']);
 
 const MachineCreateSchema = z.object({

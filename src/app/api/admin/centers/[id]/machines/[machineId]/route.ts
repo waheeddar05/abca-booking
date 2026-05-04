@@ -3,7 +3,10 @@ import { prisma } from '@/lib/prisma';
 import { requireSuperAdmin } from '@/lib/adminAuth';
 import { z } from 'zod';
 
-const PitchTypeEnum = z.enum(['ASTRO', 'TURF', 'CEMENT', 'NATURAL']);
+// Three surfaces only (Astro Turf, Cement, Natural Turf). 'TURF' is
+// dropped from incoming validation; old rows that still hold it stay
+// readable but can't be re-saved with that value.
+const PitchTypeEnum = z.enum(['ASTRO', 'CEMENT', 'NATURAL']);
 const BallTypeEnum = z.enum(['TENNIS', 'LEATHER', 'MACHINE']);
 
 const MachinePatchSchema = z.object({

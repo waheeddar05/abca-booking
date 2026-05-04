@@ -59,8 +59,9 @@ const BodySchema = z.object({
   staffId: z.string().optional().nullable(),
   /** Optional user-picked pitch type (chip row driven by
    *  Machine.supportedPitchTypes). Validated server-side against the
-   *  machine's supported list to prevent client tampering. */
-  pitchType: z.enum(['ASTRO', 'TURF', 'CEMENT', 'NATURAL']).optional().nullable(),
+   *  machine's supported list to prevent client tampering. The legacy
+   *  'TURF' enum value is no longer accepted on new bookings. */
+  pitchType: z.enum(['ASTRO', 'CEMENT', 'NATURAL']).optional().nullable(),
   /** Optional user-picked ball type (chip row driven by
    *  Machine.supportedBallTypes). Validated server-side. */
   ballType: z.enum(['TENNIS', 'LEATHER', 'MACHINE']).optional().nullable(),
