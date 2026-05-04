@@ -1,0 +1,31 @@
+src/app/admin/policies/page.tsx
+  e0175fb4b4f942a5 1-12
+src/lib/pitch-config.ts
+  e0175fb4b4f942a5 41-48,54-56
+src/app/slots/ResourceSlotsPage.tsx
+  e0175fb4b4f942a5 674-677,692-694,696,700-703
+src/app/admin/layout.tsx
+  e0175fb4b4f942a5 6,38-40
+src/app/admin/configuration/page.tsx
+  e0175fb4b4f942a5 573-580,804-833
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "56b38f3919053bfc72a838fec9fb1c57031bf61b",
+  "prompts": {
+    "e0175fb4b4f942a5": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "f3864c65-ac36-4572-a64e-c1d488c0cbdf",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Waheed",
+      "messages": [],
+      "total_additions": 77,
+      "total_deletions": 249,
+      "accepted_lines": 3602,
+      "overriden_lines": 0
+    }
+  }
+}
