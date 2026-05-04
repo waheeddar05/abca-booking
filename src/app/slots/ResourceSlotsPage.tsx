@@ -40,7 +40,7 @@ import { ContactFooter } from '@/components/ContactFooter';
 import { useCenter } from '@/lib/center-context';
 import { api } from '@/lib/api-client';
 
-type Category = 'MACHINE' | 'SIDEARM' | 'COACHING' | 'FULL_COURT';
+type Category = 'MACHINE' | 'SIDEARM' | 'COACHING' | 'FULL_COURT' | 'NET';
 
 interface NetLite { id: string; name: string }
 interface ResourceLite { id: string; name: string; type: string }
@@ -61,6 +61,7 @@ interface ResourceSlot {
     SIDEARM: number;
     COACHING: number;
     FULL_COURT: number;
+    NET: number;
   };
   /** Per-machine final price for this slot, keyed by machineId — honours
    *  per-machine-type overrides (e.g. Yantra premium). Empty when the
@@ -76,6 +77,11 @@ interface ResourceAvailabilityResponse {
   outdoorResourcesTotal: number;
   coachesTotal: number;
   sidearmStaffTotal: number;
+  /** Pitch types the user can pick when booking SIDEARM at this center.
+   *  Read from center policy; defaults to all four. */
+  sidearmPitchTypes: PitchTypeId[];
+  /** Same idea for bare-net bookings. */
+  netPitchTypes: PitchTypeId[];
   corporateBatchConfig: { enabled: boolean; days: number[]; startTime: string; endTime: string; netsConsumed: number };
   slots: ResourceSlot[];
 }
@@ -87,12 +93,15 @@ interface MachineLite {
   id: string;
   name: string;
   isActive: boolean;
-  /** Pitch types the admin enabled for this machine. Empty = no pitch
-   *  picker shown (lets centers that don't differentiate by surface keep
-   *  the UI simpler). */
+  /** Raw configured list (may be empty). Use `effectivePitchTypes` for
+   *  what the user should actually see — empty falls back to all four. */
   supportedPitchTypes: PitchTypeId[];
-  /** Ball types the admin enabled. Empty = falls back to machineType.ballType. */
   supportedBallTypes: BallTypeId[];
+  /** Server-resolved effective lists — empty configured arrays already
+   *  expanded to the full universe by the API. Always use these for
+   *  rendering chips. */
+  effectivePitchTypes: PitchTypeId[];
+  effectiveBallTypes: BallTypeId[];
   machineType: {
     id: string;
     code: string;
@@ -138,9 +147,10 @@ function describeResourceType(type: string | null | undefined): string {
 }
 
 const CATEGORIES: Array<{ key: Category; label: string; icon: typeof Settings2; sub: string }> = [
-  { key: 'MACHINE', label: 'Bowling Machine', icon: Settings2, sub: 'Yantra / Leverage' },
-  { key: 'SIDEARM', label: 'Sidearm', icon: Users, sub: 'Bowled by staff' },
-  { key: 'COACHING', label: 'Personal Coaching', icon: UserCog, sub: 'With a coach' },
+  { key: 'MACHINE',    label: 'Bowling Machine',   icon: Settings2,  sub: 'Yantra / Leverage' },
+  { key: 'SIDEARM',    label: 'Sidearm',           icon: Users,      sub: 'Bowled by staff' },
+  { key: 'COACHING',   label: 'Personal Coaching', icon: UserCog,    sub: 'With a coach' },
+  { key: 'NET',        label: 'Net Only',          icon: LayoutGrid, sub: 'Bare net for self practice' },
   { key: 'FULL_COURT', label: 'Full Indoor Court', icon: LayoutGrid, sub: 'All indoor nets' },
 ];
 
@@ -239,6 +249,12 @@ export default function ResourceSlotsPage() {
       }
       return { ok: true };
     }
+    if (cat === 'NET') {
+      if (s.freeIndoorNets.length === 0 && s.freeOutdoorResources.length === 0) {
+        return { ok: false, reason: 'No nets free' };
+      }
+      return { ok: true };
+    }
     return { ok: false };
   };
 
@@ -278,18 +294,26 @@ export default function ResourceSlotsPage() {
       toast.error('Select a machine first');
       return;
     }
-    // Pitch/ball type are required only when the admin enabled a chip
-    // row with more than one option — single-option rows auto-select.
+    // Pitch/ball type are required only when the chip row has more than
+    // one option. Single-option rows auto-select.
     if (category === 'MACHINE' && machineId) {
       const m = filteredMachines.find((x) => x.id === machineId);
-      if (m && m.supportedPitchTypes.length > 1 && !pitchType) {
+      if (m && m.effectivePitchTypes.length > 1 && !pitchType) {
         toast.error('Select a pitch type');
         return;
       }
-      if (m && m.supportedBallTypes.length > 1 && !ballType) {
+      if (m && m.effectiveBallTypes.length > 1 && !ballType) {
         toast.error('Select a ball type');
         return;
       }
+    }
+    if (category === 'SIDEARM' && data && data.sidearmPitchTypes.length > 1 && !pitchType) {
+      toast.error('Select a pitch type');
+      return;
+    }
+    if (category === 'NET' && data && data.netPitchTypes.length > 1 && !pitchType) {
+      toast.error('Select a pitch type');
+      return;
     }
     if (category === 'COACHING' && !coachId) {
       // Allowed — engine picks the first free coach if not pinned. But UX
@@ -298,6 +322,9 @@ export default function ResourceSlotsPage() {
 
     setSubmitting(true);
     try {
+      // Pitch type is meaningful for MACHINE / SIDEARM / NET. Ball type
+      // only for MACHINE (the others don't use a bowling machine).
+      const wantsPitch = category === 'MACHINE' || category === 'SIDEARM' || category === 'NET';
       const body = {
         slots: selectedSlots.map((s) => ({
           date: data!.date,
@@ -307,7 +334,7 @@ export default function ResourceSlotsPage() {
         category,
         playerName: 'Player', // Phase 5b minimal: ask in confirm dialog later
         machineId: category === 'MACHINE' ? machineId : undefined,
-        pitchType: category === 'MACHINE' ? pitchType : undefined,
+        pitchType: wantsPitch ? pitchType : undefined,
         ballType: category === 'MACHINE' ? ballType : undefined,
         coachId: category === 'COACHING' ? coachId : undefined,
         staffId: category === 'SIDEARM' ? staffId : undefined,
@@ -438,14 +465,14 @@ export default function ResourceSlotsPage() {
           </PickerRow>
         )}
 
-        {/* Pitch + ball type chips — driven by what the admin enabled on
-            the selected machine (Center → Machines → supported pitch/ball
-            types). Hidden when nothing is configured. */}
+        {/* Pitch + ball type chips for the BOWLING MACHINE flow — driven
+            by the machine's effective lists (server-resolved: empty
+            configured array → all four pitch types). */}
         {category === 'MACHINE' && machineId && (() => {
           const m = filteredMachines.find((x) => x.id === machineId);
           if (!m) return null;
-          const pitchOptions = m.supportedPitchTypes ?? [];
-          const ballOptions = m.supportedBallTypes ?? [];
+          const pitchOptions = m.effectivePitchTypes ?? m.supportedPitchTypes ?? [];
+          const ballOptions = m.effectiveBallTypes ?? m.supportedBallTypes ?? [];
           return (
             <>
               {pitchOptions.length > 0 && (
@@ -469,6 +496,28 @@ export default function ResourceSlotsPage() {
             </>
           );
         })()}
+
+        {/* Sidearm pitch type — read from per-center SIDEARM_PITCH_TYPES policy. */}
+        {category === 'SIDEARM' && (data?.sidearmPitchTypes?.length ?? 0) > 0 && (
+          <ChipSelector
+            label="Pitch type"
+            required={(data!.sidearmPitchTypes.length) > 1}
+            options={data!.sidearmPitchTypes.map((id) => ({ id, label: PITCH_TYPE_LABELS[id] }))}
+            value={pitchType}
+            onChange={(v) => setPitchType(v as PitchTypeId | null)}
+          />
+        )}
+
+        {/* Net-only pitch type — read from per-center NET_PITCH_TYPES policy. */}
+        {category === 'NET' && (data?.netPitchTypes?.length ?? 0) > 0 && (
+          <ChipSelector
+            label="Pitch type"
+            required={(data!.netPitchTypes.length) > 1}
+            options={data!.netPitchTypes.map((id) => ({ id, label: PITCH_TYPE_LABELS[id] }))}
+            value={pitchType}
+            onChange={(v) => setPitchType(v as PitchTypeId | null)}
+          />
+        )}
 
         {category === 'COACHING' && (
           <PeoplePicker

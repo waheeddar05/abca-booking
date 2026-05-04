@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { getAuthenticatedUser } from '@/lib/auth';
+import { effectivePitchTypes, effectiveBallTypes } from '@/lib/pitch-config';
 
 /**
  * GET /api/centers/[id]/machines
@@ -44,5 +45,18 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string 
       resource: { select: { id: true, name: true, type: true } },
     },
   });
-  return NextResponse.json(machines);
+  // Compute effective lists server-side so the client doesn't have to know
+  // the fallback logic. Empty configured list → fall back to "all" (pitch)
+  // or to the MachineType's default (ball type). This keeps the chip rows
+  // visible the moment a machine is created, with the admin only needing
+  // to *restrict* if they actually want fewer options.
+  const enriched = machines.map((m) => ({
+    ...m,
+    effectivePitchTypes: effectivePitchTypes(m.supportedPitchTypes),
+    effectiveBallTypes: effectiveBallTypes(
+      m.supportedBallTypes as Array<'TENNIS' | 'LEATHER' | 'MACHINE'>,
+      m.machineType.ballType,
+    ),
+  }));
+  return NextResponse.json(enriched);
 }

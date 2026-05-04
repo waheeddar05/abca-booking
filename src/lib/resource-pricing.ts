@@ -32,6 +32,8 @@ export interface ResourcePricingConfig {
     COACHING: PerSlabRates;
     FULL_COURT: PerSlabRates;
     CORPORATE_BATCH: PerSlabRates;
+    /** Bare-net booking — no machine, no staff, no coach. Cheapest tier. */
+    NET: PerSlabRates;
   };
   /**
    * Optional per-machine-type override for MACHINE bookings.
@@ -49,6 +51,7 @@ export const DEFAULT_RESOURCE_PRICING: ResourcePricingConfig = {
     COACHING:       { morning: 1000, evening: 1200 },
     FULL_COURT:     { morning: 2400, evening: 3200 },
     CORPORATE_BATCH:{ morning: 1500, evening: 1800 },
+    NET:            { morning: 400, evening: 500 },
   },
   machineTypeOverrides: {
     YANTRA: { morning: 800, evening: 1000 },
@@ -60,7 +63,7 @@ export async function getResourcePricingConfig(centerId: string): Promise<Resour
 }
 
 export interface PriceLookup {
-  category: 'MACHINE' | 'SIDEARM' | 'COACHING' | 'FULL_COURT' | 'CORPORATE_BATCH';
+  category: 'MACHINE' | 'SIDEARM' | 'COACHING' | 'FULL_COURT' | 'CORPORATE_BATCH' | 'NET';
   /** Required when category=MACHINE — used to apply Yantra/Leverage overrides. */
   machineTypeCode?: string | null;
   startTime: Date;
