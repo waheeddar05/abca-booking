@@ -8,6 +8,8 @@ import { AdminPageHeader } from '@/components/admin/AdminPageHeader';
 import { AdminCard } from '@/components/admin/AdminCard';
 import { AdminToggle } from '@/components/admin/AdminToggle';
 import { useCenter } from '@/lib/center-context';
+import { ResourcePricingEditor } from '@/components/admin/ResourcePricingEditor';
+import { Globe2, MapPin } from 'lucide-react';
 
 interface SlabPricing {
   single: number;
@@ -165,8 +167,14 @@ function PriceField({ label, value, onChange }: { label: string; value: number; 
 }
 
 export default function ConfigurationPage() {
-  useSession(); // ensure auth context is available
+  const { data: session } = useSession();
+  const sessionUser = session?.user as { isSuperAdmin?: boolean } | undefined;
+  const isSuperAdmin = sessionUser?.isSuperAdmin === true;
   const { currentCenter } = useCenter();
+  // Editing scope — drives whether reads/writes go to CenterPolicy
+  // (the current center) or the global Policy table. Only super admins
+  // see the toggle; regular admins are pinned to 'center'.
+  const [scope, setScope] = useState<'center' | 'global'>('center');
 
   // Machine config state
   const [machineConfig, setMachineConfig] = useState<MachineConfig>({
@@ -211,7 +219,7 @@ export default function ConfigurationPage() {
   useEffect(() => {
     async function fetchMachineConfig() {
       try {
-        const response = await fetch('/api/admin/machine-config');
+        const response = await fetch(`/api/admin/machine-config?scope=${scope}`);
         if (response.ok) {
           const data = await response.json();
           const pc = data.pricingConfig || DEFAULT_PRICING;
@@ -237,7 +245,7 @@ export default function ConfigurationPage() {
 
     async function fetchPaymentSettings() {
       try {
-        const res = await fetch('/api/admin/policies');
+        const res = await fetch(`/api/admin/policies?scope=${scope}`);
         if (res.ok) {
           const data = await res.json();
           const policyArray: { key: string; value: string }[] = Array.isArray(data) ? data : (data.policies || []);
@@ -267,16 +275,16 @@ export default function ConfigurationPage() {
 
     fetchMachineConfig();
     fetchPaymentSettings();
-    // Re-fetch when the center changes so values reflect the right
-    // CenterPolicy → Policy cascade.
-  }, [currentCenter?.id]);
+    // Re-fetch on center / scope change so values match the active
+    // edit target (CenterPolicy(currentCenter) vs the global Policy).
+  }, [currentCenter?.id, scope]);
 
 
   const handleSavePayment = async (key: string, value: boolean) => {
     setSavingPayment(true);
     setPaymentMessage({ text: '', type: '' });
     try {
-      const res = await fetch('/api/admin/policies', {
+      const res = await fetch(`/api/admin/policies?scope=${scope}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ key, value: String(value) }),
@@ -297,7 +305,7 @@ export default function ConfigurationPage() {
     setSavingKitRental(true);
     setKitRentalMessage({ text: '', type: '' });
     try {
-      const res = await fetch('/api/admin/policies', {
+      const res = await fetch(`/api/admin/policies?scope=${scope}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ key: 'KIT_RENTAL_CONFIG', value: JSON.stringify(configToSave) }),
@@ -319,7 +327,7 @@ export default function ConfigurationPage() {
     const errors: string[] = [];
     try {
       // 1. Save machine config (pricing, time slabs, machine-pitch config)
-      const machineRes = await fetch('/api/admin/machine-config', {
+      const machineRes = await fetch(`/api/admin/machine-config?scope=${scope}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(machineConfig),
@@ -394,11 +402,49 @@ export default function ConfigurationPage() {
         icon={Settings}
         title="Configuration"
         description={
-          currentCenter
-            ? `Payment, machines & pricing for ${currentCenter.name}`
-            : 'Payment, machines & pricing'
+          scope === 'global'
+            ? 'Editing global defaults — applied to every center'
+            : currentCenter
+              ? `Payment, machines & pricing for ${currentCenter.name}`
+              : 'Payment, machines & pricing'
         }
       />
+
+      {/* Scope toggle — center vs global. Super admins see both;
+          regular admins are pinned to 'center'. The toggle drives
+          every read/write in this page. */}
+      {isSuperAdmin && (
+        <div className="flex items-center gap-2 -mt-2 mb-1">
+          <span className="text-[10px] uppercase tracking-wider text-slate-500 font-semibold">
+            Editing:
+          </span>
+          <div className="inline-flex rounded-xl bg-white/[0.04] border border-white/[0.06] p-0.5">
+            <button
+              onClick={() => setScope('center')}
+              disabled={!currentCenter}
+              className={`flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+                scope === 'center'
+                  ? 'bg-purple-500/20 text-purple-200 border border-purple-500/30'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              <MapPin className="w-3 h-3" />
+              {currentCenter?.shortName ?? currentCenter?.name ?? 'Current center'}
+            </button>
+            <button
+              onClick={() => setScope('global')}
+              className={`flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+                scope === 'global'
+                  ? 'bg-amber-500/20 text-amber-200 border border-amber-500/30'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              <Globe2 className="w-3 h-3" />
+              Global defaults
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* ─── Payment Settings ─────────────────────── */}
       <AdminCard
@@ -572,12 +618,11 @@ export default function ConfigurationPage() {
 
       {/* ─── Machine Configuration ──────────────────
           Hardcoded against the legacy MachineId enum (Gravity / Yantra /
-          Leverage Indoor / Leverage Outdoor) so it only makes sense for
-          ABCA-style centers using the MACHINE_PITCH booking model.
-          Resource-based centers manage their machines per-instance via
-          Admin → Centers → [center] → Machines, so we hide the section
-          entirely there to prevent the four-machine ghost UI. */}
-      {currentCenter?.bookingModel !== 'RESOURCE_BASED' && (
+          Leverage Indoor / Leverage Outdoor). Visible for ABCA-style
+          (MACHINE_PITCH) centers and whenever a super-admin is editing
+          global defaults. Hidden on RESOURCE_BASED centers in 'center'
+          scope so the four-machine ghost UI doesn't leak into Toplay. */}
+      {(scope === 'global' || currentCenter?.bookingModel !== 'RESOURCE_BASED') && (
       <AdminCard
         title="Machine Configuration"
         icon={<Zap className="w-4 h-4 text-accent" />}
@@ -803,32 +848,43 @@ export default function ConfigurationPage() {
       </AdminCard>
       )}
 
-      {/* Resource-based hint — points the admin at the right place to
-          configure pricing + per-machine pitch/ball compatibility. */}
-      {currentCenter?.bookingModel === 'RESOURCE_BASED' && (
+      {/* Resource-based pricing editor — visible for RESOURCE_BASED
+          centers and whenever the super-admin is editing global defaults
+          (since global is the universe). Writes go to the active scope's
+          RESOURCE_PRICING_CONFIG policy. Per-machine instance config
+          (pitch/ball compatibility, default lane, photo) still lives on
+          Center → Machines because it's per row, not per category. */}
+      {(currentCenter?.bookingModel === 'RESOURCE_BASED' || scope === 'global') && (
         <AdminCard
-          title="Machine Configuration"
+          title="Resource pricing"
           icon={<Zap className="w-4 h-4 text-accent" />}
           collapsible
           defaultOpen={true}
         >
-          <div className="text-xs text-slate-400 leading-relaxed">
-            {currentCenter.name} uses the resource-based booking model.
-            Machines, pitch + ball compatibility, and per-machine pricing
-            are configured per-instance under{' '}
-            <a
-              href={`/admin/centers/${currentCenter.id}`}
-              className="text-accent underline hover:text-accent/80"
-            >
-              Admin → Centers → {currentCenter.shortName ?? currentCenter.name} → Machines
-            </a>
-            . Resource-category pricing (Machine / Sidearm / Coaching /
-            Net / Full Court) lives in the per-center{' '}
-            <code className="px-1.5 py-0.5 rounded bg-white/[0.04] text-accent/90 text-[10px]">
-              RESOURCE_PRICING_CONFIG
-            </code>{' '}
-            policy override.
+          <div className="text-[11px] text-slate-500 leading-relaxed mb-3">
+            Per-category rates (₹/slot) for Bowling Machine, Sidearm,
+            Coaching, Net Only, Full Court, and Corporate Batch. Add per-
+            machine-type overrides below to charge a premium for a
+            specific machine model (e.g. Yantra). Per-machine pitch and
+            ball compatibility live under{' '}
+            {currentCenter && (
+              <a
+                href={`/admin/centers/${currentCenter.id}`}
+                className="text-accent underline hover:text-accent/80"
+              >
+                Center → Machines
+              </a>
+            )}
+            .
           </div>
+          <ResourcePricingEditor
+            scope={scope}
+            centerLabel={
+              scope === 'global'
+                ? 'global defaults'
+                : (currentCenter?.shortName ?? currentCenter?.name ?? 'this center')
+            }
+          />
         </AdminCard>
       )}
 

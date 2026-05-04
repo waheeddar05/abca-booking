@@ -6,25 +6,39 @@ import { invalidatePolicyCache } from '@/lib/policy-cache';
 import { invalidatePolicy } from '@/lib/policy';
 
 /**
- * Admin policy editor — center-scoped.
+ * Admin policy editor — center-scoped by default; super admins can
+ * opt into editing the platform-wide defaults via `?scope=global`.
  *
  * Reads merge the current center's `CenterPolicy` overrides on top of
  * the global `Policy` table, so every admin sees resolved values for
- * "their" center. Writes go to `CenterPolicy(currentCenter, key)` only
- * — the platform-wide global rows are managed separately by super
- * admins via the per-center policies tab on `/admin/centers/[id]` (or
- * by direct DB).
- *
- * The legacy global-write behaviour was removed because center-by-
- * center config is the user's mental model; persisting to a single
- * global key produced surprising cross-center bleed-through.
+ * "their" center. Writes go to `CenterPolicy(currentCenter, key)` by
+ * default. With `?scope=global`, GET returns the bare `Policy` rows
+ * (no override merge) and POST/DELETE target `Policy` directly — that
+ * mode is gated to super admins only and is how you change the
+ * cross-center default that any new center inherits.
  */
+
+type Scope = 'center' | 'global';
+
+function readScope(req: NextRequest): Scope {
+  const raw = new URL(req.url).searchParams.get('scope');
+  return raw === 'global' ? 'global' : 'center';
+}
 
 export async function GET(req: NextRequest) {
   try {
     const user = await getAuthenticatedUser(req);
     if (!user || (user.role !== 'ADMIN' && !user.isSuperAdmin)) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 403 });
+    }
+
+    const scope = readScope(req);
+    if (scope === 'global') {
+      if (!user.isSuperAdmin) {
+        return NextResponse.json({ error: 'Super admin required' }, { status: 403 });
+      }
+      const policies = await prisma.policy.findMany();
+      return NextResponse.json(policies.map((p) => ({ key: p.key, value: p.value })));
     }
 
     const center = await resolveCurrentCenter(req, user);
@@ -65,14 +79,29 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 403 });
     }
 
-    const center = await resolveCurrentCenter(req, user);
-    if (!center) {
-      return NextResponse.json({ error: 'No center selected' }, { status: 400 });
-    }
-
+    const scope = readScope(req);
     const { key, value } = await req.json();
     if (!key || value === undefined) {
       return NextResponse.json({ error: 'Key and value are required' }, { status: 400 });
+    }
+
+    if (scope === 'global') {
+      if (!user.isSuperAdmin) {
+        return NextResponse.json({ error: 'Super admin required' }, { status: 403 });
+      }
+      const upserted = await prisma.policy.upsert({
+        where: { key },
+        update: { value: String(value) },
+        create: { key, value: String(value) },
+      });
+      invalidatePolicy(key, null);
+      invalidatePolicyCache(key);
+      return NextResponse.json(upserted);
+    }
+
+    const center = await resolveCurrentCenter(req, user);
+    if (!center) {
+      return NextResponse.json({ error: 'No center selected' }, { status: 400 });
     }
 
     const upserted = await prisma.centerPolicy.upsert({
@@ -98,15 +127,26 @@ export async function DELETE(req: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 403 });
     }
 
-    const center = await resolveCurrentCenter(req, user);
-    if (!center) {
-      return NextResponse.json({ error: 'No center selected' }, { status: 400 });
-    }
-
     const { searchParams } = new URL(req.url);
+    const scope = readScope(req);
     const key = searchParams.get('key');
     if (!key) {
       return NextResponse.json({ error: 'Policy key is required' }, { status: 400 });
+    }
+
+    if (scope === 'global') {
+      if (!user.isSuperAdmin) {
+        return NextResponse.json({ error: 'Super admin required' }, { status: 403 });
+      }
+      await prisma.policy.deleteMany({ where: { key } });
+      invalidatePolicy(key, null);
+      invalidatePolicyCache(key);
+      return NextResponse.json({ message: 'Global policy removed' });
+    }
+
+    const center = await resolveCurrentCenter(req, user);
+    if (!center) {
+      return NextResponse.json({ error: 'No center selected' }, { status: 400 });
     }
 
     // Removes the per-center override only; the global default stays put.
