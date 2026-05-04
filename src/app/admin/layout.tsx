@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useSession } from 'next-auth/react';
-import { LayoutDashboard, CalendarCheck, Users, Settings, Clock, Wrench, Package, Zap, SlidersHorizontal, ArrowLeft, Power, DatabaseZap, UserCog, Tag, Building2, Globe2, MapPin } from 'lucide-react';
+import { LayoutDashboard, CalendarCheck, Users, Settings, Clock, Wrench, Package, Zap, SlidersHorizontal, ArrowLeft, Power, DatabaseZap, UserCog, Tag, Building2 } from 'lucide-react';
 import { signOut } from 'next-auth/react';
 import { AdminMobileNav } from '@/components/admin/AdminMobileNav';
 import { CenterSwitcher } from '@/components/admin/CenterSwitcher';
@@ -23,12 +23,10 @@ export default function AdminLayout({
   const sessionUser = session?.user as { email?: string | null; isSuperAdmin?: boolean } | undefined;
   const isSuperAdmin = sessionUser?.isSuperAdmin === true || sessionUser?.email === SUPER_ADMIN_EMAIL;
 
-  // Two groups so the admin always knows the scope of what they're
-  // editing. Anything under "This center" runs against the currently
-  // selected center (resolved by cookie/membership). Anything under
-  // "Platform" applies to every center and is super-admin only.
-  type NavLink = { href: string; label: string; icon: typeof LayoutDashboard };
-  const centerLinks: NavLink[] = [
+  // Single flat nav. Every link below operates on the *current* center
+  // (resolved by cookie / membership). Cross-center management lives
+  // under the super-admin-only entries at the bottom.
+  const links = [
     { href: '/admin', label: 'Dashboard', icon: LayoutDashboard },
     { href: '/admin/bookings', label: 'Bookings', icon: CalendarCheck },
     { href: '/admin/slots', label: 'Slots', icon: Clock },
@@ -36,9 +34,7 @@ export default function AdminLayout({
     { href: '/admin/operators', label: 'Operators', icon: UserCog },
     { href: '/admin/offers', label: 'Offers', icon: Tag },
     { href: '/admin/packages', label: 'Packages', icon: Package },
-  ];
-  const platformLinks: NavLink[] = [
-    { href: '/admin/configuration', label: 'Defaults', icon: SlidersHorizontal },
+    { href: '/admin/configuration', label: 'Settings', icon: SlidersHorizontal },
     { href: '/admin/policies', label: 'Policies', icon: Settings },
     ...(isSuperAdmin
       ? [
@@ -111,12 +107,7 @@ export default function AdminLayout({
 
           {/* Nav Links */}
           <nav className="flex-1 px-3 py-2 space-y-0.5">
-            {/* ─── Current-center links (purple group) ───────────── */}
-            <div className="flex items-center gap-1.5 px-3 pt-1 pb-1.5 text-[9px] font-semibold uppercase tracking-wider text-purple-300/80">
-              <MapPin className="w-3 h-3" />
-              This center
-            </div>
-            {centerLinks.map(({ href, label, icon: Icon }) => {
+            {links.map(({ href, label, icon: Icon }) => {
               const active = isActive(href);
               return (
                 <Link
@@ -127,31 +118,7 @@ export default function AdminLayout({
                     : 'text-slate-500 hover:bg-white/[0.04] hover:text-slate-300'
                     }`}
                 >
-                  {active && (
-                    <div className="absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-5 bg-accent rounded-r-full" />
-                  )}
-                  <Icon className={`w-[18px] h-[18px] transition-transform duration-200 ${active ? '' : 'group-hover:scale-110'}`} />
-                  {label}
-                </Link>
-              );
-            })}
-
-            {/* ─── Platform-wide links (amber group) ──────────────── */}
-            <div className="flex items-center gap-1.5 px-3 pt-4 pb-1.5 text-[9px] font-semibold uppercase tracking-wider text-amber-300/80">
-              <Globe2 className="w-3 h-3" />
-              Platform-wide
-            </div>
-            {platformLinks.map(({ href, label, icon: Icon }) => {
-              const active = isActive(href);
-              return (
-                <Link
-                  key={href}
-                  href={href}
-                  className={`relative flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-sm font-medium transition-all duration-200 group ${active
-                    ? 'bg-accent/10 text-accent'
-                    : 'text-slate-500 hover:bg-white/[0.04] hover:text-slate-300'
-                    }`}
-                >
+                  {/* Active indicator bar */}
                   {active && (
                     <div className="absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-5 bg-accent rounded-r-full" />
                   )}

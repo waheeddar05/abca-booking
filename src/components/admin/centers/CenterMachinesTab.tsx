@@ -24,11 +24,12 @@ type MachineRow = {
 type MachineType = { id: string; code: string; name: string; ballType: string; isActive: boolean };
 type ResourceLite = { id: string; name: string; type: string; category: string; isActive: boolean };
 
+// Three surfaces only — Astro Turf, Cement, Natural Turf. The legacy
+// 'TURF' enum value is kept in the schema but is no longer offered.
 const PITCH_TYPE_OPTIONS: Array<{ id: PitchTypeId; label: string }> = [
   { id: 'ASTRO',   label: 'Astro Turf' },
-  { id: 'TURF',    label: 'Turf' },
   { id: 'CEMENT',  label: 'Cement' },
-  { id: 'NATURAL', label: 'Natural' },
+  { id: 'NATURAL', label: 'Natural Turf' },
 ];
 
 const BALL_TYPE_OPTIONS: Array<{ id: BallTypeId; label: string }> = [

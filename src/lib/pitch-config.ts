@@ -16,8 +16,13 @@
 import { getPolicyJson } from '@/lib/policy';
 import type { PitchType } from '@prisma/client';
 
-/** Universe of pitch types — used as the fallback when nothing is configured. */
-export const ALL_PITCH_TYPES: PitchType[] = ['ASTRO', 'TURF', 'CEMENT', 'NATURAL'];
+/**
+ * Pitch types currently exposed in the booking UI. Centers offer three
+ * surfaces — Astro Turf, Cement, and Natural Turf. The legacy 'TURF'
+ * enum value is kept in the database for back-compat with rows that may
+ * already reference it, but it is no longer offered to users or admins.
+ */
+export const ALL_PITCH_TYPES: PitchType[] = ['ASTRO', 'CEMENT', 'NATURAL'];
 
 /** Universe of ball types — used as the fallback for ball-type chip rows. */
 export type BallTypeId = 'TENNIS' | 'LEATHER' | 'MACHINE';

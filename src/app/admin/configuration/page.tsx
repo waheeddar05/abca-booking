@@ -7,7 +7,7 @@ import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { AdminPageHeader } from '@/components/admin/AdminPageHeader';
 import { AdminCard } from '@/components/admin/AdminCard';
 import { AdminToggle } from '@/components/admin/AdminToggle';
-import { ScopeBadge, ScopeBanner } from '@/components/admin/ScopeBadge';
+import { useCenter } from '@/lib/center-context';
 
 interface SlabPricing {
   single: number;
@@ -166,6 +166,7 @@ function PriceField({ label, value, onChange }: { label: string; value: number; 
 
 export default function ConfigurationPage() {
   useSession(); // ensure auth context is available
+  const { currentCenter } = useCenter();
 
   // Machine config state
   const [machineConfig, setMachineConfig] = useState<MachineConfig>({
@@ -266,7 +267,9 @@ export default function ConfigurationPage() {
 
     fetchMachineConfig();
     fetchPaymentSettings();
-  }, []);
+    // Re-fetch when the center changes so values reflect the right
+    // CenterPolicy → Policy cascade.
+  }, [currentCenter?.id]);
 
 
   const handleSavePayment = async (key: string, value: boolean) => {
@@ -390,14 +393,11 @@ export default function ConfigurationPage() {
       <AdminPageHeader
         icon={Settings}
         title="Configuration"
-        description="Payment, machines & pricing"
-      >
-        <ScopeBadge scope="platform" />
-      </AdminPageHeader>
-
-      <ScopeBanner
-        scope="platform"
-        hint="These are the platform-wide defaults. Every center inherits them. To diverge for a specific center, add an override under Admin → Centers → [center] → Policies."
+        description={
+          currentCenter
+            ? `Payment, machines & pricing for ${currentCenter.name}`
+            : 'Payment, machines & pricing'
+        }
       />
 
       {/* ─── Payment Settings ─────────────────────── */}
