@@ -1,0 +1,49 @@
+prisma/migrations/20260428080000_booking_category_net/migration.sql
+  e0175fb4b4f942a5 1-4
+src/lib/resource-booking.ts
+  e0175fb4b4f942a5 478-490
+src/app/slots/ResourceSlotsPage.tsx
+  e0175fb4b4f942a5 43,64,80-84,96-97,100-104,150-153,252-257,297-298,301,305,310-317,325-327,337,468-470,474-475,500-520
+src/components/admin/ScopeBadge.tsx
+  e0175fb4b4f942a5 1-76
+src/lib/pitch-config.ts
+  e0175fb4b4f942a5 1-66
+src/app/admin/centers/[id]/page.tsx
+  e0175fb4b4f942a5 16,121,132-134
+src/app/api/slots/book-resource/route.ts
+  e0175fb4b4f942a5 14-19,54,123-125,134,142-148,154,160,163,168-185
+src/app/admin/configuration/page.tsx
+  e0175fb4b4f942a5 10,394-400
+src/lib/resource-pricing.ts
+  e0175fb4b4f942a5 35-36,54,66
+src/app/api/slots/resource-availability/route.ts
+  e0175fb4b4f942a5 23,83-84,101-102,198-203,252-256
+src/app/admin/layout.tsx
+  e0175fb4b4f942a5 6,26-31,39-41,43-50,114-144
+prisma/schema.prisma
+  e0175fb4b4f942a5 387-391
+src/app/api/centers/[id]/machines/route.ts
+  e0175fb4b4f942a5 4,48-61
+src/components/admin/centers/CenterPoliciesTab.tsx
+  e0175fb4b4f942a5 19-24
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "17a8666fc33121fb069d4157a0222ecc2cfb30df",
+  "prompts": {
+    "e0175fb4b4f942a5": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "f3864c65-ac36-4572-a64e-c1d488c0cbdf",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Waheed",
+      "messages": [],
+      "total_additions": 377,
+      "total_deletions": 42,
+      "accepted_lines": 3901,
+      "overriden_lines": 1
+    }
+  }
+}
