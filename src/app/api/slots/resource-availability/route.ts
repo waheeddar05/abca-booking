@@ -30,7 +30,7 @@ import { sanitizeApiError } from '@/lib/api-errors';
  *
  * Per slot, returns:
  *   - free indoor nets, free outdoor resources
- *   - free coaches, free sidearm staff
+ *   - free coaches, free sidearm specialist
  *   - whether full court is available
  *   - whether corporate batch is holding capacity
  *   - per-category prices (machine / sidearm / coaching / full-court)

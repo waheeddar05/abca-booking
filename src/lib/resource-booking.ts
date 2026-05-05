@@ -5,11 +5,11 @@
  * ### Mental model
  *
  * A center has Resources (nets, courts, turf wickets) and can have
- * Coaches and Sidearm staff (Users with COACH / SIDEARM_STAFF
+ * Coaches and Sidearm staff (Users with COACH / SIDEARM_SPECIALIST
  * memberships). Each Booking falls under one of:
  *
  *   - MACHINE         — consumes 1 net + 1 Machine instance
- *   - SIDEARM         — consumes 1 net + 1 SIDEARM_STAFF user
+ *   - SIDEARM         — consumes 1 net + 1 SIDEARM_SPECIALIST user
  *   - COACHING        — consumes 1 net + 1 COACH user
  *   - FULL_COURT      — consumes ALL active indoor nets
  *   - CORPORATE_BATCH — consumes the configured number of nets, admin only
@@ -166,7 +166,7 @@ export async function getCenterCoaches(centerId: string): Promise<CenterMembersh
 
 export async function getCenterStaff(centerId: string): Promise<CenterMembershipUserRow[]> {
   return prisma.centerMembership.findMany({
-    where: { centerId, role: 'SIDEARM_STAFF', isActive: true },
+    where: { centerId, role: 'SIDEARM_SPECIALIST', isActive: true },
     select: {
       userId: true,
       metadata: true,

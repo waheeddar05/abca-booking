@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { getAuthenticatedUser } from '@/lib/auth';
+import { getAuthenticatedUser, hasMembershipRole } from '@/lib/auth';
 import { resolveCurrentCenter } from '@/lib/centers';
 import { invalidatePolicyCache } from '@/lib/policy-cache';
 import { invalidatePolicy } from '@/lib/policy';
@@ -103,6 +103,16 @@ export async function POST(req: NextRequest) {
     if (!center) {
       return NextResponse.json({ error: 'No center selected' }, { status: 400 });
     }
+    // Cross-center protection: an ADMIN must hold an ADMIN membership
+    // at the resolved center. Super admins always pass. Without this an
+    // admin who flipped the cookie to a center they don't manage could
+    // mutate that center's policies.
+    if (!hasMembershipRole(user, center.id, 'ADMIN')) {
+      return NextResponse.json(
+        { error: 'You are not an admin at this center' },
+        { status: 403 },
+      );
+    }
 
     const upserted = await prisma.centerPolicy.upsert({
       where: { centerId_key: { centerId: center.id, key } },
@@ -147,6 +157,12 @@ export async function DELETE(req: NextRequest) {
     const center = await resolveCurrentCenter(req, user);
     if (!center) {
       return NextResponse.json({ error: 'No center selected' }, { status: 400 });
+    }
+    if (!hasMembershipRole(user, center.id, 'ADMIN')) {
+      return NextResponse.json(
+        { error: 'You are not an admin at this center' },
+        { status: 403 },
+      );
     }
 
     // Removes the per-center override only; the global default stays put.

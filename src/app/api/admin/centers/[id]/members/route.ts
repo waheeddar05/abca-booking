@@ -15,7 +15,7 @@ import { z } from 'zod';
  */
 
 const MembershipCreateSchema = z.object({
-  role: z.enum(['ADMIN', 'OPERATOR', 'COACH', 'SIDEARM_STAFF']),
+  role: z.enum(['ADMIN', 'OPERATOR', 'COACH', 'SIDEARM_SPECIALIST']),
   // One of these must be provided to identify or create the user:
   userId: z.string().optional(),
   email: z.string().email().optional(),
@@ -96,7 +96,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<Params> }) {
         { status: 404 },
       );
     }
-    // For COACH and SIDEARM_STAFF we accept user creation here — they
+    // For COACH and SIDEARM_SPECIALIST we accept user creation here — they
     // typically don't log in. For ADMIN/OPERATOR, require an existing
     // account so the auth flow has been exercised at least once.
     if (parsed.data.role === 'ADMIN' || parsed.data.role === 'OPERATOR') {
@@ -111,13 +111,13 @@ export async function POST(req: NextRequest, ctx: { params: Promise<Params> }) {
         email: parsed.data.email || null,
         mobileNumber: parsed.data.mobileNumber || null,
         authProvider: parsed.data.email ? 'GOOGLE' : 'OTP', // best-guess; may switch on first login
-        role: parsed.data.role === 'COACH' ? 'COACH' : 'SIDEARM_STAFF',
+        role: parsed.data.role === 'COACH' ? 'COACH' : 'SIDEARM_SPECIALIST',
       },
     });
   } else {
     // Promote the user's primary role if needed (e.g. a USER becomes a COACH).
     if (
-      (parsed.data.role === 'COACH' || parsed.data.role === 'SIDEARM_STAFF')
+      (parsed.data.role === 'COACH' || parsed.data.role === 'SIDEARM_SPECIALIST')
       && user.role === 'USER'
     ) {
       user = await prisma.user.update({

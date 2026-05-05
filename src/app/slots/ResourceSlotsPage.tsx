@@ -9,7 +9,7 @@
  * UX:
  *   1. Pick a date.
  *   2. Pick a booking category (Machine / Sidearm / Coaching / Full Court).
- *   3. (Conditional) Pick a machine / coach / sidearm staff member.
+ *   3. (Conditional) Pick a machine / coach / sidearm specialist member.
  *   4. Tap one or more slots. Each slot becomes its own Booking row.
  *   5. Confirm → POST /api/slots/book-resource.
  *
@@ -160,7 +160,7 @@ function describeResourceType(type: string | null | undefined): string {
 const CATEGORIES: Array<{ key: Category; label: string; icon: typeof Settings2; sub: string }> = [
   { key: 'MACHINE',         label: 'Bowling Machine',     icon: Settings2,  sub: 'Yantra / Leverage' },
   { key: 'NET',             label: 'Cricket Nets Booking', icon: LayoutGrid, sub: 'Bare net for self practice' },
-  { key: 'SIDEARM',         label: 'Sidearm',             icon: Users,      sub: 'Bowled by staff' },
+  { key: 'SIDEARM',         label: 'Sidearm',             icon: Users,      sub: 'Bowled by a specialist' },
   { key: 'COACHING',        label: 'Personal Coaching',   icon: UserCog,    sub: 'With a coach' },
   { key: 'CORPORATE_BATCH', label: 'Corporate Batch',     icon: Users,      sub: 'Group session' },
   { key: 'FULL_COURT',      label: 'Full Indoor Court',   icon: LayoutGrid, sub: 'All indoor nets' },
@@ -266,7 +266,7 @@ export default function ResourceSlotsPage() {
       return { ok: true };
     }
     if (cat === 'SIDEARM') {
-      if (s.freeSidearmStaff.length === 0) return { ok: false, reason: 'No sidearm staff free' };
+      if (s.freeSidearmStaff.length === 0) return { ok: false, reason: 'No sidearm specialist free' };
       if (s.freeIndoorNets.length === 0) return { ok: false, reason: 'No nets free' };
       return { ok: true };
     }
@@ -413,7 +413,7 @@ export default function ResourceSlotsPage() {
             {currentCenter.name} · {data?.indoorNetsTotal ?? '—'} indoor nets
             {data?.outdoorResourcesTotal ? ` · ${data.outdoorResourcesTotal} outdoor` : ''}
             {data && data.coachesTotal > 0 ? ` · ${data.coachesTotal} coaches` : ''}
-            {data && data.sidearmStaffTotal > 0 ? ` · ${data.sidearmStaffTotal} sidearm staff` : ''}
+            {data && data.sidearmStaffTotal > 0 ? ` · ${data.sidearmStaffTotal} sidearm specialist` : ''}
           </p>
         </div>
 
@@ -587,12 +587,12 @@ export default function ResourceSlotsPage() {
 
         {category === 'SIDEARM' && (
           <PeoplePicker
-            label="Sidearm staff"
+            label="Sidearm Specialist"
             help="Leave empty to auto-assign."
             options={data?.slots[0]?.freeSidearmStaff ?? []}
             value={staffId}
             onChange={setStaffId}
-            emptyMessage="No sidearm staff free for the selected slots."
+            emptyMessage="No sidearm specialist free for the selected slots."
           />
         )}
 
@@ -723,10 +723,11 @@ function PickerRow({
 }
 
 /**
- * Single-select chip row. Hides itself entirely when there's only one
- * option (no point making the user tap a chip they can't change), and
- * silently auto-applies that single value so server-side validation
- * still passes. When `options` is empty the row also doesn't render.
+ * Single-select chip row. Auto-defaults to the first option whenever
+ * the current `value` isn't in the option set (covers initial mount,
+ * machine switch, category switch, …). Single-option rows hide
+ * themselves entirely — no point asking the user to tap a chip they
+ * can't change. Empty options also hide the row.
  */
 function ChipSelector({
   label,
@@ -741,13 +742,13 @@ function ChipSelector({
   value: string | null;
   onChange: (v: string | null) => void;
 }) {
-  // Auto-apply the single available value. The list-of-ids string is
-  // the dep so we re-run when the underlying option set changes (e.g.
-  // user picks a different machine).
+  // Default-to-first whenever the current value is missing from the
+  // list of options — covers fresh mount, option-set change, etc. The
+  // user can still click another chip to override.
   useEffect(() => {
-    if (options.length === 1 && value !== options[0].id) {
-      onChange(options[0].id);
-    }
+    if (options.length === 0) return;
+    const has = value && options.some((o) => o.id === value);
+    if (!has) onChange(options[0].id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [options.map((o) => o.id).join(',')]);
 
