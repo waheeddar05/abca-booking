@@ -14,8 +14,15 @@ import { z } from 'zod';
  *                          who has never logged in).
  */
 
+const RoleEnum = z.enum(['ADMIN', 'OPERATOR', 'COACH', 'SIDEARM_SPECIALIST']);
+
+// Backwards-compatible: the legacy `role` (single) keeps working; the
+// new `roles` (array) is preferred for the multi-role assign UI. At
+// least one must be provided. The handler normalises both forms into
+// a deduped array of roles to create.
 const MembershipCreateSchema = z.object({
-  role: z.enum(['ADMIN', 'OPERATOR', 'COACH', 'SIDEARM_SPECIALIST']),
+  role: RoleEnum.optional(),
+  roles: z.array(RoleEnum).max(4).optional(),
   // One of these must be provided to identify or create the user:
   userId: z.string().optional(),
   email: z.string().email().optional(),
@@ -26,6 +33,9 @@ const MembershipCreateSchema = z.object({
 }).refine(
   (d) => d.userId || d.email || d.mobileNumber,
   { message: 'Provide userId, email, or mobileNumber' },
+).refine(
+  (d) => d.role || (d.roles && d.roles.length > 0),
+  { message: 'Provide role or roles[]' },
 );
 
 type Params = { id: string };
@@ -78,6 +88,11 @@ export async function POST(req: NextRequest, ctx: { params: Promise<Params> }) {
     return NextResponse.json({ error: 'Validation failed', issues: parsed.error.issues }, { status: 400 });
   }
 
+  // Normalise role / roles into a single deduped list.
+  const rolesToAssign = Array.from(
+    new Set(parsed.data.roles && parsed.data.roles.length > 0 ? parsed.data.roles : [parsed.data.role!]),
+  );
+
   // Find or create the user. We prefer to match an existing user by id,
   // email, or mobile number; only mint a new one if none of those match.
   let user = null;
@@ -96,79 +111,83 @@ export async function POST(req: NextRequest, ctx: { params: Promise<Params> }) {
         { status: 404 },
       );
     }
-    // For COACH and SIDEARM_SPECIALIST we accept user creation here — they
-    // typically don't log in. For ADMIN/OPERATOR, require an existing
-    // account so the auth flow has been exercised at least once.
-    if (parsed.data.role === 'ADMIN' || parsed.data.role === 'OPERATOR') {
+    // ADMIN / OPERATOR require an existing account (auth flow exercised
+    // at least once). COACH / SIDEARM_SPECIALIST may be created here.
+    const requiresExisting = rolesToAssign.some((r) => r === 'ADMIN' || r === 'OPERATOR');
+    if (requiresExisting) {
       return NextResponse.json(
-        { error: `User not found. ${parsed.data.role}s must sign in once before being assigned.` },
+        { error: 'User not found. ADMIN/OPERATOR must sign in once before being assigned.' },
         { status: 404 },
       );
     }
+    // Pick a primary role for the new user — COACH wins over specialist
+    // when both are being assigned, since coaches are typically more
+    // visible. The membership rows below carry the per-role detail.
+    const primary = rolesToAssign.includes('COACH') ? 'COACH' : 'SIDEARM_SPECIALIST';
     user = await prisma.user.create({
       data: {
         name: parsed.data.name || (parsed.data.email ? parsed.data.email.split('@')[0] : null),
         email: parsed.data.email || null,
         mobileNumber: parsed.data.mobileNumber || null,
-        authProvider: parsed.data.email ? 'GOOGLE' : 'OTP', // best-guess; may switch on first login
-        role: parsed.data.role === 'COACH' ? 'COACH' : 'SIDEARM_SPECIALIST',
+        authProvider: parsed.data.email ? 'GOOGLE' : 'OTP',
+        role: primary,
       },
     });
   } else {
-    // Promote the user's primary role if needed (e.g. a USER becomes a COACH).
-    if (
-      (parsed.data.role === 'COACH' || parsed.data.role === 'SIDEARM_SPECIALIST')
-      && user.role === 'USER'
-    ) {
-      user = await prisma.user.update({
-        where: { id: user.id },
-        data: { role: parsed.data.role },
-      });
+    // Bump the user's primary role if any of the assigned roles is more
+    // privileged than what they have today. Membership rows below stay
+    // as the source of truth for per-role authorisation.
+    const order = ['USER', 'COACH', 'SIDEARM_SPECIALIST', 'OPERATOR', 'ADMIN'] as const;
+    const currentRank = order.indexOf(user.role as (typeof order)[number]);
+    let highestRank = currentRank;
+    for (const r of rolesToAssign) {
+      const rank = order.indexOf(r);
+      if (rank > highestRank) highestRank = rank;
     }
-    if (parsed.data.role === 'ADMIN' && user.role !== 'ADMIN') {
+    if (highestRank > currentRank) {
       user = await prisma.user.update({
         where: { id: user.id },
-        data: { role: 'ADMIN' },
-      });
-    }
-    if (parsed.data.role === 'OPERATOR' && user.role !== 'OPERATOR' && user.role !== 'ADMIN') {
-      user = await prisma.user.update({
-        where: { id: user.id },
-        data: { role: 'OPERATOR' },
+        data: { role: order[highestRank] },
       });
     }
   }
 
-  // Upsert the membership row — re-activate if a soft-deleted one exists.
-  const existing = await prisma.centerMembership.findUnique({
-    where: {
-      userId_centerId_role: {
-        userId: user.id,
-        centerId,
-        role: parsed.data.role,
+  // Upsert one membership row per requested role. Reactivates any
+  // soft-deleted rows. Returns the full set so the client can render
+  // the user with all their role chips immediately.
+  const memberships = [];
+  for (const role of rolesToAssign) {
+    const existing = await prisma.centerMembership.findUnique({
+      where: {
+        userId_centerId_role: { userId: user.id, centerId, role },
       },
-    },
-  });
+    });
+    const m = existing
+      ? await prisma.centerMembership.update({
+          where: { id: existing.id },
+          data: {
+            isActive: true,
+            metadata: (parsed.data.metadata as never) ?? existing.metadata,
+          },
+          include: { user: { select: { id: true, name: true, email: true, mobileNumber: true, role: true } } },
+        })
+      : await prisma.centerMembership.create({
+          data: {
+            centerId,
+            userId: user.id,
+            role,
+            isActive: true,
+            metadata: (parsed.data.metadata as never) ?? undefined,
+          },
+          include: { user: { select: { id: true, name: true, email: true, mobileNumber: true, role: true } } },
+        });
+    memberships.push(m);
+  }
 
-  const membership = existing
-    ? await prisma.centerMembership.update({
-        where: { id: existing.id },
-        data: {
-          isActive: true,
-          metadata: (parsed.data.metadata as never) ?? existing.metadata,
-        },
-        include: { user: { select: { id: true, name: true, email: true, mobileNumber: true, role: true } } },
-      })
-    : await prisma.centerMembership.create({
-        data: {
-          centerId,
-          userId: user.id,
-          role: parsed.data.role,
-          isActive: true,
-          metadata: (parsed.data.metadata as never) ?? undefined,
-        },
-        include: { user: { select: { id: true, name: true, email: true, mobileNumber: true, role: true } } },
-      });
-
-  return NextResponse.json(membership, { status: existing ? 200 : 201 });
+  // Legacy single-role callers expected a single object; multi-role
+  // callers expect an array. Detect by what they sent.
+  if (parsed.data.roles && parsed.data.roles.length > 0) {
+    return NextResponse.json(memberships, { status: 201 });
+  }
+  return NextResponse.json(memberships[0], { status: 201 });
 }
