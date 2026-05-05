@@ -164,6 +164,13 @@ export async function GET(req: NextRequest) {
             busyMachineIds,
           },
           batchNets,
+          // Pass the slot so coaches/specialists outside their weekly
+          // schedule don't appear as "free" for this time window.
+          slot: {
+            date: dateUTC,
+            startTime: slot.startTime,
+            endTime: slot.endTime,
+          },
         });
 
         const timeSlab = getTimeSlab(slot.startTime, timeSlabConfig);
