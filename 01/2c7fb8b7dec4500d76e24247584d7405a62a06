@@ -1,0 +1,35 @@
+src/app/api/slots/resource-availability/route.ts
+  e0175fb4b4f942a5 24,205-210,268-273
+src/app/api/slots/book-resource/route.ts
+  e0175fb4b4f942a5 20,318-323
+src/app/api/centers/me/route.ts
+  e0175fb4b4f942a5 4,16-19,21-40
+src/app/api/bookings/route.ts
+  e0175fb4b4f942a5 5,195-201
+src/app/slots/ResourceSlotsPage.tsx
+  e0175fb4b4f942a5 43,65,153-156,158-163,234-246
+src/app/api/centers/[id]/machines/route.ts
+  e0175fb4b4f942a5 5,20-24,26-33,35-71
+src/lib/api-errors.ts
+  e0175fb4b4f942a5 1-80
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "012c7fb8b7dec4500d76e24247584d7405a62a06",
+  "prompts": {
+    "e0175fb4b4f942a5": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "f3864c65-ac36-4572-a64e-c1d488c0cbdf",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Waheed",
+      "messages": [],
+      "total_additions": 209,
+      "total_deletions": 67,
+      "accepted_lines": 3732,
+      "overriden_lines": 3
+    }
+  }
+}
