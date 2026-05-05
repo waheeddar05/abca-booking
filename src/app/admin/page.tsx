@@ -37,11 +37,34 @@ interface Stats {
 
 const CHART_BAR_COLOR = '#38bdf8';
 
+/**
+ * IST-formatted YYYY-MM-DD for the first day of the current month and
+ * for today. Used as the dashboard's default revenue window so the
+ * top-line Revenue card always reads "month-to-date" until the admin
+ * chooses a specific range.
+ */
+function istYMD(d: Date): string {
+  const ist = new Date(d.getTime() + (5 * 60 + 30) * 60 * 1000);
+  const y = ist.getUTCFullYear();
+  const m = String(ist.getUTCMonth() + 1).padStart(2, '0');
+  const day = String(ist.getUTCDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+function defaultDashboardRange(): { from: string; to: string } {
+  const now = new Date();
+  const ist = new Date(now.getTime() + (5 * 60 + 30) * 60 * 1000);
+  const firstOfMonth = new Date(Date.UTC(ist.getUTCFullYear(), ist.getUTCMonth(), 1));
+  return { from: istYMD(firstOfMonth), to: istYMD(now) };
+}
+
 export default function AdminDashboard() {
   const [stats, setStats] = useState<Stats | null>(null);
   const [loading, setLoading] = useState(true);
-  const [from, setFrom] = useState('');
-  const [to, setTo] = useState('');
+  // Default range = 1st of current month → today (IST). Clearing the
+  // filter resets to the same MTD default rather than going blank.
+  const [defaultRange] = useState(defaultDashboardRange);
+  const [from, setFrom] = useState(defaultRange.from);
+  const [to, setTo] = useState(defaultRange.to);
 
   useEffect(() => {
     async function fetchStats() {
@@ -133,15 +156,21 @@ export default function AdminDashboard() {
             />
           </div>
         </div>
-        {(from || to) && (
+        {(from !== defaultRange.from || to !== defaultRange.to) && (
           <button
-            onClick={() => { setFrom(''); setTo(''); }}
+            onClick={() => { setFrom(defaultRange.from); setTo(defaultRange.to); }}
             className="flex items-center gap-1 text-xs text-slate-400 hover:text-white transition-colors px-2 py-2.5 cursor-pointer"
+            title={`Reset to ${defaultRange.from} – ${defaultRange.to} (this month)`}
           >
             <X className="w-3.5 h-3.5" />
-            Clear
+            This month
           </button>
         )}
+      </div>
+
+      <div className="text-[11px] text-slate-500 -mt-1">
+        Revenue & booking totals reflect the date range above. Default is
+        the 1st of the current month through today.
       </div>
 
       {/* Stats Grid */}
