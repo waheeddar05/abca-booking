@@ -213,16 +213,19 @@ export function ResourcePricingEditor({
 
   return (
     <div className="space-y-4">
-      {/* Per-category rate matrix */}
+      {/* Per-category rate matrix.
+          Inputs use a smaller w-20 on phones, w-28 from sm+, so a 360px
+          screen fits "Category | morning | evening" without horizontal
+          scroll while keeping the desktop layout breathing-room. */}
       <div className="space-y-2">
-        <div className="grid grid-cols-[1fr_auto_auto] gap-3 items-center text-[10px] uppercase tracking-wider text-slate-500 font-semibold pb-1 border-b border-white/[0.04]">
+        <div className="grid grid-cols-[1fr_auto_auto] gap-2 sm:gap-3 items-center text-[10px] uppercase tracking-wider text-slate-500 font-semibold pb-1 border-b border-white/[0.04]">
           <div>Category</div>
-          <div className="w-28 text-center">Morning</div>
-          <div className="w-28 text-center">Evening</div>
+          <div className="w-20 sm:w-28 text-center">Morning</div>
+          <div className="w-20 sm:w-28 text-center">Evening</div>
         </div>
         {CATEGORY_ORDER.map((cat) => (
-          <div key={cat} className="grid grid-cols-[1fr_auto_auto] gap-3 items-center">
-            <div className="text-sm text-white">{CATEGORY_LABELS[cat]}</div>
+          <div key={cat} className="grid grid-cols-[1fr_auto_auto] gap-2 sm:gap-3 items-center">
+            <div className="text-xs sm:text-sm text-white truncate">{CATEGORY_LABELS[cat]}</div>
             <PriceInput
               value={value.categoryRates[cat].morning}
               onChange={(n) => setRate(cat, 'morning', n)}
@@ -257,11 +260,11 @@ export function ResourcePricingEditor({
               return (
                 <div
                   key={code}
-                  className="grid grid-cols-[1fr_auto_auto_auto] gap-3 items-center"
+                  className="grid grid-cols-[1fr_auto_auto_auto] gap-2 sm:gap-3 items-center"
                 >
-                  <div className="text-sm text-white">
+                  <div className="text-xs sm:text-sm text-white truncate">
                     {meta?.name ?? code}
-                    <span className="ml-1.5 text-[10px] text-slate-500 font-mono">{code}</span>
+                    <span className="ml-1.5 text-[10px] text-slate-500 font-mono hidden sm:inline">{code}</span>
                   </div>
                   <PriceInput
                     value={rates.morning}
@@ -335,7 +338,7 @@ function PriceInput({ value, onChange }: { value: number; onChange: (n: number) 
   // re-derives from `value` once it's blurred.
   const [draft, setDraft] = useState<string | null>(null);
   return (
-    <div className="relative w-28">
+    <div className="relative w-20 sm:w-28">
       <IndianRupee className="absolute left-2 top-1/2 -translate-y-1/2 w-3 h-3 text-slate-500" />
       <input
         type="number"
