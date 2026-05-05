@@ -1,15 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getAuthenticatedUser, canAccessCenter } from '@/lib/auth';
+import { getAuthenticatedUser } from '@/lib/auth';
 import { findCenterById, CENTER_COOKIE } from '@/lib/centers';
 
 /**
  * POST /api/centers/select   Body: { centerId: string }
  *
  * Sets the `selectedCenterId` cookie so subsequent requests resolve to
- * this center. Anyone may select an active center (the user-facing flow
- * needs this), but admins/operators are blocked from selecting a center
- * they don't have a membership at — preventing accidental cross-center
- * mutations from a single account.
+ * this center. Any logged-in user (or anonymous visitor) can pick any
+ * active center — admin permissions are enforced per-route on actual
+ * mutations, not at cookie-write time. The membership check used to
+ * live here, but it broke the legitimate case of an admin-at-ABCA who
+ * also wants to *book* sessions at Toplay as a regular customer.
  */
 export async function POST(req: NextRequest) {
   let body: { centerId?: string };
@@ -29,17 +30,6 @@ export async function POST(req: NextRequest) {
   }
 
   const user = await getAuthenticatedUser(req);
-
-  // Admins/operators are scoped to their memberships. Plain users and
-  // anonymous visitors can pick any active center (they're just browsing).
-  if (user && (user.role === 'ADMIN' || user.role === 'OPERATOR')) {
-    if (!canAccessCenter(user, center.id)) {
-      return NextResponse.json(
-        { error: 'You are not a member of this center' },
-        { status: 403 },
-      );
-    }
-  }
 
   if (!center.isActive && !user?.isSuperAdmin) {
     return NextResponse.json({ error: 'Center is inactive' }, { status: 400 });
