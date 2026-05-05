@@ -1,0 +1,45 @@
+src/app/api/centers/me/route.ts
+  e0175fb4b4f942a5 2,8,10-11,13-19,24-29,53-78
+prisma/schema.prisma
+  e0175fb4b4f942a5 111-113,564
+src/app/slots/ResourceSlotsPage.tsx
+  e0175fb4b4f942a5 163,269,416,590,595,726-730,745-747,749-751
+prisma/migrations/20260429000000_rename_sidearm_specialist/migration.sql
+  e0175fb4b4f942a5 1-7
+src/app/admin/layout.tsx
+  e0175fb4b4f942a5 63-64,67-73
+src/app/api/slots/resource-availability/route.ts
+  e0175fb4b4f942a5 33
+src/app/api/admin/centers/[id]/members/route.ts
+  e0175fb4b4f942a5 18,99,114,120
+src/components/admin/CenterSwitcher.tsx
+  e0175fb4b4f942a5 3,22,25-26,29-31,33,41-43,61,69-70,107-111,113-116,118-124,126-141,146-150,176,181
+src/app/admin/configuration/page.tsx
+  e0175fb4b4f942a5 13,171,173-177,405-407,583-587,819,828,833,846-851,856
+src/app/api/admin/machine-config/route.ts
+  e0175fb4b4f942a5 4,146-151
+src/lib/resource-booking.ts
+  e0175fb4b4f942a5 8,12,169
+src/app/api/admin/policies/route.ts
+  e0175fb4b4f942a5 3,106-115,161-166
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "7ba852a1b69e1de505288672cbe9d65c2cd99b61",
+  "prompts": {
+    "e0175fb4b4f942a5": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "f3864c65-ac36-4572-a64e-c1d488c0cbdf",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Waheed",
+      "messages": [],
+      "total_additions": 199,
+      "total_deletions": 143,
+      "accepted_lines": 3983,
+      "overriden_lines": 30
+    }
+  }
+}
