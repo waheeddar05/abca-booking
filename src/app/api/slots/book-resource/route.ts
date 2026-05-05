@@ -236,6 +236,11 @@ export async function POST(req: NextRequest) {
                 : await getResourceSlotPrice({
                     category: plan.category as Exclude<BookingCategory, never>,
                     machineTypeCode,
+                    // Specificity in the pricing matrix — pass the user
+                    // pick so machinePricing[code][pitch][ball] applies
+                    // when configured.
+                    pitchType: body.pitchType ?? null,
+                    ballType: body.ballType ?? null,
                     startTime: plan.startTime,
                     centerId: center.id,
                   });

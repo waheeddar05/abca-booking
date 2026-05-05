@@ -271,6 +271,11 @@ export async function GET(req: NextRequest) {
       sidearmPitchTypes,
       netPitchTypes,
       enabledCategories,
+      // Resolved pricing config + slab boundaries — the client uses
+      // these to compute the right price for the user's specific
+      // (machine × pitch × ball) selection without an extra round-trip.
+      pricingConfig,
+      timeSlabConfig,
       corporateBatchConfig: batchConfig,
       slots: result,
     });

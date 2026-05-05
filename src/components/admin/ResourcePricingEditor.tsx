@@ -29,10 +29,34 @@ import { IndianRupee, Loader2, Save, Plus, Trash2 } from 'lucide-react';
 
 type SlabRates = { morning: number; evening: number };
 type CategoryKey = 'MACHINE' | 'SIDEARM' | 'COACHING' | 'FULL_COURT' | 'CORPORATE_BATCH' | 'NET';
+type PitchKey = 'ASTRO' | 'CEMENT' | 'NATURAL';
+type BallKey = 'LEATHER' | 'TENNIS' | 'MACHINE' | '*';
+
+const PITCH_KEYS: PitchKey[] = ['ASTRO', 'CEMENT', 'NATURAL'];
+const PITCH_LABELS: Record<PitchKey, string> = {
+  ASTRO: 'Astro Turf',
+  CEMENT: 'Cement',
+  NATURAL: 'Natural Turf',
+};
+const BALL_KEYS: BallKey[] = ['*', 'LEATHER', 'TENNIS', 'MACHINE'];
+const BALL_LABELS: Record<BallKey, string> = {
+  '*': 'Any ball',
+  LEATHER: 'Leather',
+  TENNIS: 'Tennis',
+  MACHINE: 'Machine',
+};
 
 interface ResourcePricingValue {
   categoryRates: Record<CategoryKey, SlabRates>;
+  /** Coarse legacy override per machine type — used as fallback when
+   *  `machinePricing` doesn't have an entry for a (pitch, ball) combo. */
   machineTypeOverrides?: Record<string, SlabRates>;
+  /** machinePricing[code][pitch][ball] → rates. `'*'` for "any ball". */
+  machinePricing?: Record<string, Partial<Record<PitchKey, Partial<Record<BallKey, SlabRates>>>>>;
+  /** sidearmPricing[pitch] → rates. */
+  sidearmPricing?: Partial<Record<PitchKey, SlabRates>>;
+  /** netPricing[pitch] → rates. */
+  netPricing?: Partial<Record<PitchKey, SlabRates>>;
 }
 
 const CATEGORY_LABELS: Record<CategoryKey, string> = {
@@ -86,7 +110,13 @@ function normalize(raw: Partial<ResourcePricingValue> | null | undefined): Resou
   for (const [code, rates] of Object.entries(raw?.machineTypeOverrides ?? {})) {
     overrides[code] = safeRate(rates);
   }
-  return { categoryRates: filled, machineTypeOverrides: overrides };
+  return {
+    categoryRates: filled,
+    machineTypeOverrides: overrides,
+    machinePricing: (raw?.machinePricing ?? {}) as ResourcePricingValue['machinePricing'],
+    sidearmPricing: (raw?.sidearmPricing ?? {}) as ResourcePricingValue['sidearmPricing'],
+    netPricing: (raw?.netPricing ?? {}) as ResourcePricingValue['netPricing'],
+  };
 }
 
 export function ResourcePricingEditor({
@@ -311,6 +341,107 @@ export function ResourcePricingEditor({
         )}
       </div>
 
+      {/* Per-pitch × per-ball matrix per machine type — the "ABCA-style"
+          structured pricing. Each tile sits below its coarse override
+          row and lets the admin diverge a specific (pitch, ball) combo
+          from the machine's base rate. Empty cells fall back to the
+          coarse override → machine category default. */}
+      {overrideEntries.length > 0 && (
+        <div className="space-y-3 pt-3 border-t border-white/[0.04]">
+          <div className="text-[10px] uppercase tracking-wider text-slate-500 font-semibold">
+            Pitch × ball matrix per machine
+          </div>
+          {overrideEntries.map(([code]) => {
+            const meta = machineTypes.find((m) => m.code === code);
+            const matrix = value.machinePricing?.[code] ?? {};
+            return (
+              <div key={`mp-${code}`} className="rounded-xl bg-white/[0.02] border border-white/[0.06] p-3 space-y-2">
+                <div className="text-xs font-semibold text-white">
+                  {meta?.name ?? code}
+                  <span className="ml-1.5 text-[10px] text-slate-500 font-mono">{code}</span>
+                </div>
+                {PITCH_KEYS.map((pitch) => (
+                  <PitchBallRow
+                    key={pitch}
+                    pitch={pitch}
+                    pitchMatrix={matrix[pitch] ?? {}}
+                    onChange={(ball, slab, n) => {
+                      setValue((prev) => {
+                        const next = { ...(prev.machinePricing ?? {}) };
+                        const codeMatrix = { ...(next[code] ?? {}) };
+                        const pitchMatrix = { ...(codeMatrix[pitch] ?? {}) };
+                        const cell = { ...(pitchMatrix[ball] ?? { morning: 0, evening: 0 }) };
+                        cell[slab] = n;
+                        pitchMatrix[ball] = cell;
+                        codeMatrix[pitch] = pitchMatrix;
+                        next[code] = codeMatrix;
+                        return { ...prev, machinePricing: next };
+                      });
+                    }}
+                    onClear={(ball) => {
+                      setValue((prev) => {
+                        const next = { ...(prev.machinePricing ?? {}) };
+                        const codeMatrix = { ...(next[code] ?? {}) };
+                        const pitchMatrix = { ...(codeMatrix[pitch] ?? {}) };
+                        delete pitchMatrix[ball];
+                        if (Object.keys(pitchMatrix).length === 0) {
+                          delete codeMatrix[pitch];
+                        } else {
+                          codeMatrix[pitch] = pitchMatrix;
+                        }
+                        if (Object.keys(codeMatrix).length === 0) delete next[code];
+                        else next[code] = codeMatrix;
+                        return { ...prev, machinePricing: next };
+                      });
+                    }}
+                  />
+                ))}
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Sidearm per-pitch overrides */}
+      <SimplePitchSection
+        title="Sidearm — per pitch"
+        rates={value.sidearmPricing ?? {}}
+        onChange={(pitch, slab, n) => {
+          setValue((prev) => {
+            const next = { ...(prev.sidearmPricing ?? {}) };
+            next[pitch] = { ...(next[pitch] ?? { morning: 0, evening: 0 }), [slab]: n };
+            return { ...prev, sidearmPricing: next };
+          });
+        }}
+        onClear={(pitch) => {
+          setValue((prev) => {
+            const next = { ...(prev.sidearmPricing ?? {}) };
+            delete next[pitch];
+            return { ...prev, sidearmPricing: next };
+          });
+        }}
+      />
+
+      {/* Net per-pitch overrides */}
+      <SimplePitchSection
+        title="Cricket nets booking — per pitch"
+        rates={value.netPricing ?? {}}
+        onChange={(pitch, slab, n) => {
+          setValue((prev) => {
+            const next = { ...(prev.netPricing ?? {}) };
+            next[pitch] = { ...(next[pitch] ?? { morning: 0, evening: 0 }), [slab]: n };
+            return { ...prev, netPricing: next };
+          });
+        }}
+        onClear={(pitch) => {
+          setValue((prev) => {
+            const next = { ...(prev.netPricing ?? {}) };
+            delete next[pitch];
+            return { ...prev, netPricing: next };
+          });
+        }}
+      />
+
       {/* Save bar */}
       <div className="flex items-center justify-end gap-2 pt-2">
         {message && (
@@ -353,6 +484,121 @@ function PriceInput({ value, onChange }: { value: number; onChange: (n: number) 
         }}
         className="w-full bg-white/[0.04] border border-white/[0.1] text-white placeholder:text-slate-500 rounded-lg pl-7 pr-2 py-1.5 text-sm outline-none focus:border-accent focus:ring-1 focus:ring-accent/20 transition-colors"
       />
+    </div>
+  );
+}
+
+/**
+ * One row in the per-machine pitch×ball matrix. Renders the pitch
+ * label on the left and a small editor per (ball type, slab) cell.
+ * Empty cells show "—" placeholder; typing a value populates them.
+ */
+function PitchBallRow({
+  pitch,
+  pitchMatrix,
+  onChange,
+  onClear,
+}: {
+  pitch: PitchKey;
+  pitchMatrix: Partial<Record<BallKey, SlabRates>>;
+  onChange: (ball: BallKey, slab: 'morning' | 'evening', n: number) => void;
+  onClear: (ball: BallKey) => void;
+}) {
+  return (
+    <div className="space-y-1">
+      <div className="text-[11px] font-semibold text-slate-300">
+        {PITCH_LABELS[pitch]}
+      </div>
+      <div className="grid grid-cols-[auto_1fr_1fr_auto] gap-2 items-center text-[10px] uppercase tracking-wider text-slate-500">
+        <div className="w-16">Ball</div>
+        <div className="text-center">Morning</div>
+        <div className="text-center">Evening</div>
+        <div className="w-7" />
+      </div>
+      {BALL_KEYS.map((ball) => {
+        const cell = pitchMatrix[ball];
+        const has = cell != null;
+        return (
+          <div key={ball} className="grid grid-cols-[auto_1fr_1fr_auto] gap-2 items-center">
+            <div className="text-xs text-slate-300 w-16 truncate">
+              {BALL_LABELS[ball]}
+            </div>
+            <PriceInput
+              value={cell?.morning ?? 0}
+              onChange={(n) => onChange(ball, 'morning', n)}
+            />
+            <PriceInput
+              value={cell?.evening ?? 0}
+              onChange={(n) => onChange(ball, 'evening', n)}
+            />
+            <button
+              type="button"
+              onClick={() => onClear(ball)}
+              disabled={!has}
+              className="p-1.5 rounded-lg text-red-400/70 hover:bg-red-500/10 hover:text-red-400 cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
+              title="Clear cell (fall back to coarser rate)"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+/**
+ * Compact pitch × slab editor used by SIDEARM and NET (which don't
+ * vary by ball type). Three pitch rows × morning/evening + clear.
+ */
+function SimplePitchSection({
+  title,
+  rates,
+  onChange,
+  onClear,
+}: {
+  title: string;
+  rates: Partial<Record<PitchKey, SlabRates>>;
+  onChange: (pitch: PitchKey, slab: 'morning' | 'evening', n: number) => void;
+  onClear: (pitch: PitchKey) => void;
+}) {
+  return (
+    <div className="space-y-2 pt-3 border-t border-white/[0.04]">
+      <div className="text-[10px] uppercase tracking-wider text-slate-500 font-semibold">
+        {title}
+      </div>
+      <div className="grid grid-cols-[1fr_auto_auto_auto] gap-2 items-center text-[10px] uppercase tracking-wider text-slate-500">
+        <div>Pitch</div>
+        <div className="w-20 sm:w-28 text-center">Morning</div>
+        <div className="w-20 sm:w-28 text-center">Evening</div>
+        <div className="w-7" />
+      </div>
+      {PITCH_KEYS.map((pitch) => {
+        const cell = rates[pitch];
+        const has = cell != null;
+        return (
+          <div key={pitch} className="grid grid-cols-[1fr_auto_auto_auto] gap-2 items-center">
+            <div className="text-xs sm:text-sm text-white truncate">{PITCH_LABELS[pitch]}</div>
+            <PriceInput
+              value={cell?.morning ?? 0}
+              onChange={(n) => onChange(pitch, 'morning', n)}
+            />
+            <PriceInput
+              value={cell?.evening ?? 0}
+              onChange={(n) => onChange(pitch, 'evening', n)}
+            />
+            <button
+              type="button"
+              onClick={() => onClear(pitch)}
+              disabled={!has}
+              className="p-1.5 rounded-lg text-red-400/70 hover:bg-red-500/10 hover:text-red-400 cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
+              title="Clear (fall back to category default)"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        );
+      })}
     </div>
   );
 }

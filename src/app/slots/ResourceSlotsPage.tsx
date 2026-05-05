@@ -70,6 +70,19 @@ interface ResourceSlot {
   machinePrices?: Record<string, number>;
 }
 
+interface PerSlabRates { morning: number; evening: number }
+
+/** Resolved RESOURCE_PRICING_CONFIG, mirrored from lib/resource-pricing. */
+interface ClientPricingConfig {
+  categoryRates: Record<Category, PerSlabRates>;
+  machineTypeOverrides?: Record<string, PerSlabRates>;
+  /** machinePricing[machineTypeCode][pitchType][ballType] → rates. */
+  machinePricing?: Record<string, Record<string, Record<string, PerSlabRates>>>;
+  /** sidearmPricing[pitchType] → rates. */
+  sidearmPricing?: Record<string, PerSlabRates>;
+  netPricing?: Record<string, PerSlabRates>;
+}
+
 interface ResourceAvailabilityResponse {
   date: string;
   centerId: string;
@@ -86,6 +99,10 @@ interface ResourceAvailabilityResponse {
   /** Booking categories the admin has enabled for this center. The UI
    *  hides any tab not in this list. Defaults to every category. */
   enabledCategories: Category[];
+  /** Full RESOURCE_PRICING_CONFIG so the client can recompute the
+   *  price for a specific (machine × pitch × ball) choice without an
+   *  extra round-trip. */
+  pricingConfig: ClientPricingConfig;
   corporateBatchConfig: { enabled: boolean; days: number[]; startTime: string; endTime: string; netsConsumed: number };
   slots: ResourceSlot[];
 }
@@ -302,21 +319,54 @@ export default function ResourceSlotsPage() {
     return { ok: false };
   };
 
-  /** Final ₹ for this slot under the active category — honours per-machine
-   *  override (e.g. Yantra premium) when MACHINE category has a machine
-   *  selected. Falls back to the base category rate otherwise. */
+  /**
+   * Final ₹ for this slot, mirroring the server cascade in
+   * lib/resource-pricing.ts → getResourceSlotPrice. Walks from most-
+   * specific override (machine × pitch × ball) down to category default.
+   * Falls back to the per-slot base price when the config payload is
+   * missing (e.g. older API response).
+   */
   const slotPriceFor = (s: ResourceSlot): number => {
-    if (category === 'MACHINE' && machineId && s.machinePrices?.[machineId] != null) {
-      return s.machinePrices[machineId];
+    const slab = s.timeSlab;
+    const cfg = data?.pricingConfig;
+
+    if (!cfg) return s.prices[category] || 0;
+
+    if (category === 'MACHINE' && machineId) {
+      const machine = filteredMachines.find((m) => m.id === machineId);
+      const code = machine?.machineType.code;
+      if (code) {
+        if (pitchType && ballType) {
+          const v = cfg.machinePricing?.[code]?.[pitchType]?.[ballType];
+          if (v && v[slab] != null) return v[slab];
+        }
+        if (pitchType) {
+          const v = cfg.machinePricing?.[code]?.[pitchType]?.['*'];
+          if (v && v[slab] != null) return v[slab];
+        }
+        const legacy = cfg.machineTypeOverrides?.[code];
+        if (legacy && legacy[slab] != null) return legacy[slab];
+      }
+      return cfg.categoryRates.MACHINE?.[slab] ?? s.prices.MACHINE;
     }
-    return s.prices[category] || 0;
+
+    if (category === 'SIDEARM' && pitchType) {
+      const v = cfg.sidearmPricing?.[pitchType];
+      if (v && v[slab] != null) return v[slab];
+    }
+    if (category === 'NET' && pitchType) {
+      const v = cfg.netPricing?.[pitchType];
+      if (v && v[slab] != null) return v[slab];
+    }
+
+    return cfg.categoryRates[category]?.[slab] ?? s.prices[category] ?? 0;
   };
 
   const totalPrice = useMemo(() => {
     return selectedSlots.reduce((sum, s) => sum + slotPriceFor(s), 0);
-    // slotPriceFor depends on `category` and `machineId`, so list them.
+    // slotPriceFor depends on every selection that affects the cascade.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedSlots, category, machineId]);
+  }, [selectedSlots, category, machineId, pitchType, ballType, data?.pricingConfig]);
 
   const filteredMachines = useMemo(() => {
     // Phase 5b doesn't filter by ball type; the engine accepts any active machine.
