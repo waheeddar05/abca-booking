@@ -57,7 +57,9 @@ export function CenterMembersTab({ centerId }: { centerId: string }) {
   useEffect(() => { refresh(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [centerId, filter]);
 
   const remove = async (id: string) => {
-    if (!confirm('Deactivate this membership? The user keeps their account but loses access here.')) return;
+    const target = members.find((m) => m.id === id);
+    const label = target ? ROLE_LABEL[target.role] : 'membership';
+    if (!confirm(`Remove the ${label} role at this center? Other roles for this user are unaffected.`)) return;
     const res = await fetch(`/api/admin/centers/${centerId}/members/${id}`, { method: 'DELETE' });
     if (res.ok) refresh();
   };
@@ -106,18 +108,50 @@ export function CenterMembersTab({ centerId }: { centerId: string }) {
         <div className="text-center text-slate-500 py-6 text-sm">No members yet.</div>
       ) : (
         <div className="space-y-2">
-          {members.map((m) => (
-            <MemberRow
-              key={m.id}
+          {groupByUser(members).map((group) => (
+            <UserMembershipsRow
+              key={group.userId}
               centerId={centerId}
-              member={m}
-              onRemove={() => remove(m.id)}
+              group={group}
+              onRemoveRole={remove}
             />
           ))}
         </div>
       )}
     </div>
   );
+}
+
+/**
+ * Group memberships by user so the same person showing up with two
+ * roles (e.g. COACH + SIDEARM_SPECIALIST) renders as one row with
+ * multiple role chips, not two separate rows. Sort within a group by
+ * a canonical role order so the chip order is stable.
+ */
+function groupByUser(members: MembershipRow[]): Array<{
+  userId: string;
+  user: MembershipRow['user'];
+  memberships: MembershipRow[];
+}> {
+  const ROLE_ORDER: Record<MembershipRole, number> = {
+    ADMIN: 0,
+    OPERATOR: 1,
+    COACH: 2,
+    SIDEARM_SPECIALIST: 3,
+  };
+  const map = new Map<string, { userId: string; user: MembershipRow['user']; memberships: MembershipRow[] }>();
+  for (const m of members) {
+    let entry = map.get(m.user.id);
+    if (!entry) {
+      entry = { userId: m.user.id, user: m.user, memberships: [] };
+      map.set(m.user.id, entry);
+    }
+    entry.memberships.push(m);
+  }
+  for (const e of map.values()) {
+    e.memberships.sort((a, b) => ROLE_ORDER[a.role] - ROLE_ORDER[b.role]);
+  }
+  return Array.from(map.values());
 }
 
 function NewMembershipForm({
@@ -129,20 +163,36 @@ function NewMembershipForm({
   onCancel: () => void;
   onSaved: () => void;
 }) {
-  const [role, setRole] = useState<MembershipRole>('ADMIN');
+  // Multi-select roles. A user can be both a Coach and a Sidearm
+  // Specialist (or any combination) at one center — backend creates
+  // one membership row per role atomically.
+  const [roles, setRoles] = useState<Set<MembershipRole>>(() => new Set(['COACH']));
   const [identifier, setIdentifier] = useState('');
   const [name, setName] = useState('');
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
+  const toggleRole = (role: MembershipRole) => {
+    setRoles((prev) => {
+      const next = new Set(prev);
+      if (next.has(role)) next.delete(role);
+      else next.add(role);
+      return next;
+    });
+  };
+
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErr(null);
+    if (roles.size === 0) {
+      setErr('Pick at least one role');
+      return;
+    }
     setSaving(true);
     try {
       const trimmed = identifier.trim();
       const isEmail = trimmed.includes('@');
-      const body: Record<string, unknown> = { role };
+      const body: Record<string, unknown> = { roles: Array.from(roles) };
       if (isEmail) body.email = trimmed;
       else body.mobileNumber = trimmed;
       if (name) body.name = name.trim();
@@ -163,17 +213,42 @@ function NewMembershipForm({
     }
   };
 
+  const ROLES_AVAILABLE: Array<{ id: MembershipRole; label: string }> = [
+    { id: 'ADMIN',              label: 'Admin' },
+    { id: 'OPERATOR',           label: 'Operator' },
+    { id: 'COACH',              label: 'Coach' },
+    { id: 'SIDEARM_SPECIALIST', label: 'Sidearm Specialist' },
+  ];
+
   return (
     <form onSubmit={submit} className="space-y-3 rounded-xl bg-white/[0.02] border border-white/[0.06] p-3">
-      <div className="grid sm:grid-cols-3 gap-3">
-        <Field label="Role" required>
-          <SelectInput value={role} onChange={(e) => setRole(e.target.value as MembershipRole)}>
-            <option value="ADMIN">Admin</option>
-            <option value="OPERATOR">Operator</option>
-            <option value="COACH">Coach</option>
-            <option value="SIDEARM_SPECIALIST">Sidearm Specialist</option>
-          </SelectInput>
-        </Field>
+      <Field
+        label="Roles"
+        required
+        help="Pick one or more. The same person can be a Coach and a Sidearm Specialist at the same center."
+      >
+        <div className="flex flex-wrap gap-1.5">
+          {ROLES_AVAILABLE.map((r) => {
+            const on = roles.has(r.id);
+            return (
+              <button
+                key={r.id}
+                type="button"
+                onClick={() => toggleRole(r.id)}
+                className={`px-3 py-1.5 rounded-lg text-xs font-semibold border cursor-pointer transition-all ${
+                  on
+                    ? `${ROLE_COLOR[r.id]}`
+                    : 'bg-white/[0.04] text-slate-400 border-white/[0.08] hover:border-white/[0.16]'
+                }`}
+              >
+                {r.label}
+              </button>
+            );
+          })}
+        </div>
+      </Field>
+
+      <div className="grid sm:grid-cols-2 gap-3">
         <Field
           label="Email or mobile"
           required
@@ -181,7 +256,7 @@ function NewMembershipForm({
         >
           <TextInput required value={identifier} onChange={(e) => setIdentifier(e.target.value)} placeholder="user@example.com / 9876543210" />
         </Field>
-        <Field label="Name (only for new coach/staff)">
+        <Field label="Name (only for new coach/specialist)">
           <TextInput value={name} onChange={(e) => setName(e.target.value)} placeholder="Optional" />
         </Field>
       </div>
@@ -194,7 +269,7 @@ function NewMembershipForm({
         </SecondaryButton>
         <PrimaryButton type="submit" disabled={saving}>
           {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
-          Assign
+          Assign {roles.size > 1 ? `(${roles.size} roles)` : ''}
         </PrimaryButton>
       </div>
     </form>
@@ -206,67 +281,88 @@ function NewMembershipForm({
 const DAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
 
-function MemberRow({
+/**
+ * One row per user, listing every role they hold at this center as a
+ * coloured chip + a per-role delete + (for COACH / SPECIALIST) a
+ * schedule toggle. Lets a person be assigned to multiple roles
+ * without spawning duplicate rows in the list.
+ */
+function UserMembershipsRow({
   centerId,
-  member,
-  onRemove,
+  group,
+  onRemoveRole,
 }: {
   centerId: string;
-  member: MembershipRow;
-  onRemove: () => void;
+  group: { userId: string; user: MembershipRow['user']; memberships: MembershipRow[] };
+  onRemoveRole: (membershipId: string) => void;
 }) {
-  const [expanded, setExpanded] = useState(false);
-  // Coaches and specialists can have a weekly schedule. Admin / operator
-  // memberships are always-on by definition, so no "Schedule" button.
-  const supportsSchedule = member.role === 'COACH' || member.role === 'SIDEARM_SPECIALIST';
+  // The schedule editor is per-membership (so a user who's both a
+  // Coach and a Specialist can keep different schedules per role).
+  // Track which membership's editor is currently open.
+  const [expandedMembershipId, setExpandedMembershipId] = useState<string | null>(null);
 
   return (
     <div className="rounded-xl bg-white/[0.02] border border-white/[0.06]">
-      <div className="p-3 flex items-center justify-between gap-3">
-        <div className="min-w-0">
-          <div className="flex items-center gap-2 flex-wrap">
-            <span className="text-sm font-semibold text-white">{member.user.name || '(no name)'}</span>
-            <span className={`text-[10px] px-1.5 py-0.5 rounded border uppercase tracking-wide ${ROLE_COLOR[member.role]}`}>
-              {ROLE_LABEL[member.role]}
-            </span>
+      <div className="p-3 flex items-start justify-between gap-3">
+        <div className="min-w-0 flex-1">
+          <div className="text-sm font-semibold text-white truncate">
+            {group.user.name || '(no name)'}
           </div>
           <div className="flex items-center gap-3 text-xs text-slate-500 mt-0.5 flex-wrap">
-            {member.user.email && (
+            {group.user.email && (
               <span className="flex items-center gap-1">
-                <Mail className="w-3 h-3" /> {member.user.email}
+                <Mail className="w-3 h-3" /> {group.user.email}
               </span>
             )}
-            {member.user.mobileNumber && (
+            {group.user.mobileNumber && (
               <span className="flex items-center gap-1">
-                <Phone className="w-3 h-3" /> {member.user.mobileNumber}
+                <Phone className="w-3 h-3" /> {group.user.mobileNumber}
               </span>
             )}
           </div>
-        </div>
-        <div className="flex items-center gap-1 flex-shrink-0">
-          {supportsSchedule && (
-            <button
-              onClick={() => setExpanded((v) => !v)}
-              className={`p-2 rounded-lg cursor-pointer ${
-                expanded ? 'bg-accent/10 text-accent' : 'text-slate-400 hover:bg-white/[0.04] hover:text-white'
-              }`}
-              title="Edit weekly schedule"
-            >
-              <CalendarClock className="w-4 h-4" />
-            </button>
-          )}
-          <button
-            onClick={onRemove}
-            className="p-2 rounded-lg text-red-400/70 hover:bg-red-500/10 hover:text-red-400 cursor-pointer"
-            title="Remove from center"
-          >
-            <Trash2 className="w-4 h-4" />
-          </button>
+          {/* Role chips — one per active membership at this center.
+              Each chip carries its own schedule + delete affordances
+              so the admin can manage roles independently. */}
+          <div className="flex items-center gap-1.5 mt-2 flex-wrap">
+            {group.memberships.map((m) => {
+              const supportsSchedule = m.role === 'COACH' || m.role === 'SIDEARM_SPECIALIST';
+              const expanded = expandedMembershipId === m.id;
+              return (
+                <span
+                  key={m.id}
+                  className={`inline-flex items-center gap-1 pl-2 pr-1 py-0.5 rounded-full border text-[10px] uppercase tracking-wide ${ROLE_COLOR[m.role]}`}
+                >
+                  {ROLE_LABEL[m.role]}
+                  {supportsSchedule && (
+                    <button
+                      onClick={() => setExpandedMembershipId(expanded ? null : m.id)}
+                      className={`ml-0.5 p-0.5 rounded-full cursor-pointer ${
+                        expanded ? 'bg-white/15' : 'hover:bg-white/10'
+                      }`}
+                      title="Weekly schedule"
+                    >
+                      <CalendarClock className="w-3 h-3" />
+                    </button>
+                  )}
+                  <button
+                    onClick={() => onRemoveRole(m.id)}
+                    className="p-0.5 rounded-full hover:bg-red-500/20 cursor-pointer"
+                    title={`Remove ${ROLE_LABEL[m.role]} role`}
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                </span>
+              );
+            })}
+          </div>
         </div>
       </div>
-      {supportsSchedule && expanded && (
+      {expandedMembershipId && (
         <div className="border-t border-white/[0.06] p-3">
-          <AvailabilityEditor centerId={centerId} membershipId={member.id} />
+          <div className="text-[10px] uppercase tracking-wider text-slate-500 mb-2">
+            {ROLE_LABEL[group.memberships.find((m) => m.id === expandedMembershipId)!.role]} schedule
+          </div>
+          <AvailabilityEditor centerId={centerId} membershipId={expandedMembershipId} />
         </div>
       )}
     </div>
