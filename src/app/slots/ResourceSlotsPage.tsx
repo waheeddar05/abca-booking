@@ -424,7 +424,11 @@ export default function ResourceSlotsPage() {
           <label className="block text-[10px] font-medium text-accent mb-2 uppercase tracking-wider">
             Session type
           </label>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+          {/* 2 cols on phones (3 rows of 2), 3 cols on tablets, 6 cols
+              on desktop — keeps the tile size readable across breakpoints
+              and avoids the lopsided 4+2 split that md:grid-cols-4
+              produced once we added a 6th category. */}
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-2">
             {CATEGORIES.filter(
               // Hide categories the admin disabled for this center.
               // Default (no policy / response not ready yet) is all enabled.
@@ -435,15 +439,15 @@ export default function ResourceSlotsPage() {
                 <button
                   key={key}
                   onClick={() => setCategory(key)}
-                  className={`flex flex-col items-start gap-1 px-3 py-2.5 rounded-xl border text-left transition-all cursor-pointer ${
+                  className={`flex flex-col items-start gap-1 px-2.5 py-2 rounded-xl border text-left transition-all cursor-pointer min-w-0 ${
                     active
                       ? 'bg-accent/10 border-accent/40 ring-1 ring-accent/30'
                       : 'bg-white/[0.02] border-white/[0.06] hover:border-accent/20 hover:bg-white/[0.04]'
                   }`}
                 >
-                  <div className="flex items-center gap-1.5">
-                    <Icon className={`w-3.5 h-3.5 ${active ? 'text-accent' : 'text-slate-400'}`} />
-                    <span className={`text-xs font-semibold ${active ? 'text-accent' : 'text-white'}`}>
+                  <div className="flex items-center gap-1.5 min-w-0 w-full">
+                    <Icon className={`w-3.5 h-3.5 flex-shrink-0 ${active ? 'text-accent' : 'text-slate-400'}`} />
+                    <span className={`text-[11px] sm:text-xs font-semibold truncate ${active ? 'text-accent' : 'text-white'}`}>
                       {label}
                     </span>
                   </div>
@@ -480,7 +484,10 @@ export default function ResourceSlotsPage() {
                     <button
                       key={m.id}
                       onClick={() => setMachineId(active ? null : m.id)}
-                      className={`flex items-center gap-2 pl-1.5 pr-3 py-1 rounded-lg text-xs font-semibold border cursor-pointer transition-all ${
+                      // max-w caps the pill at one phone-friendly width so
+                      // a long lane subtext doesn't push the row off-screen
+                      // — the inner text truncates rather than wraps.
+                      className={`flex items-center gap-2 pl-1.5 pr-3 py-1 rounded-lg text-xs font-semibold border cursor-pointer transition-all max-w-[16rem] min-w-0 ${
                         active
                           ? 'bg-accent/15 text-accent border-accent/40'
                           : 'bg-white/[0.04] text-slate-300 border-white/[0.08] hover:border-accent/30'
@@ -492,16 +499,16 @@ export default function ResourceSlotsPage() {
                           alt={m.machineType.name}
                           width={28}
                           height={28}
-                          className="w-7 h-7 rounded-md object-cover bg-white/5"
+                          className="w-7 h-7 rounded-md object-cover bg-white/5 flex-shrink-0"
                         />
                       ) : (
-                        <div className="w-7 h-7 rounded-md bg-white/5 flex items-center justify-center">
+                        <div className="w-7 h-7 rounded-md bg-white/5 flex items-center justify-center flex-shrink-0">
                           <Settings2 className="w-3.5 h-3.5 text-slate-500" />
                         </div>
                       )}
-                      <span className="leading-tight text-left">
-                        <span className="block">{m.name}</span>
-                        <span className="block text-[10px] text-slate-500 font-medium">
+                      <span className="leading-tight text-left min-w-0">
+                        <span className="block truncate">{m.name}</span>
+                        <span className="block text-[10px] text-slate-500 font-medium truncate">
                           {subParts.join(' · ')}
                         </span>
                       </span>
