@@ -60,11 +60,17 @@ export default function AdminLayout({
 
       {/* Mobile: Compact header */}
       <div className="md:hidden flex items-center justify-between px-4 py-2 bg-[#0b1726]/80 backdrop-blur-xl border-b border-white/[0.06]">
-        <div className="flex items-center gap-2">
-          <div className="w-6 h-6 rounded-lg bg-gradient-to-br from-accent/20 to-purple-500/20 flex items-center justify-center">
+        <div className="flex items-center gap-2 min-w-0">
+          <div className="w-6 h-6 rounded-lg bg-gradient-to-br from-accent/20 to-purple-500/20 flex items-center justify-center flex-shrink-0">
             <Zap className="w-3 h-3 text-accent" />
           </div>
-          <span className="text-xs font-bold text-white tracking-wide">Admin</span>
+          <span className="text-xs font-bold text-white tracking-wide flex-shrink-0">Admin</span>
+          {/* Center switcher — same component the desktop sidebar shows.
+              Without it, mobile admins on a multi-center deployment had
+              no way to change centers from inside /admin. */}
+          <div className="ml-1 min-w-0">
+            <CenterSwitcher compact />
+          </div>
         </div>
         <div className="flex items-center gap-1.5">
           <Link

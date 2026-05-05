@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { requireAdmin } from '@/lib/adminAuth';
-import { getAuthenticatedUser } from '@/lib/auth';
+import { getAuthenticatedUser, hasMembershipRole } from '@/lib/auth';
 import { resolveCurrentCenter } from '@/lib/centers';
 import { DEFAULT_PRICING_CONFIG, DEFAULT_TIME_SLABS, normalizePricingConfig } from '@/lib/pricing';
 import type { PricingConfig, TimeSlabConfig } from '@/lib/pricing';
@@ -142,6 +142,12 @@ export async function POST(req: NextRequest) {
     const center = scope === 'center' ? await resolveCurrentCenter(req, user) : null;
     if (scope === 'center' && !center) {
       return NextResponse.json({ error: 'No center selected' }, { status: 400 });
+    }
+    if (scope === 'center' && center && user && !hasMembershipRole(user, center.id, 'ADMIN')) {
+      return NextResponse.json(
+        { error: 'You are not an admin at this center' },
+        { status: 403 },
+      );
     }
 
     const body = await req.json();

@@ -10,7 +10,7 @@ import { AdminToggle } from '@/components/admin/AdminToggle';
 import { useCenter } from '@/lib/center-context';
 import { ResourcePricingEditor } from '@/components/admin/ResourcePricingEditor';
 import { EnabledCategoriesEditor } from '@/components/admin/EnabledCategoriesEditor';
-import { Globe2, MapPin, Ticket } from 'lucide-react';
+import { Ticket } from 'lucide-react';
 
 interface SlabPricing {
   single: number;
@@ -168,14 +168,13 @@ function PriceField({ label, value, onChange }: { label: string; value: number; 
 }
 
 export default function ConfigurationPage() {
-  const { data: session } = useSession();
-  const sessionUser = session?.user as { isSuperAdmin?: boolean } | undefined;
-  const isSuperAdmin = sessionUser?.isSuperAdmin === true;
+  useSession(); // ensure auth context is available
   const { currentCenter } = useCenter();
-  // Editing scope — drives whether reads/writes go to CenterPolicy
-  // (the current center) or the global Policy table. Only super admins
-  // see the toggle; regular admins are pinned to 'center'.
-  const [scope, setScope] = useState<'center' | 'global'>('center');
+  // Settings are always edited at the center scope. The global-defaults
+  // toggle was removed because it confused admins more than it helped —
+  // every center now manages its own values via this page, and the
+  // platform default is whatever ships in code.
+  const scope = 'center' as const;
 
   // Machine config state
   const [machineConfig, setMachineConfig] = useState<MachineConfig>({
@@ -403,49 +402,11 @@ export default function ConfigurationPage() {
         icon={Settings}
         title="Configuration"
         description={
-          scope === 'global'
-            ? 'Editing global defaults — applied to every center'
-            : currentCenter
-              ? `Payment, machines & pricing for ${currentCenter.name}`
-              : 'Payment, machines & pricing'
+          currentCenter
+            ? `Payment, machines & pricing for ${currentCenter.name}`
+            : 'Payment, machines & pricing'
         }
       />
-
-      {/* Scope toggle — center vs global. Super admins see both;
-          regular admins are pinned to 'center'. The toggle drives
-          every read/write in this page. */}
-      {isSuperAdmin && (
-        <div className="flex items-center gap-2 -mt-2 mb-1">
-          <span className="text-[10px] uppercase tracking-wider text-slate-500 font-semibold">
-            Editing:
-          </span>
-          <div className="inline-flex rounded-xl bg-white/[0.04] border border-white/[0.06] p-0.5">
-            <button
-              onClick={() => setScope('center')}
-              disabled={!currentCenter}
-              className={`flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
-                scope === 'center'
-                  ? 'bg-purple-500/20 text-purple-200 border border-purple-500/30'
-                  : 'text-slate-400 hover:text-slate-200'
-              }`}
-            >
-              <MapPin className="w-3 h-3" />
-              {currentCenter?.shortName ?? currentCenter?.name ?? 'Current center'}
-            </button>
-            <button
-              onClick={() => setScope('global')}
-              className={`flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
-                scope === 'global'
-                  ? 'bg-amber-500/20 text-amber-200 border border-amber-500/30'
-                  : 'text-slate-400 hover:text-slate-200'
-              }`}
-            >
-              <Globe2 className="w-3 h-3" />
-              Global defaults
-            </button>
-          </div>
-        </div>
-      )}
 
       {/* ─── Payment Settings ─────────────────────── */}
       <AdminCard
@@ -619,11 +580,11 @@ export default function ConfigurationPage() {
 
       {/* ─── Machine Configuration ──────────────────
           Hardcoded against the legacy MachineId enum (Gravity / Yantra /
-          Leverage Indoor / Leverage Outdoor). Visible for ABCA-style
-          (MACHINE_PITCH) centers and whenever a super-admin is editing
-          global defaults. Hidden on RESOURCE_BASED centers in 'center'
-          scope so the four-machine ghost UI doesn't leak into Toplay. */}
-      {(scope === 'global' || currentCenter?.bookingModel !== 'RESOURCE_BASED') && (
+          Leverage Indoor / Leverage Outdoor) — only meaningful for
+          MACHINE_PITCH centers. Resource-based centers configure
+          machines per-row under Center → Machines, so hide the ghost
+          four-machine UI here. */}
+      {currentCenter?.bookingModel !== 'RESOURCE_BASED' && (
       <AdminCard
         title="Machine Configuration"
         icon={<Zap className="w-4 h-4 text-accent" />}
@@ -855,7 +816,7 @@ export default function ConfigurationPage() {
           RESOURCE_PRICING_CONFIG policy. Per-machine instance config
           (pitch/ball compatibility, default lane, photo) still lives on
           Center → Machines because it's per row, not per category. */}
-      {(currentCenter?.bookingModel === 'RESOURCE_BASED' || scope === 'global') && (
+      {currentCenter?.bookingModel === 'RESOURCE_BASED' && (
         <AdminCard
           title="Booking categories"
           icon={<Ticket className="w-4 h-4 text-accent" />}
@@ -864,16 +825,12 @@ export default function ConfigurationPage() {
         >
           <EnabledCategoriesEditor
             scope={scope}
-            centerLabel={
-              scope === 'global'
-                ? 'global defaults'
-                : (currentCenter?.shortName ?? currentCenter?.name ?? 'this center')
-            }
+            centerLabel={currentCenter.shortName ?? currentCenter.name}
           />
         </AdminCard>
       )}
 
-      {(currentCenter?.bookingModel === 'RESOURCE_BASED' || scope === 'global') && (
+      {currentCenter?.bookingModel === 'RESOURCE_BASED' && (
         <AdminCard
           title="Resource pricing"
           icon={<Zap className="w-4 h-4 text-accent" />}
@@ -886,23 +843,17 @@ export default function ConfigurationPage() {
             machine-type overrides below to charge a premium for a
             specific machine model (e.g. Yantra). Per-machine pitch and
             ball compatibility live under{' '}
-            {currentCenter && (
-              <a
-                href={`/admin/centers/${currentCenter.id}`}
-                className="text-accent underline hover:text-accent/80"
-              >
-                Center → Machines
-              </a>
-            )}
+            <a
+              href={`/admin/centers/${currentCenter.id}`}
+              className="text-accent underline hover:text-accent/80"
+            >
+              Center → Machines
+            </a>
             .
           </div>
           <ResourcePricingEditor
             scope={scope}
-            centerLabel={
-              scope === 'global'
-                ? 'global defaults'
-                : (currentCenter?.shortName ?? currentCenter?.name ?? 'this center')
-            }
+            centerLabel={currentCenter.shortName ?? currentCenter.name}
           />
         </AdminCard>
       )}

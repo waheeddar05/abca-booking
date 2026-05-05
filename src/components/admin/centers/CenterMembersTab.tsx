@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import { Plus, Loader2, Trash2, X, UserPlus, Mail, Phone } from 'lucide-react';
 import { Field, TextInput, SelectInput, PrimaryButton, SecondaryButton, Banner } from './centerForms';
 
-type MembershipRole = 'ADMIN' | 'OPERATOR' | 'COACH' | 'SIDEARM_STAFF';
+type MembershipRole = 'ADMIN' | 'OPERATOR' | 'COACH' | 'SIDEARM_SPECIALIST';
 
 type MembershipRow = {
   id: string;
@@ -24,14 +24,14 @@ const ROLE_LABEL: Record<MembershipRole, string> = {
   ADMIN: 'Admin',
   OPERATOR: 'Operator',
   COACH: 'Coach',
-  SIDEARM_STAFF: 'Sidearm staff',
+  SIDEARM_SPECIALIST: 'Sidearm Specialist',
 };
 
 const ROLE_COLOR: Record<MembershipRole, string> = {
   ADMIN: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20',
   OPERATOR: 'bg-sky-500/10 text-sky-400 border-sky-500/20',
   COACH: 'bg-purple-500/10 text-purple-400 border-purple-500/20',
-  SIDEARM_STAFF: 'bg-amber-500/10 text-amber-400 border-amber-500/20',
+  SIDEARM_SPECIALIST: 'bg-amber-500/10 text-amber-400 border-amber-500/20',
 };
 
 export function CenterMembersTab({ centerId }: { centerId: string }) {
@@ -75,7 +75,7 @@ export function CenterMembersTab({ centerId }: { centerId: string }) {
             <option value="ADMIN">Admins</option>
             <option value="OPERATOR">Operators</option>
             <option value="COACH">Coaches</option>
-            <option value="SIDEARM_STAFF">Sidearm staff</option>
+            <option value="SIDEARM_SPECIALIST">Sidearm Specialist</option>
           </SelectInput>
           <form onSubmit={(e) => { e.preventDefault(); refresh(); }} className="flex items-center gap-2">
             <TextInput
@@ -194,13 +194,13 @@ function NewMembershipForm({
             <option value="ADMIN">Admin</option>
             <option value="OPERATOR">Operator</option>
             <option value="COACH">Coach</option>
-            <option value="SIDEARM_STAFF">Sidearm staff</option>
+            <option value="SIDEARM_SPECIALIST">Sidearm Specialist</option>
           </SelectInput>
         </Field>
         <Field
           label="Email or mobile"
           required
-          help="ADMIN/OPERATOR must already have signed in. COACH/SIDEARM_STAFF will be created if not found."
+          help="ADMIN/OPERATOR must already have signed in. COACH/SIDEARM_SPECIALIST will be created if not found."
         >
           <TextInput required value={identifier} onChange={(e) => setIdentifier(e.target.value)} placeholder="user@example.com / 9876543210" />
         </Field>

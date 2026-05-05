@@ -108,7 +108,9 @@ enum MembershipRole {
   ADMIN
   OPERATOR
   COACH
-  SIDEARM_STAFF
+  // Renamed from SIDEARM_STAFF — same role, clearer label. The Postgres
+  // enum value is renamed in-place via the migration; no data movement.
+  SIDEARM_SPECIALIST
 }
 
 // A physical, bookable thing at a center: a net, a turf wicket, a court.
@@ -559,7 +561,7 @@ enum UserRole {
   ADMIN
   OPERATOR
   COACH
-  SIDEARM_STAFF
+  SIDEARM_SPECIALIST
 }
 
 enum AuthProvider {
