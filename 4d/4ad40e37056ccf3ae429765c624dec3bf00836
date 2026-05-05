@@ -1,0 +1,47 @@
+src/components/admin/EnabledCategoriesEditor.tsx
+  e0175fb4b4f942a5 1-172
+src/app/admin/offers/page.tsx
+  e0175fb4b4f942a5 20,35,81,93,432-433,437,481,485,576-577,675-676
+src/lib/centers.ts
+  e0175fb4b4f942a5 110-117,119-125,127
+src/app/slots/ResourceSlotsPage.tsx
+  e0175fb4b4f942a5 86-88,165,211-220,293-301,428-432
+src/app/api/slots/available/route.ts
+  e0175fb4b4f942a5 246-247,249
+src/app/api/slots/book-resource/route.ts
+  e0175fb4b4f942a5 5,99-101
+src/app/api/slots/book/route.ts
+  e0175fb4b4f942a5 385-388,392
+src/app/admin/configuration/page.tsx
+  e0175fb4b4f942a5 12-13,858-875
+src/app/api/admin/offers/route.ts
+  e0175fb4b4f942a5 22-25
+src/lib/pitch-config.ts
+  e0175fb4b4f942a5 78-115
+src/lib/promotionalOffers.ts
+  e0175fb4b4f942a5 46-49,53
+src/app/api/slots/resource-availability/route.ts
+  e0175fb4b4f942a5 23,86,105,266
+src/lib/resource-booking.ts
+  e0175fb4b4f942a5 463-484,488
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "4d4ad40e37056ccf3ae429765c624dec3bf00836",
+  "prompts": {
+    "e0175fb4b4f942a5": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "f3864c65-ac36-4572-a64e-c1d488c0cbdf",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Waheed",
+      "messages": [],
+      "total_additions": 338,
+      "total_deletions": 52,
+      "accepted_lines": 3862,
+      "overriden_lines": 2
+    }
+  }
+}
