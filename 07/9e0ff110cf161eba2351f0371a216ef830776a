@@ -1,0 +1,25 @@
+src/components/admin/ResourcePricingEditor.tsx
+  e0175fb4b4f942a5 216-219,221,223-224,227-228,263,265,267,341
+src/app/slots/ResourceSlotsPage.tsx
+  e0175fb4b4f942a5 427-431,442,448-450,487-490,502,505,509-511
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "079e0ff110cf161eba2351f0371a216ef830776a",
+  "prompts": {
+    "e0175fb4b4f942a5": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "f3864c65-ac36-4572-a64e-c1d488c0cbdf",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Waheed",
+      "messages": [],
+      "total_additions": 49,
+      "total_deletions": 32,
+      "accepted_lines": 3858,
+      "overriden_lines": 0
+    }
+  }
+}
