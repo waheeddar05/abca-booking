@@ -20,7 +20,7 @@ import {
   computeSlotAvailability,
 } from '@/lib/resource-booking';
 import { getResourcePricingConfig, getResourceSlotPrice } from '@/lib/resource-pricing';
-import { getSidearmPitchTypes, getNetPitchTypes } from '@/lib/pitch-config';
+import { getSidearmPitchTypes, getNetPitchTypes, getEnabledBookingCategories } from '@/lib/pitch-config';
 import { sanitizeApiError } from '@/lib/api-errors';
 
 /**
@@ -83,6 +83,7 @@ export async function GET(req: NextRequest) {
       machines,
       sidearmPitchTypes,
       netPitchTypes,
+      enabledCategories,
       bookings,
       batchConfig,
     ] = await Promise.all([
@@ -101,6 +102,7 @@ export async function GET(req: NextRequest) {
       }),
       getSidearmPitchTypes(center.id),
       getNetPitchTypes(center.id),
+      getEnabledBookingCategories(center.id),
       prisma.booking.findMany({
         where: { centerId: center.id, date: dateUTC, status: { not: 'CANCELLED' } },
         select: {
@@ -261,6 +263,7 @@ export async function GET(req: NextRequest) {
       // per-machine list is fetched separately by the picker.
       sidearmPitchTypes,
       netPitchTypes,
+      enabledCategories,
       corporateBatchConfig: batchConfig,
       slots: result,
     });

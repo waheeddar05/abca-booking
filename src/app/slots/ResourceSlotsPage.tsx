@@ -83,6 +83,9 @@ interface ResourceAvailabilityResponse {
   sidearmPitchTypes: PitchTypeId[];
   /** Same idea for bare-net bookings. */
   netPitchTypes: PitchTypeId[];
+  /** Booking categories the admin has enabled for this center. The UI
+   *  hides any tab not in this list. Defaults to every category. */
+  enabledCategories: Category[];
   corporateBatchConfig: { enabled: boolean; days: number[]; startTime: string; endTime: string; netsConsumed: number };
   slots: ResourceSlot[];
 }
@@ -159,7 +162,7 @@ const CATEGORIES: Array<{ key: Category; label: string; icon: typeof Settings2; 
   { key: 'NET',             label: 'Cricket Nets Booking', icon: LayoutGrid, sub: 'Bare net for self practice' },
   { key: 'SIDEARM',         label: 'Sidearm',             icon: Users,      sub: 'Bowled by staff' },
   { key: 'COACHING',        label: 'Personal Coaching',   icon: UserCog,    sub: 'With a coach' },
-  { key: 'CORPORATE_BATCH', label: 'Corporate Batch',     icon: Users,      sub: 'Group session (admin only)' },
+  { key: 'CORPORATE_BATCH', label: 'Corporate Batch',     icon: Users,      sub: 'Group session' },
   { key: 'FULL_COURT',      label: 'Full Indoor Court',   icon: LayoutGrid, sub: 'All indoor nets' },
 ];
 
@@ -204,6 +207,16 @@ export default function ResourceSlotsPage() {
 
   // Reset selected slots when date changes (availability is per-date)
   useEffect(() => { setSelectedSlots([]); }, [selectedDate]);
+
+  // If the current category isn't in the admin's enabled list, snap to
+  // the first enabled one. Keeps the picker honest after an admin
+  // disables a category mid-session.
+  useEffect(() => {
+    if (!data?.enabledCategories?.length) return;
+    if (!data.enabledCategories.includes(category)) {
+      setCategory(data.enabledCategories[0]);
+    }
+  }, [data?.enabledCategories, category]);
 
   // Fetch availability whenever date / center changes
   useEffect(() => {
@@ -274,6 +287,15 @@ export default function ResourceSlotsPage() {
     if (cat === 'NET') {
       if (s.freeIndoorNets.length === 0 && s.freeOutdoorResources.length === 0) {
         return { ok: false, reason: 'No nets free' };
+      }
+      return { ok: true };
+    }
+    if (cat === 'CORPORATE_BATCH') {
+      // The engine claims `corporateBatchHolds` nets at booking time,
+      // so a slot is only bookable when at least one indoor net is free
+      // beyond what the policy already reserves.
+      if (s.freeIndoorNets.length === 0) {
+        return { ok: false, reason: 'No indoor nets free' };
       }
       return { ok: true };
     }
@@ -403,7 +425,11 @@ export default function ResourceSlotsPage() {
             Session type
           </label>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-            {CATEGORIES.map(({ key, label, icon: Icon, sub }) => {
+            {CATEGORIES.filter(
+              // Hide categories the admin disabled for this center.
+              // Default (no policy / response not ready yet) is all enabled.
+              ({ key }) => !data?.enabledCategories || data.enabledCategories.includes(key),
+            ).map(({ key, label, icon: Icon, sub }) => {
               const active = category === key;
               return (
                 <button

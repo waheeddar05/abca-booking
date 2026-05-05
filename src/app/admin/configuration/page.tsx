@@ -9,7 +9,8 @@ import { AdminCard } from '@/components/admin/AdminCard';
 import { AdminToggle } from '@/components/admin/AdminToggle';
 import { useCenter } from '@/lib/center-context';
 import { ResourcePricingEditor } from '@/components/admin/ResourcePricingEditor';
-import { Globe2, MapPin } from 'lucide-react';
+import { EnabledCategoriesEditor } from '@/components/admin/EnabledCategoriesEditor';
+import { Globe2, MapPin, Ticket } from 'lucide-react';
 
 interface SlabPricing {
   single: number;
@@ -854,6 +855,24 @@ export default function ConfigurationPage() {
           RESOURCE_PRICING_CONFIG policy. Per-machine instance config
           (pitch/ball compatibility, default lane, photo) still lives on
           Center → Machines because it's per row, not per category. */}
+      {(currentCenter?.bookingModel === 'RESOURCE_BASED' || scope === 'global') && (
+        <AdminCard
+          title="Booking categories"
+          icon={<Ticket className="w-4 h-4 text-accent" />}
+          collapsible
+          defaultOpen={true}
+        >
+          <EnabledCategoriesEditor
+            scope={scope}
+            centerLabel={
+              scope === 'global'
+                ? 'global defaults'
+                : (currentCenter?.shortName ?? currentCenter?.name ?? 'this center')
+            }
+          />
+        </AdminCard>
+      )}
+
       {(currentCenter?.bookingModel === 'RESOURCE_BASED' || scope === 'global') && (
         <AdminCard
           title="Resource pricing"

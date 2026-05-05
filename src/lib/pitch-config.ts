@@ -75,3 +75,41 @@ export async function getNetPitchTypes(centerId: string): Promise<PitchType[]> {
   );
   return Array.isArray(list) && list.length > 0 ? list : ALL_PITCH_TYPES;
 }
+
+/**
+ * Booking categories enabled for the user-facing slot picker at this
+ * center. Drives the visible tabs on /slots. Stored as a JSON array;
+ * anything missing or invalid falls back to "everything is enabled".
+ */
+export type BookableCategoryId =
+  | 'MACHINE'
+  | 'NET'
+  | 'SIDEARM'
+  | 'COACHING'
+  | 'CORPORATE_BATCH'
+  | 'FULL_COURT';
+
+export const ALL_BOOKABLE_CATEGORIES: BookableCategoryId[] = [
+  'MACHINE',
+  'NET',
+  'SIDEARM',
+  'COACHING',
+  'CORPORATE_BATCH',
+  'FULL_COURT',
+];
+
+export async function getEnabledBookingCategories(
+  centerId: string,
+): Promise<BookableCategoryId[]> {
+  const list = await getPolicyJson<BookableCategoryId[]>(
+    'ENABLED_BOOKING_CATEGORIES',
+    centerId,
+    ALL_BOOKABLE_CATEGORIES,
+  );
+  if (!Array.isArray(list)) return ALL_BOOKABLE_CATEGORIES;
+  // Keep only known IDs in the canonical order — guards against typos
+  // or an admin saving a stale category that no longer exists.
+  const set = new Set(list);
+  const filtered = ALL_BOOKABLE_CATEGORIES.filter((c) => set.has(c));
+  return filtered.length > 0 ? filtered : ALL_BOOKABLE_CATEGORIES;
+}
