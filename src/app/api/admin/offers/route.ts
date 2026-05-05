@@ -19,7 +19,10 @@ const CreateOfferSchema = z.object({
   discountType: z.enum(['PERCENTAGE', 'FIXED']),
   discountValue: z.number().positive('Discount value must be positive'),
   isActive: z.boolean().optional().default(true),
-  appliesTo: z.enum(['ALL', 'SPECIAL']).optional().default('ALL'),
+  // ALL = both special and generic users
+  // SPECIAL = special users only
+  // NON_SPECIAL = generic (non-special) users only
+  appliesTo: z.enum(['ALL', 'SPECIAL', 'NON_SPECIAL']).optional().default('ALL'),
 });
 
 const OFFER_SELECT = {

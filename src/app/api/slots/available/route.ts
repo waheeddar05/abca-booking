@@ -243,8 +243,10 @@ export async function GET(req: NextRequest) {
       let bestAmount = 0;
 
       for (const offer of activePromoOffers) {
-        // appliesTo filter
+        // appliesTo filter — SPECIAL only for special users, NON_SPECIAL
+        // only for generic (non-special) users, ALL for everyone.
         if (offer.appliesTo === 'SPECIAL' && !isSpecialUser) continue;
+        if (offer.appliesTo === 'NON_SPECIAL' && isSpecialUser) continue;
 
         // Day of week filter
         if (offer.days && offer.days.length > 0 && !offer.days.includes(dayOfWeek)) continue;

@@ -107,27 +107,24 @@ export async function findDefaultCenter(): Promise<CenterSummary | null> {
 }
 
 /**
- * Return all centers the current user can see in a center switcher:
- * super admins → all active centers; otherwise only their memberships.
+ * Return centers the user can pick from in any center switcher.
+ *
+ * Centers are inherently public (the /centers page already lists them all
+ * to anonymous visitors), and a user who happens to be an admin at ABCA
+ * is still a customer who might want to book at Toplay. So we return
+ * every active center to logged-in users regardless of their membership
+ * scope. Permissions for admin-only routes are enforced at the API
+ * layer — switching the cookie can't grant access on its own.
  */
-export async function listUserCenters(user: AuthenticatedUser | null): Promise<CenterSummary[]> {
-  if (user?.isSuperAdmin) {
-    return prisma.center.findMany({
-      where: { isActive: true },
-      orderBy: { displayOrder: 'asc' },
-      select: centerSummarySelect,
-    }) as Promise<CenterSummary[]>;
-  }
-  if (!user || user.centerIds.length === 0) {
-    // Public pages — anyone can browse the list of centers.
-    return prisma.center.findMany({
-      where: { isActive: true },
-      orderBy: { displayOrder: 'asc' },
-      select: centerSummarySelect,
-    }) as Promise<CenterSummary[]>;
-  }
+export async function listUserCenters(
+  // Kept in the signature so callers don't need to update — the user
+  // argument is no longer used now that every logged-in viewer sees
+  // every active center.
+  user: AuthenticatedUser | null,
+): Promise<CenterSummary[]> {
+  void user;
   return prisma.center.findMany({
-    where: { id: { in: user.centerIds }, isActive: true },
+    where: { isActive: true },
     orderBy: { displayOrder: 'asc' },
     select: centerSummarySelect,
   }) as Promise<CenterSummary[]>;

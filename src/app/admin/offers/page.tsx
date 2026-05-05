@@ -17,7 +17,7 @@ interface OfferData {
   discountType: 'PERCENTAGE' | 'FIXED';
   discountValue: number;
   isActive: boolean;
-  appliesTo: 'ALL' | 'SPECIAL';
+  appliesTo: 'ALL' | 'SPECIAL' | 'NON_SPECIAL';
   createdAt: string;
   updatedAt: string;
 }
@@ -32,7 +32,7 @@ interface RecurringDiscountRule {
   pitchTypes: string[];
   oneSlotDiscount: number;
   twoSlotDiscount: number;
-  appliesTo: 'ALL' | 'SPECIAL';
+  appliesTo: 'ALL' | 'SPECIAL' | 'NON_SPECIAL';
 }
 
 const MACHINE_OPTIONS = [
@@ -78,7 +78,7 @@ const emptyPromoForm = {
   pitchTypes: [] as string[],
   discountType: 'PERCENTAGE' as 'PERCENTAGE' | 'FIXED',
   discountValue: 10,
-  appliesTo: 'ALL' as 'ALL' | 'SPECIAL',
+  appliesTo: 'ALL' as 'ALL' | 'SPECIAL' | 'NON_SPECIAL',
 };
 
 const emptyRecurringForm = {
@@ -90,7 +90,7 @@ const emptyRecurringForm = {
   oneSlotDiscount: '' as string,
   twoSlotDiscount: '' as string,
   enabled: true,
-  appliesTo: 'ALL' as 'ALL' | 'SPECIAL',
+  appliesTo: 'ALL' as 'ALL' | 'SPECIAL' | 'NON_SPECIAL',
 };
 
 // ─── Chip Multi-Select Component ───────────────────────────────────
@@ -429,10 +429,12 @@ export default function AdminOffers() {
       <div>
         <label className="block text-[11px] font-medium text-slate-400 mb-1">Applies To</label>
         <select value={promoForm.appliesTo}
-          onChange={e => setPromoForm({ ...promoForm, appliesTo: e.target.value as 'ALL' | 'SPECIAL' })}
+          onChange={e => setPromoForm({ ...promoForm, appliesTo: e.target.value as 'ALL' | 'SPECIAL' | 'NON_SPECIAL' })}
+          aria-label="Audience"
           className={inputClass}>
           <option value="ALL" className="bg-[#1a2a40]">All Users</option>
           <option value="SPECIAL" className="bg-[#1a2a40]">Special Users Only</option>
+          <option value="NON_SPECIAL" className="bg-[#1a2a40]">Generic Users (non-special only)</option>
         </select>
       </div>
       <div className="flex gap-2 pt-1">
@@ -476,10 +478,11 @@ export default function AdminOffers() {
       <div>
         <label className="block text-[11px] font-medium text-slate-400 mb-1">Applies To</label>
         <select value={recurringForm.appliesTo}
-          onChange={e => setRecurringForm({ ...recurringForm, appliesTo: e.target.value as 'ALL' | 'SPECIAL' })}
+          onChange={e => setRecurringForm({ ...recurringForm, appliesTo: e.target.value as 'ALL' | 'SPECIAL' | 'NON_SPECIAL' })}
           className={inputClass}>
           <option value="ALL" className="bg-[#1a2a40]">All Users</option>
           <option value="SPECIAL" className="bg-[#1a2a40]">Special Users Only</option>
+          <option value="NON_SPECIAL" className="bg-[#1a2a40]">Generic Users (non-special only)</option>
         </select>
       </div>
       <div className="grid grid-cols-2 gap-3">
@@ -570,6 +573,8 @@ export default function AdminOffers() {
                         </span>
                         {rule.appliesTo === 'SPECIAL' ? (
                           <span className="text-[10px] px-1.5 py-0.5 rounded-full font-medium bg-purple-500/15 text-purple-400">Special Users</span>
+                        ) : rule.appliesTo === 'NON_SPECIAL' ? (
+                          <span className="text-[10px] px-1.5 py-0.5 rounded-full font-medium bg-amber-500/15 text-amber-400">Generic Users</span>
                         ) : (
                           <span className="text-[10px] px-1.5 py-0.5 rounded-full font-medium bg-blue-500/15 text-blue-400">All Users</span>
                         )}
@@ -667,6 +672,8 @@ export default function AdminOffers() {
                         </span>
                         {offer.appliesTo === 'SPECIAL' ? (
                           <span className="text-[10px] px-1.5 py-0.5 rounded-full font-medium bg-purple-500/15 text-purple-400">Special Users</span>
+                        ) : offer.appliesTo === 'NON_SPECIAL' ? (
+                          <span className="text-[10px] px-1.5 py-0.5 rounded-full font-medium bg-amber-500/15 text-amber-400">Generic Users</span>
                         ) : (
                           <span className="text-[10px] px-1.5 py-0.5 rounded-full font-medium bg-blue-500/15 text-blue-400">All Users</span>
                         )}

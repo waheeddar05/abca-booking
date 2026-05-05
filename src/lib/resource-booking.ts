@@ -460,16 +460,32 @@ export async function planBooking(plan: BookingPlan): Promise<PlannedAssignment>
       };
     }
     case 'CORPORATE_BATCH': {
-      // Admin-managed: the caller pre-supplies the resources to claim.
-      // (This category exists primarily so the bookings table can track
-      // an actual row — usually we model the batch via the policy and
-      // skip the row entirely.)
-      if (!plan.resourceIds || plan.resourceIds.length === 0) {
-        throw new BookingResourceError('Corporate batch booking must specify resourceIds', 400);
+      // Two paths:
+      //  - Caller pre-supplied resourceIds → use them (admin override).
+      //  - Otherwise → auto-claim the configured number of indoor nets,
+      //    matching the policy-driven virtual reservation. This lets
+      //    end users book a "small group" session without picking nets.
+      if (plan.resourceIds && plan.resourceIds.length > 0) {
+        return {
+          category: 'CORPORATE_BATCH',
+          resourceIds: plan.resourceIds,
+          machineId: null,
+          coachId: null,
+          staffId: null,
+        };
+      }
+      const config = await getCorporateBatchConfig(plan.centerId);
+      const nets = Math.max(1, plan.corporateNets ?? config.netsConsumed);
+      const indoorFree = availability.freeIndoorNets;
+      if (indoorFree.length < nets) {
+        throw new BookingResourceError(
+          `Corporate batch needs ${nets} indoor nets but only ${indoorFree.length} are free`,
+          409,
+        );
       }
       return {
         category: 'CORPORATE_BATCH',
-        resourceIds: plan.resourceIds,
+        resourceIds: indoorFree.slice(0, nets).map((r) => r.id),
         machineId: null,
         coachId: null,
         staffId: null,

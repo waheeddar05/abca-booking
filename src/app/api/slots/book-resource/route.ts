@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { Prisma, type BookingCategory } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
-import { getAuthenticatedUser, hasMembershipRole } from '@/lib/auth';
+import { getAuthenticatedUser } from '@/lib/auth';
 import { resolveCurrentCenter } from '@/lib/centers';
 import {
   planBooking,
@@ -96,16 +96,9 @@ export async function POST(req: NextRequest) {
     }
     const body = parsed.data;
 
-    // CORPORATE_BATCH is admin/super-admin only.
-    if (body.category === 'CORPORATE_BATCH') {
-      const allowed = user.isSuperAdmin || hasMembershipRole(user, center.id, 'ADMIN');
-      if (!allowed) {
-        return NextResponse.json(
-          { error: 'Corporate batch bookings are admin-only' },
-          { status: 403 },
-        );
-      }
-    }
+    // CORPORATE_BATCH used to be admin-only; it's now bookable by any
+    // user (the resource engine auto-claims the configured number of
+    // nets, same as it does for the policy-driven virtual reservation).
 
     // Admin can book on behalf of another user.
     const isAdmin = user.role === 'ADMIN' || user.isSuperAdmin;

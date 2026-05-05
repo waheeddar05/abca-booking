@@ -43,8 +43,14 @@ export async function getAllApplicablePromoDiscounts(
     const slotMinutes = timeToMinutes(istTimeStr);
 
     const applicableOffers = offers.filter(offer => {
-      // Check appliesTo filter — SPECIAL offers only for special users
+      // Audience filter:
+      //   SPECIAL      → only special users
+      //   NON_SPECIAL  → only generic (non-special) users
+      //   ALL          → both
       if (offer.appliesTo === 'SPECIAL' && !isSpecialUser) {
+        return false;
+      }
+      if (offer.appliesTo === 'NON_SPECIAL' && isSpecialUser) {
         return false;
       }
 

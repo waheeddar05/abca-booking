@@ -382,10 +382,14 @@ export async function executeSlotBooking(
         return true;
       };
 
-      // Find best ALL-user recurring discount
+      // Find best regular-user (non-SPECIAL) recurring discount.
+      // ALL → applies to everyone.
+      // NON_SPECIAL → applies only when the user is *not* a special user.
+      // SPECIAL is handled in a separate stacking pass below.
       let bestAllDiscount = 0;
       for (const rule of recurringDiscountRules) {
         if (rule.appliesTo === 'SPECIAL') continue;
+        if (rule.appliesTo === 'NON_SPECIAL' && targetUser.isSpecialUser) continue;
         if (!matchesRule(rule)) continue;
         bestAllDiscount = Math.max(bestAllDiscount, rule[perSlotDiscount]);
       }
