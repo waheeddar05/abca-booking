@@ -96,8 +96,9 @@ model CenterMembership {
   createdAt DateTime       @default(now())
   updatedAt DateTime       @updatedAt
 
-  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
-  center Center @relation(fields: [centerId], references: [id], onDelete: Cascade)
+  user           User                     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  center         Center                   @relation(fields: [centerId], references: [id], onDelete: Cascade)
+  availability   MembershipAvailability[]
 
   @@unique([userId, centerId, role])
   @@index([centerId, role])
@@ -111,6 +112,28 @@ enum MembershipRole {
   // Renamed from SIDEARM_STAFF — same role, clearer label. The Postgres
   // enum value is renamed in-place via the migration; no data movement.
   SIDEARM_SPECIALIST
+}
+
+// Weekly recurring availability for a coach or sidearm specialist.
+// Empty = "no schedule constraint" — the user is treated as available
+// for every slot. Add a row to *restrict* (e.g. only Mon–Fri 17:00–
+// 21:00). Multiple rows on the same day stack as a union of windows.
+model MembershipAvailability {
+  id           String   @id @default(cuid())
+  membershipId String
+  // 0 = Sunday, 6 = Saturday — IST day-of-week (matches the rest of the
+  // codebase; see resource-booking.ts → getISTDayOfWeek).
+  dayOfWeek    Int
+  // HH:MM in IST, e.g. "17:00".
+  startTime    String
+  endTime      String
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  membership CenterMembership @relation(fields: [membershipId], references: [id], onDelete: Cascade)
+
+  @@index([membershipId, dayOfWeek])
 }
 
 // A physical, bookable thing at a center: a net, a turf wicket, a court.

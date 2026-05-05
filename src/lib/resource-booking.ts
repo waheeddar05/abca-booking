@@ -147,10 +147,38 @@ export async function getCenterResources(centerId: string): Promise<ResourceLite
   return rows;
 }
 
+/** A single weekly recurring availability window for a coach/specialist. */
+export interface AvailabilityWindow {
+  dayOfWeek: number; // 0=Sun..6=Sat (IST)
+  startTime: string; // HH:MM IST
+  endTime: string;   // HH:MM IST
+}
+
 interface CenterMembershipUserRow {
   userId: string;
   metadata: unknown;
   user: { id: string; name: string | null; mobileNumber: string | null; email: string | null };
+  /** Empty array = no schedule constraint (treated as always available). */
+  availability: AvailabilityWindow[];
+}
+
+/**
+ * True if the slot falls inside the user's weekly availability schedule.
+ * An empty schedule is treated as "always available" — that's the
+ * legacy behaviour for coaches/specialists with no rows yet.
+ */
+export function slotMatchesAvailability(
+  slot: BookableSlotWindow,
+  windows: AvailabilityWindow[],
+): boolean {
+  if (!windows || windows.length === 0) return true;
+  const dow = getISTDayOfWeek(slot.startTime);
+  const dayWindows = windows.filter((w) => w.dayOfWeek === dow);
+  if (dayWindows.length === 0) return false;
+  const slotStart = getISTHHMM(slot.startTime);
+  const slotEnd = getISTHHMM(slot.endTime);
+  // Slot must fit entirely inside at least one window.
+  return dayWindows.some((w) => slotStart >= w.startTime && slotEnd <= w.endTime);
 }
 
 export async function getCenterCoaches(centerId: string): Promise<CenterMembershipUserRow[]> {
@@ -159,6 +187,10 @@ export async function getCenterCoaches(centerId: string): Promise<CenterMembersh
     select: {
       userId: true,
       metadata: true,
+      availability: {
+        where: { isActive: true },
+        select: { dayOfWeek: true, startTime: true, endTime: true },
+      },
       user: { select: { id: true, name: true, mobileNumber: true, email: true } },
     },
   });
@@ -170,6 +202,10 @@ export async function getCenterStaff(centerId: string): Promise<CenterMembership
     select: {
       userId: true,
       metadata: true,
+      availability: {
+        where: { isActive: true },
+        select: { dayOfWeek: true, startTime: true, endTime: true },
+      },
       user: { select: { id: true, name: true, mobileNumber: true, email: true } },
     },
   });
@@ -268,7 +304,7 @@ export async function getSlotAvailability(
     getCorporateBatchNetsForSlot(centerId, slot),
   ]);
 
-  return computeSlotAvailability({ resources, coaches, staff, occupancy, batchNets });
+  return computeSlotAvailability({ resources, coaches, staff, occupancy, batchNets, slot });
 }
 
 interface AvailabilityInputs {
@@ -277,10 +313,14 @@ interface AvailabilityInputs {
   staff: CenterMembershipUserRow[];
   occupancy: OccupancySnapshot;
   batchNets: number;
+  /** When provided, additionally filter coaches/staff by their weekly
+   *  availability schedule. Omit (or pass `null`) to skip the filter —
+   *  primarily for callers that don't have a slot context. */
+  slot?: BookableSlotWindow | null;
 }
 
 export function computeSlotAvailability(inputs: AvailabilityInputs): SlotAvailability {
-  const { resources, coaches, staff, occupancy, batchNets } = inputs;
+  const { resources, coaches, staff, occupancy, batchNets, slot } = inputs;
 
   const indoorNets = resources.filter(
     (r) => r.category === 'INDOOR' && r.type === 'NET',
@@ -296,8 +336,18 @@ export function computeSlotAvailability(inputs: AvailabilityInputs): SlotAvailab
   const heldByBatch = Math.min(batchNets, freeIndoor.length);
   const freeIndoorAfterBatch = freeIndoor.slice(0, freeIndoor.length - heldByBatch);
 
-  const freeCoaches = coaches.filter((c) => !occupancy.busyCoachIds.has(c.userId));
-  const freeStaff = staff.filter((s) => !occupancy.busyStaffIds.has(s.userId));
+  // Filter out coaches/staff whose schedule doesn't cover this slot, then
+  // remove anyone already booked into another session at this time.
+  // No `slot` provided ⇒ skip the schedule filter entirely.
+  const scheduledCoaches = slot
+    ? coaches.filter((c) => slotMatchesAvailability(slot, c.availability))
+    : coaches;
+  const scheduledStaff = slot
+    ? staff.filter((s) => slotMatchesAvailability(slot, s.availability))
+    : staff;
+
+  const freeCoaches = scheduledCoaches.filter((c) => !occupancy.busyCoachIds.has(c.userId));
+  const freeStaff = scheduledStaff.filter((s) => !occupancy.busyStaffIds.has(s.userId));
 
   // Full court requires every active indoor net to be unclaimed AND the
   // corporate batch to not be active.
@@ -368,7 +418,7 @@ export async function planBooking(plan: BookingPlan): Promise<PlannedAssignment>
     getOccupancyForSlot(plan.centerId, slot),
     getCorporateBatchNetsForSlot(plan.centerId, slot),
   ]);
-  const availability = computeSlotAvailability({ resources, coaches, staff, occupancy, batchNets });
+  const availability = computeSlotAvailability({ resources, coaches, staff, occupancy, batchNets, slot });
 
   // Resolve a specific resource by ID, ensuring it's free + at this center.
   const isFree = (resourceId: string) => !occupancy.claimedResourceIds.has(resourceId);
