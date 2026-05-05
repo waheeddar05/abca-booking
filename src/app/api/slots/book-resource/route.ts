@@ -17,6 +17,7 @@ import {
   getSidearmPitchTypes,
   getNetPitchTypes,
 } from '@/lib/pitch-config';
+import { sanitizeApiError } from '@/lib/api-errors';
 import { dateStringToUTC } from '@/lib/time';
 
 /**
@@ -314,8 +315,11 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ bookings: created, centerId: center.id }, { status: 201 });
   } catch (error) {
-    console.error('Resource booking error:', error);
-    const message = error instanceof Error ? error.message : 'Internal server error';
-    return NextResponse.json({ error: message }, { status: 500 });
+    const { message, status } = sanitizeApiError(
+      error,
+      'slots.book-resource',
+      'Booking failed. Please try again.',
+    );
+    return NextResponse.json({ error: message }, { status });
   }
 }

@@ -40,7 +40,7 @@ import { ContactFooter } from '@/components/ContactFooter';
 import { useCenter } from '@/lib/center-context';
 import { api } from '@/lib/api-client';
 
-type Category = 'MACHINE' | 'SIDEARM' | 'COACHING' | 'FULL_COURT' | 'NET';
+type Category = 'MACHINE' | 'SIDEARM' | 'COACHING' | 'FULL_COURT' | 'NET' | 'CORPORATE_BATCH';
 
 interface NetLite { id: string; name: string }
 interface ResourceLite { id: string; name: string; type: string }
@@ -62,6 +62,7 @@ interface ResourceSlot {
     COACHING: number;
     FULL_COURT: number;
     NET: number;
+    CORPORATE_BATCH: number;
   };
   /** Per-machine final price for this slot, keyed by machineId — honours
    *  per-machine-type overrides (e.g. Yantra premium). Empty when the
@@ -149,12 +150,17 @@ function describeResourceType(type: string | null | undefined): string {
   }
 }
 
+// Order matches the user-facing booking funnel — most-used categories
+// first, batch / full-court at the end. CRICKET_NET ('Cricket Nets
+// Booking') is the renamed NET category from the schema; the enum value
+// stays NET for back-compat.
 const CATEGORIES: Array<{ key: Category; label: string; icon: typeof Settings2; sub: string }> = [
-  { key: 'MACHINE',    label: 'Bowling Machine',   icon: Settings2,  sub: 'Yantra / Leverage' },
-  { key: 'SIDEARM',    label: 'Sidearm',           icon: Users,      sub: 'Bowled by staff' },
-  { key: 'COACHING',   label: 'Personal Coaching', icon: UserCog,    sub: 'With a coach' },
-  { key: 'NET',        label: 'Net Only',          icon: LayoutGrid, sub: 'Bare net for self practice' },
-  { key: 'FULL_COURT', label: 'Full Indoor Court', icon: LayoutGrid, sub: 'All indoor nets' },
+  { key: 'MACHINE',         label: 'Bowling Machine',     icon: Settings2,  sub: 'Yantra / Leverage' },
+  { key: 'NET',             label: 'Cricket Nets Booking', icon: LayoutGrid, sub: 'Bare net for self practice' },
+  { key: 'SIDEARM',         label: 'Sidearm',             icon: Users,      sub: 'Bowled by staff' },
+  { key: 'COACHING',        label: 'Personal Coaching',   icon: UserCog,    sub: 'With a coach' },
+  { key: 'CORPORATE_BATCH', label: 'Corporate Batch',     icon: Users,      sub: 'Group session (admin only)' },
+  { key: 'FULL_COURT',      label: 'Full Indoor Court',   icon: LayoutGrid, sub: 'All indoor nets' },
 ];
 
 export default function ResourceSlotsPage() {
@@ -224,6 +230,19 @@ export default function ResourceSlotsPage() {
       .catch(() => setMachines([]))
       .finally(() => setMachinesLoading(false));
   }, [currentCenter]);
+
+  // Auto-select the first active machine when the user lands on the
+  // MACHINE tab — saves the "tap any machine to continue" extra step.
+  // Re-runs when the category becomes MACHINE again, the machine list
+  // changes (e.g. center switch), or the previously-picked machine
+  // disappears from the list. Single-machine centers stay pinned to
+  // that one row by definition.
+  useEffect(() => {
+    if (category !== 'MACHINE') return;
+    if (machines.length === 0) return;
+    if (machineId && machines.some((m) => m.id === machineId)) return;
+    setMachineId(machines[0].id);
+  }, [category, machines, machineId]);
 
   // Per-slot bookability under the current category
   const slotIsBookable = (s: ResourceSlot, cat: Category): { ok: boolean; reason?: string } => {

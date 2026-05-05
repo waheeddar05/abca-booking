@@ -21,6 +21,7 @@ import {
 } from '@/lib/resource-booking';
 import { getResourcePricingConfig, getResourceSlotPrice } from '@/lib/resource-pricing';
 import { getSidearmPitchTypes, getNetPitchTypes } from '@/lib/pitch-config';
+import { sanitizeApiError } from '@/lib/api-errors';
 
 /**
  * GET /api/slots/resource-availability?date=YYYY-MM-DD[&center=<slug>]
@@ -201,6 +202,12 @@ export async function GET(req: NextRequest) {
             pricingConfig,
             timeSlabConfig,
           }),
+          CORPORATE_BATCH: await getResourceSlotPrice({
+            category: 'CORPORATE_BATCH',
+            startTime: slot.startTime,
+            pricingConfig,
+            timeSlabConfig,
+          }),
         };
 
         // Per-machine price map: machineId → final ₹ for this slot under
@@ -258,8 +265,11 @@ export async function GET(req: NextRequest) {
       slots: result,
     });
   } catch (error) {
-    console.error('Resource availability error:', error);
-    const message = error instanceof Error ? error.message : 'Internal server error';
-    return NextResponse.json({ error: message }, { status: 500 });
+    const { message, status } = sanitizeApiError(
+      error,
+      'slots.resource-availability',
+      'Could not load slots. Please try again.',
+    );
+    return NextResponse.json({ error: message }, { status });
   }
 }

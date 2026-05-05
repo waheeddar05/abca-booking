@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { getAuthenticatedUser } from '@/lib/auth';
 import { resolveCurrentCenter } from '@/lib/centers';
+import { sanitizeApiError } from '@/lib/api-errors';
 
 // Safe select: only columns guaranteed to exist (pre-migration)
 const SAFE_BOOKING_SELECT = {
@@ -191,8 +192,12 @@ export async function GET(req: NextRequest) {
         totalPages: Math.ceil(total / limit),
       },
     });
-  } catch (error: any) {
-    console.error('Fetch bookings error:', error);
-    return NextResponse.json({ error: error?.message || 'Internal server error' }, { status: 500 });
+  } catch (error) {
+    const { message, status } = sanitizeApiError(
+      error,
+      'bookings.list',
+      'Could not load bookings. Please try again.',
+    );
+    return NextResponse.json({ error: message }, { status });
   }
 }
