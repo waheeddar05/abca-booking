@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useSession } from 'next-auth/react';
-import { LayoutDashboard, CalendarCheck, Users, Clock, Wrench, Package, Zap, SlidersHorizontal, ArrowLeft, Power, DatabaseZap, UserCog, Tag, Building2 } from 'lucide-react';
+import { LayoutDashboard, CalendarCheck, Users, Clock, Wrench, Package, Zap, SlidersHorizontal, ArrowLeft, Power, DatabaseZap, UserCog, Tag, Building2, AlertTriangle } from 'lucide-react';
 import { signOut } from 'next-auth/react';
 import { AdminMobileNav } from '@/components/admin/AdminMobileNav';
 import { CenterSwitcher } from '@/components/admin/CenterSwitcher';
@@ -41,6 +41,7 @@ export default function AdminLayout({
     ...(isSuperAdmin
       ? [
           { href: '/admin/centers', label: 'Centers', icon: Building2 },
+          { href: '/admin/payments/orphans', label: 'Orphan Payments', icon: AlertTriangle },
           { href: '/admin/user-management', label: 'User Mgmt', icon: UserCog },
           { href: '/admin/maintenance', label: 'Maintenance', icon: Wrench },
           { href: '/admin/db-cleanup', label: 'DB Cleanup', icon: DatabaseZap },
