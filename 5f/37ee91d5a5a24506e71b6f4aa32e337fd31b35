@@ -1,0 +1,31 @@
+src/app/admin/payments/orphans/page.tsx
+  e0175fb4b4f942a5 1-218
+src/app/api/admin/payments/orphans/route.ts
+  e0175fb4b4f942a5 1-84
+src/app/api/payments/verify/route.ts
+  e0175fb4b4f942a5 117-122,126-129,141-158,277-308
+src/app/admin/layout.tsx
+  e0175fb4b4f942a5 6,44
+src/app/api/admin/payments/[id]/recover/route.ts
+  e0175fb4b4f942a5 1-168
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "5f37ee91d5a5a24506e71b6f4aa32e337fd31b35",
+  "prompts": {
+    "e0175fb4b4f942a5": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "f3864c65-ac36-4572-a64e-c1d488c0cbdf",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Waheed",
+      "messages": [],
+      "total_additions": 533,
+      "total_deletions": 7,
+      "accepted_lines": 5236,
+      "overriden_lines": 0
+    }
+  }
+}
