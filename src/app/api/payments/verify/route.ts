@@ -112,10 +112,18 @@ export async function POST(req: NextRequest) {
           console.log(`[PaymentVerify user=${user.id}] Bookings created successfully: ${bookings.map(b => b.id).join(', ')}`);
           result = { bookings };
         } catch (bookingErr) {
-          // Booking failed after payment was captured — the executeSlotBooking function
-          // already handles auto-refund to wallet internally. Log and return the error.
+          // Booking failed after payment was captured. We've seen
+          // production cases where neither the booking nor the in-line
+          // auto-refund landed (DB blip, Prisma schema drift, etc.).
+          // Stamp metadata.recovery so the orphan-recovery admin tool
+          // can find this row, then 5xx so the frontend doesn't
+          // confirm a non-existent booking.
           const errMsg = bookingErr instanceof Error ? bookingErr.message : 'Booking creation failed after payment';
           console.error(`[PaymentVerify user=${user.id}] Booking creation failed after payment CAPTURED:`, bookingErr);
+
+          await markCaptureNeedsRecovery(payment.id, errMsg).catch((e) =>
+            console.error(`[PaymentVerify] Failed to flag ${payment.id}:`, e),
+          );
 
           const extra = bookingErr instanceof BookingServiceError ? bookingErr.extra : {};
           return NextResponse.json({
@@ -128,9 +136,26 @@ export async function POST(req: NextRequest) {
           }, { status: bookingErr instanceof BookingServiceError ? bookingErr.status : 500 });
         }
       } else {
-        // Legacy: no bookingPayload stored — frontend will call /api/slots/book separately.
-        // This handles in-flight payments that were created before this code change.
-        console.warn(`[PaymentVerify user=${user.id}] No bookingPayload in payment metadata for ${payment.id} — frontend must call /api/slots/book`);
+        // No bookingPayload in metadata for a SLOT_BOOKING is a bug,
+        // not a benign legacy fallthrough. The previous version logged
+        // a console.warn and returned { success: true } here — that's
+        // exactly the path that produced the "user paid but no booking"
+        // incidents in prod. Now: flag for recovery, return 5xx so
+        // the frontend tells the user something went wrong instead of
+        // confirming a non-existent booking.
+        console.error(`[PaymentVerify user=${user.id}] No bookingPayload in payment metadata for ${payment.id} — refusing to silent-success`);
+        await markCaptureNeedsRecovery(
+          payment.id,
+          'Verify called but bookingPayload missing in payment.metadata',
+        ).catch((e) => console.error(`[PaymentVerify] Failed to flag ${payment.id}:`, e));
+        return NextResponse.json({
+          success: false,
+          error:
+            'Payment captured but booking details were missing. Our team has been notified and will reconcile shortly.',
+          paymentId: payment.id,
+          razorpayPaymentId: razorpay_payment_id,
+          type: payment.paymentType,
+        }, { status: 500 });
       }
     }
 
@@ -247,4 +272,35 @@ async function completePackagePurchase(
   }
 
   return { userPackage };
+}
+
+/**
+ * Stamp the Payment row's metadata with a `recovery` block so the
+ * `/api/admin/payments/orphans` admin tool can find it later. We do
+ * NOT change `status` — Razorpay considers the payment good; only
+ * the booking is missing.
+ */
+async function markCaptureNeedsRecovery(paymentId: string, reason: string): Promise<void> {
+  const existing = await prisma.payment.findUnique({
+    where: { id: paymentId },
+    select: { metadata: true },
+  });
+  const meta =
+    existing && typeof existing.metadata === 'object' && existing.metadata !== null
+      ? (existing.metadata as Record<string, unknown>)
+      : {};
+  await prisma.payment.update({
+    where: { id: paymentId },
+    data: {
+      metadata: {
+        ...meta,
+        recovery: {
+          flaggedAt: new Date().toISOString(),
+          reason,
+          handled: false,
+        },
+      } as never,
+      failureReason: reason,
+    },
+  });
 }
