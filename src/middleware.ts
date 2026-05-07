@@ -40,8 +40,11 @@ export async function middleware(req: NextRequest) {
 
       if (token || otpToken) {
         const role = (token?.role || otpToken?.role) as string | undefined;
+        // OPERATOR users land on the merged staff dashboard. The page
+        // surfaces tabs for whatever roles they hold (operator + coach
+        // + sidearm). /operator stays as a redirect for old PWA installs.
         if (role === 'OPERATOR') {
-          return NextResponse.redirect(new URL("/operator", req.url));
+          return NextResponse.redirect(new URL("/staff", req.url));
         }
         // Check if mobile is verified — redirect to verify-mobile if not
         const mobileVerified = token?.mobileVerified as boolean | undefined;
@@ -70,11 +73,13 @@ export async function middleware(req: NextRequest) {
   const userRole = (token?.role || otpToken?.role) as string | undefined;
 
   // Mobile verification gate: if user has a NextAuth session but hasn't verified
-  // their mobile number, redirect them to /verify-mobile (except for admin/operator/API)
+  // their mobile number, redirect them to /verify-mobile (except for
+  // admin/operator + the unified /staff dashboard / API).
   if (
     token &&
     !isVerifyMobilePath &&
     !pathname.startsWith("/api/") &&
+    !pathname.startsWith("/staff") &&
     userRole !== "ADMIN" &&
     userRole !== "OPERATOR"
   ) {
@@ -102,6 +107,13 @@ export async function middleware(req: NextRequest) {
       return NextResponse.redirect(new URL("/", req.url));
     }
   }
+
+  // Protect Staff routes — any signed-in user can land here; the
+  // page itself shows a "no role" notice when the user has no
+  // OPERATOR / COACH / SIDEARM_SPECIALIST membership at the active
+  // center, so we don't need a hard role check at the edge. Mobile
+  // verification is bypassed so an unverified-mobile coach can still
+  // see their assigned sessions.
 
   return NextResponse.next();
 }
