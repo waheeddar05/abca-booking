@@ -1,0 +1,40 @@
+src/app/admin/operators/page.tsx
+  s_e0175fb4b4f942::t_4742cc85f009ad 152-157,160
+  s_e0175fb4b4f942::t_6334927675f4c6 544-579,582-593
+  s_e0175fb4b4f942::t_bdb6c97c8918e2 880-882,889-914,916-957
+  s_e0175fb4b4f942::t_76f9169c78b257 801-815,834,836
+  s_e0175fb4b4f942::t_e0b6faae8e12de 208,211-230,238-240
+  s_e0175fb4b4f942::t_ab64e821125b48 9,12-14,17-18,21-27
+  s_e0175fb4b4f942::t_8b68c9b5dbaab8 48-51,56,63-86
+  s_e0175fb4b4f942::t_4dc8ec869d9b99 181-187
+prisma/schema.prisma
+  s_e0175fb4b4f942::t_6024d0869d66bc 99-101,227-230
+  s_e0175fb4b4f942::t_b2ac393fb01715 790-803,805-814,817
+  s_e0175fb4b4f942::t_e917acc4287682 231-234
+src/components/admin/AdminMobileNav.tsx
+  s_e0175fb4b4f942::t_75d0e915596c4c 23
+src/app/api/operator/bookings/route.ts
+  s_e0175fb4b4f942::t_877c7472f2762a 56-60,63,68-70
+prisma/migrations/20260507000000_operator_assignment_machine_row/migration.sql
+  s_e0175fb4b4f942::t_bbc42e6c046fea 1-43
+src/app/admin/layout.tsx
+  s_e0175fb4b4f942::t_23da612dc245b0 44
+src/app/api/admin/operators/route.ts
+  s_e0175fb4b4f942::t_f86aa9db352c1d 6,8-16,37-54,112-117,124-189,195-201,203-204,206-216,222-225,234-264,269-271,277-280,287-288,318-321,328-329,335-337,342-347,356-383,385-386,395,401-403,412-432,434,437-440
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.1",
+  "base_commit_sha": "50d1871b34f9716cf63a99cdf82af764c4028c22",
+  "prompts": {},
+  "sessions": {
+    "s_e0175fb4b4f942": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "f3864c65-ac36-4572-a64e-c1d488c0cbdf",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Waheed <waheeddar8@gmail.com>"
+    }
+  }
+}
