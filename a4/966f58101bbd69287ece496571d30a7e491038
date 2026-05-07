@@ -1,0 +1,35 @@
+src/app/admin/layout.tsx
+  s_e0175fb4b4f942::t_0d5c64da89caf2 46
+src/components/admin/AdminMobileNav.tsx
+  s_e0175fb4b4f942::t_f8563ad115333a 24
+src/app/api/slots/book-resource/route.ts
+  s_e0175fb4b4f942::t_4433915a144fc4 72-76
+  s_e0175fb4b4f942::t_6ea5243b1447ca 194-289
+  s_e0175fb4b4f942::t_e17437026b8080 464,466-470
+  s_e0175fb4b4f942::t_d35c4205e17a45 340-341
+  s_e0175fb4b4f942::t_582fabd63aa35d 435-463,465,471-482
+src/components/admin/ResourcePackageManagement.tsx
+  s_e0175fb4b4f942::t_3eebfc2cb7b433 1-425
+src/app/admin/packages/page.tsx
+  s_e0175fb4b4f942::t_7abd6b4488fd14 1468-1482
+  s_e0175fb4b4f942::t_e804d49be343dd 8-9
+src/app/api/admin/packages/route.ts
+  s_e0175fb4b4f942::t_2407b80d0071b9 69-73,93-97,105-116,130-131
+  s_e0175fb4b4f942::t_cb9ffda1b9e1f3 161
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.1",
+  "base_commit_sha": "a4966f58101bbd69287ece496571d30a7e491038",
+  "prompts": {},
+  "sessions": {
+    "s_e0175fb4b4f942": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "f3864c65-ac36-4572-a64e-c1d488c0cbdf",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Waheed <waheeddar8@gmail.com>"
+    }
+  }
+}
