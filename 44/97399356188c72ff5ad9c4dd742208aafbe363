@@ -1,0 +1,19 @@
+src/app/admin/configuration/page.tsx
+  s_e0175fb4b4f942::t_dfa6075e4df75e 813-820,823,828-861,863-889,893-909,911-914,920-922,928
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.1",
+  "base_commit_sha": "4497399356188c72ff5ad9c4dd742208aafbe363",
+  "prompts": {},
+  "sessions": {
+    "s_e0175fb4b4f942": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "f3864c65-ac36-4572-a64e-c1d488c0cbdf",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Waheed <waheeddar8@gmail.com>"
+    }
+  }
+}
