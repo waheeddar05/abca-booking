@@ -1,0 +1,57 @@
+src/app/admin/configuration/page.tsx
+  s_e0175fb4b4f942::t_cf28a91c816df5 813-890
+src/app/slots/ResourceSlotsPage.tsx
+  s_e0175fb4b4f942::t_8c822b8e91dd26 218-221,227-230,236-298
+src/app/api/admin/packages/route.ts
+  s_e0175fb4b4f942::t_c2e077510f6d5f 3,9,53,144
+src/app/api/admin/recurring-discounts/[id]/route.ts
+  s_e0175fb4b4f942::t_c2e077510f6d5f 3,11,65
+src/app/api/admin/slots/route.ts
+  s_e0175fb4b4f942::t_c2e077510f6d5f 3,17,121,186,243
+src/lib/adminAuth.ts
+  s_e0175fb4b4f942::t_c0bfd5b457a7c3 5-6
+  s_e0175fb4b4f942::t_40b9a7a096a838 51-84
+src/app/api/admin/discount-config/route.ts
+  s_e0175fb4b4f942::t_c2e077510f6d5f 3,16,38
+src/app/api/admin/packages/assign/route.ts
+  s_e0175fb4b4f942::t_c2e077510f6d5f 3,9
+src/app/api/admin/refund/route.ts
+  s_e0175fb4b4f942::t_72542862c6052f 3,15-18
+  s_e0175fb4b4f942::t_943859b8582d63 51-59
+src/app/api/admin/override-cancellations/route.ts
+  s_e0175fb4b4f942::t_c2e077510f6d5f 3,25,32
+src/app/api/admin/recurring-discounts/route.ts
+  s_e0175fb4b4f942::t_c2e077510f6d5f 3,10,47
+src/app/api/admin/bookings/route.ts
+  s_e0175fb4b4f942::t_c2e077510f6d5f 3,44,241,584
+src/app/api/admin/slots/block/route.ts
+  s_e0175fb4b4f942::t_d8a08d8e676797 3
+  s_e0175fb4b4f942::t_db0efd37cf1ae8 17-26,322-331,400-408
+src/app/api/admin/packages/user-packages/route.ts
+  s_e0175fb4b4f942::t_c2e077510f6d5f 3,11,74
+src/app/api/admin/operators/route.ts
+  s_e0175fb4b4f942::t_a15a03c2eac983 64-68,196-200,299-303,344-348,414-418
+  s_e0175fb4b4f942::t_6e8fe843644375 3
+src/app/api/admin/machine-config/route.ts
+  s_e0175fb4b4f942::t_c2e077510f6d5f 3,35,132
+src/app/api/admin/slots/bulk/route.ts
+  s_e0175fb4b4f942::t_c2e077510f6d5f 3,12
+src/app/api/admin/offers/route.ts
+  s_e0175fb4b4f942::t_c2e077510f6d5f 3,59,94,175,247
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.1",
+  "base_commit_sha": "fa42243b5f61c818374ce063b94b8648ffdce67c",
+  "prompts": {},
+  "sessions": {
+    "s_e0175fb4b4f942": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "f3864c65-ac36-4572-a64e-c1d488c0cbdf",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Waheed <waheeddar8@gmail.com>"
+    }
+  }
+}
