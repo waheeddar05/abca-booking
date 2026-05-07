@@ -1,0 +1,35 @@
+src/app/api/slots/book-resource/route.ts
+  s_e0175fb4b4f942::t_cef6f74b0674ee 349-351,365-368,374
+  s_e0175fb4b4f942::t_20aa9a6ca99173 322-338
+src/app/api/slots/resource-availability/route.ts
+  s_e0175fb4b4f942::t_8201f2a735807a 234-238,244
+src/lib/resource-pricing.ts
+  s_e0175fb4b4f942::t_3712c8f1d1afdb 22-36,61-64,69-75,84-97
+  s_e0175fb4b4f942::t_2e260611590e0a 122-124,129-131,144-148,156-158,166,170,173-188,190,193-194,198-199,203-204,206,211-212,216-217,220
+src/app/slots/ResourceSlotsPage.tsx
+  s_e0175fb4b4f942::t_d846c074aad888 338-367,375-387
+  s_e0175fb4b4f942::t_15d1dc0842fadc 76-80,86-89
+src/components/admin/ResourcePricingEditor.tsx
+  s_e0175fb4b4f942::t_857ce7182b45c9 711-848
+  s_e0175fb4b4f942::t_06da4c3d545c99 50-55,63-67,74-79
+  s_e0175fb4b4f942::t_e329743f58ee58 154,158-179
+  s_e0175fb4b4f942::t_97eb575204c9c6 137
+  s_e0175fb4b4f942::t_1c0dd7ca8ed49c 449-510
+  s_e0175fb4b4f942::t_91ac8076ac0c11 4-5
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.1",
+  "base_commit_sha": "4cce37faf318ee1b60f4b029c05fae4794db8e8a",
+  "prompts": {},
+  "sessions": {
+    "s_e0175fb4b4f942": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "f3864c65-ac36-4572-a64e-c1d488c0cbdf",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Waheed <waheeddar8@gmail.com>"
+    }
+  }
+}
