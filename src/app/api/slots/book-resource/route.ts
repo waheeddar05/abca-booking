@@ -319,6 +319,23 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    // Detect consecutive slot chains. ABCA's pricing config has a
+    // separate `consecutive` price for back-to-back slot pairs;
+    // resource centers use the same convention via the new
+    // `machineRowPricing[…].morning.consecutive` field. A plan is
+    // considered "in a consecutive chain" when at least one other
+    // plan in the same booking starts exactly when this one ends or
+    // ends exactly when this one starts.
+    const planIsConsecutive: boolean[] = plans.map((p, i) => {
+      return plans.some((q, j) => {
+        if (i === j) return false;
+        return (
+          p.startTime.getTime() === q.endTime.getTime() ||
+          p.endTime.getTime() === q.startTime.getTime()
+        );
+      });
+    });
+
     // Now create everything atomically. Re-runs under serializable on
     // conflict so concurrent bookings can't both grab the same resource.
     const created: { id: string; status: string }[] = [];
@@ -329,7 +346,9 @@ export async function POST(req: NextRequest) {
         const results = await prisma.$transaction(
           async (tx) => {
             const out: { id: string; status: string }[] = [];
-            for (const plan of plans) {
+            for (let i = 0; i < plans.length; i++) {
+              const plan = plans[i];
+              const isConsecutive = planIsConsecutive[i];
               // Re-plan inside the transaction so we're using the latest
               // occupancy. (planBooking uses prisma directly — for the
               // strict-consistency story we'd want an isolated `tx`-aware
@@ -343,11 +362,16 @@ export async function POST(req: NextRequest) {
                 : await getResourceSlotPrice({
                     category: plan.category as Exclude<BookingCategory, never>,
                     machineTypeCode,
+                    // Most-specific override axis: per-Machine-row
+                    // pricing (e.g. "Yantra 1" priced separately from
+                    // "Yantra 2" at the same center).
+                    machineRowId: assignment.machineId ?? null,
                     // Specificity in the pricing matrix — pass the user
                     // pick so machinePricing[code][pitch][ball] applies
                     // when configured.
                     pitchType: body.pitchType ?? null,
                     ballType: body.ballType ?? null,
+                    isConsecutive,
                     startTime: plan.startTime,
                     centerId: center.id,
                   });

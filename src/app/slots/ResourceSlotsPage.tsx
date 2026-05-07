@@ -73,11 +73,20 @@ interface ResourceSlot {
 interface PerSlabRates { morning: number; evening: number }
 
 /** Resolved RESOURCE_PRICING_CONFIG, mirrored from lib/resource-pricing. */
+type ClientSlabRate = number | { single?: number; consecutive?: number };
+interface ClientPerSlabRates {
+  morning: ClientSlabRate;
+  evening: ClientSlabRate;
+}
 interface ClientPricingConfig {
   categoryRates: Record<Category, PerSlabRates>;
   machineTypeOverrides?: Record<string, PerSlabRates>;
   /** machinePricing[machineTypeCode][pitchType][ballType] → rates. */
   machinePricing?: Record<string, Record<string, Record<string, PerSlabRates>>>;
+  /** machineRowPricing[machineId][pitchType][ballType] → pair rates.
+   *  Most-specific override; uses {single,consecutive} pairs so the
+   *  consecutive discount mirrors ABCA. */
+  machineRowPricing?: Record<string, Record<string, Record<string, ClientPerSlabRates>>>;
   /** sidearmPricing[pitchType] → rates. */
   sidearmPricing?: Record<string, PerSlabRates>;
   netPricing?: Record<string, PerSlabRates>;
@@ -326,6 +335,36 @@ export default function ResourceSlotsPage() {
    * Falls back to the per-slot base price when the config payload is
    * missing (e.g. older API response).
    */
+  /** Pick a number from a single-or-pair rate. Consecutive flag is
+   *  computed by the caller from the user's slot selection. */
+  const pickClientRate = (
+    r: ClientSlabRate | number | undefined,
+    isConsecutive: boolean,
+  ): number | null => {
+    if (r == null) return null;
+    if (typeof r === 'number') return r;
+    if (typeof r === 'object') {
+      const v = isConsecutive ? r.consecutive : r.single;
+      return typeof v === 'number' ? v : null;
+    }
+    return null;
+  };
+
+  /** True if this slot is part of a chain of back-to-back selected
+   *  slots — same rule the server uses to pick the consecutive
+   *  rate. Single-slot bookings are always non-consecutive. */
+  const isSlotConsecutive = (s: ResourceSlot): boolean => {
+    if (selectedSlots.length < 2) return false;
+    const sStart = new Date(s.startTime).getTime();
+    const sEnd = new Date(s.endTime).getTime();
+    return selectedSlots.some((other) => {
+      if (other.startTime === s.startTime) return false;
+      const oStart = new Date(other.startTime).getTime();
+      const oEnd = new Date(other.endTime).getTime();
+      return sStart === oEnd || sEnd === oStart;
+    });
+  };
+
   const slotPriceFor = (s: ResourceSlot): number => {
     const slab = s.timeSlab;
     const cfg = data?.pricingConfig;
@@ -333,6 +372,19 @@ export default function ResourceSlotsPage() {
     if (!cfg) return s.prices[category] || 0;
 
     if (category === 'MACHINE' && machineId) {
+      const consecutive = isSlotConsecutive(s);
+      // Most-specific axis first: per-Machine-row pair pricing.
+      if (pitchType && ballType) {
+        const v = cfg.machineRowPricing?.[machineId]?.[pitchType]?.[ballType];
+        const r = pickClientRate(v?.[slab], consecutive);
+        if (r != null) return r;
+      }
+      if (pitchType) {
+        const v = cfg.machineRowPricing?.[machineId]?.[pitchType]?.['*'];
+        const r = pickClientRate(v?.[slab], consecutive);
+        if (r != null) return r;
+      }
+
       const machine = filteredMachines.find((m) => m.id === machineId);
       const code = machine?.machineType.code;
       if (code) {

@@ -231,14 +231,17 @@ export async function GET(req: NextRequest) {
           }),
         };
 
-        // Per-machine price map: machineId → final ₹ for this slot under
-        // that machine type. Lets the picker show "Yantra ₹800" alongside
-        // "Leverage ₹600" for the same time window.
+        // Per-machine price map: machineId → final ₹ for this slot
+        // under THAT specific machine row. Two Yantra machines at the
+        // same center can have different per-row prices, so we pass
+        // both `machineRowId` and `machineTypeCode` to the engine —
+        // the row override wins when set.
         const machinePrices: Record<string, number> = {};
         for (const m of machines) {
           machinePrices[m.id] = await getResourceSlotPrice({
             category: 'MACHINE',
             machineTypeCode: m.machineType.code,
+            machineRowId: m.id,
             startTime: slot.startTime,
             pricingConfig,
             timeSlabConfig,

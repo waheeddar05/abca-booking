@@ -1,7 +1,8 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { IndianRupee, Loader2, Save, Plus, Trash2 } from 'lucide-react';
+import { IndianRupee, Loader2, Save, Plus, Trash2, ChevronDown } from 'lucide-react';
+import { useCenter } from '@/lib/center-context';
 
 /**
  * Edits the `RESOURCE_PRICING_CONFIG` policy for a resource-based
@@ -46,6 +47,12 @@ const BALL_LABELS: Record<BallKey, string> = {
   MACHINE: 'Machine',
 };
 
+/** Pair-shaped rate for the per-Machine-row matrix — mirrors the
+ *  ABCA pricing config's `{ single, consecutive }` pair so admins can
+ *  set a discounted back-to-back price. */
+type SlabRatePair = { single: number; consecutive: number };
+type PairSlabRates = { morning: SlabRatePair; evening: SlabRatePair };
+
 interface ResourcePricingValue {
   categoryRates: Record<CategoryKey, SlabRates>;
   /** Coarse legacy override per machine type — used as fallback when
@@ -53,10 +60,23 @@ interface ResourcePricingValue {
   machineTypeOverrides?: Record<string, SlabRates>;
   /** machinePricing[code][pitch][ball] → rates. `'*'` for "any ball". */
   machinePricing?: Record<string, Partial<Record<PitchKey, Partial<Record<BallKey, SlabRates>>>>>;
+  /** machineRowPricing[machineId][pitch][ball] → pair rates. The most-
+   *  specific override axis: lets a center with two Yantra machines
+   *  price each one separately. Pair-shaped so ABCA's
+   *  single/consecutive convention works here too. */
+  machineRowPricing?: Record<string, Partial<Record<PitchKey, Partial<Record<BallKey, PairSlabRates>>>>>;
   /** sidearmPricing[pitch] → rates. */
   sidearmPricing?: Partial<Record<PitchKey, SlabRates>>;
   /** netPricing[pitch] → rates. */
   netPricing?: Partial<Record<PitchKey, SlabRates>>;
+}
+
+interface CenterMachineLite {
+  id: string;
+  name: string;
+  shortName?: string | null;
+  isActive: boolean;
+  machineType: { code: string; name: string };
 }
 
 const CATEGORY_LABELS: Record<CategoryKey, string> = {
@@ -114,6 +134,7 @@ function normalize(raw: Partial<ResourcePricingValue> | null | undefined): Resou
     categoryRates: filled,
     machineTypeOverrides: overrides,
     machinePricing: (raw?.machinePricing ?? {}) as ResourcePricingValue['machinePricing'],
+    machineRowPricing: (raw?.machineRowPricing ?? {}) as ResourcePricingValue['machineRowPricing'],
     sidearmPricing: (raw?.sidearmPricing ?? {}) as ResourcePricingValue['sidearmPricing'],
     netPricing: (raw?.netPricing ?? {}) as ResourcePricingValue['netPricing'],
   };
@@ -130,9 +151,32 @@ export function ResourcePricingEditor({
 }) {
   const [value, setValue] = useState<ResourcePricingValue>(DEFAULT_VALUE);
   const [machineTypes, setMachineTypes] = useState<Array<{ code: string; name: string }>>([]);
+  const [centerMachines, setCenterMachines] = useState<CenterMachineLite[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<{ text: string; ok: boolean } | null>(null);
+  const { currentCenter } = useCenter();
+
+  // Fetch the center's specific Machine rows — the "two Yantras at
+  // Toplay" use case. Empty for global scope or before the center
+  // context resolves.
+  useEffect(() => {
+    if (scope !== 'center' || !currentCenter) {
+      setCenterMachines([]);
+      return;
+    }
+    let cancelled = false;
+    fetch(`/api/centers/${currentCenter.id}/machines`)
+      .then((r) => (r.ok ? r.json() : []))
+      .then((rows: CenterMachineLite[]) => {
+        if (cancelled) return;
+        setCenterMachines(Array.isArray(rows) ? rows.filter((m) => m.isActive) : []);
+      })
+      .catch(() => setCenterMachines([]));
+    return () => {
+      cancelled = true;
+    };
+  }, [scope, currentCenter?.id]);
 
   // Fetch the resolved RESOURCE_PRICING_CONFIG for the active scope.
   useEffect(() => {
@@ -402,6 +446,68 @@ export function ResourcePricingEditor({
         </div>
       )}
 
+      {/* Per-Machine-row pricing — the most-specific override axis.
+          A center with two Yantra machines uses this to price each
+          one separately, with single + back-to-back rates per
+          (pitch × ball × slab) cell. Pair shape mirrors ABCA's
+          legacy PRICING_CONFIG (single / consecutive). */}
+      {scope === 'center' && centerMachines.length > 0 && (
+        <div className="space-y-3 pt-3 border-t border-white/[0.04]">
+          <div className="flex items-baseline justify-between gap-2 flex-wrap">
+            <div className="text-[10px] uppercase tracking-wider text-slate-500 font-semibold">
+              Per-machine pricing (most specific)
+            </div>
+            <div className="text-[10px] text-slate-500">
+              Overrides every other axis. Empty cells fall back to the per-machine-type
+              matrix above, then the category default.
+            </div>
+          </div>
+          <div className="space-y-2">
+            {centerMachines.map((m) => (
+              <PerMachineSection
+                key={m.id}
+                machine={m}
+                matrix={value.machineRowPricing?.[m.id] ?? {}}
+                onChange={(pitch, ball, slab, kind, n) => {
+                  setValue((prev) => {
+                    const all = { ...(prev.machineRowPricing ?? {}) };
+                    const byMachine = { ...(all[m.id] ?? {}) };
+                    const byPitch = { ...(byMachine[pitch] ?? {}) };
+                    const cell: PairSlabRates = byPitch[ball]
+                      ? {
+                          morning: { ...byPitch[ball]!.morning },
+                          evening: { ...byPitch[ball]!.evening },
+                        }
+                      : {
+                          morning: { single: 0, consecutive: 0 },
+                          evening: { single: 0, consecutive: 0 },
+                        };
+                    cell[slab] = { ...cell[slab], [kind]: n };
+                    byPitch[ball] = cell;
+                    byMachine[pitch] = byPitch;
+                    all[m.id] = byMachine;
+                    return { ...prev, machineRowPricing: all };
+                  });
+                }}
+                onClearCell={(pitch, ball) => {
+                  setValue((prev) => {
+                    const all = { ...(prev.machineRowPricing ?? {}) };
+                    const byMachine = { ...(all[m.id] ?? {}) };
+                    const byPitch = { ...(byMachine[pitch] ?? {}) };
+                    delete byPitch[ball];
+                    if (Object.keys(byPitch).length === 0) delete byMachine[pitch];
+                    else byMachine[pitch] = byPitch;
+                    if (Object.keys(byMachine).length === 0) delete all[m.id];
+                    else all[m.id] = byMachine;
+                    return { ...prev, machineRowPricing: all };
+                  });
+                }}
+              />
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Sidearm per-pitch overrides */}
       <SimplePitchSection
         title="Sidearm — per pitch"
@@ -599,6 +705,144 @@ function SimplePitchSection({
           </div>
         );
       })}
+    </div>
+  );
+}
+
+/**
+ * Per-Machine-row pricing section. Renders a collapsible card for one
+ * machine instance with a 3-pitch × 4-ball matrix. Each cell has two
+ * slabs (morning/evening), each with a single + consecutive price —
+ * matching the ABCA pricing config's `{ single, consecutive }` pair.
+ */
+function PerMachineSection({
+  machine,
+  matrix,
+  onChange,
+  onClearCell,
+}: {
+  machine: CenterMachineLite;
+  matrix: Partial<Record<PitchKey, Partial<Record<BallKey, PairSlabRates>>>>;
+  onChange: (
+    pitch: PitchKey,
+    ball: BallKey,
+    slab: 'morning' | 'evening',
+    kind: 'single' | 'consecutive',
+    n: number,
+  ) => void;
+  onClearCell: (pitch: PitchKey, ball: BallKey) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const cellCount = Object.values(matrix).reduce(
+    (s, byPitch) => s + Object.keys(byPitch ?? {}).length,
+    0,
+  );
+
+  return (
+    <div className="rounded-xl bg-white/[0.02] border border-white/[0.06] overflow-hidden">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className="w-full flex items-center justify-between gap-3 px-3 py-2.5 text-left hover:bg-white/[0.02] cursor-pointer"
+      >
+        <div className="flex items-center gap-2 min-w-0">
+          <div className="text-xs font-semibold text-white truncate">
+            {machine.shortName ?? machine.name}
+          </div>
+          <span className="text-[10px] text-slate-500 font-mono truncate hidden sm:inline">
+            {machine.machineType.code}
+          </span>
+          {cellCount > 0 && (
+            <span className="text-[10px] text-accent px-1.5 py-0.5 rounded bg-accent/10 flex-shrink-0">
+              {cellCount} cell{cellCount === 1 ? '' : 's'} configured
+            </span>
+          )}
+        </div>
+        <ChevronDown
+          className={`w-4 h-4 text-slate-400 flex-shrink-0 transition-transform ${
+            open ? 'rotate-180' : ''
+          }`}
+        />
+      </button>
+
+      {open && (
+        <div className="px-3 pb-3 space-y-3 border-t border-white/[0.06]">
+          {PITCH_KEYS.map((pitch) => (
+            <div key={pitch} className="space-y-1">
+              <div className="text-[11px] font-semibold text-slate-300 pt-2">
+                {PITCH_LABELS[pitch]}
+              </div>
+              {/* Header row */}
+              <div className="grid grid-cols-[6.5rem_1fr_1fr_auto] gap-2 items-end pb-1 border-b border-white/[0.04] text-[9px] uppercase tracking-wider text-slate-500">
+                <div>Ball</div>
+                <div className="text-center">
+                  Morning
+                  <div className="text-[8px] text-slate-600 normal-case font-medium">
+                    single / consecutive
+                  </div>
+                </div>
+                <div className="text-center">
+                  Evening
+                  <div className="text-[8px] text-slate-600 normal-case font-medium">
+                    single / consecutive
+                  </div>
+                </div>
+                <div className="w-7" />
+              </div>
+              {BALL_KEYS.map((ball) => {
+                const cell = matrix[pitch]?.[ball];
+                const has = cell != null;
+                return (
+                  <div
+                    key={ball}
+                    className="grid grid-cols-[6.5rem_1fr_1fr_auto] gap-2 items-center"
+                  >
+                    <div className="text-xs text-slate-300 truncate">
+                      {BALL_LABELS[ball]}
+                    </div>
+                    <PairPriceCell
+                      pair={cell?.morning ?? { single: 0, consecutive: 0 }}
+                      onChange={(kind, n) => onChange(pitch, ball, 'morning', kind, n)}
+                    />
+                    <PairPriceCell
+                      pair={cell?.evening ?? { single: 0, consecutive: 0 }}
+                      onChange={(kind, n) => onChange(pitch, ball, 'evening', kind, n)}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => onClearCell(pitch, ball)}
+                      disabled={!has}
+                      className="p-1.5 rounded-lg text-red-400/70 hover:bg-red-500/10 hover:text-red-400 cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
+                      title="Clear (fall back to next-coarser rate)"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Side-by-side single / consecutive number inputs for one slab cell.
+ * Compact so two of them fit in the per-machine matrix grid.
+ */
+function PairPriceCell({
+  pair,
+  onChange,
+}: {
+  pair: SlabRatePair;
+  onChange: (kind: 'single' | 'consecutive', n: number) => void;
+}) {
+  return (
+    <div className="grid grid-cols-2 gap-1">
+      <PriceInput value={pair.single} onChange={(n) => onChange('single', n)} />
+      <PriceInput value={pair.consecutive} onChange={(n) => onChange('consecutive', n)} />
     </div>
   );
 }

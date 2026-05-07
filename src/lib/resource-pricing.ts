@@ -19,9 +19,21 @@ import { getTimeSlab, getTimeSlabConfig, type TimeSlabConfig } from '@/lib/prici
 
 export type TimeSlab = 'morning' | 'evening';
 
-interface PerSlabRates {
-  morning: number;
-  evening: number;
+/**
+ * A single slab rate. Two shapes accepted:
+ *   - number              → flat rate, charged regardless of consecutive
+ *   - { single, consecutive } → ABCA-style pair (consecutive used when
+ *     a booking sits in a chain of back-to-back slots; single otherwise)
+ *
+ * Old policy values used numbers everywhere; the per-machine matrix
+ * (added for Toplay parity with ABCA) uses the pair form. The engine
+ * coerces both via `pickRate`.
+ */
+export type SlabRate = number | { single: number; consecutive: number };
+
+export interface PerSlabRates {
+  morning: SlabRate;
+  evening: SlabRate;
 }
 
 export interface ResourcePricingConfig {
@@ -46,19 +58,43 @@ export interface ResourcePricingConfig {
    * Structured per-(machineType × pitch × ball) matrix for MACHINE
    * bookings. Mirrors the ABCA pricing config's specificity. Lookup
    * falls back to:
-   *   machinePricing[code][pitch][ball]    →
-   *   machinePricing[code][pitch]['*']     →
-   *   machineTypeOverrides[code]           →
+   *   machineRowPricing[machineId][pitch][ball]   →  (most specific)
+   *   machinePricing[code][pitch][ball]           →
+   *   machinePricing[code][pitch]['*']            →
+   *   machineTypeOverrides[code]                  →
    *   categoryRates.MACHINE
    * Use the literal `'*'` ball key for "any ball type" within a pitch.
    */
   machinePricing?: Record<string, Record<string, Record<string, PerSlabRates>>>;
+  /**
+   * MOST-SPECIFIC override: per-Machine-row pricing. Same shape as
+   * `machinePricing` but keyed by `Machine.id` (the row at this
+   * center) instead of `MachineType.code`. This is what lets a center
+   * with two Yantra machines price each one separately.
+   */
+  machineRowPricing?: Record<string, Record<string, Record<string, PerSlabRates>>>;
   /** Per-pitch override for SIDEARM bookings. Falls back to categoryRates.SIDEARM. */
   sidearmPricing?: Record<string, PerSlabRates>;
   /** Per-pitch override for NET (cricket nets) bookings. Falls back to categoryRates.NET. */
   netPricing?: Record<string, PerSlabRates>;
   /** Free-form notes the admin can leave for themselves. Not rendered. */
   notes?: string;
+}
+
+/**
+ * Coerce a SlabRate (number or pair) to a single number based on
+ * whether the booking sits in a consecutive chain of slots. Returns
+ * null when the rate is missing/invalid so callers can fall back
+ * down the precedence cascade.
+ */
+export function pickRate(r: SlabRate | undefined | null, isConsecutive: boolean): number | null {
+  if (r == null) return null;
+  if (typeof r === 'number') return r;
+  if (typeof r === 'object') {
+    const v = isConsecutive ? r.consecutive : r.single;
+    return typeof v === 'number' ? v : null;
+  }
+  return null;
 }
 
 export const DEFAULT_RESOURCE_PRICING: ResourcePricingConfig = {
@@ -83,10 +119,16 @@ export interface PriceLookup {
   category: 'MACHINE' | 'SIDEARM' | 'COACHING' | 'FULL_COURT' | 'CORPORATE_BATCH' | 'NET';
   /** Required when category=MACHINE — used to apply Yantra/Leverage overrides. */
   machineTypeCode?: string | null;
+  /** Specific Machine row (Machine.id). Most-specific override axis;
+   *  lets a center price two Yantra machines differently. */
+  machineRowId?: string | null;
   /** Pitch type the user picked, when relevant (MACHINE / SIDEARM / NET). */
   pitchType?: string | null;
   /** Ball type the user picked, when relevant (MACHINE only). */
   ballType?: string | null;
+  /** When true, pick the `consecutive` rate from a {single, consecutive}
+   *  pair. Has no effect on flat-number rates. */
+  isConsecutive?: boolean;
   startTime: Date;
   /** Optional pre-fetched configs to avoid duplicate DB hits on grid endpoints. */
   centerId?: string;
@@ -99,9 +141,11 @@ export interface PriceLookup {
  * most-specific override to category default:
  *
  * MACHINE:
- *   machinePricing[code][pitch][ball]   →
- *   machinePricing[code][pitch]['*']    →
- *   machineTypeOverrides[code]          →
+ *   machineRowPricing[machineId][pitch][ball] →  (Toplay: per-instance)
+ *   machineRowPricing[machineId][pitch]['*']  →
+ *   machinePricing[code][pitch][ball]         →  (per-machine-type)
+ *   machinePricing[code][pitch]['*']          →
+ *   machineTypeOverrides[code]                →
  *   categoryRates.MACHINE
  *
  * SIDEARM / NET:
@@ -109,6 +153,9 @@ export interface PriceLookup {
  *   categoryRates.{SIDEARM | NET}
  *
  * Other categories: categoryRates.{COACHING | FULL_COURT | CORPORATE_BATCH}.
+ *
+ * `isConsecutive` selects the `consecutive` field from `{single, consecutive}`
+ * pair-shaped rates; flat numbers are unaffected.
  */
 export async function getResourceSlotPrice(args: PriceLookup): Promise<number> {
   const pricing = args.pricingConfig
@@ -116,37 +163,59 @@ export async function getResourceSlotPrice(args: PriceLookup): Promise<number> {
   const timeSlabs = args.timeSlabConfig ?? (await getTimeSlabConfig());
 
   const slab = getTimeSlab(args.startTime, timeSlabs);
+  const cons = !!args.isConsecutive;
 
   if (args.category === 'MACHINE') {
     const code = args.machineTypeCode ?? null;
+    const rowId = args.machineRowId ?? null;
     const pitch = args.pitchType ?? null;
     const ball = args.ballType ?? null;
+
+    // Per-Machine-row matrix (most specific). Two-Yantra centers use
+    // this to price "Yantra 1" and "Yantra 2" separately.
+    if (rowId) {
+      if (pitch && ball) {
+        const v = pricing.machineRowPricing?.[rowId]?.[pitch]?.[ball];
+        const r = pickRate(v?.[slab], cons);
+        if (r != null) return r;
+      }
+      if (pitch) {
+        const v = pricing.machineRowPricing?.[rowId]?.[pitch]?.['*'];
+        const r = pickRate(v?.[slab], cons);
+        if (r != null) return r;
+      }
+    }
+
     if (code) {
-      // Specific (code, pitch, ball)
+      // Per-machine-type matrix (next-most specific)
       if (pitch && ball) {
         const v = pricing.machinePricing?.[code]?.[pitch]?.[ball];
-        if (v && v[slab] != null) return v[slab];
+        const r = pickRate(v?.[slab], cons);
+        if (r != null) return r;
       }
-      // Pitch-level override (any ball)
       if (pitch) {
         const v = pricing.machinePricing?.[code]?.[pitch]?.['*'];
-        if (v && v[slab] != null) return v[slab];
+        const r = pickRate(v?.[slab], cons);
+        if (r != null) return r;
       }
       // Coarse machine-type override (legacy)
       const legacy = pricing.machineTypeOverrides?.[code];
-      if (legacy && legacy[slab] != null) return legacy[slab];
+      const r = pickRate(legacy?.[slab], cons);
+      if (r != null) return r;
     }
-    return pricing.categoryRates.MACHINE[slab];
+    return pickRate(pricing.categoryRates.MACHINE[slab], cons) ?? 0;
   }
 
   if (args.category === 'SIDEARM' && args.pitchType) {
     const v = pricing.sidearmPricing?.[args.pitchType];
-    if (v && v[slab] != null) return v[slab];
+    const r = pickRate(v?.[slab], cons);
+    if (r != null) return r;
   }
   if (args.category === 'NET' && args.pitchType) {
     const v = pricing.netPricing?.[args.pitchType];
-    if (v && v[slab] != null) return v[slab];
+    const r = pickRate(v?.[slab], cons);
+    if (r != null) return r;
   }
 
-  return pricing.categoryRates[args.category][slab];
+  return pickRate(pricing.categoryRates[args.category][slab], cons) ?? 0;
 }
