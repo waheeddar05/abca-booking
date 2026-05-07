@@ -31,15 +31,19 @@ import { useCenter } from '@/lib/center-context';
 type SlabRates = { morning: number; evening: number };
 type CategoryKey = 'MACHINE' | 'SIDEARM' | 'COACHING' | 'FULL_COURT' | 'CORPORATE_BATCH' | 'NET';
 type PitchKey = 'ASTRO' | 'CEMENT' | 'NATURAL';
+/** Ball types stored in policy JSON. '*' is the legacy "any ball"
+ *  catchall — kept in the data shape for back-compat but never shown
+ *  in the editor; admins now pick a specific ball that the machine
+ *  actually supports. */
 type BallKey = 'LEATHER' | 'TENNIS' | 'MACHINE' | '*';
+type SpecificBall = Exclude<BallKey, '*'>;
 
 const PITCH_KEYS: PitchKey[] = ['ASTRO', 'CEMENT', 'NATURAL'];
 const PITCH_LABELS: Record<PitchKey, string> = {
   ASTRO: 'Astro Turf',
-  CEMENT: 'Cement',
+  CEMENT: 'Cement Wicket',
   NATURAL: 'Natural Turf',
 };
-const BALL_KEYS: BallKey[] = ['*', 'LEATHER', 'TENNIS', 'MACHINE'];
 const BALL_LABELS: Record<BallKey, string> = {
   '*': 'Any ball',
   LEATHER: 'Leather',
@@ -76,7 +80,12 @@ interface CenterMachineLite {
   name: string;
   shortName?: string | null;
   isActive: boolean;
-  machineType: { code: string; name: string };
+  /** Server-resolved list of ball types this machine actually supports.
+   *  Drives which (Machine × Ball) tabs render. Empty list (legacy
+   *  data) falls back to the machineType.ballType single value. */
+  effectiveBallTypes?: SpecificBall[];
+  supportedBallTypes?: SpecificBall[];
+  machineType: { code: string; name: string; ballType?: string };
 }
 
 const CATEGORY_LABELS: Record<CategoryKey, string> = {
@@ -426,6 +435,49 @@ function PriceInput({ value, onChange }: { value: number; onChange: (n: number) 
  * has morning + evening, single + consecutive — same shape as
  * PRICING_CONFIG on main, just keyed by Machine.id.
  */
+/**
+ * Tabbed pricing editor — one tab per (Machine row × supported ball
+ * type) combo at the active center. Mirrors the prod ABCA pricing
+ * UI, where the tab strip looks like:
+ *
+ *   [ Gravity·Leather ] [ Yantra·Leather ] [ Gravity·Machine ]
+ *   [ Yantra·Machine ] [ Tennis ]
+ *
+ * For Toplay (RESOURCE_BASED) the tab strip uses Machine row names
+ * + ball, and tabs only appear for ball types each machine actually
+ * supports — so a Yantra never shows a "Tennis" tab and a Leverage
+ * Tennis never shows a "Leather" tab. The "Any" ball that used to
+ * sit in the data shape is hidden from the editor entirely; admins
+ * always pick a specific ball.
+ *
+ * Active tab body: 3 pitch sections (Astro Turf, Cement Wicket,
+ * Natural Turf), each with 4 inputs — Morn/Slot, Morn/2 Cons.,
+ * Eve/Slot, Eve/2 Cons. Same shape as the prod PRICING_CONFIG.
+ */
+
+/** Resolve the list of ball types this machine actually supports.
+ *  Falls back to the machineType's default ball when nothing's
+ *  configured. Tennis-type machines get TENNIS only; leather-type
+ *  machines get LEATHER + MACHINE balls (matches main's convention). */
+function machineBalls(m: CenterMachineLite): SpecificBall[] {
+  if (m.effectiveBallTypes && m.effectiveBallTypes.length > 0) {
+    return m.effectiveBallTypes;
+  }
+  if (m.supportedBallTypes && m.supportedBallTypes.length > 0) {
+    return m.supportedBallTypes;
+  }
+  const fb = m.machineType.ballType;
+  if (fb === 'LEATHER') return ['LEATHER', 'MACHINE'];
+  if (fb === 'TENNIS') return ['TENNIS'];
+  if (fb === 'MACHINE') return ['MACHINE'];
+  return ['LEATHER', 'MACHINE', 'TENNIS'];
+}
+
+/** Composite tab key encoding `(machineId, ball)`. The matrix is
+ *  stored two-deep (matrix[machineId][pitch][ball]) so the active
+ *  tab tells us which (machine, ball) pair to show. */
+type TabKey = `${string}::${SpecificBall}`;
+
 function TabbedMachinePricing({
   machines,
   matrix,
@@ -444,43 +496,68 @@ function TabbedMachinePricing({
   ) => void;
   onClearCell: (machineId: string, pitch: PitchKey, ball: BallKey) => void;
 }) {
-  const [activeId, setActiveId] = useState<string>(machines[0]?.id ?? '');
-  // Keep the active tab valid when the machines list changes (e.g. an
-  // admin disables a machine while this editor is open).
-  useEffect(() => {
-    if (!machines.find((m) => m.id === activeId)) {
-      setActiveId(machines[0]?.id ?? '');
+  // Build the flat tab list from the machines × supported balls.
+  // Skipping inactive machines is the parent's job (it filters
+  // before passing in).
+  const tabs: Array<{ key: TabKey; machineId: string; ball: SpecificBall; label: string }> = [];
+  for (const m of machines) {
+    for (const b of machineBalls(m)) {
+      tabs.push({
+        key: `${m.id}::${b}` as TabKey,
+        machineId: m.id,
+        ball: b,
+        label: `${m.shortName ?? m.name} · ${BALL_LABELS[b]}`,
+      });
     }
-  }, [machines, activeId]);
+  }
 
-  const active = machines.find((m) => m.id === activeId) ?? machines[0];
-  const cellsConfigured = (machineId: string): number => {
+  const [activeKey, setActiveKey] = useState<TabKey>(tabs[0]?.key ?? ('' as TabKey));
+  // Keep the active tab valid when the machine list changes mid-edit.
+  useEffect(() => {
+    if (!tabs.find((t) => t.key === activeKey)) {
+      setActiveKey(tabs[0]?.key ?? ('' as TabKey));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tabs.map((t) => t.key).join('|')]);
+
+  const active = tabs.find((t) => t.key === activeKey) ?? tabs[0];
+
+  const cellsConfigured = (machineId: string, ball: SpecificBall): number => {
     const byMachine = matrix[machineId] ?? {};
-    return Object.values(byMachine).reduce(
-      (s, byPitch) => s + Object.keys(byPitch ?? {}).length,
-      0,
-    );
+    let n = 0;
+    for (const p of PITCH_KEYS) {
+      if (byMachine[p]?.[ball] != null) n++;
+    }
+    return n;
   };
+
+  if (tabs.length === 0) {
+    return (
+      <div className="text-[11px] text-slate-500 italic py-2">
+        No machines configured at this center yet.
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-3">
       {/* Tab strip — horizontally scrollable on phones. */}
       <div className="flex gap-1 overflow-x-auto pb-2 scrollbar-hide">
-        {machines.map((m) => {
-          const isActive = activeId === m.id;
-          const count = cellsConfigured(m.id);
+        {tabs.map((t) => {
+          const isActive = activeKey === t.key;
+          const count = cellsConfigured(t.machineId, t.ball);
           return (
             <button
-              key={m.id}
+              key={t.key}
               type="button"
-              onClick={() => setActiveId(m.id)}
+              onClick={() => setActiveKey(t.key)}
               className={`flex-shrink-0 px-3 py-2 rounded-lg text-[11px] font-semibold transition-all cursor-pointer whitespace-nowrap ${
                 isActive
                   ? 'bg-accent/15 text-accent border border-accent/30'
                   : 'bg-white/[0.03] text-slate-400 border border-white/[0.06] hover:text-slate-200'
               }`}
             >
-              {m.shortName ?? m.name}
+              {t.label}
               {count > 0 && (
                 <span className={`ml-1.5 text-[9px] px-1 rounded ${isActive ? 'bg-accent/20' : 'bg-white/[0.06]'}`}>
                   {count}
@@ -491,75 +568,79 @@ function TabbedMachinePricing({
         })}
       </div>
 
+      {/* Active tab body — 3 pitch sections, each with 4 inputs. */}
       {active && (
-        <div className="bg-white/[0.02] rounded-xl border border-white/[0.05] p-3 space-y-3">
-          <div className="text-[11px] text-slate-500">
-            Pitch × ball pricing for{' '}
-            <span className="text-slate-300 font-semibold">
-              {active.shortName ?? active.name}
-            </span>
-            . Each cell stores a morning and evening rate; each rate has a{' '}
-            <span className="text-slate-300">single</span> price and a{' '}
-            <span className="text-slate-300">consecutive</span> price (used when
-            this slot is part of a back-to-back chain). Empty cells fall back
-            to the category default.
-          </div>
-          {PITCH_KEYS.map((pitch) => (
-            <div key={pitch} className="space-y-1">
-              <div className="text-[11px] font-semibold text-slate-300">
-                {PITCH_LABELS[pitch]}
-              </div>
-              <div className="grid grid-cols-[6.5rem_1fr_1fr_auto] gap-2 items-end pb-1 border-b border-white/[0.04] text-[9px] uppercase tracking-wider text-slate-500">
-                <div>Ball</div>
-                <div className="text-center">
-                  Morning
-                  <div className="text-[8px] text-slate-600 normal-case font-medium">
-                    single / consecutive
+        <div className="space-y-3">
+          {PITCH_KEYS.map((pitch) => {
+            const cell = matrix[active.machineId]?.[pitch]?.[active.ball];
+            const has = cell != null;
+            return (
+              <div
+                key={pitch}
+                className="bg-white/[0.02] rounded-xl border border-white/[0.05] p-3 space-y-2"
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <div className="text-[11px] font-bold text-slate-300">
+                    {PITCH_LABELS[pitch]}
                   </div>
-                </div>
-                <div className="text-center">
-                  Evening
-                  <div className="text-[8px] text-slate-600 normal-case font-medium">
-                    single / consecutive
-                  </div>
-                </div>
-                <div className="w-7" />
-              </div>
-              {BALL_KEYS.map((ball) => {
-                const cell = matrix[active.id]?.[pitch]?.[ball];
-                const has = cell != null;
-                return (
-                  <div
-                    key={ball}
-                    className="grid grid-cols-[6.5rem_1fr_1fr_auto] gap-2 items-center"
+                  <button
+                    type="button"
+                    onClick={() => onClearCell(active.machineId, pitch, active.ball)}
+                    disabled={!has}
+                    className="p-1.5 rounded-lg text-red-400/70 hover:bg-red-500/10 hover:text-red-400 cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
+                    title="Clear (fall back to category default)"
                   >
-                    <div className="text-xs text-slate-300 truncate">
-                      {BALL_LABELS[ball]}
-                    </div>
-                    <PairPriceCell
-                      pair={cell?.morning ?? { single: 0, consecutive: 0 }}
-                      onChange={(kind, n) => onChange(active.id, pitch, ball, 'morning', kind, n)}
-                    />
-                    <PairPriceCell
-                      pair={cell?.evening ?? { single: 0, consecutive: 0 }}
-                      onChange={(kind, n) => onChange(active.id, pitch, ball, 'evening', kind, n)}
-                    />
-                    <button
-                      type="button"
-                      onClick={() => onClearCell(active.id, pitch, ball)}
-                      disabled={!has}
-                      className="p-1.5 rounded-lg text-red-400/70 hover:bg-red-500/10 hover:text-red-400 cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
-                      title="Clear (fall back to category default)"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-                );
-              })}
-            </div>
-          ))}
+                    <Trash2 className="w-3 h-3" />
+                  </button>
+                </div>
+                {/* Four inputs per pitch — Morn/Slot, Morn/2 Cons.,
+                    Eve/Slot, Eve/2 Cons. Mirrors the prod layout. */}
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                  <LabeledPriceInput
+                    label="Morn / Slot"
+                    value={cell?.morning?.single ?? 0}
+                    onChange={(n) => onChange(active.machineId, pitch, active.ball, 'morning', 'single', n)}
+                  />
+                  <LabeledPriceInput
+                    label="Morn / 2 Cons."
+                    value={cell?.morning?.consecutive ?? 0}
+                    onChange={(n) => onChange(active.machineId, pitch, active.ball, 'morning', 'consecutive', n)}
+                  />
+                  <LabeledPriceInput
+                    label="Eve / Slot"
+                    value={cell?.evening?.single ?? 0}
+                    onChange={(n) => onChange(active.machineId, pitch, active.ball, 'evening', 'single', n)}
+                  />
+                  <LabeledPriceInput
+                    label="Eve / 2 Cons."
+                    value={cell?.evening?.consecutive ?? 0}
+                    onChange={(n) => onChange(active.machineId, pitch, active.ball, 'evening', 'consecutive', n)}
+                  />
+                </div>
+              </div>
+            );
+          })}
         </div>
       )}
+    </div>
+  );
+}
+
+/** Compact labeled-above price input used by the per-machine matrix.
+ *  Mirrors the prod editor's "Morn / Slot" / "Morn / 2 Cons." labels. */
+function LabeledPriceInput({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value: number;
+  onChange: (n: number) => void;
+}) {
+  return (
+    <div className="space-y-1">
+      <label className="block text-[10px] font-medium text-slate-400">{label}</label>
+      <PriceInput value={value} onChange={onChange} />
     </div>
   );
 }
@@ -620,21 +701,3 @@ function SimplePitchSection({
   );
 }
 
-/**
- * Side-by-side single / consecutive number inputs for one slab cell.
- * Compact so two of them fit in the per-machine matrix grid.
- */
-function PairPriceCell({
-  pair,
-  onChange,
-}: {
-  pair: SlabRatePair;
-  onChange: (kind: 'single' | 'consecutive', n: number) => void;
-}) {
-  return (
-    <div className="grid grid-cols-2 gap-1">
-      <PriceInput value={pair.single} onChange={(n) => onChange('single', n)} />
-      <PriceInput value={pair.consecutive} onChange={(n) => onChange('consecutive', n)} />
-    </div>
-  );
-}
