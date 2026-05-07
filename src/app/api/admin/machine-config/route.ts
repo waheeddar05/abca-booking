@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { requireAdmin } from '@/lib/adminAuth';
+import { requireCenterAdmin } from '@/lib/adminAuth';
 import { getAuthenticatedUser, hasMembershipRole } from '@/lib/auth';
 import { resolveCurrentCenter } from '@/lib/centers';
 import { DEFAULT_PRICING_CONFIG, DEFAULT_TIME_SLABS, normalizePricingConfig } from '@/lib/pricing';
@@ -32,7 +32,7 @@ const MACHINE_CONFIG_KEYS = [
 
 export async function GET(req: NextRequest) {
   try {
-    const session = await requireAdmin(req);
+    const session = await requireCenterAdmin(req);
     if (!session) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 403 });
     }
@@ -129,7 +129,7 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
-    const session = await requireAdmin(req);
+    const session = await requireCenterAdmin(req);
     if (!session) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 403 });
     }

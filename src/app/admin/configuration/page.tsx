@@ -810,6 +810,84 @@ export default function ConfigurationPage() {
       </AdminCard>
       )}
 
+      {/* Slot timing — same TIME_SLAB_CONFIG policy as ABCA. Resource
+          centers also need this since pricing slabs (morning/evening)
+          are derived from it. The full ABCA Machine Configuration card
+          is still hidden for RESOURCE_BASED (it's enum-shaped); we
+          surface just the slab editor in its own card so Toplay admins
+          can configure timing without dropping back to /admin/policies. */}
+      {currentCenter?.bookingModel === 'RESOURCE_BASED' && !machineLoading && (
+        <AdminCard
+          title="Slot Timing Configuration"
+          icon={<Zap className="w-4 h-4 text-accent" />}
+          collapsible
+          defaultOpen={false}
+        >
+          <p className="text-[11px] text-slate-500 mb-3">
+            Defines morning vs. evening slabs. Pricing rows below use these
+            boundaries to pick which rate applies for a slot.
+          </p>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div className="bg-white/[0.02] rounded-xl p-3 border border-white/[0.05]">
+              <p className="text-[11px] font-bold text-slate-300 mb-2 flex items-center gap-1.5">
+                <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
+                Morning Slab
+              </p>
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="block text-[10px] font-medium text-slate-400 mb-1">Start</label>
+                  <input
+                    type="time"
+                    value={machineConfig.timeSlabConfig.morning.start}
+                    onChange={(e) => updateTimeSlab('morning', 'start', e.target.value)}
+                    step="1800"
+                    className={inputClass}
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-medium text-slate-400 mb-1">End</label>
+                  <input
+                    type="time"
+                    value={machineConfig.timeSlabConfig.morning.end}
+                    onChange={(e) => updateTimeSlab('morning', 'end', e.target.value)}
+                    step="1800"
+                    className={inputClass}
+                  />
+                </div>
+              </div>
+            </div>
+            <div className="bg-white/[0.02] rounded-xl p-3 border border-white/[0.05]">
+              <p className="text-[11px] font-bold text-slate-300 mb-2 flex items-center gap-1.5">
+                <span className="w-1.5 h-1.5 rounded-full bg-indigo-400" />
+                Evening Slab
+              </p>
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="block text-[10px] font-medium text-slate-400 mb-1">Start</label>
+                  <input
+                    type="time"
+                    value={machineConfig.timeSlabConfig.evening.start}
+                    onChange={(e) => updateTimeSlab('evening', 'start', e.target.value)}
+                    step="1800"
+                    className={inputClass}
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-medium text-slate-400 mb-1">End</label>
+                  <input
+                    type="time"
+                    value={machineConfig.timeSlabConfig.evening.end}
+                    onChange={(e) => updateTimeSlab('evening', 'end', e.target.value)}
+                    step="1800"
+                    className={inputClass}
+                  />
+                </div>
+              </div>
+            </div>
+          </div>
+        </AdminCard>
+      )}
+
       {/* Resource-based pricing editor — visible for RESOURCE_BASED
           centers and whenever the super-admin is editing global defaults
           (since global is the universe). Writes go to the active scope's

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { requireAdmin } from '@/lib/adminAuth';
+import { requireCenterAdmin } from '@/lib/adminAuth';
 import { getTimeSlab, getTimeSlabConfig } from '@/lib/pricing';
 import { creditWallet } from '@/lib/wallet';
 import { notifyBookingCancelled, notifyWalletCredit, notifyOperatorBookingCancelled } from '@/lib/notifications';
@@ -22,14 +22,14 @@ interface OverrideRange {
  */
 export async function POST(req: NextRequest) {
   try {
-    const session = await requireAdmin(req);
+    const session = await requireCenterAdmin(req);
     if (!session) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 403 });
     }
 
     // Get admin user ID for refund records
     const adminUser = await prisma.user.findUnique({
-      where: { email: session.email! },
+      where: { email: session.user.email! },
       select: { id: true },
     });
     if (!adminUser) {

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { getAuthenticatedUser } from '@/lib/auth';
+import { getAuthenticatedUser, hasMembershipRole } from '@/lib/auth';
 import { dateStringToUTC, formatIST } from '@/lib/time';
 import { isValidMachineId, LEATHER_MACHINES, MACHINES } from '@/lib/constants';
 import { notifyBookingCancelled } from '@/lib/notifications';
@@ -13,6 +13,16 @@ export async function GET(req: NextRequest) {
     const admin = await getAuthenticatedUser(req);
     if (!admin || admin.role !== 'ADMIN') {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+    // Per-center gate: a global ADMIN at center A must not be able
+    // to block / unblock slots at center B. resolveCurrentCenter is
+    // also called downstream — we just inline the membership check
+    // here. Super admin bypasses.
+    {
+      const cur = await resolveCurrentCenter(req, admin);
+      if (cur && !admin.isSuperAdmin && !hasMembershipRole(admin, cur.id, 'ADMIN')) {
+        return NextResponse.json({ error: "You're not an admin at this center" }, { status: 403 });
+      }
     }
 
     const { searchParams } = new URL(req.url);
@@ -309,6 +319,16 @@ export async function PUT(req: NextRequest) {
     if (!admin || admin.role !== 'ADMIN') {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
+    // Per-center gate: a global ADMIN at center A must not be able
+    // to block / unblock slots at center B. resolveCurrentCenter is
+    // also called downstream — we just inline the membership check
+    // here. Super admin bypasses.
+    {
+      const cur = await resolveCurrentCenter(req, admin);
+      if (cur && !admin.isSuperAdmin && !hasMembershipRole(admin, cur.id, 'ADMIN')) {
+        return NextResponse.json({ error: "You're not an admin at this center" }, { status: 403 });
+      }
+    }
 
     const body = await req.json();
     const { id, startDate, endDate, startTime, endTime, machineId, reason, appliesTo } = body;
@@ -376,6 +396,16 @@ export async function DELETE(req: NextRequest) {
     const admin = await getAuthenticatedUser(req);
     if (!admin || admin.role !== 'ADMIN') {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+    // Per-center gate: a global ADMIN at center A must not be able
+    // to block / unblock slots at center B. resolveCurrentCenter is
+    // also called downstream — we just inline the membership check
+    // here. Super admin bypasses.
+    {
+      const cur = await resolveCurrentCenter(req, admin);
+      if (cur && !admin.isSuperAdmin && !hasMembershipRole(admin, cur.id, 'ADMIN')) {
+        return NextResponse.json({ error: "You're not an admin at this center" }, { status: 403 });
+      }
     }
 
     const { searchParams } = new URL(req.url);

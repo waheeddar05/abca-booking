@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { requireAdmin } from '@/lib/adminAuth';
+import { requireCenterAdmin } from '@/lib/adminAuth';
 import { getAuthenticatedUser } from '@/lib/auth';
 import { resolveCurrentCenter } from '@/lib/centers';
 import { generateSlotsForDateDualWindow } from '@/lib/time';
@@ -9,7 +9,7 @@ import { parseISO, startOfDay, addDays } from 'date-fns';
 
 export async function POST(req: NextRequest) {
   try {
-    const session = await requireAdmin(req);
+    const session = await requireCenterAdmin(req);
     if (!session) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 403 });
     }

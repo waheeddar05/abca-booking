@@ -1,12 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { requireAdmin } from '@/lib/adminAuth';
+import { requireCenterAdmin } from '@/lib/adminAuth';
 import { getAuthenticatedUser } from '@/lib/auth';
 import { resolveCurrentCenter } from '@/lib/centers';
 
 // GET /api/admin/packages - List packages at the admin's current center
 export async function GET(req: NextRequest) {
-  const admin = await requireAdmin(req);
+  const admin = await requireCenterAdmin(req);
   if (!admin) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   try {
@@ -50,7 +50,7 @@ export async function GET(req: NextRequest) {
 
 // POST /api/admin/packages - Create a new package
 export async function POST(req: NextRequest) {
-  const admin = await requireAdmin(req);
+  const admin = await requireCenterAdmin(req);
   if (!admin) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   try {
@@ -141,7 +141,7 @@ export async function POST(req: NextRequest) {
 
 // PUT /api/admin/packages - Update a package
 export async function PUT(req: NextRequest) {
-  const admin = await requireAdmin(req);
+  const admin = await requireCenterAdmin(req);
   if (!admin) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   try {

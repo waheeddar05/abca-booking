@@ -2,6 +2,8 @@ import { NextRequest } from 'next/server';
 import { getToken } from 'next-auth/jwt';
 import { verifyToken } from '@/lib/jwt';
 import { prisma } from '@/lib/prisma';
+import { getAuthenticatedUser, hasMembershipRole } from '@/lib/auth';
+import { resolveCurrentCenter } from '@/lib/centers';
 
 const SUPER_ADMIN_EMAIL = process.env.SUPER_ADMIN_EMAIL || process.env.INITIAL_ADMIN_EMAIL || '';
 
@@ -43,6 +45,41 @@ export async function requireAdmin(req: NextRequest) {
   const session = await getAdminSession(req);
   if (session?.role !== 'ADMIN') return null;
   return session;
+}
+
+/**
+ * Stricter than `requireAdmin`. Resolves the currently-active center
+ * (cookie / membership) and only succeeds if the caller is either:
+ *   - a super admin (cross-center), or
+ *   - a center-level admin with an active CenterMembership(role=ADMIN)
+ *     at the resolved center.
+ *
+ * Returns `{ user, center }` on success or `null` on failure. Callers
+ * turn null into a 401/403 response of their choice.
+ *
+ * Use this for every day-to-day admin endpoint that operates on a
+ * specific center (bookings, slots, packages, offers, operators,
+ * refunds, …). The legacy `requireAdmin` only checks the global
+ * `User.role` flag, which lets a global admin who isn't a member of
+ * Center B switch the cookie to Center B and act as if they were an
+ * admin there — exactly what we don't want when each center is run
+ * by an independent operator.
+ */
+export async function requireCenterAdmin(req: NextRequest) {
+  const user = await getAuthenticatedUser(req);
+  if (!user) return null;
+  // Global "ADMIN" is still required as a coarse gate; this catches
+  // OPERATOR / COACH / SIDEARM_SPECIALIST users early.
+  if (user.role !== 'ADMIN' && !user.isSuperAdmin) return null;
+  const center = await resolveCurrentCenter(req, user);
+  if (!center) return null;
+  if (user.isSuperAdmin) {
+    return { user, center };
+  }
+  if (!hasMembershipRole(user, center.id, 'ADMIN')) {
+    return null;
+  }
+  return { user, center };
 }
 
 /**

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { requireAdmin } from '@/lib/adminAuth';
+import { requireCenterAdmin } from '@/lib/adminAuth';
 
 // PUT: Update a recurring discount rule
 export async function PUT(
@@ -8,7 +8,7 @@ export async function PUT(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const session = await requireAdmin(req);
+    const session = await requireCenterAdmin(req);
     if (!session) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 403 });
     }
@@ -62,7 +62,7 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const session = await requireAdmin(req);
+    const session = await requireCenterAdmin(req);
     if (!session) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 403 });
     }

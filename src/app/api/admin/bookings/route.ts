@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { requireAdmin } from '@/lib/adminAuth';
+import { requireCenterAdmin } from '@/lib/adminAuth';
 import { getAuthenticatedUser } from '@/lib/auth';
 import { resolveCurrentCenter } from '@/lib/centers';
 import { getISTTodayUTC, getISTLastMonthRange, dateStringToUTC, formatIST } from '@/lib/time';
@@ -41,7 +41,7 @@ const SAFE_BOOKING_SELECT = {
 
 export async function GET(req: NextRequest) {
   try {
-    const session = await requireAdmin(req);
+    const session = await requireCenterAdmin(req);
     if (!session) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 403 });
     }
@@ -238,7 +238,7 @@ export async function GET(req: NextRequest) {
 
 export async function PATCH(req: NextRequest) {
   try {
-    const session = await requireAdmin(req);
+    const session = await requireCenterAdmin(req);
     if (!session) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 403 });
     }
@@ -581,7 +581,7 @@ export async function PATCH(req: NextRequest) {
 // POST: Copy booking to next consecutive slot
 export async function POST(req: NextRequest) {
   try {
-    const session = await requireAdmin(req);
+    const session = await requireCenterAdmin(req);
     if (!session) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 403 });
     }

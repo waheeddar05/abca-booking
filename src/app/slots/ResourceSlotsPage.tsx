@@ -215,21 +215,87 @@ export default function ResourceSlotsPage() {
   const [showConfirm, setShowConfirm] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
-  // Reset selections when category changes — different category, different staff
+  // Reset selections when category changes. We deliberately DON'T
+  // reset pitchType / ballType / coachId / staffId here — the
+  // dedicated effects below default each one to the first available
+  // option for the new context, so users never see an empty picker.
   useEffect(() => {
     setSelectedSlots([]);
     setMachineId(null);
-    setPitchType(null);
-    setBallType(null);
-    setCoachId(null);
-    setStaffId(null);
   }, [category]);
 
-  // Picking a different machine wipes pitch/ball — they're per-machine.
+  // Picking a different machine wipes pitch/ball — they're per-machine
+  // — but only because the *next* effect will repopulate them with the
+  // new machine's first effective option. Doing both in the same
+  // render cycle prevents a "no chip selected" flicker.
   useEffect(() => {
     setPitchType(null);
     setBallType(null);
   }, [machineId]);
+
+  // Default-select the first pitch + ball type whenever the picker's
+  // option set changes. This is the single source of truth for the
+  // "pitch and ball must always be selected" UX rule the product
+  // wants — covers MACHINE (per-machine effective lists), SIDEARM
+  // (per-center policy), NET (per-center policy), and any future
+  // category that exposes pitch/ball chips.
+  useEffect(() => {
+    let pitchOptions: PitchTypeId[] = [];
+    let ballOptions: BallTypeId[] = [];
+    if (category === 'MACHINE' && machineId) {
+      const m = machines.find((x) => x.id === machineId);
+      if (m) {
+        pitchOptions = m.effectivePitchTypes ?? m.supportedPitchTypes ?? [];
+        ballOptions = m.effectiveBallTypes ?? m.supportedBallTypes ?? [];
+      }
+    } else if (category === 'SIDEARM') {
+      pitchOptions = data?.sidearmPitchTypes ?? [];
+    } else if (category === 'NET') {
+      pitchOptions = data?.netPitchTypes ?? [];
+    }
+    // Pitch — default to first option whenever current value isn't
+    // valid for the new option set.
+    if (pitchOptions.length > 0 && (!pitchType || !pitchOptions.includes(pitchType))) {
+      setPitchType(pitchOptions[0]);
+    } else if (pitchOptions.length === 0 && pitchType !== null) {
+      setPitchType(null);
+    }
+    // Ball — same story (only relevant for MACHINE).
+    if (ballOptions.length > 0 && (!ballType || !ballOptions.includes(ballType))) {
+      setBallType(ballOptions[0]);
+    } else if (ballOptions.length === 0 && ballType !== null) {
+      setBallType(null);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [category, machineId, machines, data?.sidearmPitchTypes, data?.netPitchTypes]);
+
+  // Default-select the first coach / sidearm staff for those tabs.
+  // Auto-assign happens server-side too, but the UI shows the first
+  // free coach as already-picked so the booking bar reflects who
+  // they're getting.
+  useEffect(() => {
+    if (category !== 'COACHING') {
+      if (coachId !== null) setCoachId(null);
+      return;
+    }
+    const coaches = data?.slots[0]?.freeCoaches ?? [];
+    if (coaches.length > 0 && (!coachId || !coaches.some((c) => c.userId === coachId))) {
+      setCoachId(coaches[0].userId);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [category, data?.slots]);
+
+  useEffect(() => {
+    if (category !== 'SIDEARM') {
+      if (staffId !== null) setStaffId(null);
+      return;
+    }
+    const staff = data?.slots[0]?.freeSidearmStaff ?? [];
+    if (staff.length > 0 && (!staffId || !staff.some((s) => s.userId === staffId))) {
+      setStaffId(staff[0].userId);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [category, data?.slots]);
 
   // Reset selected slots when date changes (availability is per-date)
   useEffect(() => { setSelectedSlots([]); }, [selectedDate]);

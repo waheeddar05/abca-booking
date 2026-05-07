@@ -1,12 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { requireAdmin } from '@/lib/adminAuth';
+import { requireCenterAdmin } from '@/lib/adminAuth';
 import { getAuthenticatedUser } from '@/lib/auth';
 import { resolveCurrentCenter } from '@/lib/centers';
 
 // POST /api/admin/packages/assign - Assign a custom package to a user
 export async function POST(req: NextRequest) {
-  const admin = await requireAdmin(req);
+  const admin = await requireCenterAdmin(req);
   if (!admin) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   const authUser = await getAuthenticatedUser(req);

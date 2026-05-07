@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { requireAdmin } from '@/lib/adminAuth';
+import { requireCenterAdmin } from '@/lib/adminAuth';
 import { DiscountType, MachineId, PitchType } from '@prisma/client';
 import { z } from 'zod';
 import { getAuthenticatedUser } from '@/lib/auth';
@@ -56,7 +56,7 @@ const OFFER_SELECT = {
 // GET: List offers at the admin's current center
 export async function GET(req: NextRequest) {
   try {
-    if (!(await requireAdmin(req))) {
+    if (!(await requireCenterAdmin(req))) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 403 });
     }
 
@@ -91,7 +91,7 @@ export async function GET(req: NextRequest) {
 // POST: Create a new offer
 export async function POST(req: NextRequest) {
   try {
-    if (!(await requireAdmin(req))) {
+    if (!(await requireCenterAdmin(req))) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 403 });
     }
 
@@ -172,7 +172,7 @@ export async function POST(req: NextRequest) {
 // PATCH: Update an offer by id
 export async function PATCH(req: NextRequest) {
   try {
-    if (!(await requireAdmin(req))) {
+    if (!(await requireCenterAdmin(req))) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 403 });
     }
 
@@ -244,7 +244,7 @@ export async function PATCH(req: NextRequest) {
 // DELETE: Delete an offer by id
 export async function DELETE(req: NextRequest) {
   try {
-    if (!(await requireAdmin(req))) {
+    if (!(await requireCenterAdmin(req))) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 403 });
     }
 

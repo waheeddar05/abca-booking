@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { requireAdmin } from '@/lib/adminAuth';
+import { requireCenterAdmin } from '@/lib/adminAuth';
 import { getAuthenticatedUser } from '@/lib/auth';
 import { resolveCurrentCenter } from '@/lib/centers';
 import { creditWallet } from '@/lib/wallet';
@@ -8,7 +8,7 @@ import { notifyWalletCredit } from '@/lib/notifications';
 
 // GET /api/admin/packages/user-packages?userId=xxx&status=ACTIVE&search=john&packageId=xxx - List user packages
 export async function GET(req: NextRequest) {
-  const admin = await requireAdmin(req);
+  const admin = await requireCenterAdmin(req);
   if (!admin) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   try {
@@ -71,7 +71,7 @@ export async function GET(req: NextRequest) {
 // POST /api/admin/packages/user-packages - Admin actions on user packages
 // Actions: EXTEND_EXPIRY, ADD_SESSIONS, REDUCE_SESSIONS, RESET_SESSIONS, CANCEL, CONVERT_PACKAGE, OVERRIDE_EXTRA_CHARGES
 export async function POST(req: NextRequest) {
-  const adminUser = await requireAdmin(req);
+  const adminUser = await requireCenterAdmin(req);
   if (!adminUser) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   // Get admin user id for audit log

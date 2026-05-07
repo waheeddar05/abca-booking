@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { getAuthenticatedUser } from '@/lib/auth';
+import { getAuthenticatedUser, hasMembershipRole } from '@/lib/auth';
 import { initiateRefund } from '@/lib/razorpay';
 import { creditWallet } from '@/lib/wallet';
 import { notify } from '@/lib/notifications';
@@ -12,6 +12,10 @@ export async function POST(req: NextRequest) {
     if (!user || (user.role !== 'ADMIN' && !user.isSuperAdmin)) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 403 });
     }
+    // The refund operates by bookingId, so the per-center membership
+    // check has to happen AFTER we resolve the booking's center.
+    // We capture the user's auth here and re-gate below once we know
+    // which center the refund will hit.
 
     const body = await req.json();
     const { bookingId, refundAmount, refundMethod, reason } = body;
@@ -42,6 +46,15 @@ export async function POST(req: NextRequest) {
 
     if (!booking) {
       return NextResponse.json({ error: 'Booking not found' }, { status: 404 });
+    }
+
+    // Per-center gate: a global ADMIN at center A cannot refund a
+    // booking at center B. Super admins bypass.
+    if (!user.isSuperAdmin && !hasMembershipRole(user, booking.centerId, 'ADMIN')) {
+      return NextResponse.json(
+        { error: "You're not an admin at this booking's center" },
+        { status: 403 },
+      );
     }
 
     if (!booking.userId) {

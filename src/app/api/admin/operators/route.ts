@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { requireAdmin } from '@/lib/adminAuth';
+import { requireCenterAdmin } from '@/lib/adminAuth';
 import { getAuthenticatedUser } from '@/lib/auth';
 import { resolveCurrentCenter } from '@/lib/centers';
 import type { MachineId } from '@prisma/client';
@@ -61,7 +61,11 @@ function buildOperatorQuery(centerId: string | null) {
 // GET: List operators (filtered to admin's current center) with their assignments
 export async function GET(req: NextRequest) {
   try {
-    if (!(await requireAdmin(req))) {
+    // Allow either super-admin or a center-admin AT THE RESOLVED
+    // center. A user with `User.role=ADMIN` at center A can no longer
+    // flip the cookie to center B and reshape their roster.
+    const ctx = await requireCenterAdmin(req);
+    if (!ctx) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 403 });
     }
 
@@ -189,7 +193,11 @@ function validDays(days: unknown): number[] | null {
 //   { userId, machineRowId }    — RESOURCE_BASED (Machine.id FK)
 export async function POST(req: NextRequest) {
   try {
-    if (!(await requireAdmin(req))) {
+    // Allow either super-admin or a center-admin AT THE RESOLVED
+    // center. A user with `User.role=ADMIN` at center A can no longer
+    // flip the cookie to center B and reshape their roster.
+    const ctx = await requireCenterAdmin(req);
+    if (!ctx) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 403 });
     }
     const body = await req.json();
@@ -288,7 +296,11 @@ export async function POST(req: NextRequest) {
 // so the body shape is unchanged.
 export async function PATCH(req: NextRequest) {
   try {
-    if (!(await requireAdmin(req))) {
+    // Allow either super-admin or a center-admin AT THE RESOLVED
+    // center. A user with `User.role=ADMIN` at center A can no longer
+    // flip the cookie to center B and reshape their roster.
+    const ctx = await requireCenterAdmin(req);
+    if (!ctx) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 403 });
     }
     const { operators } = await req.json();
@@ -329,7 +341,11 @@ export async function PATCH(req: NextRequest) {
 // machineId (legacy) or machineRowId — exactly one.
 export async function PUT(req: NextRequest) {
   try {
-    if (!(await requireAdmin(req))) {
+    // Allow either super-admin or a center-admin AT THE RESOLVED
+    // center. A user with `User.role=ADMIN` at center A can no longer
+    // flip the cookie to center B and reshape their roster.
+    const ctx = await requireCenterAdmin(req);
+    if (!ctx) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 403 });
     }
     const { userId, machineId, machineRowId, days } = await req.json();
@@ -395,7 +411,11 @@ export async function PUT(req: NextRequest) {
 // DELETE: Remove an assignment. Body accepts either machineId or machineRowId.
 export async function DELETE(req: NextRequest) {
   try {
-    if (!(await requireAdmin(req))) {
+    // Allow either super-admin or a center-admin AT THE RESOLVED
+    // center. A user with `User.role=ADMIN` at center A can no longer
+    // flip the cookie to center B and reshape their roster.
+    const ctx = await requireCenterAdmin(req);
+    if (!ctx) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 403 });
     }
     const { userId, machineId, machineRowId } = await req.json();
