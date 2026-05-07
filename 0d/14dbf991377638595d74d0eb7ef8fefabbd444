@@ -1,0 +1,22 @@
+src/components/admin/ResourcePricingEditor.tsx
+  s_e0175fb4b4f942::t_36ece5f8497412 4
+  s_e0175fb4b4f942::t_8e54ec3334b253 422-427,429-430,435-436,438,445,447-463,466-492,494-506,509,529,541,545,549,552
+  s_e0175fb4b4f942::t_c4c01be4e96df7 186
+  s_e0175fb4b4f942::t_7202219051dec1 248-299,303-305,325,345-373
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.1",
+  "base_commit_sha": "0d14dbf991377638595d74d0eb7ef8fefabbd444",
+  "prompts": {},
+  "sessions": {
+    "s_e0175fb4b4f942": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "f3864c65-ac36-4572-a64e-c1d488c0cbdf",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Waheed <waheeddar8@gmail.com>"
+    }
+  }
+}
