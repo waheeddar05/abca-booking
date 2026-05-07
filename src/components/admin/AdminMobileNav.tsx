@@ -18,7 +18,7 @@ export function AdminMobileNav() {
     const tabs: Array<{ href: string; label: string; icon: typeof LayoutDashboard; models?: BookingModel[] }> = [
         { href: '/admin', label: 'Home', icon: LayoutDashboard },
         { href: '/admin/bookings', label: 'Bookings', icon: CalendarCheck },
-        { href: '/admin/slots', label: 'Slots', icon: Clock, models: ['MACHINE_PITCH'] },
+        { href: '/admin/slots', label: 'Slots', icon: Clock },
         { href: '/admin/users', label: 'Users', icon: Users },
         { href: '/admin/operators', label: 'Operators', icon: UserCog },
         { href: '/admin/packages', label: 'Packages', icon: Package, models: ['MACHINE_PITCH'] },

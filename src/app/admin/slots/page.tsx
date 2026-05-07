@@ -1,6 +1,7 @@
 'use client';
 
-import { BookingModelGate } from '@/components/admin/BookingModelGate';
+import { ResourceBlockManagement } from '@/components/admin/ResourceBlockManagement';
+import { useCenter } from '@/lib/center-context';
 import { useState, useEffect, useCallback } from 'react';
 import { format, addDays, parseISO, eachDayOfInterval, getDay } from 'date-fns';
 import {
@@ -907,12 +908,21 @@ function SlotManagementLegacy() {
 }
 
 export default function SlotManagementPage() {
-  return (
-    <BookingModelGate
-      allow={['MACHINE_PITCH']}
-      surfaceLabel="Slot blocking"
-    >
-      <SlotManagementLegacy />
-    </BookingModelGate>
-  );
+  // Center-aware split. The legacy form is hardcoded around the four
+  // ABCA enum machines + ball/pitch enums and would silently fail at
+  // RESOURCE_BASED centers (Toplay) — those get the dedicated
+  // ResourceBlockManagement form instead, which targets machine rows,
+  // resource rows, and BookingCategory directly.
+  const { currentCenter, loading } = useCenter();
+  if (loading || !currentCenter) {
+    return (
+      <div className="flex items-center justify-center py-16 text-slate-500">
+        Loading…
+      </div>
+    );
+  }
+  if (currentCenter.bookingModel === 'RESOURCE_BASED') {
+    return <ResourceBlockManagement />;
+  }
+  return <SlotManagementLegacy />;
 }

@@ -232,6 +232,8 @@ model Machine {
   // centers use this path; MACHINE_PITCH centers still assign by the
   // legacy MachineId enum on OperatorAssignment.
   operatorAssignments OperatorAssignment[]
+  // Packages constrained to this specific machine row (RESOURCE_BASED).
+  packages            Package[]
 
   @@unique([centerId, legacyMachineId])
   @@index([centerId, isActive])
@@ -437,28 +439,53 @@ model BookingResourceAssignment {
   @@index([resourceId])
 }
 
+// A range of dates/times where bookings are forbidden. Dual-axis like
+// OperatorAssignment — the legacy fields target the ABCA enum world
+// (machineId, machineIds = MachineId enum strings, machineType,
+// pitchType), and the new fields target RESOURCE_BASED entities:
+//
+//   - machineRowIds  Machine.id FKs (Toplay's specific machines)
+//   - resourceIds    Resource.id FKs (specific nets/wickets)
+//   - categories     BookingCategory enum (block all SIDEARM bookings,
+//                    all FULL_COURT, etc.)
+//
+// Empty new-axis arrays + empty legacy fields = catchall block (every
+// booking in the time window). Mixed axes intersect (a category-only
+// block matches only that category's bookings).
 model BlockedSlot {
-  id            String     @id @default(cuid())
-  centerId      String
-  startDate     DateTime   @db.Date
-  endDate       DateTime   @db.Date
-  startTime     DateTime?
-  endTime       DateTime?
-  machineType   BallType?
-  pitchType     PitchType?
-  reason        String?
-  blockedBy     String
-  createdAt     DateTime   @default(now())
-  machineId     MachineId?
-  recurringDays Int[]
-  machineIds    String[]
-  appliesTo     String     @default("ALL") // "ALL", "SPECIAL", "NON_SPECIAL"
+  id             String            @id @default(cuid())
+  centerId       String
+  startDate      DateTime          @db.Date
+  endDate        DateTime          @db.Date
+  startTime      DateTime?
+  endTime        DateTime?
+  machineType    BallType?
+  pitchType      PitchType?
+  reason         String?
+  blockedBy      String
+  createdAt      DateTime          @default(now())
+  machineId      MachineId?
+  recurringDays  Int[]
+  machineIds     String[]
+  appliesTo      String            @default("ALL") // "ALL", "SPECIAL", "NON_SPECIAL"
+  // Resource-based targeting (Toplay et al.). All default to empty
+  // arrays so existing ABCA blocks behave unchanged.
+  machineRowIds  String[]          @default([])
+  resourceIds    String[]          @default([])
+  categories     BookingCategory[] @default([])
 
   center Center @relation(fields: [centerId], references: [id], onDelete: Cascade)
 
   @@index([centerId, startDate, endDate])
 }
 
+// A buyable package of session credits. ABCA-shaped fields (machineId,
+// machineType, ballType, wicketType, pitchTypes) target the legacy
+// MACHINE_PITCH model. The new `category` + `machineRowId` fields make
+// the same model usable for RESOURCE_BASED centers (Toplay), where
+// each package represents N sessions of a specific BookingCategory
+// (MACHINE / SIDEARM / COACHING / NET / FULL_COURT) optionally
+// constrained to a specific Machine row.
 model Package {
   id               String             @id @default(cuid())
   centerId         String
@@ -475,11 +502,17 @@ model Package {
   extraChargeRules Json?
   isActive         Boolean            @default(true)
   isCustom         Boolean            @default(false)
+  // Resource-based fields (Toplay). category + optional machineRowId
+  // tell the engine which RESOURCE_BASED bookings can redeem this
+  // package's sessions. Null = legacy ABCA package (no category gate).
+  category         BookingCategory?
+  machineRowId     String?
   createdAt        DateTime           @default(now())
   updatedAt        DateTime           @updatedAt
   userPackages     UserPackage[]
 
-  center Center @relation(fields: [centerId], references: [id], onDelete: Cascade)
+  center     Center   @relation(fields: [centerId], references: [id], onDelete: Cascade)
+  machineRow Machine? @relation(fields: [machineRowId], references: [id], onDelete: SetNull)
 
   @@index([centerId, isActive])
 }
@@ -831,22 +864,26 @@ model CashPaymentUser {
 }
 
 model PromotionalOffer {
-  id            String       @id @default(cuid())
+  id            String            @id @default(cuid())
   centerId      String
   name          String
-  startDate     DateTime     @db.Date
-  endDate       DateTime     @db.Date
+  startDate     DateTime          @db.Date
+  endDate       DateTime          @db.Date
   timeSlotStart String? // HH:MM — null means all day
   timeSlotEnd   String? // HH:MM — null means all day
   days          Int[] // Day-of-week filter: 0=Sun..6=Sat. Empty = all days.
-  machineIds    MachineId[] // empty = applies to all machines
-  pitchTypes    PitchType[] // empty = applies to all pitches
+  machineIds    MachineId[] // empty = applies to all machines (legacy enum, ABCA)
+  pitchTypes    PitchType[] // empty = applies to all pitches (legacy enum, ABCA)
+  // Resource-based targeting. Empty = applies to all (no filter on
+  // that axis). Mixed axes intersect.
+  machineRowIds String[]          @default([]) // Machine.id FKs (Toplay)
+  categories    BookingCategory[] @default([]) // booking category targeting
   discountType  DiscountType
   discountValue Float // percentage (0-100) or flat ₹ amount
-  isActive      Boolean      @default(true)
-  appliesTo     String       @default("ALL") // "ALL" = all users, "SPECIAL" = special users only
-  createdAt     DateTime     @default(now())
-  updatedAt     DateTime     @updatedAt
+  isActive      Boolean           @default(true)
+  appliesTo     String            @default("ALL") // "ALL" = all users, "SPECIAL" = special users only
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
 
   center Center @relation(fields: [centerId], references: [id], onDelete: Cascade)
 
@@ -855,19 +892,22 @@ model PromotionalOffer {
 }
 
 model RecurringSlotDiscount {
-  id              String      @id @default(cuid())
+  id              String            @id @default(cuid())
   centerId        String
-  enabled         Boolean     @default(true)
+  enabled         Boolean           @default(true)
   days            Int[] // Array of day-of-week numbers: 0=Sun, 1=Mon, ..., 6=Sat
   slotStartTime   String // HH:MM format e.g. "08:00"
   slotEndTime     String // HH:MM format e.g. "08:30"
-  machineIds      MachineId[] // empty = applies to all machines
-  pitchTypes      PitchType[] // empty = applies to all pitches
+  machineIds      MachineId[] // empty = applies to all machines (legacy enum)
+  pitchTypes      PitchType[] // empty = applies to all pitches (legacy enum)
+  // Resource-based targeting. Empty = applies to all on that axis.
+  machineRowIds   String[]          @default([]) // Machine.id FKs (Toplay)
+  categories      BookingCategory[] @default([]) // booking-category targeting
   oneSlotDiscount Float // flat ₹ discount for 1 matching slot
   twoSlotDiscount Float // flat ₹ discount for 2 consecutive matching slots
-  appliesTo       String      @default("ALL") // "ALL" = all users, "SPECIAL" = special users only
-  createdAt       DateTime    @default(now())
-  updatedAt       DateTime    @updatedAt
+  appliesTo       String            @default("ALL") // "ALL" = all users, "SPECIAL" = special users only
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
 
   center Center @relation(fields: [centerId], references: [id], onDelete: Cascade)
 

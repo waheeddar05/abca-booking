@@ -18,6 +18,8 @@ import {
   getCorporateBatchConfig,
   getCorporateBatchNetsForSlot,
   computeSlotAvailability,
+  getActiveBlocksForSlot,
+  applyBlocksToAvailability,
 } from '@/lib/resource-booking';
 import { getResourcePricingConfig, getResourceSlotPrice } from '@/lib/resource-pricing';
 import { getSidearmPitchTypes, getNetPitchTypes, getEnabledBookingCategories } from '@/lib/pitch-config';
@@ -148,12 +150,16 @@ export async function GET(req: NextRequest) {
           if (b.assignedStaffId) busyStaffIds.add(b.assignedStaffId);
           if (b.assignedMachineId) busyMachineIds.add(b.assignedMachineId);
         }
-        const batchNets = await getCorporateBatchNetsForSlot(center.id, {
+        const slotWindow = {
           date: dateUTC,
           startTime: slot.startTime,
           endTime: slot.endTime,
-        });
-        const availability = computeSlotAvailability({
+        };
+        const [batchNets, blocks] = await Promise.all([
+          getCorporateBatchNetsForSlot(center.id, slotWindow),
+          getActiveBlocksForSlot(center.id, slotWindow),
+        ]);
+        const baseAvailability = computeSlotAvailability({
           resources,
           coaches,
           staff,
@@ -166,12 +172,18 @@ export async function GET(req: NextRequest) {
           batchNets,
           // Pass the slot so coaches/specialists outside their weekly
           // schedule don't appear as "free" for this time window.
-          slot: {
-            date: dateUTC,
-            startTime: slot.startTime,
-            endTime: slot.endTime,
-          },
+          slot: slotWindow,
         });
+        // Apply blocks: hide blocked nets/resources from the picker
+        // and surface blocked categories so the client can grey out
+        // the corresponding tabs. Audience is 'ALL' here — the slot
+        // grid shows worst case to everyone; the actual booking call
+        // re-evaluates with the user's special-status flag.
+        const { availability, blockedCategories, blockedMachineRowIds } = applyBlocksToAvailability(
+          baseAvailability,
+          blocks,
+          'ALL',
+        );
 
         const timeSlab = getTimeSlab(slot.startTime, timeSlabConfig);
 
@@ -249,10 +261,16 @@ export async function GET(req: NextRequest) {
           freeSidearmStaff: availability.freeSidearmStaff.map((s) => ({
             userId: s.userId, name: s.user.name,
           })),
-          fullCourtAvailable: availability.fullCourtAvailable,
+          fullCourtAvailable:
+            availability.fullCourtAvailable && !blockedCategories.has('FULL_COURT'),
           corporateBatchHolds: availability.corporateBatchNetsHeld,
           prices,
           machinePrices,
+          // Blocks applied at this slot. The client uses these to grey
+          // out blocked categories/machines in the picker without
+          // re-fetching block rows.
+          blockedCategories: Array.from(blockedCategories),
+          blockedMachineRowIds: Array.from(blockedMachineRowIds),
         };
       }),
     );

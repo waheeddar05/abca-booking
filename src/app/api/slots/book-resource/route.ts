@@ -105,7 +105,7 @@ export async function POST(req: NextRequest) {
     const targetUserId = (isAdmin && body.userId) ? body.userId : user.id;
     const targetUser = await prisma.user.findUnique({
       where: { id: targetUserId },
-      select: { id: true, isFreeUser: true, isBlacklisted: true },
+      select: { id: true, isFreeUser: true, isSpecialUser: true, isBlacklisted: true },
     });
     if (!targetUser) return NextResponse.json({ error: 'Target user not found' }, { status: 404 });
     if (targetUser.isBlacklisted) {
@@ -113,6 +113,10 @@ export async function POST(req: NextRequest) {
     }
 
     const isFreeBooking = !!user.isSuperAdmin || targetUser.isFreeUser;
+    // Audience for blocked-slot evaluation — promotional offers and
+    // BlockedSlot.appliesTo can target SPECIAL users only or exclude
+    // them. Default ALL when isSpecialUser is null/false.
+    const audience: 'ALL' | 'SPECIAL' | 'NON_SPECIAL' = targetUser.isSpecialUser ? 'SPECIAL' : 'NON_SPECIAL';
 
     // Resolve machine type (if MACHINE category) for price overrides.
     // Validates picked pitch/ball against the *effective* list (configured
@@ -204,7 +208,7 @@ export async function POST(req: NextRequest) {
     // Pre-check (cheap; helps fail fast with a clear message).
     for (const plan of plans) {
       try {
-        await planBooking(plan);
+        await planBooking(plan, { audience });
       } catch (e) {
         if (e instanceof BookingResourceError) {
           return NextResponse.json({ error: e.message }, { status: e.status });
@@ -229,7 +233,7 @@ export async function POST(req: NextRequest) {
               // strict-consistency story we'd want an isolated `tx`-aware
               // version; on the small UAT fleet we expect, the outer
               // serializable + retry loop is sufficient.)
-              const assignment = await planBooking(plan);
+              const assignment = await planBooking(plan, { audience });
 
               const price = isFreeBooking
                 ? 0

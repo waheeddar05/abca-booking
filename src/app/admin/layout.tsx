@@ -39,7 +39,7 @@ export default function AdminLayout({
   const links: Array<{ href: string; label: string; icon: typeof LayoutDashboard; models?: BookingModel[] }> = [
     { href: '/admin', label: 'Dashboard', icon: LayoutDashboard },
     { href: '/admin/bookings', label: 'Bookings', icon: CalendarCheck },
-    { href: '/admin/slots', label: 'Slots', icon: Clock, models: ['MACHINE_PITCH'] },
+    { href: '/admin/slots', label: 'Slots', icon: Clock },
     { href: '/admin/users', label: 'Users', icon: Users },
     { href: '/admin/operators', label: 'Operators', icon: UserCog },
     { href: '/admin/offers', label: 'Offers', icon: Tag, models: ['MACHINE_PITCH'] },

@@ -64,12 +64,17 @@ export async function POST(req: NextRequest) {
       startTime, // "HH:mm" or null
       endTime,   // "HH:mm" or null
       machineType,  // Legacy: BallType ('LEATHER' | 'TENNIS')
-      machineId,    // New: specific machine ID (single)
-      machineIds,   // New: multiple machine IDs array
-      recurringDays, // New: array of day-of-week numbers (0=Sun, 1=Mon, ..., 6=Sat)
+      machineId,    // Legacy: specific MachineId enum (single)
+      machineIds,   // Legacy: multiple MachineId enum strings
+      recurringDays, // array of day-of-week numbers (0=Sun, 1=Mon, ..., 6=Sat)
       pitchType,
       reason,
       appliesTo,
+      // RESOURCE_BASED targeting axes (Toplay). Each is optional and
+      // defaults to "no filter on this axis" when empty.
+      machineRowIds, // Machine.id FKs
+      resourceIds,   // Resource.id FKs (block specific nets/wickets)
+      categories,    // BookingCategory[] (block all SIDEARM, etc.)
     } = body;
 
     if (!startDate || !endDate) {
@@ -118,6 +123,31 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'No center selected' }, { status: 400 });
     }
 
+    // Validate RESOURCE_BASED targeting axes. We don't error on a
+    // mismatched booking model — the engine ignores irrelevant fields,
+    // and a super admin might be authoring multi-axis blocks. We only
+    // strip values that don't reference real rows at this center.
+    let validatedMachineRowIds: string[] = [];
+    if (Array.isArray(machineRowIds) && machineRowIds.length > 0) {
+      const rows = await prisma.machine.findMany({
+        where: { id: { in: machineRowIds.filter((x) => typeof x === 'string') }, centerId: center.id },
+        select: { id: true },
+      });
+      validatedMachineRowIds = rows.map((r) => r.id);
+    }
+    let validatedResourceIds: string[] = [];
+    if (Array.isArray(resourceIds) && resourceIds.length > 0) {
+      const rows = await prisma.resource.findMany({
+        where: { id: { in: resourceIds.filter((x) => typeof x === 'string') }, centerId: center.id },
+        select: { id: true },
+      });
+      validatedResourceIds = rows.map((r) => r.id);
+    }
+    const validBookingCategories = ['MACHINE', 'SIDEARM', 'COACHING', 'NET', 'FULL_COURT', 'CORPORATE_BATCH'];
+    const validatedCategories: string[] = Array.isArray(categories)
+      ? categories.filter((c) => typeof c === 'string' && validBookingCategories.includes(c))
+      : [];
+
     // 1. Create a single BlockedSlot record
     const blockedSlot = await prisma.blockedSlot.create({
       data: {
@@ -134,6 +164,9 @@ export async function POST(req: NextRequest) {
         reason,
         blockedBy: admin.id,
         appliesTo: ['ALL', 'SPECIAL', 'NON_SPECIAL'].includes(appliesTo) ? appliesTo : 'ALL',
+        machineRowIds: validatedMachineRowIds,
+        resourceIds: validatedResourceIds,
+        categories: validatedCategories as any,
       },
     });
 

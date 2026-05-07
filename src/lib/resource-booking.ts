@@ -366,6 +366,225 @@ export function computeSlotAvailability(inputs: AvailabilityInputs): SlotAvailab
   };
 }
 
+// ─── Blocked-slot evaluation ─────────────────────────────────────────
+//
+// BlockedSlot rows can target resource-based bookings via three new
+// arrays (in addition to the legacy ABCA-shaped ones):
+//
+//   - machineRowIds — if non-empty, block applies only to bookings
+//                     using one of those Machine rows.
+//   - resourceIds   — if non-empty, block applies only to bookings
+//                     consuming at least one of those resources.
+//   - categories    — if non-empty, block applies only to those
+//                     BookingCategory values.
+//
+// A row whose new arrays are all empty AND whose legacy enum/string
+// fields are also unset is a CATCHALL block — every booking in the
+// time window is blocked. Mixed axes intersect (logical AND).
+
+export interface ActiveBlock {
+  id: string;
+  reason: string | null;
+  appliesTo: string;
+  machineRowIds: string[];
+  resourceIds: string[];
+  categories: BookingCategory[];
+  /** Surface enough legacy info that a future ABCA caller could use the
+   *  same helper. RESOURCE_BASED callers ignore these. */
+  legacyMachineId: string | null;
+  legacyMachineIds: string[];
+  legacyMachineType: string | null;
+  legacyPitchType: string | null;
+}
+
+/**
+ * Return every BlockedSlot at this center whose schedule overlaps the
+ * given slot window. Targeting axes (machineRowIds, resourceIds,
+ * categories, appliesTo) are intentionally NOT applied here — callers
+ * decide how to interpret them per the booking they're evaluating.
+ */
+export async function getActiveBlocksForSlot(
+  centerId: string,
+  slot: BookableSlotWindow,
+): Promise<ActiveBlock[]> {
+  // Date-range filter at the DB layer; time-overlap and dow are too
+  // expressive for a SQL filter without raw SQL, so we compute them
+  // in JS over the trimmed result.
+  const dayDate = slot.date;
+  const candidates = await prisma.blockedSlot.findMany({
+    where: {
+      centerId,
+      startDate: { lte: dayDate },
+      endDate: { gte: dayDate },
+    },
+    select: {
+      id: true,
+      startTime: true,
+      endTime: true,
+      recurringDays: true,
+      reason: true,
+      appliesTo: true,
+      machineRowIds: true,
+      resourceIds: true,
+      categories: true,
+      machineId: true,
+      machineIds: true,
+      machineType: true,
+      pitchType: true,
+    },
+  });
+
+  const dow = getISTDayOfWeek(slot.startTime);
+  const slotStartHHMM = getISTHHMM(slot.startTime);
+  const slotEndHHMM = getISTHHMM(slot.endTime);
+
+  const matching: ActiveBlock[] = [];
+  for (const b of candidates) {
+    // Day-of-week filter — empty array = every day in range.
+    if (b.recurringDays && b.recurringDays.length > 0 && !b.recurringDays.includes(dow)) {
+      continue;
+    }
+
+    // Time-window overlap. null start/end = full-day block.
+    if (b.startTime && b.endTime) {
+      const blockStartHHMM = getISTHHMM(b.startTime);
+      const blockEndHHMM = getISTHHMM(b.endTime);
+      // Overlap in HH:MM space.
+      if (slotEndHHMM <= blockStartHHMM || slotStartHHMM >= blockEndHHMM) continue;
+    }
+
+    matching.push({
+      id: b.id,
+      reason: b.reason,
+      appliesTo: b.appliesTo,
+      machineRowIds: b.machineRowIds ?? [],
+      resourceIds: b.resourceIds ?? [],
+      categories: (b.categories ?? []) as BookingCategory[],
+      legacyMachineId: b.machineId ?? null,
+      legacyMachineIds: b.machineIds ?? [],
+      legacyMachineType: b.machineType ?? null,
+      legacyPitchType: b.pitchType ?? null,
+    });
+  }
+  return matching;
+}
+
+/**
+ * Subtract blocked machines/resources from an availability snapshot in
+ * place — used by the slot-grid endpoint so blocked items are hidden
+ * from the user picker. Categories are returned separately so the
+ * caller can mark whole tabs as unavailable.
+ */
+export function applyBlocksToAvailability(
+  availability: SlotAvailability,
+  blocks: ActiveBlock[],
+  audience: 'ALL' | 'SPECIAL' | 'NON_SPECIAL' = 'ALL',
+): { availability: SlotAvailability; blockedCategories: Set<BookingCategory>; blockedMachineRowIds: Set<string> } {
+  const blockedCategories = new Set<BookingCategory>();
+  const blockedMachineRowIds = new Set<string>();
+  const blockedResourceIds = new Set<string>();
+
+  for (const b of blocks) {
+    if (!appliesToAudience(b.appliesTo, audience)) continue;
+    for (const c of b.categories) blockedCategories.add(c);
+    for (const id of b.machineRowIds) blockedMachineRowIds.add(id);
+    for (const id of b.resourceIds) blockedResourceIds.add(id);
+
+    // CATCHALL — neither category, machineRow, nor resource targeted +
+    // no legacy axes either → block every category.
+    const hasAnyAxis =
+      b.categories.length +
+        b.machineRowIds.length +
+        b.resourceIds.length +
+        b.legacyMachineIds.length +
+        (b.legacyMachineId ? 1 : 0) +
+        (b.legacyMachineType ? 1 : 0) +
+        (b.legacyPitchType ? 1 : 0) >
+      0;
+    if (!hasAnyAxis) {
+      // Block every booking-category we know about. The frontend uses
+      // this to grey out every tab in the slot picker.
+      for (const c of ['MACHINE', 'SIDEARM', 'COACHING', 'NET', 'FULL_COURT', 'CORPORATE_BATCH'] as BookingCategory[]) {
+        blockedCategories.add(c);
+      }
+    }
+  }
+
+  const filteredAvailability: SlotAvailability = {
+    ...availability,
+    freeIndoorNets: availability.freeIndoorNets.filter((r) => !blockedResourceIds.has(r.id)),
+    freeOutdoorResources: availability.freeOutdoorResources.filter((r) => !blockedResourceIds.has(r.id)),
+  };
+  return { availability: filteredAvailability, blockedCategories, blockedMachineRowIds };
+}
+
+/**
+ * True if the active block's `appliesTo` matches the audience the
+ * caller is evaluating. The user-app slot grid passes `ALL` (everyone
+ * sees the same grid); booking validation passes the booking user's
+ * special/non-special flag.
+ */
+function appliesToAudience(blockAppliesTo: string, audience: 'ALL' | 'SPECIAL' | 'NON_SPECIAL'): boolean {
+  if (blockAppliesTo === 'ALL') return true;
+  if (audience === 'ALL') return true; // grid-level eval shows worst case
+  return blockAppliesTo === audience;
+}
+
+/**
+ * Decide whether a planned RESOURCE_BASED booking is blocked. Returns
+ * the block reason (string) when blocked, or null when clear.
+ */
+export function evaluateBlockForBooking(
+  blocks: ActiveBlock[],
+  booking: {
+    category: BookingCategory;
+    machineRowId?: string | null;
+    resourceIds: string[];
+  },
+  audience: 'ALL' | 'SPECIAL' | 'NON_SPECIAL' = 'ALL',
+): string | null {
+  for (const b of blocks) {
+    if (!appliesToAudience(b.appliesTo, audience)) continue;
+
+    // Determine if this block matches this booking. A block matches if
+    // EVERY non-empty axis it specifies matches the booking.
+    let axisCount = 0;
+    let axisMatched = 0;
+
+    if (b.categories.length > 0) {
+      axisCount++;
+      if (b.categories.includes(booking.category)) axisMatched++;
+    }
+    if (b.machineRowIds.length > 0) {
+      axisCount++;
+      if (booking.machineRowId && b.machineRowIds.includes(booking.machineRowId)) axisMatched++;
+    }
+    if (b.resourceIds.length > 0) {
+      axisCount++;
+      if (booking.resourceIds.some((id) => b.resourceIds.includes(id))) axisMatched++;
+    }
+
+    if (axisCount === 0) {
+      // Catchall block (no resource-based axes set) — only honor it if
+      // legacy axes are also empty, matching the all-day rule.
+      const legacyAxes =
+        b.legacyMachineIds.length +
+        (b.legacyMachineId ? 1 : 0) +
+        (b.legacyMachineType ? 1 : 0) +
+        (b.legacyPitchType ? 1 : 0);
+      if (legacyAxes === 0) {
+        return b.reason || 'This slot is currently blocked';
+      }
+      continue;
+    }
+
+    if (axisMatched === axisCount) {
+      return b.reason || 'This booking is blocked by an admin policy';
+    }
+  }
+  return null;
+}
+
 // ─── Validation for booking creation ─────────────────────────────────
 
 export interface BookingPlan {
@@ -405,20 +624,37 @@ export class BookingResourceError extends Error {
   }
 }
 
-export async function planBooking(plan: BookingPlan): Promise<PlannedAssignment> {
+export async function planBooking(
+  plan: BookingPlan,
+  context: { audience?: 'ALL' | 'SPECIAL' | 'NON_SPECIAL' } = {},
+): Promise<PlannedAssignment> {
   const slot: BookableSlotWindow = {
     date: plan.date,
     startTime: plan.startTime,
     endTime: plan.endTime,
   };
-  const [resources, coaches, staff, occupancy, batchNets] = await Promise.all([
+  const [resources, coaches, staff, occupancy, batchNets, blocks] = await Promise.all([
     getCenterResources(plan.centerId),
     getCenterCoaches(plan.centerId),
     getCenterStaff(plan.centerId),
     getOccupancyForSlot(plan.centerId, slot),
     getCorporateBatchNetsForSlot(plan.centerId, slot),
+    getActiveBlocksForSlot(plan.centerId, slot),
   ]);
   const availability = computeSlotAvailability({ resources, coaches, staff, occupancy, batchNets, slot });
+
+  // Pre-flight category-level block check. Refuses early when an
+  // entire category is blocked at this slot — the resource-specific
+  // checks downstream catch the more granular cases.
+  const audience = context.audience ?? 'ALL';
+  const categoryBlock = evaluateBlockForBooking(
+    blocks,
+    { category: plan.category, machineRowId: plan.machineId ?? null, resourceIds: plan.resourceIds ?? [] },
+    audience,
+  );
+  if (categoryBlock) {
+    throw new BookingResourceError(categoryBlock, 409);
+  }
 
   // Resolve a specific resource by ID, ensuring it's free + at this center.
   const isFree = (resourceId: string) => !occupancy.claimedResourceIds.has(resourceId);
@@ -432,7 +668,10 @@ export async function planBooking(plan: BookingPlan): Promise<PlannedAssignment>
     if (!isFree(id)) throw new BookingResourceError(`Resource "${r.name}" is already booked`, 409);
   }
 
-  // Per-category resolution.
+  // Per-category resolution. Inner helper so we can post-check the
+  // resolved (machine, resource[]) tuple against blocks once we know
+  // exactly what's being claimed.
+  const resolved = await (async (): Promise<PlannedAssignment> => {
   switch (plan.category) {
     case 'MACHINE': {
       const net = await pickNetFor({
@@ -555,6 +794,24 @@ export async function planBooking(plan: BookingPlan): Promise<PlannedAssignment>
       };
     }
   }
+  })();
+
+  // Final block check with the resolved machine + resources. Catches
+  // resource- or machine-row-level blocks that the pre-flight (which
+  // only knew the category) couldn't.
+  const postBlock = evaluateBlockForBooking(
+    blocks,
+    {
+      category: resolved.category,
+      machineRowId: resolved.machineId,
+      resourceIds: resolved.resourceIds,
+    },
+    audience,
+  );
+  if (postBlock) {
+    throw new BookingResourceError(postBlock, 409);
+  }
+  return resolved;
 }
 
 interface PickNetArgs {
