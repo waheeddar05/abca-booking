@@ -1,19 +1,30 @@
 'use client';
 
-import { BookingModelGate } from '@/components/admin/BookingModelGate';
 import { useState, useEffect } from 'react';
 import { useSession } from 'next-auth/react';
 import { Users, Loader2, Save, ChevronUp, ChevronDown, Check, Calendar, ListOrdered, Wrench, CalendarClock, Trash2, Plus } from 'lucide-react';
 import { AdminPageHeader } from '@/components/admin/AdminPageHeader';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { useToast } from '@/components/ui/Toast';
+import { useCenter } from '@/lib/center-context';
 
 // ─── Types ───────────────────────────────────────────────
+// An assignment row from the API. ABCA-style centers populate
+// `machineId` (legacy enum); resource-based centers (Toplay) populate
+// `machineRowId` (FK to Machine table). Exactly one is non-null.
 interface OperatorAssignment {
   id: string;
-  machineId: string;
+  machineId: string | null;
+  machineRowId: string | null;
   days: number[];
   createdAt: string;
+  machineRow?: {
+    id: string;
+    name: string;
+    shortName: string | null;
+    isActive: boolean;
+    machineType: { code: string; name: string };
+  } | null;
 }
 
 interface DayPriority {
@@ -34,17 +45,45 @@ interface Operator {
 }
 
 // ─── Constants ───────────────────────────────────────────
-const VALID_MACHINES = ['GRAVITY', 'YANTRA', 'LEVERAGE_INDOOR', 'LEVERAGE_OUTDOOR'];
+// Legacy enum machines for MACHINE_PITCH centers (ABCA).
+// RESOURCE_BASED centers (Toplay) build their assignables list from
+// the center's `Machine` rows at runtime.
+const LEGACY_MACHINE_IDS = ['GRAVITY', 'YANTRA', 'LEVERAGE_INDOOR', 'LEVERAGE_OUTDOOR'];
 const DAYS_OF_WEEK = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 const DAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const DAY_NUMBERS = [0, 1, 2, 3, 4, 5, 6];
 
-const MACHINE_LABELS: Record<string, { name: string; short: string }> = {
+const LEGACY_MACHINE_LABELS: Record<string, { name: string; short: string }> = {
   GRAVITY: { name: 'Gravity', short: 'Gravity' },
   YANTRA: { name: 'Yantra', short: 'Yantra' },
   LEVERAGE_INDOOR: { name: 'Leverage Tennis', short: 'Tennis In' },
   LEVERAGE_OUTDOOR: { name: 'Leverage Tennis', short: 'Tennis Out' },
 };
+
+/**
+ * A booking-model-agnostic "assignable unit" — what an operator can be
+ * assigned to. For ABCA this is the legacy MachineId enum value; for
+ * Toplay, a specific Machine row.
+ *
+ * `refKey` is the local React key (stable across renders).
+ * `payload` is exactly the API body shape — pass it straight to POST/
+ * DELETE on /api/admin/operators.
+ */
+interface MachineAssignable {
+  refKey: string;
+  name: string;
+  short: string;
+  payload: { machineId?: string; machineRowId?: string };
+}
+
+/** Center machine list (matches /api/centers/[id]/machines). */
+interface CenterMachine {
+  id: string;
+  name: string;
+  shortName?: string | null;
+  isActive: boolean;
+  machineType: { code: string; name: string };
+}
 
 type TabKey = 'schedule' | 'priority' | 'dateOverrides';
 
@@ -110,13 +149,15 @@ function OperatorNumberField({ label, value, onChange, placeholder, labelColor, 
 }
 
 // ─── Main Component ──────────────────────────────────────
-// The legacy form below is hardcoded against the MACHINE_PITCH model
-// (4-machine enum). RESOURCE_BASED centers see a friendly "not yet
-// available" notice via the gate wrapper at the bottom of the file
-// while we build the resource-aware operators experience.
-function AdminOperatorsLegacy() {
+// Center-aware operator management. The backbone (priority order,
+// schedule, date overrides) is the same for both booking models; the
+// only piece that varies is the "Machine Assignments" grid — its
+// columns come from the legacy enum for MACHINE_PITCH centers and
+// from the center's Machine[] rows for RESOURCE_BASED centers.
+export default function AdminOperators() {
   useSession();
   const toast = useToast();
+  const { currentCenter } = useCenter();
 
   // ─── Shared state ──────────────────
   const [operators, setOperators] = useState<Operator[]>([]);
@@ -136,6 +177,13 @@ function AdminOperatorsLegacy() {
   const [savingPriorities, setSavingPriorities] = useState(false);
   const [togglingAssignment, setTogglingAssignment] = useState<string | null>(null);
   const [confirmAction, setConfirmAction] = useState<'schedule' | 'priority' | null>(null);
+
+  // ─── Center machines (RESOURCE_BASED only) ──────
+  // For Toplay-style centers, this is the live list of Machine rows
+  // we surface as assignment columns in the Priority tab. ABCA centers
+  // ignore this and use the legacy 4-enum list.
+  const [centerMachines, setCenterMachines] = useState<CenterMachine[]>([]);
+  const [bookingModel, setBookingModel] = useState<'MACHINE_PITCH' | 'RESOURCE_BASED'>('MACHINE_PITCH');
 
   // ─── Date Overrides tab state ──────
   interface OverrideRange { from: string; to: string; morning: number; evening: number; recurringDays?: number[] }
@@ -157,7 +205,28 @@ function AdminOperatorsLegacy() {
     fetchOperators();
     fetchOperatorSchedule();
     fetchDateOverrides();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Refetch machines whenever the active center changes — operator
+  // assignments are scoped to the center, and the column list of
+  // assignables is the center's Machine rows. ABCA gets an empty
+  // response from the public machines endpoint (its 4 are seeded with
+  // legacyMachineId set), so the legacy fallback kicks in.
+  useEffect(() => {
+    if (!currentCenter) return;
+    let cancelled = false;
+    fetch(`/api/centers/${currentCenter.id}/machines`)
+      .then((r) => (r.ok ? r.json() : []))
+      .then((rows: CenterMachine[]) => {
+        if (cancelled) return;
+        setCenterMachines(Array.isArray(rows) ? rows : []);
+      })
+      .catch(() => setCenterMachines([]));
+    return () => {
+      cancelled = true;
+    };
+  }, [currentCenter]);
 
   const fetchOperators = async () => {
     setLoading(true);
@@ -166,6 +235,9 @@ function AdminOperatorsLegacy() {
       if (res.ok) {
         const data = await res.json();
         setOperators(data.operators || []);
+        if (data.bookingModel === 'RESOURCE_BASED' || data.bookingModel === 'MACHINE_PITCH') {
+          setBookingModel(data.bookingModel);
+        }
       } else {
         toast.error('Failed to fetch operators');
       }
@@ -469,30 +541,56 @@ function AdminOperatorsLegacy() {
     }
   };
 
-  const toggleMachineAssignment = async (operatorId: string, machineId: string, isCurrentlyAssigned: boolean) => {
-    const key = `${operatorId}-${machineId}`;
+  // The list of assignable units shown as columns in the priority
+  // tab's machine grid. ABCA → 4 hardcoded enum values. Toplay → the
+  // center's active Machine rows. The `payload` field is exactly what
+  // we send to the operators API, so the grid stays model-agnostic.
+  const assignables: MachineAssignable[] =
+    bookingModel === 'RESOURCE_BASED'
+      ? centerMachines
+          .filter((m) => m.isActive)
+          .map((m) => ({
+            refKey: m.id,
+            name: m.name,
+            short: m.shortName ?? m.name,
+            payload: { machineRowId: m.id },
+          }))
+      : LEGACY_MACHINE_IDS.map((mid) => ({
+          refKey: mid,
+          name: LEGACY_MACHINE_LABELS[mid]?.name ?? mid,
+          short: LEGACY_MACHINE_LABELS[mid]?.short ?? mid,
+          payload: { machineId: mid },
+        }));
+
+  // Match an OperatorAssignment row to one of our `assignables`. Since
+  // exactly one of (machineId, machineRowId) is set per row, the test
+  // is straightforward.
+  const matchesAssignment = (a: OperatorAssignment, unit: MachineAssignable): boolean => {
+    if (unit.payload.machineId) return a.machineId === unit.payload.machineId;
+    if (unit.payload.machineRowId) return a.machineRowId === unit.payload.machineRowId;
+    return false;
+  };
+
+  const toggleMachineAssignment = async (
+    operatorId: string,
+    unit: MachineAssignable,
+    isCurrentlyAssigned: boolean,
+  ) => {
+    const key = `${operatorId}-${unit.refKey}`;
     setTogglingAssignment(key);
     try {
-      if (isCurrentlyAssigned) {
-        const res = await fetch('/api/admin/operators', {
-          method: 'DELETE',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ userId: operatorId, machineId }),
-        });
-        if (!res.ok) {
-          const data = await res.json();
-          throw new Error(data.error || 'Failed to remove assignment');
-        }
-      } else {
-        const res = await fetch('/api/admin/operators', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ userId: operatorId, machineId }),
-        });
-        if (!res.ok) {
-          const data = await res.json();
-          throw new Error(data.error || 'Failed to assign machine');
-        }
+      const body = { userId: operatorId, ...unit.payload };
+      const method = isCurrentlyAssigned ? 'DELETE' : 'POST';
+      const res = await fetch('/api/admin/operators', {
+        method,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(
+          data.error || (isCurrentlyAssigned ? 'Failed to remove assignment' : 'Failed to assign machine'),
+        );
       }
       const refreshRes = await fetch('/api/admin/operators');
       if (refreshRes.ok) {
@@ -700,9 +798,21 @@ function AdminOperatorsLegacy() {
             ) : (
               <div className="space-y-2">
                 {orderedOperators.map((op, index) => {
-                  const assignedMachines = new Set(
-                    (op.operatorAssignments || []).map(a => a.machineId)
-                  );
+                  // Render the assignment summary off the resolved
+                  // assignables list so RESOURCE_BASED centers see
+                  // their Machine row names ("Yantra 1") instead of the
+                  // raw FK.
+                  const assignedShorts = (op.operatorAssignments || [])
+                    .map((a) => {
+                      const unit = assignables.find((u) => matchesAssignment(a, u));
+                      if (unit) return unit.short;
+                      // Best-effort fallback (legacy enum row whose
+                      // assignable list hasn't loaded yet).
+                      if (a.machineRow) return a.machineRow.shortName ?? a.machineRow.name;
+                      if (a.machineId) return LEGACY_MACHINE_LABELS[a.machineId]?.short ?? a.machineId;
+                      return '';
+                    })
+                    .filter((s) => s.length > 0);
 
                   return (
                     <div
@@ -721,9 +831,9 @@ function AdminOperatorsLegacy() {
                         <p className="text-sm text-white truncate">{op.name || 'Unnamed'}</p>
                         <div className="flex items-center gap-1.5 mt-0.5">
                           <p className="text-[10px] text-slate-500 truncate">{op.email || op.mobileNumber || ''}</p>
-                          {assignedMachines.size > 0 && (
+                          {assignedShorts.length > 0 && (
                             <span className="text-[9px] text-accent/60">
-                              {Array.from(assignedMachines).map(m => MACHINE_LABELS[m]?.short || m).join(', ')}
+                              {assignedShorts.join(', ')}
                             </span>
                           )}
                         </div>
@@ -767,65 +877,84 @@ function AdminOperatorsLegacy() {
             )}
           </div>
 
-          {/* Machine Assignments (compact grid) */}
+          {/* Machine Assignments (compact grid) — columns are the
+              center's assignables: 4 hardcoded enums for ABCA, the
+              center's active Machine rows for Toplay et al. */}
           <div className="bg-white/[0.03] border border-white/[0.07] rounded-xl p-4">
             <div className="flex items-center gap-2 mb-3">
               <Wrench className="w-4 h-4 text-accent" />
               <h3 className="text-xs font-bold text-white uppercase tracking-wider">Machine Assignments</h3>
             </div>
 
-            {/* Header row */}
-            <div className="grid items-center gap-1.5 mb-1" style={{ gridTemplateColumns: 'minmax(80px, 1fr) repeat(4, 44px)' }}>
-              <span className="text-[9px] text-slate-500 font-medium uppercase">Operator</span>
-              {VALID_MACHINES.map(mid => {
-                const abbr: Record<string, string[]> = {
-                  GRAVITY: ['Gravity'],
-                  YANTRA: ['Yantra'],
-                  LEVERAGE_INDOOR: ['Tennis', 'In'],
-                  LEVERAGE_OUTDOOR: ['Tennis', 'Out'],
-                };
-                return (
-                  <span key={mid} className="text-[8px] text-slate-500 font-medium text-center leading-tight">
-                    {(abbr[mid] || [mid]).map((w, i) => <span key={i} className="block">{w}</span>)}
-                  </span>
-                );
-              })}
-            </div>
+            {assignables.length === 0 ? (
+              <p className="text-xs text-slate-500 italic py-6 text-center">
+                No machines configured at this center yet. Add machines on the
+                <span className="text-accent"> Centers → Machines </span> tab to enable assignment.
+              </p>
+            ) : (
+              <>
+                {/* Column widths scale with the assignable count so the
+                    grid doesn't overflow on a 6-machine center. */}
+                {(() => {
+                  const colTemplate = `minmax(80px, 1fr) repeat(${assignables.length}, 44px)`;
+                  return (
+                    <>
+                      {/* Header row */}
+                      <div className="grid items-center gap-1.5 mb-1" style={{ gridTemplateColumns: colTemplate }}>
+                        <span className="text-[9px] text-slate-500 font-medium uppercase">Operator</span>
+                        {assignables.map((unit) => (
+                          <span
+                            key={unit.refKey}
+                            className="text-[8px] text-slate-500 font-medium text-center leading-tight truncate"
+                            title={unit.name}
+                          >
+                            {unit.short}
+                          </span>
+                        ))}
+                      </div>
 
-            {/* Operator rows */}
-            {operators.map(op => {
-              const assignedMachines = new Set(
-                (op.operatorAssignments || []).map(a => a.machineId)
-              );
-              return (
-                <div key={op.id} className="grid items-center gap-1.5 py-1.5 border-t border-white/[0.04]" style={{ gridTemplateColumns: 'minmax(80px, 1fr) repeat(4, 44px)' }}>
-                  <p className="text-[11px] text-white truncate" title={op.name || 'Unnamed'}>{op.name || 'Unnamed'}</p>
-                  {VALID_MACHINES.map(mid => {
-                    const isAssigned = assignedMachines.has(mid);
-                    const isToggling = togglingAssignment === `${op.id}-${mid}`;
-                    return (
-                      <button
-                        key={mid}
-                        onClick={() => toggleMachineAssignment(op.id, mid, isAssigned)}
-                        disabled={!!togglingAssignment}
-                        className={`mx-auto flex items-center justify-center w-7 h-7 rounded-lg transition-all cursor-pointer disabled:opacity-60 ${
-                          isAssigned
-                            ? 'bg-accent/15 text-accent border border-accent/30'
-                            : 'bg-white/[0.04] text-slate-600 border border-white/[0.06] hover:bg-white/[0.08]'
-                        }`}
-                        title={`${isAssigned ? 'Remove' : 'Assign'} ${MACHINE_LABELS[mid]?.name}`}
-                      >
-                        {isToggling ? (
-                          <Loader2 className="w-3 h-3 animate-spin" />
-                        ) : isAssigned ? (
-                          <Check className="w-3.5 h-3.5" />
-                        ) : null}
-                      </button>
-                    );
-                  })}
-                </div>
-              );
-            })}
+                      {/* Operator rows */}
+                      {operators.map((op) => (
+                        <div
+                          key={op.id}
+                          className="grid items-center gap-1.5 py-1.5 border-t border-white/[0.04]"
+                          style={{ gridTemplateColumns: colTemplate }}
+                        >
+                          <p className="text-[11px] text-white truncate" title={op.name || 'Unnamed'}>
+                            {op.name || 'Unnamed'}
+                          </p>
+                          {assignables.map((unit) => {
+                            const isAssigned = (op.operatorAssignments || []).some((a) =>
+                              matchesAssignment(a, unit),
+                            );
+                            const isToggling = togglingAssignment === `${op.id}-${unit.refKey}`;
+                            return (
+                              <button
+                                key={unit.refKey}
+                                onClick={() => toggleMachineAssignment(op.id, unit, isAssigned)}
+                                disabled={!!togglingAssignment}
+                                className={`mx-auto flex items-center justify-center w-7 h-7 rounded-lg transition-all cursor-pointer disabled:opacity-60 ${
+                                  isAssigned
+                                    ? 'bg-accent/15 text-accent border border-accent/30'
+                                    : 'bg-white/[0.04] text-slate-600 border border-white/[0.06] hover:bg-white/[0.08]'
+                                }`}
+                                title={`${isAssigned ? 'Remove' : 'Assign'} ${unit.name}`}
+                              >
+                                {isToggling ? (
+                                  <Loader2 className="w-3 h-3 animate-spin" />
+                                ) : isAssigned ? (
+                                  <Check className="w-3.5 h-3.5" />
+                                ) : null}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      ))}
+                    </>
+                  );
+                })()}
+              </>
+            )}
           </div>
         </div>
       )}
@@ -994,14 +1123,3 @@ function AdminOperatorsLegacy() {
   );
 }
 
-export default function AdminOperatorsPage() {
-  return (
-    <BookingModelGate
-      allow={['MACHINE_PITCH']}
-      surfaceLabel="Operator scheduling"
-      altLink={{ href: '/admin/centers', label: 'Manage staff via Centers → Members' }}
-    >
-      <AdminOperatorsLegacy />
-    </BookingModelGate>
-  );
-}

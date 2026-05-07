@@ -96,9 +96,9 @@ model CenterMembership {
   createdAt DateTime       @default(now())
   updatedAt DateTime       @updatedAt
 
-  user           User                     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  center         Center                   @relation(fields: [centerId], references: [id], onDelete: Cascade)
-  availability   MembershipAvailability[]
+  user         User                     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  center       Center                   @relation(fields: [centerId], references: [id], onDelete: Cascade)
+  availability MembershipAvailability[]
 
   @@unique([userId, centerId, role])
   @@index([centerId, role])
@@ -224,10 +224,14 @@ model Machine {
   createdAt           DateTime    @default(now())
   updatedAt           DateTime    @updatedAt
 
-  center      Center      @relation(fields: [centerId], references: [id], onDelete: Cascade)
-  machineType MachineType @relation(fields: [machineTypeId], references: [id])
-  resource    Resource?   @relation(fields: [resourceId], references: [id])
-  bookings    Booking[]   @relation("BookingMachine")
+  center              Center               @relation(fields: [centerId], references: [id], onDelete: Cascade)
+  machineType         MachineType          @relation(fields: [machineTypeId], references: [id])
+  resource            Resource?            @relation(fields: [resourceId], references: [id])
+  bookings            Booking[]            @relation("BookingMachine")
+  // OPERATOR users assigned to this specific machine row. RESOURCE_BASED
+  // centers use this path; MACHINE_PITCH centers still assign by the
+  // legacy MachineId enum on OperatorAssignment.
+  operatorAssignments OperatorAssignment[]
 
   @@unique([centerId, legacyMachineId])
   @@index([centerId, isActive])
@@ -783,18 +787,34 @@ model Refund {
   @@index([paymentId])
 }
 
+// An OPERATOR user (someone who runs a bowling machine) assigned to a
+// specific machine at a specific center, optionally restricted to a
+// set of weekdays.
+//
+// Two ways to identify the machine:
+//   - `machineId`     legacy MachineId enum (GRAVITY/YANTRA/…). Used by
+//                     ABCA-style MACHINE_PITCH centers.
+//   - `machineRowId`  FK to the `Machine` table. Used by RESOURCE_BASED
+//                     centers (Toplay et al.) where the assignable unit
+//                     is a `Machine` row, not a global enum.
+//
+// Exactly one of the two is set. Duplicate-prevention is enforced via
+// partial unique indexes (defined in raw SQL inside the accompanying
+// migration — Prisma's schema DSL can't express partial uniques).
 model OperatorAssignment {
-  id        String    @id @default(cuid())
-  centerId  String
-  userId    String
-  machineId MachineId
-  days      Int[] // Day-of-week filter: 0=Sun..6=Sat. Empty = all days.
-  createdAt DateTime  @default(now())
-  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  center    Center    @relation(fields: [centerId], references: [id], onDelete: Cascade)
+  id           String     @id @default(cuid())
+  centerId     String
+  userId       String
+  machineId    MachineId?
+  machineRowId String?
+  days         Int[] // Day-of-week filter: 0=Sun..6=Sat. Empty = all days.
+  createdAt    DateTime   @default(now())
+  user         User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  center       Center     @relation(fields: [centerId], references: [id], onDelete: Cascade)
+  machineRow   Machine?   @relation(fields: [machineRowId], references: [id], onDelete: Cascade)
 
-  @@unique([centerId, userId, machineId])
   @@index([centerId])
+  @@index([machineRowId])
 }
 
 model CashPaymentUser {

@@ -53,14 +53,21 @@ export async function GET(req: NextRequest) {
     } else {
       const assignments = await prisma.operatorAssignment.findMany({
         // Operator assignments are center-scoped; only consider this
-        // operator's assignments at the current center.
+        // operator's assignments at the current center. RESOURCE_BASED
+        // assignments use `machineRowId` (and have a null `machineId`),
+        // so we filter those out — the operator-bookings list here is
+        // still legacy-enum-shaped. Operator UX for RESOURCE_BASED
+        // centers is a follow-up.
         where: {
           userId: session.userId,
+          machineId: { not: null },
           ...(centerId ? { centerId } : {}),
         },
         select: { machineId: true },
       });
-      assignedMachineIds = assignments.map((a) => a.machineId);
+      assignedMachineIds = assignments
+        .map((a) => a.machineId)
+        .filter((m): m is NonNullable<typeof m> => m !== null);
       if (viewAll) {
         machineIds = ALL_MACHINES;
       } else {

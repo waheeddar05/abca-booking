@@ -41,7 +41,7 @@ export default function AdminLayout({
     { href: '/admin/bookings', label: 'Bookings', icon: CalendarCheck },
     { href: '/admin/slots', label: 'Slots', icon: Clock, models: ['MACHINE_PITCH'] },
     { href: '/admin/users', label: 'Users', icon: Users },
-    { href: '/admin/operators', label: 'Operators', icon: UserCog, models: ['MACHINE_PITCH'] },
+    { href: '/admin/operators', label: 'Operators', icon: UserCog },
     { href: '/admin/offers', label: 'Offers', icon: Tag, models: ['MACHINE_PITCH'] },
     { href: '/admin/packages', label: 'Packages', icon: Package, models: ['MACHINE_PITCH'] },
     { href: '/admin/configuration', label: 'Settings', icon: SlidersHorizontal },
