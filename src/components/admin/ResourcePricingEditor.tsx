@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { IndianRupee, Loader2, Save, Plus, Trash2, ChevronDown } from 'lucide-react';
+import { IndianRupee, Loader2, Save, Trash2 } from 'lucide-react';
 import { useCenter } from '@/lib/center-context';
 
 /**
@@ -150,7 +150,6 @@ export function ResourcePricingEditor({
   centerLabel: string;
 }) {
   const [value, setValue] = useState<ResourcePricingValue>(DEFAULT_VALUE);
-  const [machineTypes, setMachineTypes] = useState<Array<{ code: string; name: string }>>([]);
   const [centerMachines, setCenterMachines] = useState<CenterMachineLite[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -184,11 +183,7 @@ export function ResourcePricingEditor({
     setLoading(true);
     (async () => {
       try {
-        const [policyRes, mtRes] = await Promise.all([
-          fetch(`/api/admin/policies?scope=${scope}`),
-          // Machine type catalog — used to populate the "add override" picker.
-          fetch('/api/admin/machine-types').then((r) => (r.ok ? r.json() : [])),
-        ]);
+        const policyRes = await fetch(`/api/admin/policies?scope=${scope}`);
         if (cancelled) return;
         if (policyRes.ok) {
           const rows: Array<{ key: string; value: string }> = await policyRes.json();
@@ -200,8 +195,6 @@ export function ResourcePricingEditor({
             setValue(DEFAULT_VALUE);
           }
         }
-        const mtRows: Array<{ code: string; name: string }> = Array.isArray(mtRes) ? mtRes : [];
-        setMachineTypes(mtRows.filter((m) => m.code && m.name));
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -217,35 +210,6 @@ export function ResourcePricingEditor({
         [cat]: { ...prev.categoryRates[cat], [slab]: n },
       },
     }));
-  };
-
-  const setOverrideRate = (code: string, slab: 'morning' | 'evening', n: number) => {
-    setValue((prev) => ({
-      ...prev,
-      machineTypeOverrides: {
-        ...(prev.machineTypeOverrides ?? {}),
-        [code]: { ...(prev.machineTypeOverrides?.[code] ?? { morning: 0, evening: 0 }), [slab]: n },
-      },
-    }));
-  };
-
-  const addOverride = (code: string) => {
-    if (!code) return;
-    setValue((prev) => ({
-      ...prev,
-      machineTypeOverrides: {
-        ...(prev.machineTypeOverrides ?? {}),
-        [code]: prev.machineTypeOverrides?.[code] ?? { ...prev.categoryRates.MACHINE },
-      },
-    }));
-  };
-
-  const removeOverride = (code: string) => {
-    setValue((prev) => {
-      const next = { ...(prev.machineTypeOverrides ?? {}) };
-      delete next[code];
-      return { ...prev, machineTypeOverrides: next };
-    });
   };
 
   const save = async () => {
@@ -280,235 +244,65 @@ export function ResourcePricingEditor({
     );
   }
 
-  const overrideEntries = Object.entries(value.machineTypeOverrides ?? {});
-  const availableTypesToAdd = machineTypes.filter(
-    (m) => !overrideEntries.find(([code]) => code === m.code),
-  );
-
   return (
-    <div className="space-y-4">
-      {/* Per-category rate matrix.
-          Inputs use a smaller w-20 on phones, w-28 from sm+, so a 360px
-          screen fits "Category | morning | evening" without horizontal
-          scroll while keeping the desktop layout breathing-room. */}
-      <div className="space-y-2">
-        <div className="grid grid-cols-[1fr_auto_auto] gap-2 sm:gap-3 items-center text-[10px] uppercase tracking-wider text-slate-500 font-semibold pb-1 border-b border-white/[0.04]">
-          <div>Category</div>
-          <div className="w-20 sm:w-28 text-center">Morning</div>
-          <div className="w-20 sm:w-28 text-center">Evening</div>
-        </div>
-        {CATEGORY_ORDER.map((cat) => (
-          <div key={cat} className="grid grid-cols-[1fr_auto_auto] gap-2 sm:gap-3 items-center">
-            <div className="text-xs sm:text-sm text-white truncate">{CATEGORY_LABELS[cat]}</div>
-            <PriceInput
-              value={value.categoryRates[cat].morning}
-              onChange={(n) => setRate(cat, 'morning', n)}
-            />
-            <PriceInput
-              value={value.categoryRates[cat].evening}
-              onChange={(n) => setRate(cat, 'evening', n)}
-            />
-          </div>
-        ))}
-      </div>
-
-      {/* Per-machine-type overrides for MACHINE category */}
-      <div className="space-y-2 pt-2">
-        <div className="text-[10px] uppercase tracking-wider text-slate-500 font-semibold">
-          Machine type overrides
-        </div>
-        <div className="text-[11px] text-slate-500 leading-relaxed">
-          Override the Bowling Machine rate for specific machine types
-          (e.g. premium for Yantra). Empty list ⇒ every machine uses the
-          base Bowling Machine rate above.
-        </div>
-
-        {overrideEntries.length === 0 ? (
-          <div className="text-[11px] text-slate-600 italic py-1">
-            No machine-type overrides set.
-          </div>
-        ) : (
-          <div className="space-y-1.5">
-            {overrideEntries.map(([code, rates]) => {
-              const meta = machineTypes.find((m) => m.code === code);
-              return (
-                <div
-                  key={code}
-                  className="grid grid-cols-[1fr_auto_auto_auto] gap-2 sm:gap-3 items-center"
-                >
-                  <div className="text-xs sm:text-sm text-white truncate">
-                    {meta?.name ?? code}
-                    <span className="ml-1.5 text-[10px] text-slate-500 font-mono hidden sm:inline">{code}</span>
-                  </div>
-                  <PriceInput
-                    value={rates.morning}
-                    onChange={(n) => setOverrideRate(code, 'morning', n)}
-                  />
-                  <PriceInput
-                    value={rates.evening}
-                    onChange={(n) => setOverrideRate(code, 'evening', n)}
-                  />
-                  <button
-                    type="button"
-                    onClick={() => removeOverride(code)}
-                    className="p-1.5 rounded-lg text-red-400/70 hover:bg-red-500/10 hover:text-red-400 cursor-pointer"
-                    title="Remove override"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </button>
-                </div>
-              );
-            })}
-          </div>
-        )}
-
-        {availableTypesToAdd.length > 0 && (
-          <div className="flex items-center gap-2 pt-1.5">
-            <select
-              defaultValue=""
-              onChange={(e) => {
-                const code = e.target.value;
-                if (code) {
-                  addOverride(code);
-                  e.currentTarget.value = '';
-                }
-              }}
-              className="bg-white/[0.04] border border-white/[0.1] text-white rounded-lg px-2 py-1.5 text-xs outline-none focus:border-accent"
-            >
-              <option value="" disabled>+ Add machine-type override…</option>
-              {availableTypesToAdd.map((m) => (
-                <option key={m.code} value={m.code}>{m.name} ({m.code})</option>
-              ))}
-            </select>
-            <Plus className="w-3.5 h-3.5 text-slate-500" />
-          </div>
-        )}
-      </div>
-
-      {/* Per-pitch × per-ball matrix per machine type — the "ABCA-style"
-          structured pricing. Each tile sits below its coarse override
-          row and lets the admin diverge a specific (pitch, ball) combo
-          from the machine's base rate. Empty cells fall back to the
-          coarse override → machine category default. */}
-      {overrideEntries.length > 0 && (
-        <div className="space-y-3 pt-3 border-t border-white/[0.04]">
-          <div className="text-[10px] uppercase tracking-wider text-slate-500 font-semibold">
-            Pitch × ball matrix per machine
-          </div>
-          {overrideEntries.map(([code]) => {
-            const meta = machineTypes.find((m) => m.code === code);
-            const matrix = value.machinePricing?.[code] ?? {};
-            return (
-              <div key={`mp-${code}`} className="rounded-xl bg-white/[0.02] border border-white/[0.06] p-3 space-y-2">
-                <div className="text-xs font-semibold text-white">
-                  {meta?.name ?? code}
-                  <span className="ml-1.5 text-[10px] text-slate-500 font-mono">{code}</span>
-                </div>
-                {PITCH_KEYS.map((pitch) => (
-                  <PitchBallRow
-                    key={pitch}
-                    pitch={pitch}
-                    pitchMatrix={matrix[pitch] ?? {}}
-                    onChange={(ball, slab, n) => {
-                      setValue((prev) => {
-                        const next = { ...(prev.machinePricing ?? {}) };
-                        const codeMatrix = { ...(next[code] ?? {}) };
-                        const pitchMatrix = { ...(codeMatrix[pitch] ?? {}) };
-                        const cell = { ...(pitchMatrix[ball] ?? { morning: 0, evening: 0 }) };
-                        cell[slab] = n;
-                        pitchMatrix[ball] = cell;
-                        codeMatrix[pitch] = pitchMatrix;
-                        next[code] = codeMatrix;
-                        return { ...prev, machinePricing: next };
-                      });
-                    }}
-                    onClear={(ball) => {
-                      setValue((prev) => {
-                        const next = { ...(prev.machinePricing ?? {}) };
-                        const codeMatrix = { ...(next[code] ?? {}) };
-                        const pitchMatrix = { ...(codeMatrix[pitch] ?? {}) };
-                        delete pitchMatrix[ball];
-                        if (Object.keys(pitchMatrix).length === 0) {
-                          delete codeMatrix[pitch];
-                        } else {
-                          codeMatrix[pitch] = pitchMatrix;
-                        }
-                        if (Object.keys(codeMatrix).length === 0) delete next[code];
-                        else next[code] = codeMatrix;
-                        return { ...prev, machinePricing: next };
-                      });
-                    }}
-                  />
-                ))}
-              </div>
-            );
-          })}
+    <div className="space-y-5">
+      {/* ─── Bowling Machine pricing — tabbed per Machine row ─────────
+          Mirrors main's ABCA pricing editor (5 tabs: leather / yantra /
+          machine / yantra_machine / tennis), but at this center-scope
+          each tab is a specific Machine ROW. Two Yantras at Toplay get
+          two tabs and can be priced independently. Each tab holds a
+          3-pitch × 4-ball matrix with morning + evening, single +
+          consecutive — same shape as PRICING_CONFIG on main. */}
+      {scope === 'center' && centerMachines.length > 0 ? (
+        <TabbedMachinePricing
+          machines={centerMachines}
+          matrix={value.machineRowPricing ?? {}}
+          onChange={(machineId, pitch, ball, slab, kind, n) => {
+            setValue((prev) => {
+              const all = { ...(prev.machineRowPricing ?? {}) };
+              const byMachine = { ...(all[machineId] ?? {}) };
+              const byPitch = { ...(byMachine[pitch] ?? {}) };
+              const cell: PairSlabRates = byPitch[ball]
+                ? {
+                    morning: { ...byPitch[ball]!.morning },
+                    evening: { ...byPitch[ball]!.evening },
+                  }
+                : {
+                    morning: { single: 0, consecutive: 0 },
+                    evening: { single: 0, consecutive: 0 },
+                  };
+              cell[slab] = { ...cell[slab], [kind]: n };
+              byPitch[ball] = cell;
+              byMachine[pitch] = byPitch;
+              all[machineId] = byMachine;
+              return { ...prev, machineRowPricing: all };
+            });
+          }}
+          onClearCell={(machineId, pitch, ball) => {
+            setValue((prev) => {
+              const all = { ...(prev.machineRowPricing ?? {}) };
+              const byMachine = { ...(all[machineId] ?? {}) };
+              const byPitch = { ...(byMachine[pitch] ?? {}) };
+              delete byPitch[ball];
+              if (Object.keys(byPitch).length === 0) delete byMachine[pitch];
+              else byMachine[pitch] = byPitch;
+              if (Object.keys(byMachine).length === 0) delete all[machineId];
+              else all[machineId] = byMachine;
+              return { ...prev, machineRowPricing: all };
+            });
+          }}
+        />
+      ) : (
+        <div className="text-[11px] text-slate-500 italic py-2">
+          {scope === 'global'
+            ? 'Bowling Machine pricing is configured per machine row at each center (Settings → Resource pricing on the center page).'
+            : 'No machines configured at this center yet. Add a machine on the Centers → Machines tab to enable per-machine pricing.'}
         </div>
       )}
 
-      {/* Per-Machine-row pricing — the most-specific override axis.
-          A center with two Yantra machines uses this to price each
-          one separately, with single + back-to-back rates per
-          (pitch × ball × slab) cell. Pair shape mirrors ABCA's
-          legacy PRICING_CONFIG (single / consecutive). */}
-      {scope === 'center' && centerMachines.length > 0 && (
-        <div className="space-y-3 pt-3 border-t border-white/[0.04]">
-          <div className="flex items-baseline justify-between gap-2 flex-wrap">
-            <div className="text-[10px] uppercase tracking-wider text-slate-500 font-semibold">
-              Per-machine pricing (most specific)
-            </div>
-            <div className="text-[10px] text-slate-500">
-              Overrides every other axis. Empty cells fall back to the per-machine-type
-              matrix above, then the category default.
-            </div>
-          </div>
-          <div className="space-y-2">
-            {centerMachines.map((m) => (
-              <PerMachineSection
-                key={m.id}
-                machine={m}
-                matrix={value.machineRowPricing?.[m.id] ?? {}}
-                onChange={(pitch, ball, slab, kind, n) => {
-                  setValue((prev) => {
-                    const all = { ...(prev.machineRowPricing ?? {}) };
-                    const byMachine = { ...(all[m.id] ?? {}) };
-                    const byPitch = { ...(byMachine[pitch] ?? {}) };
-                    const cell: PairSlabRates = byPitch[ball]
-                      ? {
-                          morning: { ...byPitch[ball]!.morning },
-                          evening: { ...byPitch[ball]!.evening },
-                        }
-                      : {
-                          morning: { single: 0, consecutive: 0 },
-                          evening: { single: 0, consecutive: 0 },
-                        };
-                    cell[slab] = { ...cell[slab], [kind]: n };
-                    byPitch[ball] = cell;
-                    byMachine[pitch] = byPitch;
-                    all[m.id] = byMachine;
-                    return { ...prev, machineRowPricing: all };
-                  });
-                }}
-                onClearCell={(pitch, ball) => {
-                  setValue((prev) => {
-                    const all = { ...(prev.machineRowPricing ?? {}) };
-                    const byMachine = { ...(all[m.id] ?? {}) };
-                    const byPitch = { ...(byMachine[pitch] ?? {}) };
-                    delete byPitch[ball];
-                    if (Object.keys(byPitch).length === 0) delete byMachine[pitch];
-                    else byMachine[pitch] = byPitch;
-                    if (Object.keys(byMachine).length === 0) delete all[m.id];
-                    else all[m.id] = byMachine;
-                    return { ...prev, machineRowPricing: all };
-                  });
-                }}
-              />
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Sidearm per-pitch overrides */}
+      {/* Sidearm per-pitch overrides — only relevant for centers that
+          run sidearm sessions. Empty cells fall back to the SIDEARM
+          category default. */}
       <SimplePitchSection
         title="Sidearm — per pitch"
         rates={value.sidearmPricing ?? {}}
@@ -528,7 +322,7 @@ export function ResourcePricingEditor({
         }}
       />
 
-      {/* Net per-pitch overrides */}
+      {/* Net per-pitch overrides — bare-net booking pricing. */}
       <SimplePitchSection
         title="Cricket nets booking — per pitch"
         rates={value.netPricing ?? {}}
@@ -547,6 +341,36 @@ export function ResourcePricingEditor({
           });
         }}
       />
+
+      {/* Other categories — Personal Coaching, Full Indoor Court,
+          Corporate Batch. These don't vary by machine or pitch the way
+          MACHINE/SIDEARM/NET do, so a single morning/evening price
+          per category is enough. Replaces the old per-category rates
+          table (which exposed every category at once) with just the
+          three that aren't already configured above. */}
+      <div className="space-y-2 pt-3 border-t border-white/[0.04]">
+        <div className="text-[10px] uppercase tracking-wider text-slate-500 font-semibold">
+          Other categories
+        </div>
+        <div className="grid grid-cols-[1fr_auto_auto] gap-2 sm:gap-3 items-center text-[10px] uppercase tracking-wider text-slate-500">
+          <div>Category</div>
+          <div className="w-20 sm:w-28 text-center">Morning</div>
+          <div className="w-20 sm:w-28 text-center">Evening</div>
+        </div>
+        {(['COACHING', 'FULL_COURT', 'CORPORATE_BATCH'] as const).map((cat) => (
+          <div key={cat} className="grid grid-cols-[1fr_auto_auto] gap-2 sm:gap-3 items-center">
+            <div className="text-xs sm:text-sm text-white truncate">{CATEGORY_LABELS[cat]}</div>
+            <PriceInput
+              value={value.categoryRates[cat].morning}
+              onChange={(n) => setRate(cat, 'morning', n)}
+            />
+            <PriceInput
+              value={value.categoryRates[cat].evening}
+              onChange={(n) => setRate(cat, 'evening', n)}
+            />
+          </div>
+        ))}
+      </div>
 
       {/* Save bar */}
       <div className="flex items-center justify-end gap-2 pt-2">
@@ -595,60 +419,147 @@ function PriceInput({ value, onChange }: { value: number; onChange: (n: number) 
 }
 
 /**
- * One row in the per-machine pitch×ball matrix. Renders the pitch
- * label on the left and a small editor per (ball type, slab) cell.
- * Empty cells show "—" placeholder; typing a value populates them.
+ * Tabbed pricing editor — one tab per Machine row at the active
+ * center. Mirrors main's `Slot Pricing Configuration` (which has
+ * tabs for leather / yantra / machine / yantra_machine / tennis).
+ * The active tab shows a 3-pitch × 4-ball matrix where each cell
+ * has morning + evening, single + consecutive — same shape as
+ * PRICING_CONFIG on main, just keyed by Machine.id.
  */
-function PitchBallRow({
-  pitch,
-  pitchMatrix,
+function TabbedMachinePricing({
+  machines,
+  matrix,
   onChange,
-  onClear,
+  onClearCell,
 }: {
-  pitch: PitchKey;
-  pitchMatrix: Partial<Record<BallKey, SlabRates>>;
-  onChange: (ball: BallKey, slab: 'morning' | 'evening', n: number) => void;
-  onClear: (ball: BallKey) => void;
+  machines: CenterMachineLite[];
+  matrix: NonNullable<ResourcePricingValue['machineRowPricing']>;
+  onChange: (
+    machineId: string,
+    pitch: PitchKey,
+    ball: BallKey,
+    slab: 'morning' | 'evening',
+    kind: 'single' | 'consecutive',
+    n: number,
+  ) => void;
+  onClearCell: (machineId: string, pitch: PitchKey, ball: BallKey) => void;
 }) {
+  const [activeId, setActiveId] = useState<string>(machines[0]?.id ?? '');
+  // Keep the active tab valid when the machines list changes (e.g. an
+  // admin disables a machine while this editor is open).
+  useEffect(() => {
+    if (!machines.find((m) => m.id === activeId)) {
+      setActiveId(machines[0]?.id ?? '');
+    }
+  }, [machines, activeId]);
+
+  const active = machines.find((m) => m.id === activeId) ?? machines[0];
+  const cellsConfigured = (machineId: string): number => {
+    const byMachine = matrix[machineId] ?? {};
+    return Object.values(byMachine).reduce(
+      (s, byPitch) => s + Object.keys(byPitch ?? {}).length,
+      0,
+    );
+  };
+
   return (
-    <div className="space-y-1">
-      <div className="text-[11px] font-semibold text-slate-300">
-        {PITCH_LABELS[pitch]}
-      </div>
-      <div className="grid grid-cols-[auto_1fr_1fr_auto] gap-2 items-center text-[10px] uppercase tracking-wider text-slate-500">
-        <div className="w-16">Ball</div>
-        <div className="text-center">Morning</div>
-        <div className="text-center">Evening</div>
-        <div className="w-7" />
-      </div>
-      {BALL_KEYS.map((ball) => {
-        const cell = pitchMatrix[ball];
-        const has = cell != null;
-        return (
-          <div key={ball} className="grid grid-cols-[auto_1fr_1fr_auto] gap-2 items-center">
-            <div className="text-xs text-slate-300 w-16 truncate">
-              {BALL_LABELS[ball]}
-            </div>
-            <PriceInput
-              value={cell?.morning ?? 0}
-              onChange={(n) => onChange(ball, 'morning', n)}
-            />
-            <PriceInput
-              value={cell?.evening ?? 0}
-              onChange={(n) => onChange(ball, 'evening', n)}
-            />
+    <div className="space-y-3">
+      {/* Tab strip — horizontally scrollable on phones. */}
+      <div className="flex gap-1 overflow-x-auto pb-2 scrollbar-hide">
+        {machines.map((m) => {
+          const isActive = activeId === m.id;
+          const count = cellsConfigured(m.id);
+          return (
             <button
+              key={m.id}
               type="button"
-              onClick={() => onClear(ball)}
-              disabled={!has}
-              className="p-1.5 rounded-lg text-red-400/70 hover:bg-red-500/10 hover:text-red-400 cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
-              title="Clear cell (fall back to coarser rate)"
+              onClick={() => setActiveId(m.id)}
+              className={`flex-shrink-0 px-3 py-2 rounded-lg text-[11px] font-semibold transition-all cursor-pointer whitespace-nowrap ${
+                isActive
+                  ? 'bg-accent/15 text-accent border border-accent/30'
+                  : 'bg-white/[0.03] text-slate-400 border border-white/[0.06] hover:text-slate-200'
+              }`}
             >
-              <Trash2 className="w-3.5 h-3.5" />
+              {m.shortName ?? m.name}
+              {count > 0 && (
+                <span className={`ml-1.5 text-[9px] px-1 rounded ${isActive ? 'bg-accent/20' : 'bg-white/[0.06]'}`}>
+                  {count}
+                </span>
+              )}
             </button>
+          );
+        })}
+      </div>
+
+      {active && (
+        <div className="bg-white/[0.02] rounded-xl border border-white/[0.05] p-3 space-y-3">
+          <div className="text-[11px] text-slate-500">
+            Pitch × ball pricing for{' '}
+            <span className="text-slate-300 font-semibold">
+              {active.shortName ?? active.name}
+            </span>
+            . Each cell stores a morning and evening rate; each rate has a{' '}
+            <span className="text-slate-300">single</span> price and a{' '}
+            <span className="text-slate-300">consecutive</span> price (used when
+            this slot is part of a back-to-back chain). Empty cells fall back
+            to the category default.
           </div>
-        );
-      })}
+          {PITCH_KEYS.map((pitch) => (
+            <div key={pitch} className="space-y-1">
+              <div className="text-[11px] font-semibold text-slate-300">
+                {PITCH_LABELS[pitch]}
+              </div>
+              <div className="grid grid-cols-[6.5rem_1fr_1fr_auto] gap-2 items-end pb-1 border-b border-white/[0.04] text-[9px] uppercase tracking-wider text-slate-500">
+                <div>Ball</div>
+                <div className="text-center">
+                  Morning
+                  <div className="text-[8px] text-slate-600 normal-case font-medium">
+                    single / consecutive
+                  </div>
+                </div>
+                <div className="text-center">
+                  Evening
+                  <div className="text-[8px] text-slate-600 normal-case font-medium">
+                    single / consecutive
+                  </div>
+                </div>
+                <div className="w-7" />
+              </div>
+              {BALL_KEYS.map((ball) => {
+                const cell = matrix[active.id]?.[pitch]?.[ball];
+                const has = cell != null;
+                return (
+                  <div
+                    key={ball}
+                    className="grid grid-cols-[6.5rem_1fr_1fr_auto] gap-2 items-center"
+                  >
+                    <div className="text-xs text-slate-300 truncate">
+                      {BALL_LABELS[ball]}
+                    </div>
+                    <PairPriceCell
+                      pair={cell?.morning ?? { single: 0, consecutive: 0 }}
+                      onChange={(kind, n) => onChange(active.id, pitch, ball, 'morning', kind, n)}
+                    />
+                    <PairPriceCell
+                      pair={cell?.evening ?? { single: 0, consecutive: 0 }}
+                      onChange={(kind, n) => onChange(active.id, pitch, ball, 'evening', kind, n)}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => onClearCell(active.id, pitch, ball)}
+                      disabled={!has}
+                      className="p-1.5 rounded-lg text-red-400/70 hover:bg-red-500/10 hover:text-red-400 cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
+                      title="Clear (fall back to category default)"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -705,125 +616,6 @@ function SimplePitchSection({
           </div>
         );
       })}
-    </div>
-  );
-}
-
-/**
- * Per-Machine-row pricing section. Renders a collapsible card for one
- * machine instance with a 3-pitch × 4-ball matrix. Each cell has two
- * slabs (morning/evening), each with a single + consecutive price —
- * matching the ABCA pricing config's `{ single, consecutive }` pair.
- */
-function PerMachineSection({
-  machine,
-  matrix,
-  onChange,
-  onClearCell,
-}: {
-  machine: CenterMachineLite;
-  matrix: Partial<Record<PitchKey, Partial<Record<BallKey, PairSlabRates>>>>;
-  onChange: (
-    pitch: PitchKey,
-    ball: BallKey,
-    slab: 'morning' | 'evening',
-    kind: 'single' | 'consecutive',
-    n: number,
-  ) => void;
-  onClearCell: (pitch: PitchKey, ball: BallKey) => void;
-}) {
-  const [open, setOpen] = useState(false);
-  const cellCount = Object.values(matrix).reduce(
-    (s, byPitch) => s + Object.keys(byPitch ?? {}).length,
-    0,
-  );
-
-  return (
-    <div className="rounded-xl bg-white/[0.02] border border-white/[0.06] overflow-hidden">
-      <button
-        type="button"
-        onClick={() => setOpen((o) => !o)}
-        className="w-full flex items-center justify-between gap-3 px-3 py-2.5 text-left hover:bg-white/[0.02] cursor-pointer"
-      >
-        <div className="flex items-center gap-2 min-w-0">
-          <div className="text-xs font-semibold text-white truncate">
-            {machine.shortName ?? machine.name}
-          </div>
-          <span className="text-[10px] text-slate-500 font-mono truncate hidden sm:inline">
-            {machine.machineType.code}
-          </span>
-          {cellCount > 0 && (
-            <span className="text-[10px] text-accent px-1.5 py-0.5 rounded bg-accent/10 flex-shrink-0">
-              {cellCount} cell{cellCount === 1 ? '' : 's'} configured
-            </span>
-          )}
-        </div>
-        <ChevronDown
-          className={`w-4 h-4 text-slate-400 flex-shrink-0 transition-transform ${
-            open ? 'rotate-180' : ''
-          }`}
-        />
-      </button>
-
-      {open && (
-        <div className="px-3 pb-3 space-y-3 border-t border-white/[0.06]">
-          {PITCH_KEYS.map((pitch) => (
-            <div key={pitch} className="space-y-1">
-              <div className="text-[11px] font-semibold text-slate-300 pt-2">
-                {PITCH_LABELS[pitch]}
-              </div>
-              {/* Header row */}
-              <div className="grid grid-cols-[6.5rem_1fr_1fr_auto] gap-2 items-end pb-1 border-b border-white/[0.04] text-[9px] uppercase tracking-wider text-slate-500">
-                <div>Ball</div>
-                <div className="text-center">
-                  Morning
-                  <div className="text-[8px] text-slate-600 normal-case font-medium">
-                    single / consecutive
-                  </div>
-                </div>
-                <div className="text-center">
-                  Evening
-                  <div className="text-[8px] text-slate-600 normal-case font-medium">
-                    single / consecutive
-                  </div>
-                </div>
-                <div className="w-7" />
-              </div>
-              {BALL_KEYS.map((ball) => {
-                const cell = matrix[pitch]?.[ball];
-                const has = cell != null;
-                return (
-                  <div
-                    key={ball}
-                    className="grid grid-cols-[6.5rem_1fr_1fr_auto] gap-2 items-center"
-                  >
-                    <div className="text-xs text-slate-300 truncate">
-                      {BALL_LABELS[ball]}
-                    </div>
-                    <PairPriceCell
-                      pair={cell?.morning ?? { single: 0, consecutive: 0 }}
-                      onChange={(kind, n) => onChange(pitch, ball, 'morning', kind, n)}
-                    />
-                    <PairPriceCell
-                      pair={cell?.evening ?? { single: 0, consecutive: 0 }}
-                      onChange={(kind, n) => onChange(pitch, ball, 'evening', kind, n)}
-                    />
-                    <button
-                      type="button"
-                      onClick={() => onClearCell(pitch, ball)}
-                      disabled={!has}
-                      className="p-1.5 rounded-lg text-red-400/70 hover:bg-red-500/10 hover:text-red-400 cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
-                      title="Clear (fall back to next-coarser rate)"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-                );
-              })}
-            </div>
-          ))}
-        </div>
-      )}
     </div>
   );
 }
