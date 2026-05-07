@@ -42,7 +42,7 @@ export default function AdminLayout({
     { href: '/admin/slots', label: 'Slots', icon: Clock },
     { href: '/admin/users', label: 'Users', icon: Users },
     { href: '/admin/operators', label: 'Operators', icon: UserCog },
-    { href: '/admin/offers', label: 'Offers', icon: Tag, models: ['MACHINE_PITCH'] },
+    { href: '/admin/offers', label: 'Offers', icon: Tag },
     { href: '/admin/packages', label: 'Packages', icon: Package, models: ['MACHINE_PITCH'] },
     { href: '/admin/configuration', label: 'Settings', icon: SlidersHorizontal },
     // /admin/policies removed — its raw key/value editor was confusing

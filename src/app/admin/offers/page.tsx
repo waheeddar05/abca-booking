@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { Gift, Plus, Pencil, Loader2, Trash2, Repeat, Tag } from 'lucide-react';
 import { AdminPageHeader } from '@/components/admin/AdminPageHeader';
-import { BookingModelGate } from '@/components/admin/BookingModelGate';
+import { useCenter } from '@/lib/center-context';
 
 interface OfferData {
   id: string;
@@ -15,6 +15,9 @@ interface OfferData {
   days: number[];
   machineIds: string[];
   pitchTypes: string[];
+  /** RESOURCE_BASED targeting axes (Toplay et al.). */
+  machineRowIds?: string[];
+  categories?: string[];
   discountType: 'PERCENTAGE' | 'FIXED';
   discountValue: number;
   isActive: boolean;
@@ -31,10 +34,29 @@ interface RecurringDiscountRule {
   slotEndTime: string;
   machineIds: string[];
   pitchTypes: string[];
+  /** RESOURCE_BASED targeting axes (Toplay et al.). */
+  machineRowIds?: string[];
+  categories?: string[];
   oneSlotDiscount: number;
   twoSlotDiscount: number;
   appliesTo: 'ALL' | 'SPECIAL' | 'NON_SPECIAL';
 }
+
+interface CenterMachineLite {
+  id: string;
+  name: string;
+  shortName?: string | null;
+  isActive: boolean;
+}
+
+const RESOURCE_CATEGORY_OPTIONS = [
+  { id: 'MACHINE', label: 'Bowling Machine' },
+  { id: 'SIDEARM', label: 'Sidearm' },
+  { id: 'COACHING', label: 'Personal Coaching' },
+  { id: 'NET', label: 'Cricket Nets' },
+  { id: 'FULL_COURT', label: 'Full Indoor Court' },
+  { id: 'CORPORATE_BATCH', label: 'Corporate Batch' },
+];
 
 const MACHINE_OPTIONS = [
   { id: 'GRAVITY', label: 'Gravity' },
@@ -77,6 +99,8 @@ const emptyPromoForm = {
   days: [] as number[],
   machineIds: [] as string[],
   pitchTypes: [] as string[],
+  machineRowIds: [] as string[],
+  categories: [] as string[],
   discountType: 'PERCENTAGE' as 'PERCENTAGE' | 'FIXED',
   discountValue: 10,
   appliesTo: 'ALL' as 'ALL' | 'SPECIAL' | 'NON_SPECIAL',
@@ -88,6 +112,8 @@ const emptyRecurringForm = {
   slotEndTime: '08:30',
   machineIds: [] as string[],
   pitchTypes: [] as string[],
+  machineRowIds: [] as string[],
+  categories: [] as string[],
   oneSlotDiscount: '' as string,
   twoSlotDiscount: '' as string,
   enabled: true,
@@ -141,10 +167,43 @@ function DayChipSelect({ selected, onChange }: { selected: number[]; onChange: (
 }
 
 // ─── Main Page ─────────────────────────────────────────────────────
-// MACHINE_PITCH-only — Zod validation hardcodes the legacy machine
-// enum, and UI exposes pitch types only valid for ABCA. RESOURCE_BASED
-// centers see the gate notice via the wrapper.
-function AdminOffersLegacy() {
+// Center-aware. ABCA-style centers see the legacy machine + pitch
+// chips; RESOURCE_BASED centers (Toplay) see machine row + booking
+// category chips instead. Both panels can stack on a single offer if
+// the admin authors them at a super-admin context.
+export default function AdminOffers() {
+  const { currentCenter } = useCenter();
+  const bookingModel: 'MACHINE_PITCH' | 'RESOURCE_BASED' =
+    currentCenter?.bookingModel ?? 'MACHINE_PITCH';
+  const isResourceBased = bookingModel === 'RESOURCE_BASED';
+
+  // Center machines are needed for the RESOURCE_BASED pickers. Empty
+  // for ABCA — the legacy 4-machine list is hardcoded.
+  const [centerMachines, setCenterMachines] = useState<CenterMachineLite[]>([]);
+  useEffect(() => {
+    if (!currentCenter) return;
+    let cancelled = false;
+    fetch(`/api/centers/${currentCenter.id}/machines`)
+      .then((r) => (r.ok ? r.json() : []))
+      .then((rows: CenterMachineLite[]) => {
+        if (cancelled) return;
+        setCenterMachines(Array.isArray(rows) ? rows.filter((m) => m.isActive) : []);
+      })
+      .catch(() => setCenterMachines([]));
+    return () => {
+      cancelled = true;
+    };
+  }, [currentCenter?.id]);
+
+  return <AdminOffersLegacy isResourceBased={isResourceBased} centerMachines={centerMachines} />;
+}
+
+interface AdminOffersInjected {
+  isResourceBased: boolean;
+  centerMachines: CenterMachineLite[];
+}
+
+function AdminOffersLegacy({ isResourceBased, centerMachines }: AdminOffersInjected) {
   const [offers, setOffers] = useState<OfferData[]>([]);
   const [recurringRules, setRecurringRules] = useState<RecurringDiscountRule[]>([]);
   const [loading, setLoading] = useState(true);
@@ -249,6 +308,8 @@ function AdminOffersLegacy() {
       days: offer.days,
       machineIds: offer.machineIds || [],
       pitchTypes: offer.pitchTypes || [],
+      machineRowIds: offer.machineRowIds || [],
+      categories: offer.categories || [],
       discountType: offer.discountType,
       discountValue: offer.discountValue,
       appliesTo: offer.appliesTo || 'ALL',
@@ -294,6 +355,10 @@ function AdminOffersLegacy() {
         slotEndTime: recurringForm.slotEndTime,
         machineIds: recurringForm.machineIds,
         pitchTypes: recurringForm.pitchTypes,
+        // RESOURCE_BASED targeting axes — passed through unconditionally
+        // so a stray axis on an ABCA center is just ignored by the API.
+        machineRowIds: recurringForm.machineRowIds,
+        categories: recurringForm.categories,
         oneSlotDiscount: Number(recurringForm.oneSlotDiscount) || 0,
         twoSlotDiscount: Number(recurringForm.twoSlotDiscount) || 0,
         enabled: recurringForm.enabled,
@@ -337,6 +402,8 @@ function AdminOffersLegacy() {
       slotEndTime: rule.slotEndTime,
       machineIds: rule.machineIds || [],
       pitchTypes: rule.pitchTypes || [],
+      machineRowIds: rule.machineRowIds || [],
+      categories: rule.categories || [],
       oneSlotDiscount: String(rule.oneSlotDiscount || ''),
       twoSlotDiscount: String(rule.twoSlotDiscount || ''),
       enabled: rule.enabled,
@@ -425,10 +492,34 @@ function AdminOffersLegacy() {
             className={inputClass} />
         </div>
       </div>
-      <ChipSelect label="Machines" hint="(empty = all)" options={MACHINE_OPTIONS} selected={promoForm.machineIds}
-        onChange={v => setPromoForm({ ...promoForm, machineIds: v })} />
-      <ChipSelect label="Pitch Types" hint="(empty = all)" options={PITCH_TYPES} selected={promoForm.pitchTypes}
-        onChange={v => setPromoForm({ ...promoForm, pitchTypes: v })} />
+      {!isResourceBased && (
+        <>
+          <ChipSelect label="Machines" hint="(empty = all)" options={MACHINE_OPTIONS} selected={promoForm.machineIds}
+            onChange={v => setPromoForm({ ...promoForm, machineIds: v })} />
+          <ChipSelect label="Pitch Types" hint="(empty = all)" options={PITCH_TYPES} selected={promoForm.pitchTypes}
+            onChange={v => setPromoForm({ ...promoForm, pitchTypes: v })} />
+        </>
+      )}
+      {isResourceBased && (
+        <>
+          <ChipSelect
+            label="Booking Categories"
+            hint="(empty = all categories)"
+            options={RESOURCE_CATEGORY_OPTIONS}
+            selected={promoForm.categories}
+            onChange={(v) => setPromoForm({ ...promoForm, categories: v })}
+          />
+          {centerMachines.length > 0 && (
+            <ChipSelect
+              label="Machines"
+              hint="(empty = all machines at this center)"
+              options={centerMachines.map((m) => ({ id: m.id, label: m.shortName ?? m.name }))}
+              selected={promoForm.machineRowIds}
+              onChange={(v) => setPromoForm({ ...promoForm, machineRowIds: v })}
+            />
+          )}
+        </>
+      )}
       <DayChipSelect selected={promoForm.days} onChange={v => setPromoForm({ ...promoForm, days: v })} />
       <div>
         <label className="block text-[11px] font-medium text-slate-400 mb-1">Applies To</label>
@@ -475,10 +566,34 @@ function AdminOffersLegacy() {
             className={inputClass} />
         </div>
       </div>
-      <ChipSelect label="Machines" hint="(empty = all)" options={MACHINE_OPTIONS} selected={recurringForm.machineIds}
-        onChange={v => setRecurringForm({ ...recurringForm, machineIds: v })} />
-      <ChipSelect label="Pitch Types" hint="(empty = all)" options={PITCH_TYPES} selected={recurringForm.pitchTypes}
-        onChange={v => setRecurringForm({ ...recurringForm, pitchTypes: v })} />
+      {!isResourceBased && (
+        <>
+          <ChipSelect label="Machines" hint="(empty = all)" options={MACHINE_OPTIONS} selected={recurringForm.machineIds}
+            onChange={v => setRecurringForm({ ...recurringForm, machineIds: v })} />
+          <ChipSelect label="Pitch Types" hint="(empty = all)" options={PITCH_TYPES} selected={recurringForm.pitchTypes}
+            onChange={v => setRecurringForm({ ...recurringForm, pitchTypes: v })} />
+        </>
+      )}
+      {isResourceBased && (
+        <>
+          <ChipSelect
+            label="Booking Categories"
+            hint="(empty = all categories)"
+            options={RESOURCE_CATEGORY_OPTIONS}
+            selected={recurringForm.categories}
+            onChange={(v) => setRecurringForm({ ...recurringForm, categories: v })}
+          />
+          {centerMachines.length > 0 && (
+            <ChipSelect
+              label="Machines"
+              hint="(empty = all machines at this center)"
+              options={centerMachines.map((m) => ({ id: m.id, label: m.shortName ?? m.name }))}
+              selected={recurringForm.machineRowIds}
+              onChange={(v) => setRecurringForm({ ...recurringForm, machineRowIds: v })}
+            />
+          )}
+        </>
+      )}
       <div>
         <label className="block text-[11px] font-medium text-slate-400 mb-1">Applies To</label>
         <select value={recurringForm.appliesTo}
@@ -747,13 +862,3 @@ function AdminOffersLegacy() {
   );
 }
 
-export default function AdminOffersPage() {
-  return (
-    <BookingModelGate
-      allow={['MACHINE_PITCH']}
-      surfaceLabel="Promotional offers"
-    >
-      <AdminOffersLegacy />
-    </BookingModelGate>
-  );
-}

@@ -1,6 +1,6 @@
 import { prisma } from '@/lib/prisma';
 import { timeToMinutes } from '@/lib/pricing';
-import { type MachineId, type PitchType } from '@prisma/client';
+import { type MachineId, type PitchType, type BookingCategory } from '@prisma/client';
 
 interface PromoResult {
   offerId: string;
@@ -13,6 +13,16 @@ interface PromoResult {
 /**
  * Get ALL applicable promotional discounts for a given booking slot.
  * Returns all matching offers so the stacking logic can decide what to apply.
+ *
+ * Targeting rules — for an offer to apply, every non-empty axis on the
+ * offer must match the booking's corresponding value. Empty arrays =
+ * "no filter on that axis" (offer applies regardless).
+ *
+ *   Legacy / ABCA: machineIds[] (MachineId enum), pitchTypes[]
+ *   RESOURCE_BASED: machineRowIds[] (Machine.id), categories[] (BookingCategory)
+ *
+ * Both axes can be set on a single offer; the engine evaluates each
+ * against the corresponding booking field independently.
  */
 export async function getAllApplicablePromoDiscounts(
   date: Date,
@@ -20,10 +30,15 @@ export async function getAllApplicablePromoDiscounts(
   machineId?: string | null,
   pitchType?: string | null,
   isSpecialUser?: boolean,
+  // RESOURCE_BASED context — pass these from book-resource so offers
+  // targeting Machine row + BookingCategory can apply at Toplay.
+  machineRowId?: string | null,
+  category?: BookingCategory | null,
+  centerId?: string | null,
 ): Promise<PromoResult[]> {
   try {
     const offers = await prisma.promotionalOffer.findMany({
-      where: { isActive: true },
+      where: { isActive: true, ...(centerId ? { centerId } : {}) },
     });
 
     if (offers.length === 0) {
@@ -77,14 +92,32 @@ export async function getAllApplicablePromoDiscounts(
         }
       }
 
-      // Check machine IDs
+      // Check machine IDs (legacy enum) — MACHINE_PITCH centers only
       if (offer.machineIds && offer.machineIds.length > 0 && machineId && !offer.machineIds.includes(machineId as MachineId)) {
         return false;
       }
 
-      // Check pitch types
+      // Check pitch types (legacy enum)
       if (offer.pitchTypes && offer.pitchTypes.length > 0 && pitchType && !offer.pitchTypes.includes(pitchType as PitchType)) {
         return false;
+      }
+
+      // Check Machine row IDs (RESOURCE_BASED). If the offer targets a
+      // specific machine row but the booking didn't supply one (e.g.
+      // SIDEARM/COACHING bookings have no machineRowId), the offer
+      // doesn't apply — the admin meant a machine-specific offer.
+      if (offer.machineRowIds && offer.machineRowIds.length > 0) {
+        if (!machineRowId || !offer.machineRowIds.includes(machineRowId)) {
+          return false;
+        }
+      }
+
+      // Check BookingCategory (RESOURCE_BASED). Same logic — non-empty
+      // category list on the offer requires a category on the booking.
+      if (offer.categories && offer.categories.length > 0) {
+        if (!category || !offer.categories.includes(category as BookingCategory)) {
+          return false;
+        }
       }
 
       return true;

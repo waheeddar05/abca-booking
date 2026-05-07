@@ -50,7 +50,20 @@ export async function POST(req: NextRequest) {
     }
 
     const body = await req.json();
-    const { days, slotStartTime, slotEndTime, machineIds, pitchTypes, oneSlotDiscount, twoSlotDiscount, enabled, appliesTo } = body;
+    const {
+      days,
+      slotStartTime,
+      slotEndTime,
+      machineIds,
+      pitchTypes,
+      // RESOURCE_BASED targeting (Toplay et al.).
+      machineRowIds,
+      categories,
+      oneSlotDiscount,
+      twoSlotDiscount,
+      enabled,
+      appliesTo,
+    } = body;
 
     // Validation
     if (!Array.isArray(days) || days.length === 0) {
@@ -91,6 +104,25 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'No center selected' }, { status: 400 });
     }
 
+    // Validate RESOURCE_BASED axes against this center.
+    let validatedMachineRowIds: string[] = [];
+    if (Array.isArray(machineRowIds) && machineRowIds.length > 0) {
+      const rows = await prisma.machine.findMany({
+        where: {
+          id: { in: (machineRowIds as unknown[]).filter((x) => typeof x === 'string') as string[] },
+          centerId: center.id,
+        },
+        select: { id: true },
+      });
+      validatedMachineRowIds = rows.map((r) => r.id);
+    }
+    const validBookingCategories = ['MACHINE', 'SIDEARM', 'COACHING', 'NET', 'FULL_COURT', 'CORPORATE_BATCH'];
+    const validatedCategories: string[] = Array.isArray(categories)
+      ? (categories as unknown[]).filter(
+          (c): c is string => typeof c === 'string' && validBookingCategories.includes(c),
+        )
+      : [];
+
     const rule = await prisma.recurringSlotDiscount.create({
       data: {
         centerId: center.id,
@@ -99,6 +131,8 @@ export async function POST(req: NextRequest) {
         slotEndTime,
         machineIds: (machineIds || []) as any[],
         pitchTypes: (pitchTypes || []) as any[],
+        machineRowIds: validatedMachineRowIds,
+        categories: validatedCategories as any,
         oneSlotDiscount: Number(oneSlotDiscount),
         twoSlotDiscount: Number(twoSlotDiscount),
         enabled: enabled !== false,

@@ -11,6 +11,7 @@ import {
   type BookingPlan,
 } from '@/lib/resource-booking';
 import { getResourceSlotPrice } from '@/lib/resource-pricing';
+import { getAllApplicablePromoDiscounts } from '@/lib/promotionalOffers';
 import {
   effectivePitchTypes,
   effectiveBallTypes,
@@ -235,7 +236,7 @@ export async function POST(req: NextRequest) {
               // serializable + retry loop is sufficient.)
               const assignment = await planBooking(plan, { audience });
 
-              const price = isFreeBooking
+              const basePrice = isFreeBooking
                 ? 0
                 : await getResourceSlotPrice({
                     category: plan.category as Exclude<BookingCategory, never>,
@@ -248,6 +249,47 @@ export async function POST(req: NextRequest) {
                     startTime: plan.startTime,
                     centerId: center.id,
                   });
+
+              // Apply the best applicable promotional offer. Resource-
+              // based bookings can target offers via category +
+              // machineRowId in addition to the legacy enum axes.
+              let finalPrice = basePrice;
+              let discountAmount = 0;
+              let appliedOffer: { offerId: string; name: string; discountType: 'PERCENTAGE' | 'FIXED'; discountValue: number } | null = null;
+              if (basePrice > 0) {
+                const allPromos = await getAllApplicablePromoDiscounts(
+                  plan.date,
+                  plan.startTime,
+                  null, // legacy machineId not used for resource bookings
+                  body.pitchType ?? null,
+                  audience === 'SPECIAL',
+                  assignment.machineId,
+                  plan.category,
+                  center.id,
+                );
+                if (allPromos.length > 0) {
+                  // Pick the offer that produces the largest absolute
+                  // discount on this booking.
+                  const computed = allPromos.map((p) => {
+                    const d = p.discountType === 'PERCENTAGE'
+                      ? Math.min(basePrice, Math.floor((basePrice * p.discountValue) / 100))
+                      : Math.min(basePrice, Math.floor(p.discountValue));
+                    return { promo: p, d };
+                  });
+                  computed.sort((a, b) => b.d - a.d);
+                  const best = computed[0];
+                  if (best && best.d > 0) {
+                    discountAmount = best.d;
+                    finalPrice = basePrice - best.d;
+                    appliedOffer = {
+                      offerId: best.promo.offerId,
+                      name: best.promo.name,
+                      discountType: best.promo.discountType,
+                      discountValue: best.promo.discountValue,
+                    };
+                  }
+                }
+              }
 
               const booking = await tx.booking.create({
                 data: {
@@ -274,8 +316,13 @@ export async function POST(req: NextRequest) {
                   assignedStaffId: assignment.staffId,
                   isSuperAdminBooking: !!user.isSuperAdmin,
                   createdBy: user.name || user.id,
-                  price: isFreeBooking ? 0 : price,
-                  originalPrice: price,
+                  price: finalPrice,
+                  originalPrice: basePrice,
+                  discountAmount: discountAmount > 0 ? discountAmount : null,
+                  // discountType uses the same enum as the offer (PERCENTAGE/
+                  // FIXED) so reports can render either, mirroring the
+                  // legacy MACHINE_PITCH booking flow.
+                  discountType: appliedOffer ? appliedOffer.discountType : null,
                   paymentMethod: body.paymentMethod ?? null,
                   paymentStatus: isFreeBooking ? 'PAID' : (body.paymentMethod === 'CASH' ? 'PENDING' : 'UNPAID'),
                 },

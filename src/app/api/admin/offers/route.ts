@@ -6,7 +6,12 @@ import { z } from 'zod';
 import { getAuthenticatedUser } from '@/lib/auth';
 import { resolveCurrentCenter } from '@/lib/centers';
 
-// Validation schema
+// Validation schema. The legacy machineIds + pitchTypes enums target
+// ABCA-style centers; the new machineRowIds + categories arrays
+// target RESOURCE_BASED bookings. Both axes can co-exist on a single
+// offer (same row, different fields used by different engines), so an
+// admin can author one offer that targets both kinds of centers if
+// they happen to share a /admin/offers page (super-admin context).
 const CreateOfferSchema = z.object({
   name: z.string().min(1, 'Name is required'),
   startDate: z.string().refine(d => !isNaN(Date.parse(d)), 'Invalid start date'),
@@ -16,6 +21,9 @@ const CreateOfferSchema = z.object({
   days: z.array(z.number().min(0).max(6)).optional().default([]),
   machineIds: z.array(z.enum(['GRAVITY', 'YANTRA', 'LEVERAGE_INDOOR', 'LEVERAGE_OUTDOOR'])).optional().default([]),
   pitchTypes: z.array(z.enum(['ASTRO', 'CEMENT', 'NATURAL'])).optional().default([]),
+  // RESOURCE_BASED targeting (Toplay et al.).
+  machineRowIds: z.array(z.string()).optional().default([]),
+  categories: z.array(z.enum(['MACHINE', 'SIDEARM', 'COACHING', 'NET', 'FULL_COURT', 'CORPORATE_BATCH'])).optional().default([]),
   discountType: z.enum(['PERCENTAGE', 'FIXED']),
   discountValue: z.number().positive('Discount value must be positive'),
   isActive: z.boolean().optional().default(true),
@@ -35,6 +43,8 @@ const OFFER_SELECT = {
   days: true,
   machineIds: true,
   pitchTypes: true,
+  machineRowIds: true,
+  categories: true,
   discountType: true,
   discountValue: true,
   isActive: true,
@@ -115,6 +125,17 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    // Validate that machineRowIds reference real machines at this
+    // center. Strip any that don't (super-admin authoring tools etc).
+    let validatedMachineRowIds: string[] = [];
+    if (parsed.machineRowIds && parsed.machineRowIds.length > 0) {
+      const rows = await prisma.machine.findMany({
+        where: { id: { in: parsed.machineRowIds }, centerId: center.id },
+        select: { id: true },
+      });
+      validatedMachineRowIds = rows.map((r) => r.id);
+    }
+
     const offer = await prisma.promotionalOffer.create({
       data: {
         centerId: center.id,
@@ -126,6 +147,8 @@ export async function POST(req: NextRequest) {
         days: parsed.days || [],
         machineIds: (parsed.machineIds || []) as MachineId[],
         pitchTypes: (parsed.pitchTypes || []) as PitchType[],
+        machineRowIds: validatedMachineRowIds,
+        categories: (parsed.categories || []) as never,
         discountType: parsed.discountType as DiscountType,
         discountValue: parsed.discountValue,
         isActive: parsed.isActive ?? true,
