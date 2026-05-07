@@ -810,126 +810,124 @@ export default function ConfigurationPage() {
       </AdminCard>
       )}
 
-      {/* Slot timing — same TIME_SLAB_CONFIG policy as ABCA. Resource
-          centers also need this since pricing slabs (morning/evening)
-          are derived from it. The full ABCA Machine Configuration card
-          is still hidden for RESOURCE_BASED (it's enum-shaped); we
-          surface just the slab editor in its own card so Toplay admins
-          can configure timing without dropping back to /admin/policies. */}
+      {/* Resource-based "Machine Configuration" card. Mirrors the
+          single ABCA card on main: same Zap icon, same title, same
+          structure (Slot Timing → Slot Pricing). Per-Machine pitch
+          and ball compatibility live under Center → Machines because
+          it's per row, not per category. Booking categories stays as
+          its own card below — it controls which CATEGORY tabs the
+          user-facing slot picker exposes, which is a separate concern
+          from pricing. */}
       {currentCenter?.bookingModel === 'RESOURCE_BASED' && !machineLoading && (
         <AdminCard
-          title="Slot Timing Configuration"
+          title="Machine Configuration"
           icon={<Zap className="w-4 h-4 text-accent" />}
           collapsible
           defaultOpen={false}
         >
-          <p className="text-[11px] text-slate-500 mb-3">
-            Defines morning vs. evening slabs. Pricing rows below use these
-            boundaries to pick which rate applies for a slot.
-          </p>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div className="bg-white/[0.02] rounded-xl p-3 border border-white/[0.05]">
-              <p className="text-[11px] font-bold text-slate-300 mb-2 flex items-center gap-1.5">
-                <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
-                Morning Slab
-              </p>
-              <div className="grid grid-cols-2 gap-2">
-                <div>
-                  <label className="block text-[10px] font-medium text-slate-400 mb-1">Start</label>
-                  <input
-                    type="time"
-                    value={machineConfig.timeSlabConfig.morning.start}
-                    onChange={(e) => updateTimeSlab('morning', 'start', e.target.value)}
-                    step="1800"
-                    className={inputClass}
-                  />
+          <div className="space-y-4">
+            {/* ─── Slot Timing Configuration ────────── */}
+            <div className="bg-white/[0.02] rounded-xl border border-white/[0.05] p-4">
+              <h3 className="text-xs font-bold text-slate-300 uppercase tracking-wider mb-3">
+                Slot Timing Configuration
+              </h3>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="bg-white/[0.02] rounded-xl p-3 border border-white/[0.05]">
+                  <p className="text-[11px] font-bold text-slate-300 mb-2 flex items-center gap-1.5">
+                    <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
+                    Morning Slab
+                  </p>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="block text-[10px] font-medium text-slate-400 mb-1">Start</label>
+                      <input
+                        type="time"
+                        value={machineConfig.timeSlabConfig.morning.start}
+                        onChange={(e) => updateTimeSlab('morning', 'start', e.target.value)}
+                        step="1800"
+                        className={inputClass}
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-medium text-slate-400 mb-1">End</label>
+                      <input
+                        type="time"
+                        value={machineConfig.timeSlabConfig.morning.end}
+                        onChange={(e) => updateTimeSlab('morning', 'end', e.target.value)}
+                        step="1800"
+                        className={inputClass}
+                      />
+                    </div>
+                  </div>
                 </div>
-                <div>
-                  <label className="block text-[10px] font-medium text-slate-400 mb-1">End</label>
-                  <input
-                    type="time"
-                    value={machineConfig.timeSlabConfig.morning.end}
-                    onChange={(e) => updateTimeSlab('morning', 'end', e.target.value)}
-                    step="1800"
-                    className={inputClass}
-                  />
+                <div className="bg-white/[0.02] rounded-xl p-3 border border-white/[0.05]">
+                  <p className="text-[11px] font-bold text-slate-300 mb-2 flex items-center gap-1.5">
+                    <span className="w-1.5 h-1.5 rounded-full bg-indigo-400" />
+                    Evening Slab
+                  </p>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="block text-[10px] font-medium text-slate-400 mb-1">Start</label>
+                      <input
+                        type="time"
+                        value={machineConfig.timeSlabConfig.evening.start}
+                        onChange={(e) => updateTimeSlab('evening', 'start', e.target.value)}
+                        step="1800"
+                        className={inputClass}
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-medium text-slate-400 mb-1">End</label>
+                      <input
+                        type="time"
+                        value={machineConfig.timeSlabConfig.evening.end}
+                        onChange={(e) => updateTimeSlab('evening', 'end', e.target.value)}
+                        step="1800"
+                        className={inputClass}
+                      />
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>
-            <div className="bg-white/[0.02] rounded-xl p-3 border border-white/[0.05]">
-              <p className="text-[11px] font-bold text-slate-300 mb-2 flex items-center gap-1.5">
-                <span className="w-1.5 h-1.5 rounded-full bg-indigo-400" />
-                Evening Slab
+
+            {/* ─── Slot Pricing Configuration ───────── */}
+            <div className="bg-white/[0.02] rounded-xl border border-white/[0.05] p-4">
+              <h3 className="text-xs font-bold text-slate-300 uppercase tracking-wider mb-3">
+                Slot Pricing Configuration
+              </h3>
+              <p className="text-[11px] text-slate-500 leading-relaxed mb-3">
+                Per-Machine pricing with single + consecutive rates per
+                pitch and ball type. Per-machine pitch / ball
+                compatibility live under{' '}
+                <a
+                  href={`/admin/centers/${currentCenter.id}`}
+                  className="text-accent underline hover:text-accent/80"
+                >
+                  Center → Machines
+                </a>
+                .
               </p>
-              <div className="grid grid-cols-2 gap-2">
-                <div>
-                  <label className="block text-[10px] font-medium text-slate-400 mb-1">Start</label>
-                  <input
-                    type="time"
-                    value={machineConfig.timeSlabConfig.evening.start}
-                    onChange={(e) => updateTimeSlab('evening', 'start', e.target.value)}
-                    step="1800"
-                    className={inputClass}
-                  />
-                </div>
-                <div>
-                  <label className="block text-[10px] font-medium text-slate-400 mb-1">End</label>
-                  <input
-                    type="time"
-                    value={machineConfig.timeSlabConfig.evening.end}
-                    onChange={(e) => updateTimeSlab('evening', 'end', e.target.value)}
-                    step="1800"
-                    className={inputClass}
-                  />
-                </div>
-              </div>
+              <ResourcePricingEditor
+                scope={scope}
+                centerLabel={currentCenter.shortName ?? currentCenter.name}
+              />
             </div>
           </div>
         </AdminCard>
       )}
 
-      {/* Resource-based pricing editor — visible for RESOURCE_BASED
-          centers and whenever the super-admin is editing global defaults
-          (since global is the universe). Writes go to the active scope's
-          RESOURCE_PRICING_CONFIG policy. Per-machine instance config
-          (pitch/ball compatibility, default lane, photo) still lives on
-          Center → Machines because it's per row, not per category. */}
+      {/* Booking categories — controls which tabs the user-facing slot
+          picker exposes (Bowling Machine / Sidearm / Coaching / …).
+          Separate card on purpose; this isn't a pricing concept. */}
       {currentCenter?.bookingModel === 'RESOURCE_BASED' && (
         <AdminCard
           title="Booking categories"
           icon={<Ticket className="w-4 h-4 text-accent" />}
           collapsible
-          defaultOpen={true}
+          defaultOpen={false}
         >
           <EnabledCategoriesEditor
-            scope={scope}
-            centerLabel={currentCenter.shortName ?? currentCenter.name}
-          />
-        </AdminCard>
-      )}
-
-      {currentCenter?.bookingModel === 'RESOURCE_BASED' && (
-        <AdminCard
-          title="Resource pricing"
-          icon={<Zap className="w-4 h-4 text-accent" />}
-          collapsible
-          defaultOpen={true}
-        >
-          <div className="text-[11px] text-slate-500 leading-relaxed mb-3">
-            Per-category rates (₹/slot) for Bowling Machine, Sidearm,
-            Coaching, Net Only, Full Court, and Corporate Batch. Add per-
-            machine-type overrides below to charge a premium for a
-            specific machine model (e.g. Yantra). Per-machine pitch and
-            ball compatibility live under{' '}
-            <a
-              href={`/admin/centers/${currentCenter.id}`}
-              className="text-accent underline hover:text-accent/80"
-            >
-              Center → Machines
-            </a>
-            .
-          </div>
-          <ResourcePricingEditor
             scope={scope}
             centerLabel={currentCenter.shortName ?? currentCenter.name}
           />
