@@ -1,0 +1,45 @@
+src/app/api/admin/recurring-discounts/route.ts
+  s_e0175fb4b4f942::t_805d0fd3cc9b4e 107-125,134-135
+  s_e0175fb4b4f942::t_55f87600af5da3 53-66
+src/lib/promotionalOffers.ts
+  s_e0175fb4b4f942::t_d022b401f24c8b 3,16-25,33-37
+  s_e0175fb4b4f942::t_1569f1679e4885 41
+  s_e0175fb4b4f942::t_5511ac5ec83e27 95,100,105-120
+src/app/api/admin/offers/route.ts
+  s_e0175fb4b4f942::t_ea47e6805e59d0 128-138,150-151
+  s_e0175fb4b4f942::t_7e157866bc0af1 9-14,24-26,46-47
+src/app/admin/layout.tsx
+  s_e0175fb4b4f942::t_8b7b405ab1df96 45
+src/components/admin/AdminMobileNav.tsx
+  s_e0175fb4b4f942::t_dc8a6be374c0dc 25
+src/app/admin/offers/page.tsx
+  s_e0175fb4b4f942::t_8fee6d45073dda 6
+  s_e0175fb4b4f942::t_2a5f3a988d7ca4 102-103,115-116
+  s_e0175fb4b4f942::t_28ed262c40037f 170-206
+  s_e0175fb4b4f942::t_5f65cab5fae526 495-522
+  s_e0175fb4b4f942::t_46499e225c81ee 358-361
+  s_e0175fb4b4f942::t_141e2f3b67fa1d 405-406
+  s_e0175fb4b4f942::t_333c85be796d63 569-596
+  s_e0175fb4b4f942::t_d2a71ccf310893 18-20,37-39,45-59
+  s_e0175fb4b4f942::t_578a98164eb014 311-312
+src/app/api/slots/book-resource/route.ts
+  s_e0175fb4b4f942::t_c1ecb329f46c56 239,253-293,319-321
+  s_e0175fb4b4f942::t_44640326edc3f3 322-325
+  s_e0175fb4b4f942::t_b56cfb92b10e69 14
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.1",
+  "base_commit_sha": "22f92247d88deb8e88b6e4c06eff515d48038eb6",
+  "prompts": {},
+  "sessions": {
+    "s_e0175fb4b4f942": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "f3864c65-ac36-4572-a64e-c1d488c0cbdf",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Waheed <waheeddar8@gmail.com>"
+    }
+  }
+}
