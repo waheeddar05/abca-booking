@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { Gift, Plus, Pencil, Loader2, Trash2, Repeat, Tag } from 'lucide-react';
 import { AdminPageHeader } from '@/components/admin/AdminPageHeader';
+import { BookingModelGate } from '@/components/admin/BookingModelGate';
 
 interface OfferData {
   id: string;
@@ -140,7 +141,10 @@ function DayChipSelect({ selected, onChange }: { selected: number[]; onChange: (
 }
 
 // ─── Main Page ─────────────────────────────────────────────────────
-export default function AdminOffers() {
+// MACHINE_PITCH-only — Zod validation hardcodes the legacy machine
+// enum, and UI exposes pitch types only valid for ABCA. RESOURCE_BASED
+// centers see the gate notice via the wrapper.
+function AdminOffersLegacy() {
   const [offers, setOffers] = useState<OfferData[]>([]);
   const [recurringRules, setRecurringRules] = useState<RecurringDiscountRule[]>([]);
   const [loading, setLoading] = useState(true);
@@ -740,5 +744,16 @@ export default function AdminOffers() {
         )}
       </section>
     </div>
+  );
+}
+
+export default function AdminOffersPage() {
+  return (
+    <BookingModelGate
+      allow={['MACHINE_PITCH']}
+      surfaceLabel="Promotional offers"
+    >
+      <AdminOffersLegacy />
+    </BookingModelGate>
   );
 }

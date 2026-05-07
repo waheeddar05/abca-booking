@@ -793,14 +793,18 @@ function ChipSelector({
   onChange: (v: string | null) => void;
 }) {
   // Default-to-first whenever the current value is missing from the
-  // list of options — covers fresh mount, option-set change, etc. The
-  // user can still click another chip to override.
+  // list of options — covers fresh mount, option-set change, AND a
+  // parent-driven reset to null (e.g. switching machines wipes
+  // pitch/ball; we still want the new selector to land on its first
+  // chip). Listing `value` in the deps is what makes the reset case
+  // refire — once a valid value is set, `has` is true and onChange
+  // isn't called again, so no loop.
   useEffect(() => {
     if (options.length === 0) return;
     const has = value && options.some((o) => o.id === value);
     if (!has) onChange(options[0].id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [options.map((o) => o.id).join(',')]);
+  }, [options.map((o) => o.id).join(','), value]);
 
   // Nothing to choose between — hide the row.
   if (options.length <= 1) return null;

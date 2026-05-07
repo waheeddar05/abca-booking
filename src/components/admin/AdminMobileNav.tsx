@@ -2,23 +2,33 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { useSession } from 'next-auth/react';
 import { LayoutDashboard, CalendarCheck, Clock, Users, UserCog, SlidersHorizontal, Package, Tag } from 'lucide-react';
+import { useCenter } from '@/lib/center-context';
+
+type BookingModel = 'MACHINE_PITCH' | 'RESOURCE_BASED';
 
 export function AdminMobileNav() {
     const pathname = usePathname();
-    const { data: session } = useSession();
+    const { currentCenter } = useCenter();
+    const currentModel: BookingModel | null = currentCenter?.bookingModel ?? null;
 
-    const tabs = [
+    // Same parity gating as the desktop sidebar: legacy ABCA-only forms
+    // hide on RESOURCE_BASED centers until their resource-aware versions
+    // ship in this branch.
+    const tabs: Array<{ href: string; label: string; icon: typeof LayoutDashboard; models?: BookingModel[] }> = [
         { href: '/admin', label: 'Home', icon: LayoutDashboard },
         { href: '/admin/bookings', label: 'Bookings', icon: CalendarCheck },
-        { href: '/admin/slots', label: 'Slots', icon: Clock },
+        { href: '/admin/slots', label: 'Slots', icon: Clock, models: ['MACHINE_PITCH'] },
         { href: '/admin/users', label: 'Users', icon: Users },
-        { href: '/admin/operators', label: 'Operators', icon: UserCog },
-        { href: '/admin/packages', label: 'Packages', icon: Package },
-        { href: '/admin/offers', label: 'Offers', icon: Tag },
+        { href: '/admin/operators', label: 'Operators', icon: UserCog, models: ['MACHINE_PITCH'] },
+        { href: '/admin/packages', label: 'Packages', icon: Package, models: ['MACHINE_PITCH'] },
+        { href: '/admin/offers', label: 'Offers', icon: Tag, models: ['MACHINE_PITCH'] },
         { href: '/admin/configuration', label: 'Settings', icon: SlidersHorizontal },
     ];
+
+    const visibleTabs = tabs.filter(
+        (t) => !t.models || currentModel == null || t.models.includes(currentModel),
+    );
 
     const isActive = (href: string) => {
         if (href === '/admin') return pathname === '/admin';
@@ -31,7 +41,7 @@ export function AdminMobileNav() {
         <nav className="fixed bottom-0 left-0 right-0 z-50 md:hidden">
             <div className="bg-[#0b1726]/95 backdrop-blur-xl border-t border-white/[0.08] pb-safe">
                 <div className="flex overflow-x-auto h-[60px] scrollbar-hide">
-                    {tabs.map((tab) => {
+                    {visibleTabs.map((tab) => {
                         const active = isActive(tab.href);
                         return (
                             <Link

@@ -12,6 +12,19 @@ interface MachineRevenueItem {
   _sum: { price: number };
 }
 
+interface RevenueBreakdown {
+  /** 'machine' for MACHINE_PITCH centers (legacy enum), 'category' for
+   *  RESOURCE_BASED (e.g. Toplay). Drives the chart's title and the
+   *  display labels. */
+  axis: 'machine' | 'category';
+  entries: Array<{
+    key: string;
+    machineId?: string;
+    category?: string;
+    _sum: { price: number };
+  }>;
+}
+
 interface OperatorSummaryItem {
   id: string;
   name: string | null;
@@ -29,6 +42,7 @@ interface Stats {
   packageRevenue: number;
   totalDiscount: number;
   machineRevenue: MachineRevenueItem[];
+  revenueBreakdown?: RevenueBreakdown;
   selfOperatedBookings: number;
   unassignedBookings: number;
   operatorSummary: OperatorSummaryItem[];
@@ -103,11 +117,44 @@ export default function AdminDashboard() {
     LEVERAGE_OUTDOOR: 'Tennis Out',
   };
 
-  const machineChartData = (stats?.machineRevenue || [])
-    .map(item => ({
-      name: CHART_SHORT_NAMES[item.machineId] || MACHINES[item.machineId as keyof typeof MACHINES]?.shortName || item.machineId,
-      revenue: item._sum.price || 0,
-    }))
+  // Friendlier labels for the resource-based BookingCategory enum.
+  const CATEGORY_LABELS: Record<string, string> = {
+    MACHINE: 'Bowling Machine',
+    SIDEARM: 'Sidearm',
+    COACHING: 'Personal Coaching',
+    NET: 'Cricket Nets',
+    FULL_COURT: 'Full Indoor Court',
+    CORPORATE_BATCH: 'Corporate Batch',
+  };
+
+  // Prefer the new `revenueBreakdown` shape — it knows whether to label
+  // the bars by machine (ABCA) or category (Toplay). Falls back to the
+  // legacy `machineRevenue` array for an older API response.
+  const breakdown: RevenueBreakdown =
+    stats?.revenueBreakdown ?? {
+      axis: 'machine',
+      entries: (stats?.machineRevenue ?? []).map((m) => ({
+        key: m.machineId,
+        machineId: m.machineId,
+        _sum: m._sum,
+      })),
+    };
+
+  const breakdownChartTitle =
+    breakdown.axis === 'category' ? 'Revenue by Category' : 'Revenue by Machine';
+
+  const breakdownChartData = breakdown.entries
+    .map((item) => {
+      const labelMap = breakdown.axis === 'category' ? CATEGORY_LABELS : CHART_SHORT_NAMES;
+      const fallback =
+        breakdown.axis === 'machine'
+          ? MACHINES[item.key as keyof typeof MACHINES]?.shortName ?? item.key
+          : item.key;
+      return {
+        name: labelMap[item.key] ?? fallback,
+        revenue: item._sum.price || 0,
+      };
+    })
     .sort((a, b) => b.revenue - a.revenue);
 
   const activeOperators = (stats?.operatorSummary || [])
@@ -206,13 +253,14 @@ export default function AdminDashboard() {
         </div>
       )}
 
-      {/* Machine-wise Revenue Chart */}
+      {/* Revenue breakdown — labelled per booking model: by machine
+          for ABCA-style centers, by category for resource-based. */}
       <div className="bg-white/[0.03] backdrop-blur-sm rounded-xl sm:rounded-2xl border border-white/[0.07] p-4">
-        <h2 className="text-sm font-semibold text-slate-400 mb-3 px-1">Revenue by Machine</h2>
-        {!loading && machineChartData.length > 0 ? (
+        <h2 className="text-sm font-semibold text-slate-400 mb-3 px-1">{breakdownChartTitle}</h2>
+        {!loading && breakdownChartData.length > 0 ? (
           <div className="h-64">
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={machineChartData} margin={{ top: 5, right: 10, left: 10, bottom: 5 }}>
+              <BarChart data={breakdownChartData} margin={{ top: 5, right: 10, left: 10, bottom: 5 }}>
                 <XAxis
                   dataKey="name"
                   tick={{ fill: '#cbd5e1', fontSize: 10, fontWeight: 500 }}
@@ -247,7 +295,7 @@ export default function AdminDashboard() {
             </ResponsiveContainer>
           </div>
         ) : !loading ? (
-          <p className="text-sm text-slate-500 text-center py-8">No machine revenue data available</p>
+          <p className="text-sm text-slate-500 text-center py-8">No revenue data available</p>
         ) : (
           <div className="h-64 flex items-center justify-center">
             <div className="w-6 h-6 border-2 border-accent/30 border-t-accent rounded-full animate-spin" />

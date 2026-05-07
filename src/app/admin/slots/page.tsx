@@ -1,5 +1,6 @@
 'use client';
 
+import { BookingModelGate } from '@/components/admin/BookingModelGate';
 import { useState, useEffect, useCallback } from 'react';
 import { format, addDays, parseISO, eachDayOfInterval, getDay } from 'date-fns';
 import {
@@ -66,7 +67,9 @@ const formatBlockTime = (iso: string | null) => {
 };
 
 // ─── Component ───────────────────────────────────────────
-export default function SlotManagement() {
+// MACHINE_PITCH-only legacy block-slot UI. RESOURCE_BASED centers see
+// the gate notice via the wrapper at the bottom of this file.
+function SlotManagementLegacy() {
   const [activeTab, setActiveTab] = useState<TabId>('block');
   const [message, setMessage] = useState({ text: '', type: '' });
 
@@ -900,5 +903,16 @@ export default function SlotManagement() {
         onCancel={() => setUnblockId(null)}
       />
     </div>
+  );
+}
+
+export default function SlotManagementPage() {
+  return (
+    <BookingModelGate
+      allow={['MACHINE_PITCH']}
+      surfaceLabel="Slot blocking"
+    >
+      <SlotManagementLegacy />
+    </BookingModelGate>
   );
 }

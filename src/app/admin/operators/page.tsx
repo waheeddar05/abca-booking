@@ -1,5 +1,6 @@
 'use client';
 
+import { BookingModelGate } from '@/components/admin/BookingModelGate';
 import { useState, useEffect } from 'react';
 import { useSession } from 'next-auth/react';
 import { Users, Loader2, Save, ChevronUp, ChevronDown, Check, Calendar, ListOrdered, Wrench, CalendarClock, Trash2, Plus } from 'lucide-react';
@@ -109,7 +110,11 @@ function OperatorNumberField({ label, value, onChange, placeholder, labelColor, 
 }
 
 // ─── Main Component ──────────────────────────────────────
-export default function AdminOperators() {
+// The legacy form below is hardcoded against the MACHINE_PITCH model
+// (4-machine enum). RESOURCE_BASED centers see a friendly "not yet
+// available" notice via the gate wrapper at the bottom of the file
+// while we build the resource-aware operators experience.
+function AdminOperatorsLegacy() {
   useSession();
   const toast = useToast();
 
@@ -986,5 +991,17 @@ export default function AdminOperators() {
         onCancel={() => setPendingOverrides(null)}
       />
     </div>
+  );
+}
+
+export default function AdminOperatorsPage() {
+  return (
+    <BookingModelGate
+      allow={['MACHINE_PITCH']}
+      surfaceLabel="Operator scheduling"
+      altLink={{ href: '/admin/centers', label: 'Manage staff via Centers → Members' }}
+    >
+      <AdminOperatorsLegacy />
+    </BookingModelGate>
   );
 }

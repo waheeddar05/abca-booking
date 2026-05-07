@@ -5,6 +5,7 @@ import { Package, Plus, Pencil, ToggleLeft, ToggleRight, Loader2, Users, BarChar
 import { NumberInputDialog } from '@/components/ui/NumberInputDialog';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { AdminPageHeader } from '@/components/admin/AdminPageHeader';
+import { BookingModelGate } from '@/components/admin/BookingModelGate';
 
 interface PackageData {
   id: string;
@@ -78,7 +79,10 @@ const emptyForm = {
   isActive: true,
 };
 
-export default function AdminPackages() {
+// MACHINE_PITCH-only — package model is shaped around the legacy
+// machine + ball + wicket triple. RESOURCE_BASED centers see the gate
+// notice via the wrapper at the bottom of this file.
+function AdminPackagesLegacy() {
   const [packages, setPackages] = useState<PackageData[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
@@ -1456,5 +1460,16 @@ export default function AdminPackages() {
         onCancel={() => setCancelPackageId(null)}
       />
     </div>
+  );
+}
+
+export default function AdminPackagesPage() {
+  return (
+    <BookingModelGate
+      allow={['MACHINE_PITCH']}
+      surfaceLabel="Packages"
+    >
+      <AdminPackagesLegacy />
+    </BookingModelGate>
   );
 }

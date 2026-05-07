@@ -51,7 +51,7 @@ export async function GET(req: NextRequest) {
       bookingRevenueValue,
       totalDiscountValue,
       packageRevenueValue,
-      machineRevenue,
+      revenueBreakdown,
       selfOperatedBookings,
       unassignedBookings,
       operatorSummary,
@@ -166,27 +166,89 @@ export async function GET(req: NextRequest) {
           return 0;
         }
       })(),
-      // Machine-wise revenue — uses the same per-booking Amount / Refund Amount
-      // logic as the bookings CSV export, grouped by machineId. No clamp.
+      // Revenue breakdown — same per-booking net (price - non-FAILED
+       // refunds; package = extraCharge + kitRental) as the CSV export.
+       //
+       // Axis depends on the center's booking model:
+       //  - MACHINE_PITCH: group by legacy `machineId` enum (ABCA shape).
+       //  - RESOURCE_BASED: group by `category` (MACHINE / SIDEARM /
+       //    COACHING / FULL_COURT / NET / CORPORATE_BATCH). RESOURCE_BASED
+       //    bookings rarely set `machineId`, so machine-grouping here was
+       //    returning an empty chart at Toplay.
+       //
+       // For the platform-wide super-admin view (no centerId), we keep
+       // the legacy `machineId` axis since that's the only field shared
+       // across both models — RESOURCE_BASED rows just don't contribute.
       (async () => {
         try {
+          let groupBy: 'machineId' | 'category' = 'machineId';
+          if (centerId) {
+            const c = await prisma.center.findUnique({
+              where: { id: centerId },
+              select: { bookingModel: true },
+            });
+            if (c?.bookingModel === 'RESOURCE_BASED') groupBy = 'category';
+          }
+
+          if (groupBy === 'machineId') {
+            const bookings = await prisma.booking.findMany({
+              where: {
+                ...centerFilter,
+                machineId: { not: null },
+                ...(hasDateFilter ? { date: dateFilter } : {}),
+              },
+              select: {
+                machineId: true,
+                price: true,
+                kitRentalCharge: true,
+                packageBooking: { select: { extraCharge: true } },
+                refunds: { select: { amount: true, status: true } },
+              },
+            });
+            const byMachine = new Map<string, number>();
+            for (const b of bookings) {
+              const mid = b.machineId as string;
+              const isPkg = !!b.packageBooking;
+              let net = 0;
+              if (isPkg) {
+                net += (b.packageBooking?.extraCharge || 0) + (b.kitRentalCharge || 0);
+              } else {
+                net += b.price || 0;
+                for (const r of b.refunds) {
+                  if (r.status !== 'FAILED') net -= r.amount;
+                }
+              }
+              byMachine.set(mid, (byMachine.get(mid) || 0) + net);
+            }
+            return {
+              axis: 'machine' as const,
+              entries: Array.from(byMachine.entries()).map(([machineId, price]) => ({
+                key: machineId,
+                machineId,
+                _sum: { price },
+              })),
+            };
+          }
+
+          // RESOURCE_BASED: group by booking category. `category` is
+          // non-null in the schema (defaults to MACHINE for back-compat),
+          // so no filter is needed.
           const bookings = await prisma.booking.findMany({
             where: {
               ...centerFilter,
-              machineId: { not: null },
               ...(hasDateFilter ? { date: dateFilter } : {}),
             },
             select: {
-              machineId: true,
+              category: true,
               price: true,
               kitRentalCharge: true,
               packageBooking: { select: { extraCharge: true } },
               refunds: { select: { amount: true, status: true } },
             },
           });
-          const byMachine = new Map<string, number>();
+          const byCategory = new Map<string, number>();
           for (const b of bookings) {
-            const mid = b.machineId as string;
+            const cat = b.category as string;
             const isPkg = !!b.packageBooking;
             let net = 0;
             if (isPkg) {
@@ -197,14 +259,18 @@ export async function GET(req: NextRequest) {
                 if (r.status !== 'FAILED') net -= r.amount;
               }
             }
-            byMachine.set(mid, (byMachine.get(mid) || 0) + net);
+            byCategory.set(cat, (byCategory.get(cat) || 0) + net);
           }
-          return Array.from(byMachine.entries()).map(([machineId, price]) => ({
-            machineId,
-            _sum: { price },
-          }));
+          return {
+            axis: 'category' as const,
+            entries: Array.from(byCategory.entries()).map(([category, price]) => ({
+              key: category,
+              category,
+              _sum: { price },
+            })),
+          };
         } catch {
-          return [];
+          return { axis: 'machine' as const, entries: [] };
         }
       })(),
       // Self-operated bookings
@@ -263,7 +329,12 @@ export async function GET(req: NextRequest) {
       bookingRevenue: bookingRevenueValue,
       packageRevenue: packageRevenueValue,
       totalDiscount: totalDiscountValue,
-      machineRevenue,
+      // Backward-compat: old clients still read `machineRevenue` as the
+      // legacy `[{machineId,_sum}]` shape. Send that view when the
+      // breakdown's axis is machine; send an empty array for category
+      // axis (the new clients use `revenueBreakdown`).
+      machineRevenue: revenueBreakdown.axis === 'machine' ? revenueBreakdown.entries : [],
+      revenueBreakdown,
       selfOperatedBookings,
       unassignedBookings,
       operatorSummary,

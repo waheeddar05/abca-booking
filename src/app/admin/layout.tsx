@@ -7,8 +7,11 @@ import { LayoutDashboard, CalendarCheck, Users, Clock, Wrench, Package, Zap, Sli
 import { signOut } from 'next-auth/react';
 import { AdminMobileNav } from '@/components/admin/AdminMobileNav';
 import { CenterSwitcher } from '@/components/admin/CenterSwitcher';
+import { useCenter } from '@/lib/center-context';
 
 const SUPER_ADMIN_EMAIL = 'waheeddar8@gmail.com';
+
+type BookingModel = 'MACHINE_PITCH' | 'RESOURCE_BASED';
 
 export default function AdminLayout({
   children,
@@ -17,23 +20,30 @@ export default function AdminLayout({
 }) {
   const pathname = usePathname();
   const { data: session } = useSession();
+  const { currentCenter } = useCenter();
   // Source of truth for super admin is now the DB column, exposed on the
   // session as `user.isSuperAdmin`. Email match kept as a defensive fallback
   // so a stale token doesn't lock the project owner out of admin pages.
   const sessionUser = session?.user as { email?: string | null; isSuperAdmin?: boolean } | undefined;
   const isSuperAdmin = sessionUser?.isSuperAdmin === true || sessionUser?.email === SUPER_ADMIN_EMAIL;
 
-  // Single flat nav. Every link below operates on the *current* center
-  // (resolved by cookie / membership). Cross-center management lives
-  // under the super-admin-only entries at the bottom.
-  const links = [
+  // Until we rebuild Slots/Operators/Offers/Packages for RESOURCE_BASED
+  // centers (Toplay-style), the legacy forms hardcode the ABCA machine
+  // enum and crash or silently no-op on resource centers. Hide those
+  // links so admins don't land on broken pages. The `models` array is
+  // the parity gate — leave it absent to show on every center.
+  //
+  // Each surface flips back on when its RESOURCE_BASED implementation
+  // ships in this branch.
+  const currentModel: BookingModel | null = currentCenter?.bookingModel ?? null;
+  const links: Array<{ href: string; label: string; icon: typeof LayoutDashboard; models?: BookingModel[] }> = [
     { href: '/admin', label: 'Dashboard', icon: LayoutDashboard },
     { href: '/admin/bookings', label: 'Bookings', icon: CalendarCheck },
-    { href: '/admin/slots', label: 'Slots', icon: Clock },
+    { href: '/admin/slots', label: 'Slots', icon: Clock, models: ['MACHINE_PITCH'] },
     { href: '/admin/users', label: 'Users', icon: Users },
-    { href: '/admin/operators', label: 'Operators', icon: UserCog },
-    { href: '/admin/offers', label: 'Offers', icon: Tag },
-    { href: '/admin/packages', label: 'Packages', icon: Package },
+    { href: '/admin/operators', label: 'Operators', icon: UserCog, models: ['MACHINE_PITCH'] },
+    { href: '/admin/offers', label: 'Offers', icon: Tag, models: ['MACHINE_PITCH'] },
+    { href: '/admin/packages', label: 'Packages', icon: Package, models: ['MACHINE_PITCH'] },
     { href: '/admin/configuration', label: 'Settings', icon: SlidersHorizontal },
     // /admin/policies removed — its raw key/value editor was confusing
     // and overlapped the structured forms here on Settings. Per-center
@@ -48,6 +58,13 @@ export default function AdminLayout({
         ]
       : []),
   ];
+
+  // Filter by booking model. While the center is still loading
+  // (`currentModel === null`), show every link so we don't briefly
+  // render a stripped-down sidebar.
+  const visibleLinks = links.filter(
+    (l) => !l.models || currentModel == null || l.models.includes(currentModel),
+  );
 
   const isActive = (href: string) =>
     href === '/admin' ? pathname === '/admin' : pathname.startsWith(href);
@@ -116,7 +133,7 @@ export default function AdminLayout({
 
           {/* Nav Links */}
           <nav className="flex-1 px-3 py-2 space-y-0.5">
-            {links.map(({ href, label, icon: Icon }) => {
+            {visibleLinks.map(({ href, label, icon: Icon }) => {
               const active = isActive(href);
               return (
                 <Link
