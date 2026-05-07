@@ -69,6 +69,11 @@ const BodySchema = z.object({
   ballType: z.enum(['TENNIS', 'LEATHER', 'MACHINE']).optional().nullable(),
   userId: z.string().optional(),
   paymentMethod: z.enum(['ONLINE', 'CASH']).optional(),
+  /** Optional package redemption — when set, the engine validates the
+   *  package matches the booking's center/category/machine and uses
+   *  one session per booked slot, charging price = 0. Same model as
+   *  the legacy MACHINE_PITCH path. */
+  userPackageId: z.string().optional(),
 });
 
 const MAX_TX_RETRIES = 3;
@@ -186,6 +191,102 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    // Package redemption pre-flight. Loads the user's package, ensures
+    // it's at this center, active, has enough remaining sessions, and
+    // matches the booking's category + machine row (if pinned). All
+    // failures here surface a clear 400 to the client; the actual
+    // session decrement happens inside the transaction below.
+    let userPackage: {
+      id: string;
+      totalSessions: number;
+      usedSessions: number;
+      package: {
+        id: string;
+        centerId: string;
+        category: BookingCategory | null;
+        machineRowId: string | null;
+        timingType: string;
+      };
+    } | null = null;
+    if (body.userPackageId) {
+      const found = await prisma.userPackage.findUnique({
+        where: { id: body.userPackageId },
+        select: {
+          id: true,
+          userId: true,
+          status: true,
+          expiryDate: true,
+          totalSessions: true,
+          usedSessions: true,
+          package: {
+            select: {
+              id: true,
+              centerId: true,
+              category: true,
+              machineRowId: true,
+              timingType: true,
+              isActive: true,
+            },
+          },
+        },
+      });
+      if (!found) {
+        return NextResponse.json({ error: 'Package not found' }, { status: 400 });
+      }
+      if (found.userId !== targetUserId) {
+        return NextResponse.json({ error: 'Package does not belong to this user' }, { status: 403 });
+      }
+      if (found.status !== 'ACTIVE') {
+        return NextResponse.json({ error: 'Package is not active' }, { status: 400 });
+      }
+      if (found.expiryDate && found.expiryDate < new Date()) {
+        return NextResponse.json({ error: 'Package has expired' }, { status: 400 });
+      }
+      if (found.package.centerId !== center.id) {
+        return NextResponse.json({ error: 'Package belongs to a different center' }, { status: 400 });
+      }
+      if (!found.package.isActive) {
+        return NextResponse.json({ error: 'Package is no longer available' }, { status: 400 });
+      }
+      const remaining = found.totalSessions - found.usedSessions;
+      if (remaining < body.slots.length) {
+        return NextResponse.json(
+          { error: `Package has ${remaining} session(s) left; trying to book ${body.slots.length}` },
+          { status: 400 },
+        );
+      }
+      // Category gate — only if the package has one set. ABCA-shape
+      // packages with category=null redeem against any category for
+      // back-compat.
+      if (found.package.category && found.package.category !== body.category) {
+        return NextResponse.json(
+          { error: `This package only redeems for ${found.package.category} bookings` },
+          { status: 400 },
+        );
+      }
+      // Machine row gate — only if pinned.
+      if (found.package.machineRowId) {
+        if (!body.machineId || found.package.machineRowId !== body.machineId) {
+          return NextResponse.json(
+            { error: 'This package is constrained to a specific machine; pick that machine to redeem' },
+            { status: 400 },
+          );
+        }
+      }
+      userPackage = {
+        id: found.id,
+        totalSessions: found.totalSessions,
+        usedSessions: found.usedSessions,
+        package: {
+          id: found.package.id,
+          centerId: found.package.centerId,
+          category: found.package.category,
+          machineRowId: found.package.machineRowId,
+          timingType: found.package.timingType,
+        },
+      };
+    }
+
     // Validate every slot's plan up front (without taking any locks).
     // The actual create runs inside a serializable transaction, which
     // re-checks resource availability under a tighter consistency window.
@@ -236,7 +337,8 @@ export async function POST(req: NextRequest) {
               // serializable + retry loop is sufficient.)
               const assignment = await planBooking(plan, { audience });
 
-              const basePrice = isFreeBooking
+              const isPackageRedemption = !!userPackage;
+              const basePrice = isFreeBooking || isPackageRedemption
                 ? 0
                 : await getResourceSlotPrice({
                     category: plan.category as Exclude<BookingCategory, never>,
@@ -330,6 +432,54 @@ export async function POST(req: NextRequest) {
               });
 
               await persistResourceAssignments(tx, booking.id, assignment.resourceIds);
+
+              // Package redemption — atomically decrement the user
+              // package and link the booking via PackageBooking. We
+              // re-read inside the transaction so concurrent redemptions
+              // can't both spend the same session. Optimistic update
+              // with a `where` on the prior usedSessions catches the
+              // race; serializable isolation on the outer tx adds a
+              // second guard.
+              if (userPackage) {
+                const fresh = await tx.userPackage.findUnique({
+                  where: { id: userPackage.id },
+                  select: { usedSessions: true, totalSessions: true, status: true, expiryDate: true },
+                });
+                if (!fresh) {
+                  throw new BookingResourceError('Package not found mid-transaction', 409);
+                }
+                if (fresh.status !== 'ACTIVE') {
+                  throw new BookingResourceError('Package became inactive mid-transaction', 409);
+                }
+                if (fresh.expiryDate && fresh.expiryDate < new Date()) {
+                  throw new BookingResourceError('Package expired mid-transaction', 409);
+                }
+                if (fresh.usedSessions >= fresh.totalSessions) {
+                  throw new BookingResourceError('Package has no sessions left', 409);
+                }
+
+                const newUsed = fresh.usedSessions + 1;
+                const updateRes = await tx.userPackage.updateMany({
+                  where: { id: userPackage.id, usedSessions: fresh.usedSessions },
+                  data: { usedSessions: newUsed },
+                });
+                // Note: status stays ACTIVE even when usedSessions ===
+                // totalSessions (matches the legacy MACHINE_PITCH path).
+                // The "no sessions left" check above stops further
+                // redemption; the UI uses `usedSessions / totalSessions`
+                // to badge a package as fully spent.
+                if (updateRes.count !== 1) {
+                  throw new BookingResourceError('Package was modified by another booking; please retry', 409);
+                }
+                await tx.packageBooking.create({
+                  data: {
+                    userPackageId: userPackage.id,
+                    bookingId: booking.id,
+                    sessionsUsed: 1,
+                  },
+                });
+              }
+
               out.push(booking);
             }
             return out;

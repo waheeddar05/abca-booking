@@ -5,7 +5,8 @@ import { Package, Plus, Pencil, ToggleLeft, ToggleRight, Loader2, Users, BarChar
 import { NumberInputDialog } from '@/components/ui/NumberInputDialog';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { AdminPageHeader } from '@/components/admin/AdminPageHeader';
-import { BookingModelGate } from '@/components/admin/BookingModelGate';
+import { ResourcePackageManagement } from '@/components/admin/ResourcePackageManagement';
+import { useCenter } from '@/lib/center-context';
 
 interface PackageData {
   id: string;
@@ -1464,12 +1465,19 @@ function AdminPackagesLegacy() {
 }
 
 export default function AdminPackagesPage() {
-  return (
-    <BookingModelGate
-      allow={['MACHINE_PITCH']}
-      surfaceLabel="Packages"
-    >
-      <AdminPackagesLegacy />
-    </BookingModelGate>
-  );
+  // Center-aware split. RESOURCE_BASED centers (Toplay et al.) use a
+  // category-based package model; ABCA-style centers keep the legacy
+  // (machineId × machineType × ballType × wicketType) form.
+  const { currentCenter, loading } = useCenter();
+  if (loading || !currentCenter) {
+    return (
+      <div className="flex items-center justify-center py-16 text-slate-500">
+        Loading…
+      </div>
+    );
+  }
+  if (currentCenter.bookingModel === 'RESOURCE_BASED') {
+    return <ResourcePackageManagement />;
+  }
+  return <AdminPackagesLegacy />;
 }

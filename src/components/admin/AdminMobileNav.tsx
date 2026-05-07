@@ -21,7 +21,7 @@ export function AdminMobileNav() {
         { href: '/admin/slots', label: 'Slots', icon: Clock },
         { href: '/admin/users', label: 'Users', icon: Users },
         { href: '/admin/operators', label: 'Operators', icon: UserCog },
-        { href: '/admin/packages', label: 'Packages', icon: Package, models: ['MACHINE_PITCH'] },
+        { href: '/admin/packages', label: 'Packages', icon: Package },
         { href: '/admin/offers', label: 'Offers', icon: Tag },
         { href: '/admin/configuration', label: 'Settings', icon: SlidersHorizontal },
     ];

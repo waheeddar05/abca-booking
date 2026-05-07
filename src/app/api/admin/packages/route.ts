@@ -66,6 +66,11 @@ export async function POST(req: NextRequest) {
       validityDays = 30,
       price,
       extraChargeRules,
+      // RESOURCE_BASED axes (Toplay et al.). Either may be set; both
+      // optional. Bookings redeem the package only if their category
+      // (and machine row, if pinned) match.
+      category,
+      machineRowId,
     } = body;
 
     if (!name || !machineType || !timingType || !totalSessions || !price) {
@@ -85,11 +90,28 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Invalid wicketType' }, { status: 400 });
     }
 
+    const validBookingCategories = ['MACHINE', 'SIDEARM', 'COACHING', 'NET', 'FULL_COURT', 'CORPORATE_BATCH'];
+    if (category && !validBookingCategories.includes(category)) {
+      return NextResponse.json({ error: 'Invalid category' }, { status: 400 });
+    }
+
     // Packages are center-scoped — bind to the admin's current center.
     const authUser = await getAuthenticatedUser(req);
     const center = authUser ? await resolveCurrentCenter(req, authUser) : null;
     if (!center) {
       return NextResponse.json({ error: 'No center selected' }, { status: 400 });
+    }
+
+    // Validate machineRowId belongs to this center.
+    let validatedMachineRowId: string | null = null;
+    if (machineRowId) {
+      const row = await prisma.machine.findUnique({
+        where: { id: machineRowId },
+        select: { id: true, centerId: true },
+      });
+      if (row && row.centerId === center.id) {
+        validatedMachineRowId = row.id;
+      }
     }
 
     const pkg = await prisma.package.create({
@@ -105,6 +127,8 @@ export async function POST(req: NextRequest) {
         validityDays,
         price,
         extraChargeRules: extraChargeRules || null,
+        category: category || null,
+        machineRowId: validatedMachineRowId,
       },
     });
 
@@ -134,7 +158,7 @@ export async function PUT(req: NextRequest) {
     }
 
     // Only allow updating specific fields
-    const allowedFields = ['name', 'machineId', 'machineType', 'ballType', 'wicketType', 'timingType', 'totalSessions', 'validityDays', 'price', 'extraChargeRules', 'isActive'];
+    const allowedFields = ['name', 'machineId', 'machineType', 'ballType', 'wicketType', 'timingType', 'totalSessions', 'validityDays', 'price', 'extraChargeRules', 'isActive', 'category', 'machineRowId'];
     const data: any = {};
     for (const field of allowedFields) {
       if (updateData[field] !== undefined) {
