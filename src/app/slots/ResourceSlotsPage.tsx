@@ -20,11 +20,12 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import Image from 'next/image';
-import { format } from 'date-fns';
+import { format, parseISO } from 'date-fns';
 import {
   AlertTriangle,
-  ArrowRight,
-  CheckCircle2,
+  Calendar,
+  Check,
+  IndianRupee,
   Loader2,
   Settings2,
   Users,
@@ -153,14 +154,14 @@ interface MachineLite {
 const PITCH_TYPE_LABELS: Record<PitchTypeId, string> = {
   ASTRO:   'Astro Turf',
   TURF:    'Turf', // legacy — not offered, kept so old rows render
-  CEMENT:  'Cement',
+  CEMENT:  'Cement Wicket',
   NATURAL: 'Natural Turf',
 };
 
 const BALL_TYPE_LABELS: Record<BallTypeId, string> = {
   LEATHER: 'Leather',
   TENNIS:  'Tennis',
-  MACHINE: 'Machine balls',
+  MACHINE: 'Machine',
 };
 
 /**
@@ -571,312 +572,375 @@ export default function ResourceSlotsPage() {
 
   if (!currentCenter) {
     return (
-      <main className="min-h-screen flex items-center justify-center text-slate-400">
-        <Loader2 className="w-5 h-5 animate-spin" />
-      </main>
+      <div className="flex items-center justify-center min-h-screen">
+        <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
+      </div>
     );
   }
 
+  // ABCA's BookingBar shows "<Category> · <secondary>" as the label —
+  // mirror that here so the sticky bar reads consistently.
+  const machineLabel = useMemo(() => {
+    const cat = CATEGORIES.find((c) => c.key === category);
+    const baseLabel = cat?.label ?? category;
+    if (category === 'MACHINE' && machineId) {
+      const m = filteredMachines.find((x) => x.id === machineId);
+      const parts = [m?.name];
+      if (ballType) parts.push(BALL_TYPE_LABELS[ballType]);
+      if (pitchType) parts.push(PITCH_TYPE_LABELS[pitchType]);
+      return `${baseLabel} · ${parts.filter(Boolean).join(' / ')}`;
+    }
+    if ((category === 'SIDEARM' || category === 'NET') && pitchType) {
+      return `${baseLabel} · ${PITCH_TYPE_LABELS[pitchType]}`;
+    }
+    return baseLabel;
+  }, [category, machineId, filteredMachines, ballType, pitchType]);
+
   return (
-    <>
+    <div className="max-w-2xl mx-auto px-4 py-5 pb-40 md:pb-28">
       <PageBackground />
-      <main className="max-w-4xl mx-auto px-4 py-6 md:py-8">
-        <div className="mb-5">
-          <h1 className="text-xl md:text-2xl font-bold text-white">Book a session</h1>
-          <p className="text-xs text-slate-400 mt-1">
-            {currentCenter.name} · {data?.indoorNetsTotal ?? '—'} indoor nets
-            {data?.outdoorResourcesTotal ? ` · ${data.outdoorResourcesTotal} outdoor` : ''}
-            {data && data.coachesTotal > 0 ? ` · ${data.coachesTotal} coaches` : ''}
-            {data && data.sidearmStaffTotal > 0 ? ` · ${data.sidearmStaffTotal} sidearm specialist` : ''}
-          </p>
+
+      {/* Page header — same calendar-icon header as ABCA's /slots */}
+      <div className="flex items-center gap-3 mb-5">
+        <div className="w-9 h-9 rounded-lg bg-accent/10 flex items-center justify-center">
+          <Calendar className="w-4 h-4 text-accent" />
         </div>
-
-        <DateSelector selectedDate={selectedDate} onSelect={setSelectedDate} />
-
-        {/* Category tabs */}
-        <div className="mb-5">
-          <label className="block text-[10px] font-medium text-accent mb-2 uppercase tracking-wider">
-            Session type
-          </label>
-          {/* 2 cols on phones (3 rows of 2), 3 cols on tablets, 6 cols
-              on desktop — keeps the tile size readable across breakpoints
-              and avoids the lopsided 4+2 split that md:grid-cols-4
-              produced once we added a 6th category. */}
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-2">
-            {CATEGORIES.filter(
-              // Hide categories the admin disabled for this center.
-              // Default (no policy / response not ready yet) is all enabled.
-              ({ key }) => !data?.enabledCategories || data.enabledCategories.includes(key),
-            ).map(({ key, label, icon: Icon, sub }) => {
-              const active = category === key;
-              return (
-                <button
-                  key={key}
-                  onClick={() => setCategory(key)}
-                  className={`flex flex-col items-start gap-1 px-2.5 py-2 rounded-xl border text-left transition-all cursor-pointer min-w-0 ${
-                    active
-                      ? 'bg-accent/10 border-accent/40 ring-1 ring-accent/30'
-                      : 'bg-white/[0.02] border-white/[0.06] hover:border-accent/20 hover:bg-white/[0.04]'
-                  }`}
-                >
-                  <div className="flex items-center gap-1.5 min-w-0 w-full">
-                    <Icon className={`w-3.5 h-3.5 flex-shrink-0 ${active ? 'text-accent' : 'text-slate-400'}`} />
-                    <span className={`text-[11px] sm:text-xs font-semibold truncate ${active ? 'text-accent' : 'text-white'}`}>
-                      {label}
-                    </span>
-                  </div>
-                  <span className="text-[10px] text-slate-500 font-medium">{sub}</span>
-                </button>
-              );
-            })}
-          </div>
+        <div>
+          <h1 className="text-lg font-bold text-white">Book Your Slot</h1>
+          <p className="text-[11px] text-slate-400">Select session, date & time</p>
         </div>
+      </div>
 
-        {/* Per-category secondary picker */}
-        {category === 'MACHINE' && (
-          <PickerRow label="Machine" required>
-            {machinesLoading ? (
-              <span className="text-xs text-slate-500 px-1">Loading…</span>
-            ) : filteredMachines.length === 0 ? (
-              <span className="text-xs text-amber-400">
-                No machines configured at this center yet.
-              </span>
-            ) : (
-              <div className="flex flex-wrap gap-2">
-                {filteredMachines.map((m) => {
-                  const active = machineId === m.id;
-                  const imageUrl = m.machineType.imageUrl;
-                  const surface = describeResourceType(m.resource?.type);
-                  // Two info bits: ball type (e.g. "leather") + lane/pitch
-                  // (e.g. "turf — Turf 1"). Joined with a dot when both are
-                  // present so the pill stays scannable.
-                  const subParts = [
-                    m.machineType.ballType.toLowerCase(),
-                    m.resource ? `${surface}: ${m.resource.name}` : null,
-                  ].filter(Boolean);
-                  return (
-                    <button
-                      key={m.id}
-                      onClick={() => setMachineId(active ? null : m.id)}
-                      // max-w caps the pill at one phone-friendly width so
-                      // a long lane subtext doesn't push the row off-screen
-                      // — the inner text truncates rather than wraps.
-                      className={`flex items-center gap-2 pl-1.5 pr-3 py-1 rounded-lg text-xs font-semibold border cursor-pointer transition-all max-w-[16rem] min-w-0 ${
-                        active
-                          ? 'bg-accent/15 text-accent border-accent/40'
-                          : 'bg-white/[0.04] text-slate-300 border-white/[0.08] hover:border-accent/30'
-                      }`}
-                    >
-                      {imageUrl ? (
-                        <Image
-                          src={imageUrl}
-                          alt={m.machineType.name}
-                          width={28}
-                          height={28}
-                          className="w-7 h-7 rounded-md object-cover bg-white/5 flex-shrink-0"
-                        />
-                      ) : (
-                        <div className="w-7 h-7 rounded-md bg-white/5 flex items-center justify-center flex-shrink-0">
-                          <Settings2 className="w-3.5 h-3.5 text-slate-500" />
-                        </div>
-                      )}
-                      <span className="leading-tight text-left min-w-0">
-                        <span className="block truncate">{m.name}</span>
-                        <span className="block text-[10px] text-slate-500 font-medium truncate">
-                          {subParts.join(' · ')}
-                        </span>
-                      </span>
-                    </button>
-                  );
-                })}
-              </div>
-            )}
-          </PickerRow>
-        )}
+      {/* Category tabs — styled like ABCA's OptionsPanel toggles
+          (`flex-1` accent-solid pills) but in a 2/3-col grid because we
+          have up to six categories. */}
+      <div className="mb-4">
+        <label className="block text-[10px] font-medium text-accent mb-1 uppercase tracking-wider">
+          Session Type
+        </label>
+        <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+          {CATEGORIES.filter(
+            ({ key }) => !data?.enabledCategories || data.enabledCategories.includes(key),
+          ).map(({ key, label, icon: Icon }) => {
+            const active = category === key;
+            return (
+              <button
+                key={key}
+                onClick={() => setCategory(key)}
+                className={`flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-xs font-semibold transition-all cursor-pointer min-w-0 ${
+                  active
+                    ? 'bg-accent text-primary shadow-sm'
+                    : 'bg-white/[0.04] text-slate-400 border border-white/[0.08] hover:border-accent/20'
+                }`}
+              >
+                <Icon className="w-3.5 h-3.5 flex-shrink-0" />
+                <span className="truncate">{label}</span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
 
-        {/* Pitch + ball type chips for the BOWLING MACHINE flow — driven
-            by the machine's effective lists (server-resolved: empty
-            configured array → all four pitch types). */}
-        {category === 'MACHINE' && machineId && (() => {
-          const m = filteredMachines.find((x) => x.id === machineId);
-          if (!m) return null;
-          const pitchOptions = m.effectivePitchTypes ?? m.supportedPitchTypes ?? [];
-          const ballOptions = m.effectiveBallTypes ?? m.supportedBallTypes ?? [];
-          return (
-            <>
-              {pitchOptions.length > 0 && (
-                <ChipSelector
-                  label="Pitch type"
-                  required={pitchOptions.length > 1}
-                  options={pitchOptions.map((id) => ({ id, label: PITCH_TYPE_LABELS[id] }))}
-                  value={pitchType}
-                  onChange={(v) => setPitchType(v as PitchTypeId | null)}
-                />
-              )}
-              {ballOptions.length > 0 && (
-                <ChipSelector
-                  label="Ball type"
-                  required={ballOptions.length > 1}
-                  options={ballOptions.map((id) => ({ id, label: BALL_TYPE_LABELS[id] }))}
-                  value={ballType}
-                  onChange={(v) => setBallType(v as BallTypeId | null)}
-                />
-              )}
-            </>
-          );
-        })()}
+      <hr className="border-white/[0.06] my-4" />
 
-        {/* Sidearm pitch type — read from per-center SIDEARM_PITCH_TYPES policy. */}
-        {category === 'SIDEARM' && (data?.sidearmPitchTypes?.length ?? 0) > 0 && (
-          <ChipSelector
-            label="Pitch type"
-            required={(data!.sidearmPitchTypes.length) > 1}
-            options={data!.sidearmPitchTypes.map((id) => ({ id, label: PITCH_TYPE_LABELS[id] }))}
-            value={pitchType}
-            onChange={(v) => setPitchType(v as PitchTypeId | null)}
-          />
-        )}
-
-        {/* Net-only pitch type — read from per-center NET_PITCH_TYPES policy. */}
-        {category === 'NET' && (data?.netPitchTypes?.length ?? 0) > 0 && (
-          <ChipSelector
-            label="Pitch type"
-            required={(data!.netPitchTypes.length) > 1}
-            options={data!.netPitchTypes.map((id) => ({ id, label: PITCH_TYPE_LABELS[id] }))}
-            value={pitchType}
-            onChange={(v) => setPitchType(v as PitchTypeId | null)}
-          />
-        )}
-
-        {category === 'COACHING' && (
-          <PeoplePicker
-            label="Coach"
-            help="Leave empty to auto-assign the first available coach."
-            options={data?.slots[0]?.freeCoaches ?? []}
-            value={coachId}
-            onChange={setCoachId}
-            emptyMessage="No coaches free for the selected slots."
-          />
-        )}
-
-        {category === 'SIDEARM' && (
-          <PeoplePicker
-            label="Sidearm Specialist"
-            help="Leave empty to auto-assign."
-            options={data?.slots[0]?.freeSidearmStaff ?? []}
-            value={staffId}
-            onChange={setStaffId}
-            emptyMessage="No sidearm specialist free for the selected slots."
-          />
-        )}
-
-        {/* Slot grid */}
-        <div className="mb-5">
-          <label className="block text-[10px] font-medium text-accent mb-2 uppercase tracking-wider">
-            Available slots
-          </label>
-          {loading ? (
-            <div className="flex items-center gap-2 text-slate-400 py-8 justify-center">
-              <Loader2 className="w-4 h-4 animate-spin" /> Loading…
-            </div>
-          ) : error ? (
-            <div className="rounded-xl border border-red-500/20 bg-red-500/10 p-3 text-sm text-red-300 flex items-center gap-2">
-              <AlertTriangle className="w-4 h-4" /> {error}
-            </div>
-          ) : !data || data.slots.length === 0 ? (
-            <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-6 text-center text-xs text-slate-500">
-              No slots configured for this date.
-            </div>
+      {/* Machine picker — keeps richer pill-with-image layout (ABCA's
+          MachineSelector also uses cards-with-images) but the chips line
+          up with the same accent treatment. */}
+      {category === 'MACHINE' && (
+        <PickerRow label="Machine" required>
+          {machinesLoading ? (
+            <span className="text-xs text-slate-500 px-1">Loading…</span>
+          ) : filteredMachines.length === 0 ? (
+            <span className="text-xs text-amber-400">
+              No machines configured at this center yet.
+            </span>
           ) : (
-            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
-              {data.slots.map((slot) => {
-                const bookable = slotIsBookable(slot, category);
-                const selected = selectedSlots.some((s) => s.startTime === slot.startTime);
-                const price = slotPriceFor(slot);
+            <div className="flex flex-wrap gap-2">
+              {filteredMachines.map((m) => {
+                const active = machineId === m.id;
+                const imageUrl = m.machineType.imageUrl;
+                const surface = describeResourceType(m.resource?.type);
+                const subParts = [
+                  m.machineType.ballType.toLowerCase(),
+                  m.resource ? `${surface}: ${m.resource.name}` : null,
+                ].filter(Boolean);
                 return (
                   <button
-                    key={slot.startTime}
-                    onClick={() => bookable.ok && toggleSlot(slot)}
-                    disabled={!bookable.ok}
-                    className={`relative p-2.5 rounded-xl border transition-all text-left ${
-                      !bookable.ok
-                        ? 'bg-white/[0.01] border-white/[0.04] text-slate-600 cursor-not-allowed'
-                        : selected
-                          ? 'bg-accent/10 border-accent/40 text-accent ring-1 ring-accent/30 cursor-pointer'
-                          : 'bg-white/[0.04] border-white/[0.08] text-slate-200 hover:border-accent/30 hover:bg-white/[0.06] cursor-pointer'
+                    key={m.id}
+                    onClick={() => setMachineId(active ? null : m.id)}
+                    className={`flex items-center gap-2 pl-1.5 pr-3 py-1 rounded-lg text-xs font-semibold border cursor-pointer transition-all max-w-[16rem] min-w-0 ${
+                      active
+                        ? 'bg-accent text-primary border-accent shadow-sm'
+                        : 'bg-white/[0.04] text-slate-300 border-white/[0.08] hover:border-accent/30'
                     }`}
-                    title={bookable.reason}
                   >
-                    <div className="text-xs font-bold tabular-nums">
-                      {formatTimeRangeIST(slot.startTime, slot.endTime)}
-                    </div>
-                    <div className="text-[10px] text-slate-500 capitalize">
-                      {slot.timeSlab}
-                    </div>
-                    {bookable.ok ? (
-                      <div className="text-[11px] font-semibold mt-0.5">₹{price}</div>
+                    {imageUrl ? (
+                      <Image
+                        src={imageUrl}
+                        alt={m.machineType.name}
+                        width={28}
+                        height={28}
+                        className="w-7 h-7 rounded-md object-cover bg-white/5 flex-shrink-0"
+                      />
                     ) : (
-                      <div className="text-[10px] mt-0.5 text-slate-600 line-clamp-1">{bookable.reason}</div>
-                    )}
-                    {slot.corporateBatchHolds > 0 && bookable.ok && category !== 'FULL_COURT' && (
-                      <div className="text-[9px] text-amber-400 mt-0.5">
-                        Batch holds {slot.corporateBatchHolds} net{slot.corporateBatchHolds === 1 ? '' : 's'}
+                      <div className="w-7 h-7 rounded-md bg-white/5 flex items-center justify-center flex-shrink-0">
+                        <Settings2 className={`w-3.5 h-3.5 ${active ? 'text-primary/70' : 'text-slate-500'}`} />
                       </div>
                     )}
-                    {selected && (
-                      <CheckCircle2 className="absolute top-1 right-1 w-3.5 h-3.5 text-accent" />
-                    )}
+                    <span className="leading-tight text-left min-w-0">
+                      <span className="block truncate">{m.name}</span>
+                      <span className={`block text-[10px] font-medium truncate ${active ? 'text-primary/70' : 'text-slate-500'}`}>
+                        {subParts.join(' · ')}
+                      </span>
+                    </span>
                   </button>
                 );
               })}
             </div>
           )}
-        </div>
+        </PickerRow>
+      )}
 
-        {/* Booking bar */}
-        {selectedSlots.length > 0 && (
-          <div className="sticky bottom-0 left-0 right-0 -mx-4 px-4 py-3 bg-[#060d1b]/95 backdrop-blur-xl border-t border-white/[0.06] z-30">
-            <div className="max-w-4xl mx-auto flex items-center justify-between gap-3">
-              <div>
-                <div className="text-xs text-slate-400">
-                  {selectedSlots.length} slot{selectedSlots.length === 1 ? '' : 's'}
-                </div>
-                <div className="text-base font-bold text-white">₹{totalPrice}</div>
-              </div>
-              <button
-                onClick={() => setShowConfirm(true)}
-                disabled={submitting}
-                className="flex items-center gap-2 px-4 py-2 rounded-xl bg-accent text-black font-semibold hover:bg-accent/90 active:scale-95 disabled:opacity-60 disabled:cursor-not-allowed cursor-pointer transition-all"
-              >
-                {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Book'}
-                {!submitting && <ArrowRight className="w-4 h-4" />}
-              </button>
-            </div>
+      {/* Pitch + ball — driven by per-machine effective lists. */}
+      {category === 'MACHINE' && machineId && (() => {
+        const m = filteredMachines.find((x) => x.id === machineId);
+        if (!m) return null;
+        const pitchOptions = m.effectivePitchTypes ?? m.supportedPitchTypes ?? [];
+        const ballOptions = m.effectiveBallTypes ?? m.supportedBallTypes ?? [];
+        return (
+          <>
+            {pitchOptions.length > 0 && (
+              <ChipSelector
+                label="Pitch Type"
+                required={pitchOptions.length > 1}
+                options={pitchOptions.map((id) => ({ id, label: PITCH_TYPE_LABELS[id] }))}
+                value={pitchType}
+                onChange={(v) => setPitchType(v as PitchTypeId | null)}
+              />
+            )}
+            {ballOptions.length > 0 && (
+              <ChipSelector
+                label="Ball Type"
+                required={ballOptions.length > 1}
+                options={ballOptions.map((id) => ({ id, label: BALL_TYPE_LABELS[id] }))}
+                value={ballType}
+                onChange={(v) => setBallType(v as BallTypeId | null)}
+              />
+            )}
+          </>
+        );
+      })()}
+
+      {category === 'SIDEARM' && (data?.sidearmPitchTypes?.length ?? 0) > 0 && (
+        <ChipSelector
+          label="Pitch Type"
+          required={(data!.sidearmPitchTypes.length) > 1}
+          options={data!.sidearmPitchTypes.map((id) => ({ id, label: PITCH_TYPE_LABELS[id] }))}
+          value={pitchType}
+          onChange={(v) => setPitchType(v as PitchTypeId | null)}
+        />
+      )}
+
+      {category === 'NET' && (data?.netPitchTypes?.length ?? 0) > 0 && (
+        <ChipSelector
+          label="Pitch Type"
+          required={(data!.netPitchTypes.length) > 1}
+          options={data!.netPitchTypes.map((id) => ({ id, label: PITCH_TYPE_LABELS[id] }))}
+          value={pitchType}
+          onChange={(v) => setPitchType(v as PitchTypeId | null)}
+        />
+      )}
+
+      {category === 'COACHING' && (
+        <PeoplePicker
+          label="Coach"
+          help="Leave empty to auto-assign the first available coach."
+          options={data?.slots[0]?.freeCoaches ?? []}
+          value={coachId}
+          onChange={setCoachId}
+          emptyMessage="No coaches free for the selected slots."
+        />
+      )}
+
+      {category === 'SIDEARM' && (
+        <PeoplePicker
+          label="Sidearm Specialist"
+          help="Leave empty to auto-assign."
+          options={data?.slots[0]?.freeSidearmStaff ?? []}
+          value={staffId}
+          onChange={setStaffId}
+          emptyMessage="No sidearm specialist free for the selected slots."
+        />
+      )}
+
+      <DateSelector selectedDate={selectedDate} onSelect={setSelectedDate} />
+
+      <hr className="border-white/[0.06] my-4" />
+
+      {/* Slot grid — matches ABCA's SlotGrid look exactly:
+          `grid-cols-2 sm:grid-cols-3 gap-2.5`, `p-3.5 rounded-xl`, big
+          start time + small "to <end>" line + uppercase status row +
+          right-aligned price. Selected slots flip to a solid accent
+          background with a Check icon, exactly like the ABCA card. */}
+      <div className="mb-5">
+        <label className="block text-[10px] font-medium text-accent mb-2 uppercase tracking-wider">
+          Available Slots
+        </label>
+        {loading ? (
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
+            {Array.from({ length: 6 }).map((_, i) => (
+              <div key={i} className="h-[88px] rounded-xl bg-white/[0.03] animate-pulse" />
+            ))}
+          </div>
+        ) : error ? (
+          <div className="rounded-xl border border-red-500/20 bg-red-500/10 p-4 text-sm text-red-300 flex items-center gap-2">
+            <AlertTriangle className="w-4 h-4 flex-shrink-0" /> {error}
+          </div>
+        ) : !data || data.slots.length === 0 ? (
+          <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-8 text-center">
+            <Calendar className="w-8 h-8 text-slate-600 mx-auto mb-2" />
+            <p className="text-xs text-slate-400">No slots available for this date</p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
+            {data.slots.map((slot) => {
+              const bookable = slotIsBookable(slot, category);
+              const selected = selectedSlots.some((s) => s.startTime === slot.startTime);
+              const price = slotPriceFor(slot);
+              const isUnavailable = !bookable.ok;
+              const bgClass = isUnavailable
+                ? 'bg-white/[0.02] border border-white/[0.05] cursor-not-allowed'
+                : selected
+                  ? 'bg-accent text-primary shadow-md shadow-accent/20 border border-accent'
+                  : 'bg-white/[0.04] border border-white/[0.08] hover:border-accent/40 active:scale-[0.97]';
+              const statusLabel = isUnavailable
+                ? 'Not Available'
+                : selected
+                  ? 'Selected'
+                  : 'Open';
+              const statusColor = isUnavailable
+                ? 'text-red-400'
+                : selected
+                  ? 'text-primary/80'
+                  : 'text-green-400';
+              return (
+                <button
+                  key={slot.startTime}
+                  onClick={() => bookable.ok && toggleSlot(slot)}
+                  disabled={isUnavailable || submitting}
+                  className={`relative p-3.5 rounded-xl transition-all text-left cursor-pointer ${bgClass}`}
+                  title={bookable.reason}
+                >
+                  {selected && (
+                    <div className="absolute top-2 right-2">
+                      <Check className="w-4 h-4" />
+                    </div>
+                  )}
+
+                  <div className={`text-sm font-bold ${isUnavailable ? 'text-slate-600' : selected ? '' : 'text-white'}`}>
+                    {format(parseISO(slot.startTime), 'HH:mm')}
+                  </div>
+                  <div className={`text-[10px] mt-0.5 ${
+                    isUnavailable ? 'text-slate-600' : selected ? 'text-primary/70' : 'text-slate-400'
+                  }`}>
+                    to {format(parseISO(slot.endTime), 'HH:mm')}
+                  </div>
+
+                  <div className="flex items-center justify-between mt-1.5">
+                    <span className={`text-[10px] font-semibold uppercase tracking-wider ${statusColor}`}>
+                      {statusLabel}
+                    </span>
+                    {!isUnavailable && (
+                      <span className={`text-[10px] font-medium ${selected ? 'text-primary/70' : 'text-slate-400'}`}>
+                        ₹{price}
+                      </span>
+                    )}
+                  </div>
+
+                  {slot.corporateBatchHolds > 0 && !isUnavailable && category !== 'FULL_COURT' && (
+                    <div className={`mt-1 text-[8px] font-bold px-1.5 py-0.5 rounded-full text-center ${
+                      selected ? 'bg-primary/20 text-primary/80' : 'bg-amber-500/15 text-amber-400 border border-amber-500/20'
+                    }`}>
+                      Batch holds {slot.corporateBatchHolds} net{slot.corporateBatchHolds === 1 ? '' : 's'}
+                    </div>
+                  )}
+                </button>
+              );
+            })}
           </div>
         )}
+      </div>
 
-        <ContactFooter />
-      </main>
+      <ContactFooter />
 
       <ConfirmDialog
         open={showConfirm}
-        title="Confirm booking"
+        title="Confirm Booking"
         message={[
           `${CATEGORIES.find((c) => c.key === category)?.label} on ${format(selectedDate, 'EEE, dd MMM yyyy')}`,
           `Slots: ${selectedSlots.map((s) => formatTimeRangeIST(s.startTime, s.endTime)).join(', ')}`,
           `Total: ₹${totalPrice}`,
         ].join('\n')}
-        confirmLabel="Confirm"
+        confirmLabel={`Pay ₹${totalPrice.toLocaleString()}`}
+        cancelLabel="Go Back"
         onCancel={() => setShowConfirm(false)}
         onConfirm={submit}
         loading={submitting}
       />
-    </>
+
+      {/* Booking bar — same fixed position, dark glassy bar, IndianRupee
+          accent price, slot count + date + label, Confirm button as
+          ABCA's `BookingBar`. */}
+      {selectedSlots.length > 0 && (
+        <div className="fixed bottom-0 md:bottom-0 left-0 right-0 bg-[#0f1d2f]/95 backdrop-blur-md border-t border-white/[0.08] p-4 z-40 mb-[60px] md:mb-0 safe-bottom">
+          <div className="max-w-2xl mx-auto flex items-center justify-between gap-4">
+            <div>
+              <p className="text-sm font-bold text-white">
+                {selectedSlots.length} slot{selectedSlots.length > 1 ? 's' : ''} selected
+              </p>
+              <p className="text-[11px] text-slate-400">
+                {format(selectedDate, 'EEE, MMM d')} &middot; {machineLabel}
+              </p>
+              <div className="flex items-center gap-1 mt-0.5">
+                <IndianRupee className="w-3 h-3 text-accent" />
+                <span className="text-sm font-bold text-accent">
+                  {totalPrice.toLocaleString()}
+                </span>
+              </div>
+            </div>
+
+            <button
+              onClick={() => setShowConfirm(true)}
+              disabled={submitting}
+              className="flex items-center gap-2 bg-accent hover:bg-accent-light text-primary px-6 py-3 rounded-xl font-semibold text-sm transition-all active:scale-[0.97] disabled:opacity-50 cursor-pointer"
+            >
+              {submitting ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  Booking...
+                </>
+              ) : (
+                <>
+                  <Check className="w-4 h-4" />
+                  Confirm
+                </>
+              )}
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
 
 // ─── Sub-components ────────────────────────────────────────────────
 
+/**
+ * Section wrapper — same `text-[10px] mb-1` label treatment as ABCA's
+ * `OptionsPanel`, so picker rows on Toplay sit at exactly the same
+ * vertical rhythm as ball-type / pitch-type / operation-mode rows on
+ * ABCA.
+ */
 function PickerRow({
   label,
   required,
@@ -887,8 +951,8 @@ function PickerRow({
   children: React.ReactNode;
 }) {
   return (
-    <div className="mb-5">
-      <label className="block text-[10px] font-medium text-accent mb-2 uppercase tracking-wider">
+    <div className="mb-2.5">
+      <label className="block text-[10px] font-medium text-accent mb-1 uppercase tracking-wider">
         {label} {required && <span className="text-red-400">*</span>}
       </label>
       {children}
@@ -897,11 +961,11 @@ function PickerRow({
 }
 
 /**
- * Single-select chip row. Auto-defaults to the first option whenever
- * the current `value` isn't in the option set (covers initial mount,
- * machine switch, category switch, …). Single-option rows hide
- * themselves entirely — no point asking the user to tap a chip they
- * can't change. Empty options also hide the row.
+ * Same flex-1 accent-solid toggle row as ABCA's `OptionsPanel.ToggleButton`.
+ * Auto-defaults to the first option when the current value isn't in
+ * the set (covers fresh mount, machine switch, parent-driven reset).
+ * Single-option rows hide themselves — no point asking the user to tap
+ * a chip they can't change.
  */
 function ChipSelector({
   label,
@@ -916,13 +980,6 @@ function ChipSelector({
   value: string | null;
   onChange: (v: string | null) => void;
 }) {
-  // Default-to-first whenever the current value is missing from the
-  // list of options — covers fresh mount, option-set change, AND a
-  // parent-driven reset to null (e.g. switching machines wipes
-  // pitch/ball; we still want the new selector to land on its first
-  // chip). Listing `value` in the deps is what makes the reset case
-  // refire — once a valid value is set, `has` is true and onChange
-  // isn't called again, so no loop.
   useEffect(() => {
     if (options.length === 0) return;
     const has = value && options.some((o) => o.id === value);
@@ -930,22 +987,21 @@ function ChipSelector({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [options.map((o) => o.id).join(','), value]);
 
-  // Nothing to choose between — hide the row.
   if (options.length <= 1) return null;
 
   return (
     <PickerRow label={label} required={required}>
-      <div className="flex flex-wrap gap-2">
+      <div className="flex gap-2 flex-wrap">
         {options.map((opt) => {
           const active = value === opt.id;
           return (
             <button
               key={opt.id}
-              onClick={() => onChange(active ? null : opt.id)}
-              className={`px-3 py-1.5 rounded-lg text-xs font-semibold border cursor-pointer transition-all ${
+              onClick={() => onChange(opt.id)}
+              className={`flex-1 min-w-[6rem] flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
                 active
-                  ? 'bg-accent/15 text-accent border-accent/40'
-                  : 'bg-white/[0.04] text-slate-300 border-white/[0.08] hover:border-accent/30'
+                  ? 'bg-accent text-primary shadow-sm'
+                  : 'bg-white/[0.04] text-slate-400 border border-white/[0.08] hover:border-accent/20'
               }`}
             >
               {opt.label}
@@ -974,21 +1030,21 @@ function PeoplePicker({
 }) {
   return (
     <PickerRow label={label}>
-      {help && <div className="text-[10px] text-slate-500 mb-2">{help}</div>}
+      {help && <div className="text-[10px] text-slate-500 mb-1.5">{help}</div>}
       {options.length === 0 ? (
         <span className="text-xs text-amber-400">{emptyMessage}</span>
       ) : (
-        <div className="flex flex-wrap gap-2">
+        <div className="flex gap-2 flex-wrap">
           {options.map((p) => {
             const active = value === p.userId;
             return (
               <button
                 key={p.userId}
-                onClick={() => onChange(active ? null : p.userId)}
-                className={`px-3 py-1.5 rounded-lg text-xs font-semibold border cursor-pointer transition-all ${
+                onClick={() => onChange(p.userId)}
+                className={`flex-1 min-w-[6rem] flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
                   active
-                    ? 'bg-accent/15 text-accent border-accent/40'
-                    : 'bg-white/[0.04] text-slate-300 border-white/[0.08] hover:border-accent/30'
+                    ? 'bg-accent text-primary shadow-sm'
+                    : 'bg-white/[0.04] text-slate-400 border border-white/[0.08] hover:border-accent/20'
                 }`}
               >
                 {p.name || '(no name)'}
