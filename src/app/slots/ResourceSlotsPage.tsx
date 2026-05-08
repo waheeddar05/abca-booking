@@ -431,6 +431,17 @@ export default function ResourceSlotsPage() {
     });
   };
 
+  // NOTE: declared BEFORE `slotPriceFor` and `totalPrice` because both
+  // close over `filteredMachines`. Moving it down triggers a temporal-
+  // dead-zone crash ("Cannot access … before initialization") whenever
+  // the totalPrice useMemo runs on a render where selectedSlots is
+  // already populated — minified production builds report this as a
+  // mangled identifier (e.g. "Cannot access 'ee' before initialization").
+  const filteredMachines = useMemo(() => {
+    // Phase 5b doesn't filter by ball type; the engine accepts any active machine.
+    return machines;
+  }, [machines]);
+
   const slotPriceFor = (s: ResourceSlot): number => {
     const slab = s.timeSlab;
     const cfg = data?.pricingConfig;
@@ -485,11 +496,6 @@ export default function ResourceSlotsPage() {
     // slotPriceFor depends on every selection that affects the cascade.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedSlots, category, machineId, pitchType, ballType, data?.pricingConfig]);
-
-  const filteredMachines = useMemo(() => {
-    // Phase 5b doesn't filter by ball type; the engine accepts any active machine.
-    return machines;
-  }, [machines]);
 
   const toggleSlot = (slot: ResourceSlot) => {
     const idx = selectedSlots.findIndex((s) => s.startTime === slot.startTime);
