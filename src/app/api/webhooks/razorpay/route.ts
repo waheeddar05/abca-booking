@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { executeSlotBooking } from '@/app/api/slots/book/route';
+import {
+  executeResourceBooking,
+  ResourceBookingBodySchema,
+} from '@/app/api/slots/book-resource/route';
 import { getCenterRazorpayCredentials, verifyWebhookSignatureWithSecret } from '@/lib/razorpay';
 
 /**
@@ -146,6 +150,55 @@ export async function POST(req: NextRequest) {
       }
 
       const isSuperAdmin = !!(user.email && SUPER_ADMIN_EMAIL && user.email === SUPER_ADMIN_EMAIL);
+      const authedUser = {
+        id: user.id,
+        name: user.name || undefined,
+        role: user.role,
+        email: user.email || undefined,
+        isSuperAdmin,
+        isFreeUser: user.isFreeUser,
+        isSpecialUser: user.isSpecialUser,
+        mobileVerified: user.mobileVerified,
+      };
+
+      // Route by center.bookingModel — RESOURCE_BASED centers (Toplay)
+      // store the resource-shaped payload in metadata.bookingPayload[0]
+      // and MUST NOT be fed through executeSlotBooking (legacy ABCA
+      // path), which fails their payload as "Missing required fields"
+      // and triggers an unnecessary wallet refund.
+      const center = await prisma.center.findUnique({
+        where: { id: payment.centerId },
+        select: { id: true, name: true, bookingModel: true },
+      });
+      if (!center) {
+        console.error(`[RazorpayWebhook] Center ${payment.centerId} not found for payment ${payment.id}`);
+        return NextResponse.json({ status: 'center_not_found' });
+      }
+
+      if (center.bookingModel === 'RESOURCE_BASED') {
+        const raw = bookingPayload[0];
+        const parsed = ResourceBookingBodySchema.safeParse(raw);
+        if (!parsed.success) {
+          console.error(`[RazorpayWebhook] Resource booking payload invalid for ${payment.id}:`, parsed.error.issues);
+          return NextResponse.json({ status: 'invalid_payload', issues: parsed.error.issues });
+        }
+        try {
+          console.log(`[RazorpayWebhook] Creating resource booking(s) for payment ${payment.id} user=${user.id}`);
+          const bookings = await executeResourceBooking(authedUser, parsed.data, center, {
+            onlinePaymentId: payment.id,
+          });
+          await prisma.payment.update({
+            where: { id: payment.id },
+            data: { bookingIds: bookings.map(b => b.id) },
+          }).catch((e) => console.error(`[RazorpayWebhook] Failed to link bookingIds on ${payment.id}:`, e));
+          console.log(`[RazorpayWebhook] Resource bookings created via webhook: ${bookings.map(b => b.id).join(', ')}`);
+          return NextResponse.json({ status: 'bookings_created', bookingIds: bookings.map(b => b.id) });
+        } catch (bookingErr) {
+          const errMsg = bookingErr instanceof Error ? bookingErr.message : 'Booking failed';
+          console.error(`[RazorpayWebhook] Resource booking creation failed for ${payment.id}:`, bookingErr);
+          return NextResponse.json({ status: 'booking_failed', error: errMsg });
+        }
+      }
 
       try {
         const slotsWithPayment = bookingPayload.map(slot => ({
@@ -156,16 +209,7 @@ export async function POST(req: NextRequest) {
         console.log(`[RazorpayWebhook] Creating ${bookingPayload.length} booking(s) for payment ${payment.id} user=${user.id}`);
 
         const bookings = await executeSlotBooking(
-          {
-            id: user.id,
-            name: user.name || undefined,
-            role: user.role,
-            email: user.email || undefined,
-            isSuperAdmin,
-            isFreeUser: user.isFreeUser,
-            isSpecialUser: user.isSpecialUser,
-            mobileVerified: user.mobileVerified,
-          },
+          authedUser,
           slotsWithPayment,
           payment.centerId,
           { onlinePaymentId: payment.id },
