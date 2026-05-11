@@ -529,7 +529,7 @@ function AdminOffersLegacy({ isResourceBased, centerMachines }: AdminOffersInjec
           className={inputClass}>
           <option value="ALL" className="bg-[#1a2a40]">All Users</option>
           <option value="SPECIAL" className="bg-[#1a2a40]">Special Users Only</option>
-          <option value="NON_SPECIAL" className="bg-[#1a2a40]">Generic Users (non-special only)</option>
+          <option value="NON_SPECIAL" className="bg-[#1a2a40]">Non-Special Users Only</option>
         </select>
       </div>
       <div className="flex gap-2 pt-1">
@@ -601,7 +601,7 @@ function AdminOffersLegacy({ isResourceBased, centerMachines }: AdminOffersInjec
           className={inputClass}>
           <option value="ALL" className="bg-[#1a2a40]">All Users</option>
           <option value="SPECIAL" className="bg-[#1a2a40]">Special Users Only</option>
-          <option value="NON_SPECIAL" className="bg-[#1a2a40]">Generic Users (non-special only)</option>
+          <option value="NON_SPECIAL" className="bg-[#1a2a40]">Non-Special Users Only</option>
         </select>
       </div>
       <div className="grid grid-cols-2 gap-3">
@@ -693,7 +693,7 @@ function AdminOffersLegacy({ isResourceBased, centerMachines }: AdminOffersInjec
                         {rule.appliesTo === 'SPECIAL' ? (
                           <span className="text-[10px] px-1.5 py-0.5 rounded-full font-medium bg-purple-500/15 text-purple-400">Special Users</span>
                         ) : rule.appliesTo === 'NON_SPECIAL' ? (
-                          <span className="text-[10px] px-1.5 py-0.5 rounded-full font-medium bg-amber-500/15 text-amber-400">Generic Users</span>
+                          <span className="text-[10px] px-1.5 py-0.5 rounded-full font-medium bg-amber-500/15 text-amber-400">Non-Special Users</span>
                         ) : (
                           <span className="text-[10px] px-1.5 py-0.5 rounded-full font-medium bg-blue-500/15 text-blue-400">All Users</span>
                         )}
@@ -792,7 +792,7 @@ function AdminOffersLegacy({ isResourceBased, centerMachines }: AdminOffersInjec
                         {offer.appliesTo === 'SPECIAL' ? (
                           <span className="text-[10px] px-1.5 py-0.5 rounded-full font-medium bg-purple-500/15 text-purple-400">Special Users</span>
                         ) : offer.appliesTo === 'NON_SPECIAL' ? (
-                          <span className="text-[10px] px-1.5 py-0.5 rounded-full font-medium bg-amber-500/15 text-amber-400">Generic Users</span>
+                          <span className="text-[10px] px-1.5 py-0.5 rounded-full font-medium bg-amber-500/15 text-amber-400">Non-Special Users</span>
                         ) : (
                           <span className="text-[10px] px-1.5 py-0.5 rounded-full font-medium bg-blue-500/15 text-blue-400">All Users</span>
                         )}
