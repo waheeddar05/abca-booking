@@ -839,8 +839,18 @@ export async function executeSlotBooking(
       const firstSlot = validatedSlots[0];
       const machineName = firstSlot.machineId ? MACHINES[firstSlot.machineId]?.shortName : (firstBallType === 'TENNIS' ? 'Tennis' : 'Leather');
       const dateStr = formatIST(firstSlot.date, 'EEE, dd MMM yyyy');
-      const timeStr = formatIST(firstSlot.startTime, 'hh:mm a');
-      const endTimeStr = formatIST(validatedSlots[validatedSlots.length - 1].endTime, 'hh:mm a');
+      // Use min(startTime) / max(endTime) across all slots so multi-slot
+      // bookings show the full booking window, regardless of client ordering.
+      const earliestStart = validatedSlots.reduce(
+        (acc, s) => (s.startTime < acc ? s.startTime : acc),
+        validatedSlots[0].startTime,
+      );
+      const latestEnd = validatedSlots.reduce(
+        (acc, s) => (s.endTime > acc ? s.endTime : acc),
+        validatedSlots[0].endTime,
+      );
+      const timeStr = formatIST(earliestStart, 'hh:mm a');
+      const endTimeStr = formatIST(latestEnd, 'hh:mm a');
       const slotCount = validatedSlots.length;
 
       const lines = [
@@ -924,10 +934,20 @@ export async function executeSlotBooking(
         ASTRO: 'Astro Turf', CEMENT: 'Cement', NATURAL: 'Natural Turf', TURF: 'Cement Wicket',
       };
       const pitchLabel = firstSlot.pitchType ? (pitchLabels[firstSlot.pitchType] || firstSlot.pitchType) : 'N/A';
+      // Span the full booking window from earliest start to latest end so
+      // multi-slot bookings don't get truncated to a single slot.
+      const earliestStart = validatedSlots.reduce(
+        (acc, s) => (s.startTime < acc ? s.startTime : acc),
+        validatedSlots[0].startTime,
+      );
+      const latestEnd = validatedSlots.reduce(
+        (acc, s) => (s.endTime > acc ? s.endTime : acc),
+        validatedSlots[0].endTime,
+      );
       await notifyOperatorNewBooking(results.map(r => r.id), {
         customerName: firstSlot.playerName,
         date: formatIST(firstSlot.date, 'EEE, dd MMM yyyy'),
-        time: `${formatIST(firstSlot.startTime, 'hh:mm a')} – ${formatIST(validatedSlots[validatedSlots.length - 1].endTime, 'hh:mm a')}`,
+        time: `${formatIST(earliestStart, 'hh:mm a')} – ${formatIST(latestEnd, 'hh:mm a')}`,
         machine: machineName || 'N/A',
         pitch: pitchLabel,
         slotCount: validatedSlots.length,
