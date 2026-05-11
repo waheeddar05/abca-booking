@@ -40,6 +40,7 @@ export function CenterMembersTab({ centerId }: { centerId: string }) {
   const [q, setQ] = useState('');
   const [loading, setLoading] = useState(true);
   const [showNew, setShowNew] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
 
   const refresh = async () => {
     setLoading(true);
@@ -60,8 +61,45 @@ export function CenterMembersTab({ centerId }: { centerId: string }) {
     const target = members.find((m) => m.id === id);
     const label = target ? ROLE_LABEL[target.role] : 'membership';
     if (!confirm(`Remove the ${label} role at this center? Other roles for this user are unaffected.`)) return;
-    const res = await fetch(`/api/admin/centers/${centerId}/members/${id}`, { method: 'DELETE' });
-    if (res.ok) refresh();
+    setActionError(null);
+    try {
+      const res = await fetch(`/api/admin/centers/${centerId}/members/${id}`, { method: 'DELETE' });
+      if (res.ok) {
+        refresh();
+        return;
+      }
+      const data = await res.json().catch(() => ({}));
+      setActionError(data?.error || `Remove failed (HTTP ${res.status})`);
+    } catch (e) {
+      setActionError(e instanceof Error ? e.message : 'Remove failed');
+    }
+  };
+
+  // Remove every active membership a user holds at this center in one shot.
+  // The per-role X above only deactivates a single role chip, which is
+  // confusing when the admin's intent is "this person no longer works here".
+  const removeUserEntirely = async (userId: string) => {
+    const userMemberships = members.filter((m) => m.user.id === userId);
+    if (userMemberships.length === 0) return;
+    const name = userMemberships[0].user.name || userMemberships[0].user.email || userMemberships[0].user.mobileNumber || 'this user';
+    const roleList = userMemberships.map((m) => ROLE_LABEL[m.role]).join(', ');
+    if (!confirm(`Remove ${name} from this center?\nThis revokes: ${roleList}.`)) return;
+    setActionError(null);
+    try {
+      const results = await Promise.all(
+        userMemberships.map((m) =>
+          fetch(`/api/admin/centers/${centerId}/members/${m.id}`, { method: 'DELETE' }),
+        ),
+      );
+      const failed = results.find((r) => !r.ok);
+      if (failed) {
+        const data = await failed.json().catch(() => ({}));
+        setActionError(data?.error || `Remove failed (HTTP ${failed.status})`);
+      }
+      refresh();
+    } catch (e) {
+      setActionError(e instanceof Error ? e.message : 'Remove failed');
+    }
   };
 
   return (
@@ -102,6 +140,8 @@ export function CenterMembersTab({ centerId }: { centerId: string }) {
         />
       )}
 
+      {actionError && <Banner kind="error">{actionError}</Banner>}
+
       {loading ? (
         <div className="flex items-center gap-2 text-slate-400 py-6 justify-center"><Loader2 className="w-4 h-4 animate-spin" /> Loading…</div>
       ) : members.length === 0 ? (
@@ -114,6 +154,7 @@ export function CenterMembersTab({ centerId }: { centerId: string }) {
               centerId={centerId}
               group={group}
               onRemoveRole={remove}
+              onRemoveUser={removeUserEntirely}
             />
           ))}
         </div>
@@ -291,10 +332,12 @@ function UserMembershipsRow({
   centerId,
   group,
   onRemoveRole,
+  onRemoveUser,
 }: {
   centerId: string;
   group: { userId: string; user: MembershipRow['user']; memberships: MembershipRow[] };
   onRemoveRole: (membershipId: string) => void;
+  onRemoveUser: (userId: string) => void;
 }) {
   // The schedule editor is per-membership (so a user who's both a
   // Coach and a Specialist can keep different schedules per role).
@@ -308,6 +351,17 @@ function UserMembershipsRow({
           <div className="text-sm font-semibold text-white truncate">
             {group.user.name || '(no name)'}
           </div>
+        </div>
+        <button
+          onClick={() => onRemoveUser(group.userId)}
+          className="shrink-0 inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-medium text-red-300/80 hover:text-red-300 bg-red-500/5 hover:bg-red-500/10 border border-red-500/15 cursor-pointer"
+          title="Remove this user from the center (revokes all their roles)"
+        >
+          <Trash2 className="w-3 h-3" /> Remove user
+        </button>
+      </div>
+      <div className="px-3 pb-3 -mt-2">
+        <div className="min-w-0">
           <div className="flex items-center gap-3 text-xs text-slate-500 mt-0.5 flex-wrap">
             {group.user.email && (
               <span className="flex items-center gap-1">
