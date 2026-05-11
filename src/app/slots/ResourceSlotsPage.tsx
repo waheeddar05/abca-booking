@@ -688,7 +688,7 @@ export default function ResourceSlotsPage() {
                       </div>
                     )}
                     <span className="leading-tight text-left min-w-0">
-                      <span className="block truncate">{m.name}</span>
+                      <span className="block truncate">{m.machineType.name}</span>
                       <span className={`block text-[10px] font-medium truncate ${active ? 'text-primary/70' : 'text-slate-500'}`}>
                         {subParts.join(' · ')}
                       </span>
@@ -991,14 +991,14 @@ function ChipSelector({
 
   return (
     <PickerRow label={label} required={required}>
-      <div className="flex gap-2 flex-wrap">
+      <div className="flex gap-2">
         {options.map((opt) => {
           const active = value === opt.id;
           return (
             <button
               key={opt.id}
               onClick={() => onChange(opt.id)}
-              className={`flex-1 min-w-[6rem] flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+              className={`flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
                 active
                   ? 'bg-accent text-primary shadow-sm'
                   : 'bg-white/[0.04] text-slate-400 border border-white/[0.08] hover:border-accent/20'
@@ -1041,7 +1041,7 @@ function PeoplePicker({
               <button
                 key={p.userId}
                 onClick={() => onChange(p.userId)}
-                className={`flex-1 min-w-[6rem] flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+                className={`flex-1 min-w-[5rem] flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
                   active
                     ? 'bg-accent text-primary shadow-sm'
                     : 'bg-white/[0.04] text-slate-400 border border-white/[0.08] hover:border-accent/20'

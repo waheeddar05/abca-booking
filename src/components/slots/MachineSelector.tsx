@@ -61,26 +61,24 @@ const MachineCardButton = memo(function MachineCardButton({
       aria-checked={isSelected}
       aria-label={`${card.label} – ${card.shortLabel}`}
       onClick={() => onSelect(card.id)}
-      className={`flex items-center gap-1.5 px-1.5 py-1 rounded-lg transition-all cursor-pointer text-left ${
+      className={`flex items-center gap-2 pl-1.5 pr-3 py-1 rounded-lg text-xs font-semibold border cursor-pointer transition-all text-left min-w-0 ${
         isSelected
-          ? 'bg-accent/15 ring-1 ring-accent/50 shadow-sm'
-          : 'bg-white/[0.04] border border-white/[0.08] hover:border-accent/30'
+          ? 'bg-accent text-primary border-accent shadow-sm'
+          : 'bg-white/[0.04] text-slate-300 border-white/[0.08] hover:border-accent/30'
       }`}
     >
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img
         src={card.image}
         alt={card.label}
-        className="w-7 h-7 rounded-md object-cover flex-shrink-0"
+        className="w-7 h-7 rounded-md object-cover flex-shrink-0 bg-white/5"
       />
-      <div className="min-w-0">
-        <span className={`block text-[11px] font-bold leading-tight truncate ${isSelected ? 'text-accent' : 'text-slate-300'}`}>
-          {card.label}
-        </span>
-        <p className={`text-[9px] ${isSelected ? 'text-accent/70' : 'text-slate-500'}`}>
+      <span className="leading-tight text-left min-w-0">
+        <span className="block truncate">{card.label}</span>
+        <span className={`block text-[10px] font-medium truncate ${isSelected ? 'text-primary/70' : 'text-slate-500'}`}>
           {card.shortLabel}
-        </p>
-      </div>
+        </span>
+      </span>
     </button>
   );
 });
