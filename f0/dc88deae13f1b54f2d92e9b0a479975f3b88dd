@@ -1,0 +1,34 @@
+src/components/ui/PaymentMethodSelector.tsx
+  s_c9941b4ce1eee9::t_a2379cfeeb97ac 10,24
+  s_8bce6d8b6a5667::t_7613ef6e0a2eb7 120-121
+  s_8bce6d8b6a5667::t_1cbbe392f4a8a9 160
+src/app/api/slots/book-resource/route.ts
+  s_8bce6d8b6a5667::t_0f0b6d67e5d39b 652-666
+src/app/slots/page.tsx
+  s_c9941b4ce1eee9::t_54b07f59b7afd8 603-612,614-618
+  s_8bce6d8b6a5667::t_73930f8280e97a 628
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.4",
+  "base_commit_sha": "f0dc88deae13f1b54f2d92e9b0a479975f3b88dd",
+  "prompts": {},
+  "sessions": {
+    "s_8bce6d8b6a5667": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "817ca8fe-eaf6-4e8b-999a-f66056a28e76",
+        "model": "unknown"
+      },
+      "human_author": "Waheed <waheeddar8@gmail.com>"
+    },
+    "s_c9941b4ce1eee9": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "08e87785-20fe-4a8a-8c45-f1f33f82f348",
+        "model": "unknown"
+      },
+      "human_author": "Waheed <waheeddar8@gmail.com>"
+    }
+  }
+}
