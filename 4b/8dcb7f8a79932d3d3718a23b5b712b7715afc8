@@ -1,0 +1,36 @@
+src/components/MobileNumberCheck.tsx
+  s_09fe154143455f::t_43a7df1d968f28 17-26
+src/middleware.ts
+  s_320389095c653d::t_2a5b6e07b54543 104-109,111-113
+src/components/Navbar.tsx
+  s_09fe154143455f::t_6a61033e418a58 89
+  s_09fe154143455f::t_05f963cf85110b 143-147,149,153
+  s_09fe154143455f::t_3f6605e127aa07 40-41,43-45
+  s_09fe154143455f::t_c3066052d4317f 121-122
+  s_09fe154143455f::t_136b0223cb4572 157,160
+  s_09fe154143455f::t_498802ba520dba 115
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.1",
+  "base_commit_sha": "4b8dcb7f8a79932d3d3718a23b5b712b7715afc8",
+  "prompts": {},
+  "sessions": {
+    "s_09fe154143455f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "bd33ed3b-70fe-4b18-a302-b7320e4c5d7a",
+        "model": "unknown"
+      },
+      "human_author": "Waheed <waheeddar8@gmail.com>"
+    },
+    "s_320389095c653d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "ae4e3513-a48d-4247-9da8-325c4fc0c0c4",
+        "model": "unknown"
+      },
+      "human_author": "Waheed <waheeddar8@gmail.com>"
+    }
+  }
+}
