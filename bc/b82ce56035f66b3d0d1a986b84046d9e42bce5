@@ -1,0 +1,32 @@
+src/components/admin/centers/CenterMembersTab.tsx
+  s_b65b6e752d0d25::t_b74f839cd301ce 157
+  s_b65b6e752d0d25::t_856129e1c7b17f 354-364
+  s_b65b6e752d0d25::t_d9d71e2e7f2569 78-102
+  s_1868ce71313cfe::t_e98b5e86a66465 143-144
+  s_1868ce71313cfe::t_bd283a464cdb28 43,64-75
+  s_b65b6e752d0d25::t_4c7900429e4dc6 335,340
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.1",
+  "base_commit_sha": "bcb82ce56035f66b3d0d1a986b84046d9e42bce5",
+  "prompts": {},
+  "sessions": {
+    "s_1868ce71313cfe": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "67feb43f-daaa-4081-aefe-003c869d5c0e",
+        "model": "unknown"
+      },
+      "human_author": "Waheed <waheeddar8@gmail.com>"
+    },
+    "s_b65b6e752d0d25": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "d1c71e7d-be5a-4b45-93d3-e2f0ae569d25",
+        "model": "unknown"
+      },
+      "human_author": "Waheed <waheeddar8@gmail.com>"
+    }
+  }
+}
