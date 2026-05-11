@@ -1,0 +1,19 @@
+src/lib/__tests__/pricing.test.ts
+  s_04cfc8101655e8::t_07b3b3ef6d91e5 186-256
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.1",
+  "base_commit_sha": "193e687f246982bafd3a6e4daa5c639ea5c5d229",
+  "prompts": {},
+  "sessions": {
+    "s_04cfc8101655e8": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "42c895c7-dd2e-4731-a462-48735f378439",
+        "model": "unknown"
+      },
+      "human_author": "Waheed <waheeddar8@gmail.com>"
+    }
+  }
+}
