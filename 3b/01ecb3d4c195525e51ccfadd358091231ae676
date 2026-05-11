@@ -1,0 +1,21 @@
+src/app/slots/ResourceSlotsPage.tsx
+  s_00d82a0be401fd::t_259ac3b79d0999 406-409,417-420
+src/lib/resource-pricing.ts
+  s_00d82a0be401fd::t_28b7bbdbde26bf 89-92,98-101
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.4",
+  "base_commit_sha": "3b01ecb3d4c195525e51ccfadd358091231ae676",
+  "prompts": {},
+  "sessions": {
+    "s_00d82a0be401fd": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "75988b6d-baa5-4dce-9fc3-4d9f18cfb06a",
+        "model": "unknown"
+      },
+      "human_author": "Waheed <waheeddar8@gmail.com>"
+    }
+  }
+}
