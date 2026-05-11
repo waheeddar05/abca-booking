@@ -556,11 +556,6 @@ async function executeResourceBookingCore(
                   // FIXED) so reports can render either, mirroring the
                   // legacy MACHINE_PITCH booking flow.
                   discountType: appliedOffer ? appliedOffer.discountType : null,
-                  // When an online Payment row drove this booking
-                  // (RESOURCE_BASED + payment-gateway flow), tag it so
-                  // /bookings UI and refund flows can find it. Mirrors
-                  // executeSlotBooking's onlinePaymentId wiring.
-                  ...(onlinePaymentId ? { paymentId: onlinePaymentId } : {}),
                   paymentMethod: onlinePaymentId
                     ? 'ONLINE'
                     : (body.paymentMethod ?? null),
@@ -652,6 +647,21 @@ async function executeResourceBookingCore(
     if (lastError instanceof BookingResourceError) throw lastError;
     const msg = lastError instanceof Error ? lastError.message : 'Booking failed';
     throw new ResourceBookingServiceError(msg, 500);
+  }
+
+  // Link the online Payment row to the created bookings so refund and
+  // recovery flows can find them. Mirrors executeSlotBooking's post-tx
+  // linkage (src/app/api/slots/book/route.ts ~963).
+  if (onlinePaymentId && created.length > 0) {
+    try {
+      const bookingIds = created.map(b => b.id);
+      await prisma.payment.update({
+        where: { id: onlinePaymentId },
+        data: { bookingIds },
+      });
+    } catch (linkErr) {
+      console.error('Failed to link resource bookings to payment', onlinePaymentId, linkErr);
+    }
   }
 
   return created;

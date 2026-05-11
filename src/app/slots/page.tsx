@@ -600,11 +600,22 @@ function SlotsContent() {
         </div>
       )}
 
-      {/* Payment Method Selection */}
+      {/* Payment Method Selection.
+       *
+       * Render whenever any payment-side affordance is on for this center:
+       *   - Online gateway (paymentEnabled && slotPaymentRequired), OR
+       *   - Cash-at-center, OR
+       *   - Wallet (so users can redeem refund balances even when the
+       *     gateway is off — e.g. ABCA's cash-only setup).
+       *
+       * The selector itself self-hides the online/cash options when no
+       * payment method is enabled and only renders the wallet toggle. */}
       {selectedSlots.length > 0
-        && paymentConfig?.paymentEnabled
-        && paymentConfig?.slotPaymentRequired
-        && (paymentConfig?.cashPaymentEnabled || paymentConfig?.walletEnabled)
+        && (
+          (paymentConfig?.paymentEnabled && paymentConfig?.slotPaymentRequired)
+          || paymentConfig?.cashPaymentEnabled
+          || paymentConfig?.walletEnabled
+        )
         && !isBookingForOther
         && !isFreeBooking
         && (
@@ -614,6 +625,7 @@ function SlotsContent() {
             selected={paymentMethod}
             onChange={setPaymentMethod}
             disabled={bookingLoading || paymentProcessing}
+            showOnline={!!(paymentConfig?.paymentEnabled && paymentConfig?.slotPaymentRequired)}
             showCash={paymentConfig?.cashPaymentEnabled}
             showWallet={paymentConfig?.walletEnabled}
             totalAmount={(pkg.selectedPackageId && pkg.validation ? (pkg.validation.extraCharge || 0) : pricing.totalPrice) + kitRentalTotal}
