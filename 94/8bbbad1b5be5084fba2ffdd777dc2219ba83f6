@@ -1,0 +1,31 @@
+src/app/slots/ResourceSlotsPage.tsx
+  s_ce8b906e8c874d::t_d0f24ad2c630c7 632-634,651-657
+  s_4ad0c131f6187a::t_5802cb87423a55 411-416,422-426
+  s_4ad0c131f6187a::t_36ffdaf63b608d 818,829
+  s_4ad0c131f6187a::t_5736863b0d0365 327-330,333,340-343,346
+  s_4ad0c131f6187a::t_52b4ca4d7019f4 219-263
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.1",
+  "base_commit_sha": "948bbbad1b5be5084fba2ffdd777dc2219ba83f6",
+  "prompts": {},
+  "sessions": {
+    "s_4ad0c131f6187a": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "84051732-a244-4b16-af50-521be13edb92",
+        "model": "unknown"
+      },
+      "human_author": "Waheed <waheeddar8@gmail.com>"
+    },
+    "s_ce8b906e8c874d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "181d952f-aaca-4032-b506-63807d068acb",
+        "model": "unknown"
+      },
+      "human_author": "Waheed <waheeddar8@gmail.com>"
+    }
+  }
+}
