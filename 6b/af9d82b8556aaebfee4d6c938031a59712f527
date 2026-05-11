@@ -1,0 +1,36 @@
+src/app/admin/operators/page.tsx
+  s_96be309a1c4a38::t_19d184f3b82fe2 5
+  s_96be309a1c4a38::t_b39212b2cc735b 10
+  s_b50d2309a05390::t_ef13ce5b35de29 1112-1129
+  s_96be309a1c4a38::t_b9b8b7983fb4be 1019,1029
+  s_96be309a1c4a38::t_a77831106f51c3 996-1009
+  s_96be309a1c4a38::t_c3213e6713184b 368-387,410-413,415,419
+  s_96be309a1c4a38::t_1a81cfb886352a 199
+  s_96be309a1c4a38::t_681ae8d86988ae 393-397
+src/app/api/admin/stats/route.ts
+  s_96be309a1c4a38::t_7f8d1d32055419 193-211,223,233,264,274
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.1",
+  "base_commit_sha": "6baf9d82b8556aaebfee4d6c938031a59712f527",
+  "prompts": {},
+  "sessions": {
+    "s_96be309a1c4a38": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "f7eb7201-9702-4f51-a1e9-e7d2b7ac4876",
+        "model": "unknown"
+      },
+      "human_author": "Waheed <waheeddar8@gmail.com>"
+    },
+    "s_b50d2309a05390": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "ad9c2faa-2307-4c03-90c2-271283f85b0c",
+        "model": "unknown"
+      },
+      "human_author": "Waheed <waheeddar8@gmail.com>"
+    }
+  }
+}
