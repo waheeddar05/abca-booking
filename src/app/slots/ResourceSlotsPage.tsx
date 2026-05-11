@@ -216,6 +216,51 @@ export default function ResourceSlotsPage() {
   const [showConfirm, setShowConfirm] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
+  // Coaches free across the user's *current* slot selection (intersection).
+  // With nothing selected yet, fall back to the union across the day — so
+  // the picker reflects everyone who's around today instead of only the
+  // earliest slot's roster (slots[0] used to leak in here and pin the
+  // picker to early-morning availability).
+  //
+  // Declared HERE (above the default-select effects + render JSX) so the
+  // useEffects that depend on it don't fall into the same TDZ trap as the
+  // `filteredMachines` crash fix below.
+  const availableCoaches = useMemo<PersonLite[]>(() => {
+    if (!data) return [];
+    if (selectedSlots.length > 0) {
+      const startTimes = new Set(selectedSlots.map((s) => s.startTime));
+      const chosen = data.slots.filter((s) => startTimes.has(s.startTime));
+      if (chosen.length === 0) return [];
+      const [first, ...rest] = chosen;
+      return first.freeCoaches.filter((c) =>
+        rest.every((s) => s.freeCoaches.some((x) => x.userId === c.userId)),
+      );
+    }
+    const seen = new Map<string, PersonLite>();
+    for (const slot of data.slots) {
+      for (const c of slot.freeCoaches) if (!seen.has(c.userId)) seen.set(c.userId, c);
+    }
+    return Array.from(seen.values());
+  }, [data, selectedSlots]);
+
+  const availableSidearmStaff = useMemo<PersonLite[]>(() => {
+    if (!data) return [];
+    if (selectedSlots.length > 0) {
+      const startTimes = new Set(selectedSlots.map((s) => s.startTime));
+      const chosen = data.slots.filter((s) => startTimes.has(s.startTime));
+      if (chosen.length === 0) return [];
+      const [first, ...rest] = chosen;
+      return first.freeSidearmStaff.filter((p) =>
+        rest.every((s) => s.freeSidearmStaff.some((x) => x.userId === p.userId)),
+      );
+    }
+    const seen = new Map<string, PersonLite>();
+    for (const slot of data.slots) {
+      for (const p of slot.freeSidearmStaff) if (!seen.has(p.userId)) seen.set(p.userId, p);
+    }
+    return Array.from(seen.values());
+  }, [data, selectedSlots]);
+
   // Reset selections when category changes. We deliberately DON'T
   // reset pitchType / ballType / coachId / staffId here — the
   // dedicated effects below default each one to the first available
@@ -279,24 +324,26 @@ export default function ResourceSlotsPage() {
       if (coachId !== null) setCoachId(null);
       return;
     }
-    const coaches = data?.slots[0]?.freeCoaches ?? [];
-    if (coaches.length > 0 && (!coachId || !coaches.some((c) => c.userId === coachId))) {
-      setCoachId(coaches[0].userId);
+    if (availableCoaches.length > 0 && (!coachId || !availableCoaches.some((c) => c.userId === coachId))) {
+      setCoachId(availableCoaches[0].userId);
+    } else if (availableCoaches.length === 0 && coachId !== null) {
+      setCoachId(null);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [category, data?.slots]);
+  }, [category, availableCoaches]);
 
   useEffect(() => {
     if (category !== 'SIDEARM') {
       if (staffId !== null) setStaffId(null);
       return;
     }
-    const staff = data?.slots[0]?.freeSidearmStaff ?? [];
-    if (staff.length > 0 && (!staffId || !staff.some((s) => s.userId === staffId))) {
-      setStaffId(staff[0].userId);
+    if (availableSidearmStaff.length > 0 && (!staffId || !availableSidearmStaff.some((s) => s.userId === staffId))) {
+      setStaffId(availableSidearmStaff[0].userId);
+    } else if (availableSidearmStaff.length === 0 && staffId !== null) {
+      setStaffId(null);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [category, data?.slots]);
+  }, [category, availableSidearmStaff]);
 
   // Reset selected slots when date changes (availability is per-date)
   useEffect(() => { setSelectedSlots([]); }, [selectedDate]);
@@ -361,11 +408,22 @@ export default function ResourceSlotsPage() {
     if (cat === 'SIDEARM') {
       if (s.freeSidearmStaff.length === 0) return { ok: false, reason: 'No sidearm specialist free' };
       if (s.freeIndoorNets.length === 0) return { ok: false, reason: 'No nets free' };
+      // When the user has explicitly picked a specialist, the slot is only
+      // bookable if THAT person is free here — otherwise the server returns
+      // 409 "Selected staff is not available" on submit.
+      if (staffId && !s.freeSidearmStaff.some((p) => p.userId === staffId)) {
+        return { ok: false, reason: 'Selected specialist busy' };
+      }
       return { ok: true };
     }
     if (cat === 'COACHING') {
       if (s.freeCoaches.length === 0) return { ok: false, reason: 'No coaches free' };
       if (s.freeIndoorNets.length === 0) return { ok: false, reason: 'No nets free' };
+      // Same reason as SIDEARM above: prevent submitting a slot the picked
+      // coach can't actually take.
+      if (coachId && !s.freeCoaches.some((c) => c.userId === coachId)) {
+        return { ok: false, reason: 'Selected coach busy' };
+      }
       return { ok: true };
     }
     if (cat === 'FULL_COURT') {
@@ -570,16 +628,10 @@ export default function ResourceSlotsPage() {
     }
   };
 
-  if (!currentCenter) {
-    return (
-      <div className="flex items-center justify-center min-h-screen">
-        <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
-      </div>
-    );
-  }
-
   // ABCA's BookingBar shows "<Category> · <secondary>" as the label —
-  // mirror that here so the sticky bar reads consistently.
+  // mirror that here so the sticky bar reads consistently. Declared
+  // BEFORE the `!currentCenter` early return so the hook order stays
+  // stable across renders (Rules of Hooks).
   const machineLabel = useMemo(() => {
     const cat = CATEGORIES.find((c) => c.key === category);
     const baseLabel = cat?.label ?? category;
@@ -595,6 +647,14 @@ export default function ResourceSlotsPage() {
     }
     return baseLabel;
   }, [category, machineId, filteredMachines, ballType, pitchType]);
+
+  if (!currentCenter) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
+      </div>
+    );
+  }
 
   return (
     <div className="max-w-2xl mx-auto px-4 py-5 pb-40 md:pb-28">
@@ -755,7 +815,7 @@ export default function ResourceSlotsPage() {
         <PeoplePicker
           label="Coach"
           help="Leave empty to auto-assign the first available coach."
-          options={data?.slots[0]?.freeCoaches ?? []}
+          options={availableCoaches}
           value={coachId}
           onChange={setCoachId}
           emptyMessage="No coaches free for the selected slots."
@@ -766,7 +826,7 @@ export default function ResourceSlotsPage() {
         <PeoplePicker
           label="Sidearm Specialist"
           help="Leave empty to auto-assign."
-          options={data?.slots[0]?.freeSidearmStaff ?? []}
+          options={availableSidearmStaff}
           value={staffId}
           onChange={setStaffId}
           emptyMessage="No sidearm specialist free for the selected slots."
