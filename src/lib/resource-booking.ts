@@ -71,8 +71,14 @@ export interface CorporateBatchConfig {
   netsConsumed: number;    // how many indoor nets the batch holds
 }
 
+// Off by default — a corporate-batch reservation is a center-specific
+// arrangement, not a platform-wide policy. Centers that want it must
+// set `CORPORATE_BATCH_CONFIG` in CenterPolicy with `enabled: true` plus
+// their own window/nets. Leaving the default off means a brand-new
+// center won't have phantom blocks Mon–Fri mornings just because it
+// hasn't configured anything yet.
 export const DEFAULT_CORPORATE_BATCH_CONFIG: CorporateBatchConfig = {
-  enabled: true,
+  enabled: false,
   days: [1, 2, 3, 4, 5],
   startTime: '07:30',
   endTime: '09:30',
