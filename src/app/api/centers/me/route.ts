@@ -29,9 +29,24 @@ export async function GET(req: NextRequest) {
         : await listUserCenters(user);
     const current = await resolveCurrentCenter(req, user);
 
+    const adminCenterIds = user
+      ? user.centerMemberships.filter((m) => m.role === 'ADMIN').map((m) => m.centerId)
+      : [];
+    const staffCenterIds = user
+      ? user.centerMemberships
+          .filter((m) => m.role === 'OPERATOR' || m.role === 'COACH' || m.role === 'SIDEARM_SPECIALIST')
+          .map((m) => m.centerId)
+      : [];
+
     return NextResponse.json({
       user: user
-        ? { id: user.id, role: user.role, isSuperAdmin: user.isSuperAdmin }
+        ? {
+            id: user.id,
+            role: user.role,
+            isSuperAdmin: user.isSuperAdmin,
+            adminCenterIds,
+            staffCenterIds,
+          }
         : null,
       centers,
       currentCenterId: current?.id ?? null,

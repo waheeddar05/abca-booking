@@ -7,11 +7,13 @@ import { usePathname, useRouter } from 'next/navigation';
 import { useState, useEffect } from 'react';
 import { Shield, Power, LogIn, ArrowLeft, Calendar, ClipboardList, Package, Wallet, Bell, Headset } from 'lucide-react';
 import { CenterSelector } from './CenterSelector';
+import { useCenter } from '@/lib/center-context';
 
 export default function Navbar() {
   const { data: session, status } = useSession();
   const pathname = usePathname();
   const router = useRouter();
+  const { isAdminAtCurrentCenter, isStaffAtCurrentCenter, loading: centerLoading } = useCenter();
   const [scrolled, setScrolled] = useState(false);
   // For OTP-logged-in users who don't have a NextAuth session
   const [otpUserRole, setOtpUserRole] = useState<string | null>(null);
@@ -35,10 +37,13 @@ export default function Navbar() {
   }, [session, status]);
 
   const isLoggedIn = !!session || !!otpUserRole;
-  const userRole = (session?.user?.role as string) || otpUserRole;
-  const isAdmin = userRole === 'ADMIN';
-  const isStaffRole =
-    userRole === 'OPERATOR' || userRole === 'COACH' || userRole === 'SIDEARM_SPECIALIST';
+  // Admin / staff buttons are gated by membership at the *currently selected* center,
+  // not by the global User.role. A user who is ADMIN at Toplay but not at ABCA must
+  // see the Admin button on Toplay and not on ABCA. Super admin bypass is folded
+  // into these flags by the provider. While memberships are still loading we hide
+  // the buttons to avoid a flash for users without admin rights.
+  const showAdmin = isLoggedIn && !centerLoading && isAdminAtCurrentCenter;
+  const showStaff = isLoggedIn && !centerLoading && isStaffAtCurrentCenter;
   const isInAdminMode = pathname.startsWith('/admin');
   // /operator is a legacy redirect to /staff; treat both as "staff mode"
   // so coach/sidearm users on /staff get the same chrome as operators did.
@@ -129,8 +134,9 @@ export default function Navbar() {
                   </Link>
                 )}
 
-                {/* User mode: Admin button for admin users */}
-                {!isInAdminMode && isAdmin && (
+                {/* User mode: Admin button — only visible when the user is an
+                    ADMIN at the currently-selected center (or a super admin). */}
+                {!isInAdminMode && showAdmin && (
                   <Link
                     href="/admin"
                     className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium transition-all text-white/70 hover:text-white hover:bg-white/10"
@@ -140,11 +146,10 @@ export default function Navbar() {
                   </Link>
                 )}
 
-                {/* Staff Dashboard button — visible to anyone with a staff
-                    role (operator / coach / sidearm specialist) or admin.
-                    Coaches and sidearm specialists share the same unified
-                    /staff page that operators do. */}
-                {!isInStaffMode && (isStaffRole || isAdmin) && (
+                {/* Staff Dashboard button — only visible when the user holds a
+                    staff role (OPERATOR / COACH / SIDEARM_SPECIALIST) or ADMIN
+                    membership at the currently-selected center. */}
+                {!isInStaffMode && showStaff && (
                   <Link
                     href="/staff"
                     className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium transition-all text-white/70 hover:text-white hover:bg-white/10"

@@ -51,6 +51,16 @@ interface CenterContextValue {
   centers: PublicCenter[];
   currentCenterId: string | null;
   currentCenter: PublicCenter | null;
+  /** True if the signed-in user is a platform-wide super admin. */
+  isSuperAdmin: boolean;
+  /** Centers where the user holds an ADMIN membership. */
+  adminCenterIds: string[];
+  /** Centers where the user holds any staff (OPERATOR / COACH / SIDEARM) membership. */
+  staffCenterIds: string[];
+  /** True if super admin, or ADMIN membership at the currently-selected center. */
+  isAdminAtCurrentCenter: boolean;
+  /** True if super admin, ADMIN, or any staff membership at the currently-selected center. */
+  isStaffAtCurrentCenter: boolean;
   /** True until the first /api/centers/me response. */
   loading: boolean;
   /** Switches the cookie + reloads. Resolves true on success. */
@@ -64,6 +74,9 @@ const CenterContext = createContext<CenterContextValue | null>(null);
 export function CenterProvider({ children }: { children: ReactNode }) {
   const [centers, setCenters] = useState<PublicCenter[]>([]);
   const [currentCenterId, setCurrentCenterId] = useState<string | null>(null);
+  const [isSuperAdmin, setIsSuperAdmin] = useState(false);
+  const [adminCenterIds, setAdminCenterIds] = useState<string[]>([]);
+  const [staffCenterIds, setStaffCenterIds] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
 
   const refresh = useCallback(async () => {
@@ -73,6 +86,9 @@ export function CenterProvider({ children }: { children: ReactNode }) {
       const data = await res.json();
       setCenters((data.centers ?? []) as PublicCenter[]);
       setCurrentCenterId(data.currentCenterId ?? null);
+      setIsSuperAdmin(Boolean(data.user?.isSuperAdmin));
+      setAdminCenterIds((data.user?.adminCenterIds ?? []) as string[]);
+      setStaffCenterIds((data.user?.staffCenterIds ?? []) as string[]);
     } catch {
       // Network failure or auth route blip — keep stale state.
     } finally {
@@ -105,9 +121,39 @@ export function CenterProvider({ children }: { children: ReactNode }) {
     [centers, currentCenterId],
   );
 
+  const isAdminAtCurrentCenter =
+    isSuperAdmin || (currentCenterId != null && adminCenterIds.includes(currentCenterId));
+  const isStaffAtCurrentCenter =
+    isAdminAtCurrentCenter ||
+    (currentCenterId != null && staffCenterIds.includes(currentCenterId));
+
   const value = useMemo<CenterContextValue>(
-    () => ({ centers, currentCenterId, currentCenter, loading, switchTo, refresh }),
-    [centers, currentCenterId, currentCenter, loading, switchTo, refresh],
+    () => ({
+      centers,
+      currentCenterId,
+      currentCenter,
+      isSuperAdmin,
+      adminCenterIds,
+      staffCenterIds,
+      isAdminAtCurrentCenter,
+      isStaffAtCurrentCenter,
+      loading,
+      switchTo,
+      refresh,
+    }),
+    [
+      centers,
+      currentCenterId,
+      currentCenter,
+      isSuperAdmin,
+      adminCenterIds,
+      staffCenterIds,
+      isAdminAtCurrentCenter,
+      isStaffAtCurrentCenter,
+      loading,
+      switchTo,
+      refresh,
+    ],
   );
 
   return <CenterContext.Provider value={value}>{children}</CenterContext.Provider>;
@@ -122,6 +168,11 @@ export function useCenter(): CenterContextValue {
       centers: [],
       currentCenterId: null,
       currentCenter: null,
+      isSuperAdmin: false,
+      adminCenterIds: [],
+      staffCenterIds: [],
+      isAdminAtCurrentCenter: false,
+      isStaffAtCurrentCenter: false,
       loading: false,
       switchTo: async () => false,
       refresh: async () => {},
