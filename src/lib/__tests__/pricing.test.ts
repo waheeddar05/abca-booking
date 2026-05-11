@@ -183,6 +183,77 @@ describe('calculateNewPricing', () => {
     const result = calculateNewPricing(slots, 'MACHINE', 'LEATHER', 'ASTRO', ts, pc);
     expect(result[0].startTime.getTime()).toBeLessThan(result[1].startTime.getTime());
   });
+
+  it('applies consecutive rate per slot for 3+ consecutive slots', () => {
+    const slots = [
+      { startTime: new Date('2026-01-15T01:30:00.000Z'), endTime: new Date('2026-01-15T02:00:00.000Z') },
+      { startTime: new Date('2026-01-15T02:00:00.000Z'), endTime: new Date('2026-01-15T02:30:00.000Z') },
+      { startTime: new Date('2026-01-15T02:30:00.000Z'), endTime: new Date('2026-01-15T03:00:00.000Z') },
+    ];
+
+    const result = calculateNewPricing(slots, 'MACHINE', 'LEATHER', 'ASTRO', ts, pc);
+    const consecutiveTotalFor2 = getConsecutivePrice('MACHINE', 'LEATHER', 'ASTRO', 'morning', pc);
+    result.forEach(r => {
+      expect(r.price).toBe(consecutiveTotalFor2 / 2);
+      expect(r.discountAmount).toBeGreaterThan(0);
+    });
+  });
+
+  it('only discounts the consecutive pair when mixed with a standalone slot', () => {
+    const slots = [
+      { startTime: new Date('2026-01-15T01:30:00.000Z'), endTime: new Date('2026-01-15T02:00:00.000Z') },
+      { startTime: new Date('2026-01-15T02:00:00.000Z'), endTime: new Date('2026-01-15T02:30:00.000Z') },
+      { startTime: new Date('2026-01-15T04:00:00.000Z'), endTime: new Date('2026-01-15T04:30:00.000Z') },
+    ];
+
+    const result = calculateNewPricing(slots, 'MACHINE', 'LEATHER', 'ASTRO', ts, pc);
+    expect(result[0].discountAmount).toBeGreaterThan(0);
+    expect(result[1].discountAmount).toBeGreaterThan(0);
+    expect(result[2].discountAmount).toBe(0);
+    expect(result[2].price).toBe(result[2].originalPrice);
+  });
+
+  it('discounts each consecutive pair independently when there are two separate pairs', () => {
+    const slots = [
+      { startTime: new Date('2026-01-15T01:30:00.000Z'), endTime: new Date('2026-01-15T02:00:00.000Z') },
+      { startTime: new Date('2026-01-15T02:00:00.000Z'), endTime: new Date('2026-01-15T02:30:00.000Z') },
+      { startTime: new Date('2026-01-15T05:00:00.000Z'), endTime: new Date('2026-01-15T05:30:00.000Z') },
+      { startTime: new Date('2026-01-15T05:30:00.000Z'), endTime: new Date('2026-01-15T06:00:00.000Z') },
+    ];
+
+    const result = calculateNewPricing(slots, 'MACHINE', 'LEATHER', 'ASTRO', ts, pc);
+    result.forEach(r => {
+      expect(r.discountAmount).toBeGreaterThan(0);
+    });
+  });
+
+  // Simulates the cancel-route behaviour: when one slot of a consecutive pair
+  // is cancelled, repricing the remaining sibling must return to the single
+  // rate so that the refund claw-back math (refund = paidPrice - sibling
+  // price increase) keeps the user whole.
+  it('reprices remaining slot to single rate when its pair is removed (cancellation scenario)', () => {
+    const pairedSlots = [
+      { startTime: new Date('2026-01-15T01:30:00.000Z'), endTime: new Date('2026-01-15T02:00:00.000Z') },
+      { startTime: new Date('2026-01-15T02:00:00.000Z'), endTime: new Date('2026-01-15T02:30:00.000Z') },
+    ];
+    const initial = calculateNewPricing(pairedSlots, 'MACHINE', 'LEATHER', 'ASTRO', ts, pc);
+    const paidPerSlot = initial[0].price;
+    const totalPaid = initial[0].price + initial[1].price;
+
+    // Cancel the first slot — recompute on only the remaining sibling
+    const remaining = [pairedSlots[1]];
+    const reprice = calculateNewPricing(remaining, 'MACHINE', 'LEATHER', 'ASTRO', ts, pc);
+    const singleRate = getSlotPrice('MACHINE', 'LEATHER', 'ASTRO', 'morning', pc);
+
+    expect(reprice).toHaveLength(1);
+    expect(reprice[0].price).toBe(singleRate);
+    expect(reprice[0].discountAmount).toBe(0);
+
+    const siblingIncrease = reprice[0].price - paidPerSlot;
+    const refundToUser = paidPerSlot - siblingIncrease;
+    // Refund + new sibling price must equal what the user originally paid.
+    expect(refundToUser + reprice[0].price).toBe(totalPaid);
+  });
 });
 
 describe('normalizePricingConfig', () => {
