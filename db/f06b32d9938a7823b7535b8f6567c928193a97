@@ -1,0 +1,26 @@
+src/app/api/centers/me/route.ts
+  s_4cc7ffc17f9742::t_fbcf597858b53b 32-40,43-49
+src/lib/center-context.tsx
+  s_4cc7ffc17f9742::t_a5de7d4147008e 124-129,131-156,171-175
+  s_4cc7ffc17f9742::t_97267e151d27e8 54-63,77-79,89-91
+src/components/Navbar.tsx
+  s_4cc7ffc17f9742::t_37b8afb63bb647 40-46
+  s_4cc7ffc17f9742::t_e5ee9c36be109d 137-139,149-152
+  s_4cc7ffc17f9742::t_569d2ec02db17b 10,16
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.1",
+  "base_commit_sha": "dbf06b32d9938a7823b7535b8f6567c928193a97",
+  "prompts": {},
+  "sessions": {
+    "s_4cc7ffc17f9742": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "f0a89d63-a44c-4ed4-bd11-351087f094da",
+        "model": "unknown"
+      },
+      "human_author": "Waheed <waheeddar8@gmail.com>"
+    }
+  }
+}
