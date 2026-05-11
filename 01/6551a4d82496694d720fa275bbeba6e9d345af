@@ -1,0 +1,20 @@
+src/app/admin/offers/page.tsx
+  s_7c723a51048a00::t_ada81750601705 696,795
+  s_7c723a51048a00::t_715caedc841251 532,604
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.1",
+  "base_commit_sha": "016551a4d82496694d720fa275bbeba6e9d345af",
+  "prompts": {},
+  "sessions": {
+    "s_7c723a51048a00": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "45db68d3-7ea6-48a4-9808-71894b212dcf",
+        "model": "unknown"
+      },
+      "human_author": "Waheed <waheeddar8@gmail.com>"
+    }
+  }
+}
