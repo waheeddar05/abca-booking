@@ -6,6 +6,22 @@ import { verifyToken } from "@/lib/jwt";
 export async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
 
+  // Maintenance kill switch — env-var based so it works without a DB read.
+  // Allow the maintenance page itself and its status endpoint through.
+  if (
+    process.env.MAINTENANCE_MODE === 'true' &&
+    pathname !== '/maintenance' &&
+    !pathname.startsWith('/api/maintenance') &&
+    !pathname.startsWith('/_next') &&
+    !pathname.startsWith('/images/') &&
+    !pathname.startsWith('/icons/') &&
+    pathname !== '/favicon.ico' &&
+    pathname !== '/sw.js' &&
+    pathname !== '/manifest.json'
+  ) {
+    return NextResponse.rewrite(new URL('/maintenance', req.url));
+  }
+
   // Define public paths
   const isPublicPath =
     pathname === "/" ||
