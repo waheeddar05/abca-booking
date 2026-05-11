@@ -1,0 +1,32 @@
+src/lib/notifications.ts
+  s_7c723a51048a00::t_74621d5cd7773a 416-428
+  s_7c723a51048a00::t_17ac3fc02083f8 355-371
+  s_7c723a51048a00::t_2ea92c7d8186f2 294-296,300,305,308,312
+src/app/api/slots/book/route.ts
+  s_b50d2309a05390::t_a4d2d73dbf454f 842-853
+  s_b50d2309a05390::t_2c205f796faee7 937-946,950
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.1",
+  "base_commit_sha": "69c934ac548507f66d3957e44ddcf6ed0f0bfdd4",
+  "prompts": {},
+  "sessions": {
+    "s_7c723a51048a00": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "45db68d3-7ea6-48a4-9808-71894b212dcf",
+        "model": "unknown"
+      },
+      "human_author": "Waheed <waheeddar8@gmail.com>"
+    },
+    "s_b50d2309a05390": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "ad9c2faa-2307-4c03-90c2-271283f85b0c",
+        "model": "unknown"
+      },
+      "human_author": "Waheed <waheeddar8@gmail.com>"
+    }
+  }
+}
