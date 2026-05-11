@@ -86,13 +86,19 @@ export interface ResourcePricingConfig {
  * whether the booking sits in a consecutive chain of slots. Returns
  * null when the rate is missing/invalid so callers can fall back
  * down the precedence cascade.
+ *
+ * Convention (matches ABCA's pricing.ts + the admin editor's "2 Cons."
+ * label): `consecutive` is the TOTAL for a 2-slot pair, so the per-slot
+ * price in a chain is `consecutive / 2`. `single` is already per-slot.
  */
 export function pickRate(r: SlabRate | undefined | null, isConsecutive: boolean): number | null {
   if (r == null) return null;
   if (typeof r === 'number') return r;
   if (typeof r === 'object') {
-    const v = isConsecutive ? r.consecutive : r.single;
-    return typeof v === 'number' ? v : null;
+    if (isConsecutive) {
+      return typeof r.consecutive === 'number' ? r.consecutive / 2 : null;
+    }
+    return typeof r.single === 'number' ? r.single : null;
   }
   return null;
 }

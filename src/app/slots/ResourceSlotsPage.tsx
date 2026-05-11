@@ -403,7 +403,10 @@ export default function ResourceSlotsPage() {
    * missing (e.g. older API response).
    */
   /** Pick a number from a single-or-pair rate. Consecutive flag is
-   *  computed by the caller from the user's slot selection. */
+   *  computed by the caller from the user's slot selection.
+   *  `consecutive` stores the TOTAL for a 2-slot pair (ABCA convention,
+   *  matches the admin editor's "2 Cons." input), so per-slot in a
+   *  chain is `consecutive / 2`. Mirrors `pickRate` server-side. */
   const pickClientRate = (
     r: ClientSlabRate | number | undefined,
     isConsecutive: boolean,
@@ -411,8 +414,10 @@ export default function ResourceSlotsPage() {
     if (r == null) return null;
     if (typeof r === 'number') return r;
     if (typeof r === 'object') {
-      const v = isConsecutive ? r.consecutive : r.single;
-      return typeof v === 'number' ? v : null;
+      if (isConsecutive) {
+        return typeof r.consecutive === 'number' ? r.consecutive / 2 : null;
+      }
+      return typeof r.single === 'number' ? r.single : null;
     }
     return null;
   };
