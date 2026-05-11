@@ -5,6 +5,7 @@ import { getAuthenticatedUser } from '@/lib/auth';
 import { resolveCurrentCenter } from '@/lib/centers';
 import {
   createRazorpayOrder,
+  getCenterRazorpayCredentials,
   isPaymentEnabled,
   isSlotPaymentRequired,
   isPackagePaymentRequired,
@@ -29,6 +30,17 @@ export async function POST(req: NextRequest) {
     const enabled = await isPaymentEnabled(center.id);
     if (!enabled) {
       return NextResponse.json({ error: 'Payment gateway is not enabled' }, { status: 400 });
+    }
+
+    // Resolve which Razorpay account this center uses. Required up front so
+    // the keyId returned to the client matches the merchant account that
+    // creates the order — otherwise Razorpay Checkout silently fails.
+    const creds = await getCenterRazorpayCredentials(center.id);
+    if (!creds) {
+      return NextResponse.json(
+        { error: 'Razorpay is not configured for this center' },
+        { status: 500 },
+      );
     }
 
     const body = await req.json();
@@ -121,7 +133,7 @@ export async function POST(req: NextRequest) {
       paymentId: payment.id,
       amount: razorpayOrder.amount, // in paise
       currency: razorpayOrder.currency,
-      keyId: process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID,
+      keyId: creds.keyId,
     });
   } catch (error) {
     console.error('Create order error:', error);
