@@ -1,0 +1,19 @@
+src/app/api/admin/bookings/export/route.ts
+  s_baf5e5a6c32e14::t_f7ce3898520bd2 117-173
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.4",
+  "base_commit_sha": "2525334ada6ae9a2cacd6ce1d165fa8d18933447",
+  "prompts": {},
+  "sessions": {
+    "s_baf5e5a6c32e14": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b3138df8-7c2b-436f-9320-ca1e80638343",
+        "model": "unknown"
+      },
+      "human_author": "Waheed <waheeddar8@gmail.com>"
+    }
+  }
+}
