@@ -114,6 +114,63 @@ export async function GET(req: NextRequest) {
     // Build CSV
     const isPackage = (b: any) => !!b.packageBooking;
 
+    // Load all payments linked to these bookings so we can compute the
+    // wallet/online split per booking. A single Payment can cover multiple
+    // bookings (multi-slot order) — we allocate the wallet + online
+    // portions proportionally to each booking's price.
+    const bookingIds = bookings.filter(b => !isPackage(b)).map(b => b.id);
+    const payments = bookingIds.length > 0
+      ? await prisma.payment.findMany({
+          where: {
+            status: 'CAPTURED',
+            bookingIds: { hasSome: bookingIds },
+          },
+          select: { id: true, amount: true, metadata: true, bookingIds: true },
+        })
+      : [];
+
+    const priceByBookingId = new Map<string, number>(
+      bookings.map(b => [b.id, b.price ?? 0]),
+    );
+    const paymentByBookingId = new Map<string, typeof payments[number]>();
+    for (const p of payments) {
+      for (const bId of p.bookingIds) paymentByBookingId.set(bId, p);
+    }
+
+    const computeSplit = (b: any): { wallet: number; online: number } => {
+      if (isPackage(b)) return { wallet: 0, online: 0 };
+      // Pure wallet booking — booking row records this via paymentMethod.
+      if (b.paymentMethod === 'WALLET') {
+        return { wallet: b.price || 0, online: 0 };
+      }
+      if (b.paymentMethod === 'CASH') {
+        return { wallet: 0, online: 0 };
+      }
+      const payment = paymentByBookingId.get(b.id);
+      if (!payment) {
+        // No captured payment — fall back to recorded method.
+        if (b.paymentMethod === 'ONLINE') {
+          return { wallet: 0, online: b.price || 0 };
+        }
+        return { wallet: 0, online: 0 };
+      }
+      const orderTotal = payment.bookingIds.reduce(
+        (sum, bId) => sum + (priceByBookingId.get(bId) ?? 0),
+        0,
+      );
+      const meta = (payment.metadata as Record<string, unknown> | null) ?? null;
+      const walletPortion = typeof meta?.walletDeduction === 'number' ? meta.walletDeduction : 0;
+      const onlinePortion = payment.amount;
+      const myPrice = b.price ?? 0;
+      if (orderTotal > 0) {
+        return {
+          wallet: Math.round((myPrice / orderTotal) * walletPortion),
+          online: Math.round((myPrice / orderTotal) * onlinePortion),
+        };
+      }
+      return { wallet: walletPortion, online: onlinePortion };
+    };
+
     // Check if there are any package bookings to decide whether to show Extra Amount column
     const hasPackageBookings = bookings.some((b: any) => !!b.packageBooking);
 
