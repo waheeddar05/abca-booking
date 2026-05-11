@@ -1,0 +1,19 @@
+src/lib/resource-booking.ts
+  s_a9c51b274ab916::t_3d055c382378fc 74-79,81
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.4",
+  "base_commit_sha": "48f09f49b9fc4368fc41901be7d560c99a240cde",
+  "prompts": {},
+  "sessions": {
+    "s_a9c51b274ab916": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "49d72236-d189-49c5-b4b7-11a35b9d2082",
+        "model": "unknown"
+      },
+      "human_author": "Waheed <waheeddar8@gmail.com>"
+    }
+  }
+}
