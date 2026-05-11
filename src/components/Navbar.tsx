@@ -37,9 +37,12 @@ export default function Navbar() {
   const isLoggedIn = !!session || !!otpUserRole;
   const userRole = (session?.user?.role as string) || otpUserRole;
   const isAdmin = userRole === 'ADMIN';
-  const isOperator = userRole === 'OPERATOR';
+  const isStaffRole =
+    userRole === 'OPERATOR' || userRole === 'COACH' || userRole === 'SIDEARM_SPECIALIST';
   const isInAdminMode = pathname.startsWith('/admin');
-  const isInOperatorMode = pathname.startsWith('/operator');
+  // /operator is a legacy redirect to /staff; treat both as "staff mode"
+  // so coach/sidearm users on /staff get the same chrome as operators did.
+  const isInStaffMode = pathname.startsWith('/staff') || pathname.startsWith('/operator');
 
   if (pathname === '/') return null;
 
@@ -83,7 +86,7 @@ export default function Navbar() {
           </Link>
 
           {/* Desktop Navigation Links — hidden on mobile (BottomNav handles mobile) */}
-          {isLoggedIn && !isInAdminMode && !isInOperatorMode && (
+          {isLoggedIn && !isInAdminMode && !isInStaffMode && (
             <div className="hidden md:flex items-center gap-1">
               {desktopNavLinks.map(({ href, label, icon: Icon }) => {
                 const active = isNavActive(href);
@@ -109,14 +112,14 @@ export default function Navbar() {
           <div className="flex items-center gap-1.5">
             {/* Center selector — visible to everyone (logged in or not) when 2+ centers exist.
                 Auto-hides itself in the single-center case so this looks identical to before. */}
-            {!isInAdminMode && !isInOperatorMode && (
+            {!isInAdminMode && !isInStaffMode && (
               <CenterSelector compact />
             )}
 
             {isLoggedIn ? (
               <>
-                {/* Admin/Operator mode: Switch to User Mode */}
-                {(isInAdminMode || isInOperatorMode) && (
+                {/* Admin/Staff mode: Switch to User Mode */}
+                {(isInAdminMode || isInStaffMode) && (
                   <Link
                     href="/slots"
                     className="hidden md:flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium transition-all text-white/70 hover:text-white hover:bg-white/10"
@@ -137,21 +140,24 @@ export default function Navbar() {
                   </Link>
                 )}
 
-                {/* Operator Dashboard button for operator users */}
-                {!isInOperatorMode && (isOperator || isAdmin) && (
+                {/* Staff Dashboard button — visible to anyone with a staff
+                    role (operator / coach / sidearm specialist) or admin.
+                    Coaches and sidearm specialists share the same unified
+                    /staff page that operators do. */}
+                {!isInStaffMode && (isStaffRole || isAdmin) && (
                   <Link
-                    href="/operator"
+                    href="/staff"
                     className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium transition-all text-white/70 hover:text-white hover:bg-white/10"
                   >
                     <Headset className="w-4 h-4" />
-                    <span className="hidden md:inline">Operator</span>
+                    <span className="hidden md:inline">Staff</span>
                   </Link>
                 )}
 
-                {/* Logout button - hidden on mobile in admin/operator mode since those layouts have their own */}
+                {/* Logout button - hidden on mobile in admin/staff mode since those layouts have their own */}
                 <button
                   onClick={handleLogout}
-                  className={`${(isInAdminMode || isInOperatorMode) ? 'hidden md:flex' : 'flex'} items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium transition-all cursor-pointer text-white/70 hover:text-red-400 hover:bg-white/10`}
+                  className={`${(isInAdminMode || isInStaffMode) ? 'hidden md:flex' : 'flex'} items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium transition-all cursor-pointer text-white/70 hover:text-red-400 hover:bg-white/10`}
                 >
                   <Power className="w-4 h-4" />
                   <span className="hidden md:inline">Logout</span>

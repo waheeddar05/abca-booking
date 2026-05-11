@@ -14,8 +14,16 @@ export function MobileNumberCheck() {
     if (status !== 'authenticated' || checkedRef.current) return;
     if (!session?.user) return;
 
-    // Don't redirect on admin, operator, or verify-mobile pages
-    if (pathname.startsWith('/admin') || pathname.startsWith('/operator') || pathname.startsWith('/verify-mobile')) return;
+    // Don't redirect on admin, operator/staff, or verify-mobile pages.
+    // /staff is the unified operator+coach+sidearm dashboard; coaches and
+    // sidearm specialists may not have a verified mobile yet and still need
+    // to see their assigned sessions, matching the middleware's bypass.
+    if (
+      pathname.startsWith('/admin') ||
+      pathname.startsWith('/operator') ||
+      pathname.startsWith('/staff') ||
+      pathname.startsWith('/verify-mobile')
+    ) return;
 
     checkedRef.current = true;
 

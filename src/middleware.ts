@@ -101,11 +101,16 @@ export async function middleware(req: NextRequest) {
     }
   }
 
-  // Protect Operator routes
+  // Legacy /operator routes — the dashboard moved to /staff so any
+  // authenticated user (operator, coach, sidearm specialist, admin)
+  // should land on the unified page. Forwarding here keeps old PWA
+  // installs and bookmarks working for non-operator staff that the
+  // /operator page-level redirect can't reach because middleware
+  // bounces them first.
   if (pathname.startsWith("/operator")) {
-    if (userRole !== "OPERATOR" && userRole !== "ADMIN") {
-      return NextResponse.redirect(new URL("/", req.url));
-    }
+    const dest = new URL("/staff", req.url);
+    dest.search = req.nextUrl.search;
+    return NextResponse.redirect(dest);
   }
 
   // Protect Staff routes — any signed-in user can land here; the
