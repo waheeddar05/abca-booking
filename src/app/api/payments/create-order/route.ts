@@ -18,17 +18,17 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const enabled = await isPaymentEnabled();
-    if (!enabled) {
-      return NextResponse.json({ error: 'Payment gateway is not enabled' }, { status: 400 });
-    }
-
     // Payments are center-scoped — bind the order to the user's current
-    // center. Phase 6 will additionally route the Razorpay account by
-    // center.razorpayKeyId.
+    // center. The payment-gateway toggle is also center-scoped, so we
+    // need the center before checking whether payments are enabled.
     const center = await resolveCurrentCenter(req, user);
     if (!center) {
       return NextResponse.json({ error: 'No center selected' }, { status: 400 });
+    }
+
+    const enabled = await isPaymentEnabled(center.id);
+    if (!enabled) {
+      return NextResponse.json({ error: 'Payment gateway is not enabled' }, { status: 400 });
     }
 
     const body = await req.json();
@@ -48,7 +48,7 @@ export async function POST(req: NextRequest) {
 
     // Validate based on type
     if (type === 'PACKAGE_PURCHASE') {
-      const required = await isPackagePaymentRequired();
+      const required = await isPackagePaymentRequired(center.id);
       if (!required) {
         return NextResponse.json({ error: 'Payment not required for packages' }, { status: 400 });
       }
@@ -66,7 +66,7 @@ export async function POST(req: NextRequest) {
     }
 
     if (type === 'SLOT_BOOKING') {
-      const required = await isSlotPaymentRequired();
+      const required = await isSlotPaymentRequired(center.id);
       if (!required) {
         return NextResponse.json({ error: 'Payment not required for slot bookings' }, { status: 400 });
       }

@@ -11,6 +11,7 @@ import { dateStringToUTC, formatIST } from '@/lib/time';
 import { notifyBookingConfirmed, notifyOperatorNewBooking } from '@/lib/notifications';
 import { getPricingConfig, getTimeSlabConfig, calculateNewPricing, getTimeSlab } from '@/lib/pricing';
 import { getCachedPolicies } from '@/lib/policy-cache';
+import { getPolicyValue, isPolicyEnabled } from '@/lib/policy';
 import { validatePackageBooking } from '@/lib/packages';
 import { creditWallet, debitWallet, rollbackWalletDebit, isWalletEnabled, getWalletBalance } from '@/lib/wallet';
 import { resolveCurrentCenter } from '@/lib/centers';
@@ -162,8 +163,8 @@ export async function executeSlotBooking(
     let kitRental = false;
     let kitRentalCharge = 0;
     if (kitRentalRequested) {
-      const kitRentalPolicy = await prisma.policy.findUnique({ where: { key: 'KIT_RENTAL_CONFIG' } });
-      const kitConfig = kitRentalPolicy ? (() => { try { return JSON.parse(kitRentalPolicy.value); } catch { return null; } })() : null;
+      const kitRentalRaw = await getPolicyValue('KIT_RENTAL_CONFIG', centerId, null);
+      const kitConfig = kitRentalRaw ? (() => { try { return JSON.parse(kitRentalRaw); } catch { return null; } })() : null;
       const isKitEnabled = kitConfig?.enabled ?? false;
       const kitMachines: string[] = kitConfig?.machines ?? ['GRAVITY', 'YANTRA'];
       const firstMachineIdRaw = slotsToBook[0]?.machineId as string | undefined;
@@ -173,17 +174,16 @@ export async function executeSlotBooking(
       }
     }
 
-    // Server-side: reject cash payment if disabled globally and user has
-    // no cash access at *this* center (CashPaymentUser is center-scoped).
+    // Server-side: reject cash payment if disabled at this center and the
+    // user has no cash-payment override row. Both checks are center-scoped.
     if (isCashPayment) {
-      const [cashPolicy, cashPaymentUser] = await Promise.all([
-        prisma.policy.findUnique({ where: { key: 'CASH_PAYMENT_ENABLED' } }),
+      const [centerCashEnabled, cashPaymentUser] = await Promise.all([
+        isPolicyEnabled('CASH_PAYMENT_ENABLED', centerId),
         prisma.cashPaymentUser.findUnique({
           where: { centerId_userId: { centerId, userId: user.id } },
         }),
       ]);
-      const globalCashEnabled = cashPolicy?.value === 'true';
-      if (!globalCashEnabled && !cashPaymentUser) {
+      if (!centerCashEnabled && !cashPaymentUser) {
         throw new BookingServiceError('Cash payment is not available.', 400);
       }
     }

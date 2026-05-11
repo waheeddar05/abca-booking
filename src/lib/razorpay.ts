@@ -1,6 +1,7 @@
 import Razorpay from 'razorpay';
 import crypto from 'crypto';
 import { prisma } from './prisma';
+import { isPolicyEnabled } from './policy';
 
 /**
  * Razorpay integration — per-center accounts (phase 6).
@@ -124,30 +125,25 @@ export function getRazorpayInstance(): Razorpay {
 // ─── Feature flags (unchanged) ──────────────────────────────────────
 
 /**
- * Check if payment gateway is enabled via admin Policy table.
- * Default: disabled (so existing behavior is preserved until admin enables it).
+ * Check if payment gateway is enabled. Resolves per-center override
+ * first, then global, then defaults to disabled. Pass `centerId` for
+ * accurate resolution — calling without it falls back to global only.
  */
-export async function isPaymentEnabled(): Promise<boolean> {
+export async function isPaymentEnabled(centerId: string | null = null): Promise<boolean> {
   try {
-    const policy = await prisma.policy.findUnique({
-      where: { key: 'PAYMENT_GATEWAY_ENABLED' },
-    });
-    return policy?.value === 'true';
+    return await isPolicyEnabled('PAYMENT_GATEWAY_ENABLED', centerId);
   } catch {
     return false;
   }
 }
 
 /**
- * Check if payment is required for slot bookings.
- * When false, bookings can proceed without payment (walk-in / cash mode).
+ * Check if payment is required for slot bookings. Center-aware via the
+ * standard policy cascade.
  */
-export async function isSlotPaymentRequired(): Promise<boolean> {
+export async function isSlotPaymentRequired(centerId: string | null = null): Promise<boolean> {
   try {
-    const policy = await prisma.policy.findUnique({
-      where: { key: 'SLOT_PAYMENT_REQUIRED' },
-    });
-    return policy?.value === 'true';
+    return await isPolicyEnabled('SLOT_PAYMENT_REQUIRED', centerId);
   } catch {
     return false;
   }
@@ -156,12 +152,9 @@ export async function isSlotPaymentRequired(): Promise<boolean> {
 /**
  * Check if payment is required for package purchases.
  */
-export async function isPackagePaymentRequired(): Promise<boolean> {
+export async function isPackagePaymentRequired(centerId: string | null = null): Promise<boolean> {
   try {
-    const policy = await prisma.policy.findUnique({
-      where: { key: 'PACKAGE_PAYMENT_REQUIRED' },
-    });
-    return policy?.value === 'true';
+    return await isPolicyEnabled('PACKAGE_PAYMENT_REQUIRED', centerId);
   } catch {
     return false;
   }
