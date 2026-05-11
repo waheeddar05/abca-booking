@@ -20,6 +20,7 @@ import {
 } from '@/lib/pitch-config';
 import { sanitizeApiError } from '@/lib/api-errors';
 import { dateStringToUTC } from '@/lib/time';
+import { isSlotPaymentRequired } from '@/lib/razorpay';
 
 /**
  * POST /api/slots/book-resource
@@ -51,7 +52,7 @@ const SlotSchema = z.object({
   endTime: z.string().min(1),
 });
 
-const BodySchema = z.object({
+export const ResourceBookingBodySchema = z.object({
   slots: z.array(SlotSchema).min(1).max(8),
   category: z.enum(['MACHINE', 'SIDEARM', 'COACHING', 'FULL_COURT', 'CORPORATE_BATCH', 'NET']),
   playerName: z.string().min(1).max(120),
@@ -76,7 +77,40 @@ const BodySchema = z.object({
   userPackageId: z.string().optional(),
 });
 
+export type ResourceBookingBody = z.infer<typeof ResourceBookingBodySchema>;
+
+export interface ResourceBookingResult {
+  id: string;
+  status: string;
+}
+
+export interface ResourceBookingOptions {
+  /** When set, attach this Payment to every created booking (mirrors
+   *  the legacy executeSlotBooking flow). */
+  onlinePaymentId?: string;
+}
+
+export class ResourceBookingServiceError extends Error {
+  status: number;
+  extra?: Record<string, unknown>;
+  constructor(message: string, status = 400, extra?: Record<string, unknown>) {
+    super(message);
+    this.name = 'ResourceBookingServiceError';
+    this.status = status;
+    this.extra = extra;
+  }
+}
+
 const MAX_TX_RETRIES = 3;
+
+type AuthedUser = {
+  id: string;
+  name?: string | null;
+  role?: string;
+  isSuperAdmin?: boolean;
+};
+
+type CenterRef = { id: string; name: string; bookingModel: string };
 
 export async function POST(req: NextRequest) {
   try {
@@ -96,228 +130,301 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const parsed = BodySchema.safeParse(await req.json());
+    const parsed = ResourceBookingBodySchema.safeParse(await req.json());
     if (!parsed.success) {
       return NextResponse.json({ error: 'Validation failed', issues: parsed.error.issues }, { status: 400 });
     }
     const body = parsed.data;
 
-    // CORPORATE_BATCH used to be admin-only; it's now bookable by any
-    // user (the resource engine auto-claims the configured number of
-    // nets, same as it does for the policy-driven virtual reservation).
-
-    // Admin can book on behalf of another user.
-    const isAdmin = user.role === 'ADMIN' || user.isSuperAdmin;
-    const targetUserId = (isAdmin && body.userId) ? body.userId : user.id;
-    const targetUser = await prisma.user.findUnique({
-      where: { id: targetUserId },
-      select: { id: true, isFreeUser: true, isSpecialUser: true, isBlacklisted: true },
-    });
-    if (!targetUser) return NextResponse.json({ error: 'Target user not found' }, { status: 404 });
-    if (targetUser.isBlacklisted) {
-      return NextResponse.json({ error: 'Account is blocked' }, { status: 403 });
+    // Refuse the unpaid path when SLOT_PAYMENT_REQUIRED is on for this
+    // center. Online-paid bookings come through /api/payments/verify
+    // (which calls executeResourceBooking with an onlinePaymentId) and
+    // bypass this guard. Cash, package redemption, super-admin, and
+    // free-user bookings are still allowed — same exemption set the
+    // ABCA path applies.
+    const slotPaymentRequired = await isSlotPaymentRequired(center.id);
+    if (slotPaymentRequired) {
+      const isCashPath = body.paymentMethod === 'CASH';
+      const isPackagePath = !!body.userPackageId;
+      const isBookerSuperAdmin = !!user.isSuperAdmin;
+      if (!isCashPath && !isPackagePath && !isBookerSuperAdmin) {
+        // Defer to the client: it should have gone through the Razorpay
+        // flow. Surface a clear 402 so the UI can prompt re-payment.
+        return NextResponse.json(
+          { error: 'Online payment is required for this booking. Please complete the payment first.' },
+          { status: 402 },
+        );
+      }
     }
 
-    const isFreeBooking = !!user.isSuperAdmin || targetUser.isFreeUser;
-    // Audience for blocked-slot evaluation — promotional offers and
-    // BlockedSlot.appliesTo can target SPECIAL users only or exclude
-    // them. Default ALL when isSpecialUser is null/false.
-    const audience: 'ALL' | 'SPECIAL' | 'NON_SPECIAL' = targetUser.isSpecialUser ? 'SPECIAL' : 'NON_SPECIAL';
-
-    // Resolve machine type (if MACHINE category) for price overrides.
-    // Validates picked pitch/ball against the *effective* list (configured
-    // values, or the universe when the admin left them empty) so client
-    // tampering can't sneak in unsupported types.
-    let machineTypeCode: string | null = null;
-    if (body.category === 'MACHINE' && body.machineId) {
-      const m = await prisma.machine.findUnique({
-        where: { id: body.machineId },
-        select: {
-          centerId: true,
-          supportedPitchTypes: true,
-          supportedBallTypes: true,
-          machineType: { select: { code: true, ballType: true } },
-        },
+    try {
+      const created = await executeResourceBooking(user, body, {
+        id: center.id,
+        name: center.name,
+        bookingModel: center.bookingModel,
       });
-      if (!m || m.centerId !== center.id) {
-        return NextResponse.json({ error: 'Machine not found at this center' }, { status: 400 });
+      return NextResponse.json({ bookings: created, centerId: center.id }, { status: 201 });
+    } catch (e) {
+      if (e instanceof ResourceBookingServiceError) {
+        return NextResponse.json({ error: e.message, ...(e.extra ?? {}) }, { status: e.status });
       }
-      machineTypeCode = m.machineType.code;
+      if (e instanceof BookingResourceError) {
+        return NextResponse.json({ error: e.message }, { status: e.status });
+      }
+      throw e;
+    }
+  } catch (error) {
+    const { message, status } = sanitizeApiError(
+      error,
+      'slots.book-resource',
+      'Booking failed. Please try again.',
+    );
+    return NextResponse.json({ error: message }, { status });
+  }
+}
 
-      const effPitch = effectivePitchTypes(m.supportedPitchTypes);
-      const effBall = effectiveBallTypes(
-        m.supportedBallTypes as Array<'TENNIS' | 'LEATHER' | 'MACHINE'>,
-        m.machineType.ballType,
+/**
+ * Reusable resource-booking logic. Called by both the public POST handler
+ * and `/api/payments/verify` (so that an online-paid resource booking
+ * goes through the same atomic transaction).
+ *
+ * Throws `ResourceBookingServiceError` for validation failures (400/403/…)
+ * and `BookingResourceError` for engine-level conflicts. Both carry an
+ * HTTP status the caller can surface.
+ */
+export async function executeResourceBooking(
+  user: AuthedUser,
+  body: ResourceBookingBody,
+  center: CenterRef,
+  options: ResourceBookingOptions = {},
+): Promise<ResourceBookingResult[]> {
+  if (center.bookingModel !== 'RESOURCE_BASED') {
+    throw new ResourceBookingServiceError(
+      `Center "${center.name}" does not use the resource-based engine`,
+      400,
+    );
+  }
+
+  const onlinePaymentId = options.onlinePaymentId;
+
+  return executeResourceBookingCore(user, body, center, { onlinePaymentId });
+}
+
+async function executeResourceBookingCore(
+  user: AuthedUser,
+  body: ResourceBookingBody,
+  center: CenterRef,
+  options: { onlinePaymentId?: string },
+): Promise<ResourceBookingResult[]> {
+  const onlinePaymentId = options.onlinePaymentId;
+
+  // CORPORATE_BATCH used to be admin-only; it's now bookable by any
+  // user (the resource engine auto-claims the configured number of
+  // nets, same as it does for the policy-driven virtual reservation).
+
+  // Admin can book on behalf of another user.
+  const isAdmin = user.role === 'ADMIN' || user.isSuperAdmin;
+  const targetUserId = (isAdmin && body.userId) ? body.userId : user.id;
+  const targetUser = await prisma.user.findUnique({
+    where: { id: targetUserId },
+    select: { id: true, isFreeUser: true, isSpecialUser: true, isBlacklisted: true },
+  });
+  if (!targetUser) throw new ResourceBookingServiceError('Target user not found', 404);
+  if (targetUser.isBlacklisted) {
+    throw new ResourceBookingServiceError('Account is blocked', 403);
+  }
+
+  const isFreeBooking = !!user.isSuperAdmin || targetUser.isFreeUser;
+  // Audience for blocked-slot evaluation — promotional offers and
+  // BlockedSlot.appliesTo can target SPECIAL users only or exclude
+  // them. Default ALL when isSpecialUser is null/false.
+  const audience: 'ALL' | 'SPECIAL' | 'NON_SPECIAL' = targetUser.isSpecialUser ? 'SPECIAL' : 'NON_SPECIAL';
+
+  // Resolve machine type (if MACHINE category) for price overrides.
+  // Validates picked pitch/ball against the *effective* list (configured
+  // values, or the universe when the admin left them empty) so client
+  // tampering can't sneak in unsupported types.
+  let machineTypeCode: string | null = null;
+  if (body.category === 'MACHINE' && body.machineId) {
+    const m = await prisma.machine.findUnique({
+      where: { id: body.machineId },
+      select: {
+        centerId: true,
+        supportedPitchTypes: true,
+        supportedBallTypes: true,
+        machineType: { select: { code: true, ballType: true } },
+      },
+    });
+    if (!m || m.centerId !== center.id) {
+      throw new ResourceBookingServiceError('Machine not found at this center', 400);
+    }
+    machineTypeCode = m.machineType.code;
+
+    const effPitch = effectivePitchTypes(m.supportedPitchTypes);
+    const effBall = effectiveBallTypes(
+      m.supportedBallTypes as Array<'TENNIS' | 'LEATHER' | 'MACHINE'>,
+      m.machineType.ballType,
+    );
+
+    if (body.pitchType && !effPitch.includes(body.pitchType)) {
+      throw new ResourceBookingServiceError(
+        `Pitch type "${body.pitchType}" is not available for this machine`,
+        400,
       );
-
-      if (body.pitchType && !effPitch.includes(body.pitchType)) {
-        return NextResponse.json(
-          { error: `Pitch type "${body.pitchType}" is not available for this machine` },
-          { status: 400 },
-        );
-      }
-      if (body.ballType && !effBall.includes(body.ballType)) {
-        return NextResponse.json(
-          { error: `Ball type "${body.ballType}" is not available for this machine` },
-          { status: 400 },
-        );
-      }
-      if (effPitch.length > 1 && !body.pitchType) {
-        return NextResponse.json({ error: 'Pitch type is required' }, { status: 400 });
-      }
-      if (effBall.length > 1 && !body.ballType) {
-        return NextResponse.json({ error: 'Ball type is required' }, { status: 400 });
-      }
     }
-
-    // SIDEARM / NET also accept a pitch type — read from the per-center
-    // policy so we can validate the picked value and reject anything not
-    // in the allow-list. Required when the policy has more than one type.
-    if (body.category === 'SIDEARM' || body.category === 'NET') {
-      const allowed =
-        body.category === 'SIDEARM'
-          ? await getSidearmPitchTypes(center.id)
-          : await getNetPitchTypes(center.id);
-      if (body.pitchType && !allowed.includes(body.pitchType)) {
-        return NextResponse.json(
-          {
-            error: `Pitch type "${body.pitchType}" is not available for ${body.category.toLowerCase()} bookings at this center`,
-          },
-          { status: 400 },
-        );
-      }
-      if (allowed.length > 1 && !body.pitchType) {
-        return NextResponse.json({ error: 'Pitch type is required' }, { status: 400 });
-      }
+    if (body.ballType && !effBall.includes(body.ballType)) {
+      throw new ResourceBookingServiceError(
+        `Ball type "${body.ballType}" is not available for this machine`,
+        400,
+      );
     }
+    if (effPitch.length > 1 && !body.pitchType) {
+      throw new ResourceBookingServiceError('Pitch type is required', 400);
+    }
+    if (effBall.length > 1 && !body.ballType) {
+      throw new ResourceBookingServiceError('Ball type is required', 400);
+    }
+  }
 
-    // Package redemption pre-flight. Loads the user's package, ensures
-    // it's at this center, active, has enough remaining sessions, and
-    // matches the booking's category + machine row (if pinned). All
-    // failures here surface a clear 400 to the client; the actual
-    // session decrement happens inside the transaction below.
-    let userPackage: {
+  // SIDEARM / NET also accept a pitch type — read from the per-center
+  // policy so we can validate the picked value and reject anything not
+  // in the allow-list. Required when the policy has more than one type.
+  if (body.category === 'SIDEARM' || body.category === 'NET') {
+    const allowed =
+      body.category === 'SIDEARM'
+        ? await getSidearmPitchTypes(center.id)
+        : await getNetPitchTypes(center.id);
+    if (body.pitchType && !allowed.includes(body.pitchType)) {
+      throw new ResourceBookingServiceError(
+        `Pitch type "${body.pitchType}" is not available for ${body.category.toLowerCase()} bookings at this center`,
+        400,
+      );
+    }
+    if (allowed.length > 1 && !body.pitchType) {
+      throw new ResourceBookingServiceError('Pitch type is required', 400);
+    }
+  }
+
+  // Package redemption pre-flight. Loads the user's package, ensures
+  // it's at this center, active, has enough remaining sessions, and
+  // matches the booking's category + machine row (if pinned). All
+  // failures here surface a clear 400 to the client; the actual
+  // session decrement happens inside the transaction below.
+  let userPackage: {
+    id: string;
+    totalSessions: number;
+    usedSessions: number;
+    package: {
       id: string;
-      totalSessions: number;
-      usedSessions: number;
-      package: {
-        id: string;
-        centerId: string;
-        category: BookingCategory | null;
-        machineRowId: string | null;
-        timingType: string;
-      };
-    } | null = null;
-    if (body.userPackageId) {
-      const found = await prisma.userPackage.findUnique({
-        where: { id: body.userPackageId },
-        select: {
-          id: true,
-          userId: true,
-          status: true,
-          expiryDate: true,
-          totalSessions: true,
-          usedSessions: true,
-          package: {
-            select: {
-              id: true,
-              centerId: true,
-              category: true,
-              machineRowId: true,
-              timingType: true,
-              isActive: true,
-            },
+      centerId: string;
+      category: BookingCategory | null;
+      machineRowId: string | null;
+      timingType: string;
+    };
+  } | null = null;
+  if (body.userPackageId) {
+    const found = await prisma.userPackage.findUnique({
+      where: { id: body.userPackageId },
+      select: {
+        id: true,
+        userId: true,
+        status: true,
+        expiryDate: true,
+        totalSessions: true,
+        usedSessions: true,
+        package: {
+          select: {
+            id: true,
+            centerId: true,
+            category: true,
+            machineRowId: true,
+            timingType: true,
+            isActive: true,
           },
         },
-      });
-      if (!found) {
-        return NextResponse.json({ error: 'Package not found' }, { status: 400 });
-      }
-      if (found.userId !== targetUserId) {
-        return NextResponse.json({ error: 'Package does not belong to this user' }, { status: 403 });
-      }
-      if (found.status !== 'ACTIVE') {
-        return NextResponse.json({ error: 'Package is not active' }, { status: 400 });
-      }
-      if (found.expiryDate && found.expiryDate < new Date()) {
-        return NextResponse.json({ error: 'Package has expired' }, { status: 400 });
-      }
-      if (found.package.centerId !== center.id) {
-        return NextResponse.json({ error: 'Package belongs to a different center' }, { status: 400 });
-      }
-      if (!found.package.isActive) {
-        return NextResponse.json({ error: 'Package is no longer available' }, { status: 400 });
-      }
-      const remaining = found.totalSessions - found.usedSessions;
-      if (remaining < body.slots.length) {
-        return NextResponse.json(
-          { error: `Package has ${remaining} session(s) left; trying to book ${body.slots.length}` },
-          { status: 400 },
-        );
-      }
-      // Category gate — only if the package has one set. ABCA-shape
-      // packages with category=null redeem against any category for
-      // back-compat.
-      if (found.package.category && found.package.category !== body.category) {
-        return NextResponse.json(
-          { error: `This package only redeems for ${found.package.category} bookings` },
-          { status: 400 },
-        );
-      }
-      // Machine row gate — only if pinned.
-      if (found.package.machineRowId) {
-        if (!body.machineId || found.package.machineRowId !== body.machineId) {
-          return NextResponse.json(
-            { error: 'This package is constrained to a specific machine; pick that machine to redeem' },
-            { status: 400 },
-          );
-        }
-      }
-      userPackage = {
-        id: found.id,
-        totalSessions: found.totalSessions,
-        usedSessions: found.usedSessions,
-        package: {
-          id: found.package.id,
-          centerId: found.package.centerId,
-          category: found.package.category,
-          machineRowId: found.package.machineRowId,
-          timingType: found.package.timingType,
-        },
-      };
-    }
-
-    // Validate every slot's plan up front (without taking any locks).
-    // The actual create runs inside a serializable transaction, which
-    // re-checks resource availability under a tighter consistency window.
-    const plans = body.slots.map((s) => {
-      const startTime = new Date(s.startTime);
-      const endTime = new Date(s.endTime);
-      const date = dateStringToUTC(s.date);
-      return {
-        category: body.category as BookingCategory,
-        centerId: center.id,
-        startTime,
-        endTime,
-        date,
-        resourceIds: body.resourceIds,
-        machineId: body.machineId ?? null,
-        coachId: body.coachId ?? null,
-        staffId: body.staffId ?? null,
-      } satisfies BookingPlan;
+      },
     });
-
-    // Pre-check (cheap; helps fail fast with a clear message).
-    for (const plan of plans) {
-      try {
-        await planBooking(plan, { audience });
-      } catch (e) {
-        if (e instanceof BookingResourceError) {
-          return NextResponse.json({ error: e.message }, { status: e.status });
-        }
-        throw e;
+    if (!found) {
+      throw new ResourceBookingServiceError('Package not found', 400);
+    }
+    if (found.userId !== targetUserId) {
+      throw new ResourceBookingServiceError('Package does not belong to this user', 403);
+    }
+    if (found.status !== 'ACTIVE') {
+      throw new ResourceBookingServiceError('Package is not active', 400);
+    }
+    if (found.expiryDate && found.expiryDate < new Date()) {
+      throw new ResourceBookingServiceError('Package has expired', 400);
+    }
+    if (found.package.centerId !== center.id) {
+      throw new ResourceBookingServiceError('Package belongs to a different center', 400);
+    }
+    if (!found.package.isActive) {
+      throw new ResourceBookingServiceError('Package is no longer available', 400);
+    }
+    const remaining = found.totalSessions - found.usedSessions;
+    if (remaining < body.slots.length) {
+      throw new ResourceBookingServiceError(
+        `Package has ${remaining} session(s) left; trying to book ${body.slots.length}`,
+        400,
+      );
+    }
+    // Category gate — only if the package has one set. ABCA-shape
+    // packages with category=null redeem against any category for
+    // back-compat.
+    if (found.package.category && found.package.category !== body.category) {
+      throw new ResourceBookingServiceError(
+        `This package only redeems for ${found.package.category} bookings`,
+        400,
+      );
+    }
+    // Machine row gate — only if pinned.
+    if (found.package.machineRowId) {
+      if (!body.machineId || found.package.machineRowId !== body.machineId) {
+        throw new ResourceBookingServiceError(
+          'This package is constrained to a specific machine; pick that machine to redeem',
+          400,
+        );
       }
     }
+    userPackage = {
+      id: found.id,
+      totalSessions: found.totalSessions,
+      usedSessions: found.usedSessions,
+      package: {
+        id: found.package.id,
+        centerId: found.package.centerId,
+        category: found.package.category,
+        machineRowId: found.package.machineRowId,
+        timingType: found.package.timingType,
+      },
+    };
+  }
+
+  // Validate every slot's plan up front (without taking any locks).
+  // The actual create runs inside a serializable transaction, which
+  // re-checks resource availability under a tighter consistency window.
+  const plans = body.slots.map((s) => {
+    const startTime = new Date(s.startTime);
+    const endTime = new Date(s.endTime);
+    const date = dateStringToUTC(s.date);
+    return {
+      category: body.category as BookingCategory,
+      centerId: center.id,
+      startTime,
+      endTime,
+      date,
+      resourceIds: body.resourceIds,
+      machineId: body.machineId ?? null,
+      coachId: body.coachId ?? null,
+      staffId: body.staffId ?? null,
+    } satisfies BookingPlan;
+  });
+
+  // Pre-check (cheap; helps fail fast with a clear message).
+  for (const plan of plans) {
+    await planBooking(plan, { audience });
+  }
 
     // Detect consecutive slot chains. ABCA's pricing config has a
     // separate `consecutive` price for back-to-back slot pairs;
@@ -449,8 +556,19 @@ export async function POST(req: NextRequest) {
                   // FIXED) so reports can render either, mirroring the
                   // legacy MACHINE_PITCH booking flow.
                   discountType: appliedOffer ? appliedOffer.discountType : null,
-                  paymentMethod: body.paymentMethod ?? null,
-                  paymentStatus: isFreeBooking ? 'PAID' : (body.paymentMethod === 'CASH' ? 'PENDING' : 'UNPAID'),
+                  // When an online Payment row drove this booking
+                  // (RESOURCE_BASED + payment-gateway flow), tag it so
+                  // /bookings UI and refund flows can find it. Mirrors
+                  // executeSlotBooking's onlinePaymentId wiring.
+                  ...(onlinePaymentId ? { paymentId: onlinePaymentId } : {}),
+                  paymentMethod: onlinePaymentId
+                    ? 'ONLINE'
+                    : (body.paymentMethod ?? null),
+                  paymentStatus: onlinePaymentId
+                    ? 'PAID'
+                    : (isFreeBooking
+                        ? 'PAID'
+                        : (body.paymentMethod === 'CASH' ? 'PENDING' : 'UNPAID')),
                 },
                 select: { id: true, status: true },
               });
@@ -511,38 +629,30 @@ export async function POST(req: NextRequest) {
           { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
         );
 
-        created.push(...results);
-        lastError = null;
-        break;
-      } catch (e) {
-        lastError = e;
-        // Retry on serialization failures only.
-        if (
-          e instanceof Prisma.PrismaClientKnownRequestError &&
-          (e.code === 'P2034' || e.code === 'P2002') &&
-          attempt < MAX_TX_RETRIES
-        ) {
-          continue;
-        }
-        // Non-retriable — surface immediately.
-        if (e instanceof BookingResourceError) {
-          return NextResponse.json({ error: e.message }, { status: e.status });
-        }
-        throw e;
+      created.push(...results);
+      lastError = null;
+      break;
+    } catch (e) {
+      lastError = e;
+      // Retry on serialization failures only.
+      if (
+        e instanceof Prisma.PrismaClientKnownRequestError &&
+        (e.code === 'P2034' || e.code === 'P2002') &&
+        attempt < MAX_TX_RETRIES
+      ) {
+        continue;
       }
+      // Non-retriable — surface immediately. BookingResourceError carries
+      // its own status; let it bubble for the POST handler / verify route
+      // to map.
+      throw e;
     }
-    if (lastError) {
-      const msg = lastError instanceof Error ? lastError.message : 'Booking failed';
-      return NextResponse.json({ error: msg }, { status: 500 });
-    }
-
-    return NextResponse.json({ bookings: created, centerId: center.id }, { status: 201 });
-  } catch (error) {
-    const { message, status } = sanitizeApiError(
-      error,
-      'slots.book-resource',
-      'Booking failed. Please try again.',
-    );
-    return NextResponse.json({ error: message }, { status });
   }
+  if (lastError) {
+    if (lastError instanceof BookingResourceError) throw lastError;
+    const msg = lastError instanceof Error ? lastError.message : 'Booking failed';
+    throw new ResourceBookingServiceError(msg, 500);
+  }
+
+  return created;
 }

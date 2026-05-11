@@ -5,6 +5,12 @@ import { verifyPaymentSignatureForCenter } from '@/lib/razorpay';
 import { notifyPaymentSuccess } from '@/lib/notifications';
 import { debitWallet, isWalletEnabled } from '@/lib/wallet';
 import { executeSlotBooking, BookingServiceError } from '@/app/api/slots/book/route';
+import {
+  executeResourceBooking,
+  ResourceBookingBodySchema,
+  ResourceBookingServiceError,
+} from '@/app/api/slots/book-resource/route';
+import { BookingResourceError } from '@/lib/resource-booking';
 
 // POST /api/payments/verify - Verify payment and complete booking/purchase
 export async function POST(req: NextRequest) {
@@ -99,7 +105,72 @@ export async function POST(req: NextRequest) {
       const bookingPayload = meta?.bookingPayload as Record<string, unknown>[] | undefined;
 
       if (bookingPayload && bookingPayload.length > 0) {
-        console.log(`[PaymentVerify user=${user.id} name=${user.name || 'N/A'}] Creating bookings atomically for payment ${payment.id} (${bookingPayload.length} slot(s))`);
+        // Route by the originating center's booking model. ABCA-style
+        // centers (MACHINE_PITCH) keep the legacy multi-slot array; new
+        // resource-based centers (Toplay) pass a single body (wrapped
+        // as a 1-element array by the client) that we parse against
+        // the ResourceBookingBody schema.
+        const center = await prisma.center.findUnique({
+          where: { id: payment.centerId },
+          select: { id: true, name: true, bookingModel: true },
+        });
+        if (!center) {
+          throw new Error(`Center ${payment.centerId} not found while verifying payment ${payment.id}`);
+        }
+
+        console.log(`[PaymentVerify user=${user.id} name=${user.name || 'N/A'}] Creating bookings atomically for payment ${payment.id} (${bookingPayload.length} slot(s), bookingModel=${center.bookingModel})`);
+
+        if (center.bookingModel === 'RESOURCE_BASED') {
+          try {
+            const raw = bookingPayload[0];
+            const parsed = ResourceBookingBodySchema.safeParse(raw);
+            if (!parsed.success) {
+              throw new Error(`Resource booking payload invalid: ${JSON.stringify(parsed.error.issues)}`);
+            }
+            const bookings = await executeResourceBooking(user, parsed.data, center, {
+              onlinePaymentId: payment.id,
+            });
+            // Link payment → bookings for the dashboard / refund flow.
+            await prisma.payment.update({
+              where: { id: payment.id },
+              data: { bookingIds: bookings.map(b => b.id) },
+            }).catch((e) => console.error(`[PaymentVerify] Failed to link bookingIds on ${payment.id}:`, e));
+
+            console.log(`[PaymentVerify user=${user.id}] Resource bookings created: ${bookings.map(b => b.id).join(', ')}`);
+            result = { bookings };
+          } catch (bookingErr) {
+            const errMsg = bookingErr instanceof Error ? bookingErr.message : 'Resource booking creation failed after payment';
+            console.error(`[PaymentVerify user=${user.id}] Resource booking failed after CAPTURED:`, bookingErr);
+            await markCaptureNeedsRecovery(payment.id, errMsg).catch((e) =>
+              console.error(`[PaymentVerify] Failed to mark recovery flag on ${payment.id}:`, e),
+            );
+            const status = bookingErr instanceof ResourceBookingServiceError
+              ? bookingErr.status
+              : bookingErr instanceof BookingResourceError
+                ? bookingErr.status
+                : 500;
+            const extra = bookingErr instanceof ResourceBookingServiceError && bookingErr.extra
+              ? bookingErr.extra
+              : {};
+            return NextResponse.json({
+              success: false,
+              error: errMsg,
+              paymentId: payment.id,
+              razorpayPaymentId: razorpay_payment_id,
+              type: payment.paymentType,
+              ...extra,
+            }, { status });
+          }
+          // Skip the legacy branch.
+          return NextResponse.json({
+            success: true,
+            paymentId: payment.id,
+            razorpayPaymentId: razorpay_payment_id,
+            type: payment.paymentType,
+            ...result,
+          });
+        }
+
         try {
           // Attach paymentId to each slot so the booking logic links them
           const slotsWithPayment = bookingPayload.map(slot => ({

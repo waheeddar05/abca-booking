@@ -33,6 +33,7 @@ import {
   LayoutGrid,
 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
+import { useSession } from 'next-auth/react';
 import { useToast } from '@/components/ui/Toast';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { PageBackground } from '@/components/ui/PageBackground';
@@ -40,6 +41,7 @@ import { DateSelector } from '@/components/slots/DateSelector';
 import { ContactFooter } from '@/components/ContactFooter';
 import { useCenter } from '@/lib/center-context';
 import { api } from '@/lib/api-client';
+import { useRazorpay, usePaymentConfig } from '@/lib/useRazorpay';
 
 type Category = 'MACHINE' | 'SIDEARM' | 'COACHING' | 'FULL_COURT' | 'NET' | 'CORPORATE_BATCH';
 
@@ -197,6 +199,8 @@ export default function ResourceSlotsPage() {
   const { currentCenter } = useCenter();
   const router = useRouter();
   const toast = useToast();
+  const { data: session } = useSession();
+  const isFreeBooking = !!session?.user?.isSuperAdmin || !!session?.user?.isFreeUser;
 
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
   const [category, setCategory] = useState<Category>('MACHINE');
@@ -215,6 +219,18 @@ export default function ResourceSlotsPage() {
   const [selectedSlots, setSelectedSlots] = useState<ResourceSlot[]>([]);
   const [showConfirm, setShowConfirm] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+
+  // Payment gateway integration (mirrors ABCA's /slots flow). When
+  // SLOT_PAYMENT_REQUIRED is on for the center, we route the booking
+  // through Razorpay; the verify route then creates the bookings
+  // atomically via executeResourceBooking.
+  const { config: paymentConfig } = usePaymentConfig();
+  const { initiatePayment, processing: paymentProcessing } = useRazorpay(
+    {
+      onFailure: (msg) => toast.error(msg),
+    },
+    !!paymentConfig?.paymentEnabled,
+  );
 
   // Reset selections when category changes. We deliberately DON'T
   // reset pitchType / ballType / coachId / staffId here — the
@@ -556,13 +572,55 @@ export default function ResourceSlotsPage() {
           endTime: s.endTime,
         })),
         category,
-        playerName: 'Player', // Phase 5b minimal: ask in confirm dialog later
+        playerName: session?.user?.name || 'Player',
         machineId: category === 'MACHINE' ? machineId : undefined,
         pitchType: wantsPitch ? pitchType : undefined,
         ballType: category === 'MACHINE' ? ballType : undefined,
         coachId: category === 'COACHING' ? coachId : undefined,
         staffId: category === 'SIDEARM' ? staffId : undefined,
       };
+
+      // Route through Razorpay when the center has the payment gateway
+      // on AND slot payment is required. Free/super-admin users skip
+      // (server lets them through). FULL_COURT/CORPORATE_BATCH and any
+      // future zero-price category also skip when total is 0.
+      const requiresOnlinePayment =
+        !!paymentConfig?.paymentEnabled &&
+        !!paymentConfig?.slotPaymentRequired &&
+        !isFreeBooking &&
+        totalPrice > 0;
+
+      if (requiresOnlinePayment) {
+        const categoryLabel = CATEGORIES.find((c) => c.key === category)?.label ?? category;
+        const paymentResult = await initiatePayment({
+          type: 'SLOT_BOOKING',
+          amount: totalPrice,
+          slots: body.slots,
+          // Verify route parses bookingPayload[0] against
+          // ResourceBookingBodySchema and calls executeResourceBooking,
+          // so the bookings are created atomically post-capture.
+          bookingPayload: [body as unknown as Record<string, unknown>],
+          description: `${selectedSlots.length} slot(s) · ${categoryLabel} · ${format(selectedDate, 'MMM d')}`,
+          prefill: {
+            name: session?.user?.name || undefined,
+            email: session?.user?.email || undefined,
+          },
+        });
+
+        if (!paymentResult) {
+          // User cancelled or payment failed (error already surfaced by hook).
+          return;
+        }
+
+        toast.success(
+          paymentResult.bookings && paymentResult.bookings.length > 0
+            ? `Payment successful! Booked ${paymentResult.bookings.length} slot${paymentResult.bookings.length === 1 ? '' : 's'}.`
+            : 'Payment successful! Booking confirmed.',
+        );
+        router.push('/bookings');
+        return;
+      }
+
       const res = await api.post<{ bookings: { id: string }[] }>('/api/slots/book-resource', body);
       toast.success(`Booked ${res.bookings.length} slot${res.bookings.length === 1 ? '' : 's'}`);
       router.push('/bookings');
@@ -886,11 +944,15 @@ export default function ResourceSlotsPage() {
           `Slots: ${selectedSlots.map((s) => formatTimeRangeIST(s.startTime, s.endTime)).join(', ')}`,
           `Total: ₹${totalPrice}`,
         ].join('\n')}
-        confirmLabel={`Pay ₹${totalPrice.toLocaleString()}`}
+        confirmLabel={
+          paymentConfig?.paymentEnabled && paymentConfig?.slotPaymentRequired && !isFreeBooking && totalPrice > 0
+            ? `Pay ₹${totalPrice.toLocaleString()}`
+            : 'Confirm Booking'
+        }
         cancelLabel="Go Back"
         onCancel={() => setShowConfirm(false)}
         onConfirm={submit}
-        loading={submitting}
+        loading={submitting || paymentProcessing}
       />
 
       {/* Booking bar — same fixed position, dark glassy bar, IndianRupee
@@ -916,13 +978,13 @@ export default function ResourceSlotsPage() {
 
             <button
               onClick={() => setShowConfirm(true)}
-              disabled={submitting}
+              disabled={submitting || paymentProcessing}
               className="flex items-center gap-2 bg-accent hover:bg-accent-light text-primary px-6 py-3 rounded-xl font-semibold text-sm transition-all active:scale-[0.97] disabled:opacity-50 cursor-pointer"
             >
-              {submitting ? (
+              {submitting || paymentProcessing ? (
                 <>
                   <Loader2 className="w-4 h-4 animate-spin" />
-                  Booking...
+                  {paymentProcessing ? 'Processing payment...' : 'Booking...'}
                 </>
               ) : (
                 <>
