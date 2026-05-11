@@ -2,11 +2,12 @@
 
 import { useState, useEffect } from 'react';
 import { useSession } from 'next-auth/react';
-import { Users, Loader2, Save, ChevronUp, ChevronDown, Check, Calendar, ListOrdered, Wrench, CalendarClock, Trash2, Plus } from 'lucide-react';
+import { Users, Loader2, Save, ChevronUp, ChevronDown, Check, Calendar, ListOrdered, Wrench, CalendarClock, Trash2, Plus, Pencil } from 'lucide-react';
 import { AdminPageHeader } from '@/components/admin/AdminPageHeader';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { useToast } from '@/components/ui/Toast';
 import { useCenter } from '@/lib/center-context';
+import { getISTDateString } from '@/lib/time';
 
 // ─── Types ───────────────────────────────────────────────
 // An assignment row from the API. ABCA-style centers populate
@@ -195,6 +196,7 @@ export default function AdminOperators() {
   const [newOverrideRecurringDays, setNewOverrideRecurringDays] = useState<number[]>([]);
   const [savingOverrides, setSavingOverrides] = useState(false);
   const [pendingOverrides, setPendingOverrides] = useState<OverrideRange[] | null>(null);
+  const [editingOverrideIndex, setEditingOverrideIndex] = useState<number | null>(null);
 
 
   // ═══════════════════════════════════════════════════════
@@ -363,9 +365,34 @@ export default function AdminOperators() {
     }
   };
 
+  const resetOverrideForm = () => {
+    setNewOverrideFromDate('');
+    setNewOverrideToDate('');
+    setNewOverrideMorning(1);
+    setNewOverrideEvening(1);
+    setNewOverrideRecurringDays([]);
+    setEditingOverrideIndex(null);
+  };
+
+  const startEditOverride = (index: number) => {
+    const r = dateOverrides[index];
+    if (!r) return;
+    setNewOverrideFromDate(r.from);
+    setNewOverrideToDate(r.to);
+    setNewOverrideMorning(r.morning);
+    setNewOverrideEvening(r.evening);
+    setNewOverrideRecurringDays(r.recurringDays ? [...r.recurringDays] : []);
+    setEditingOverrideIndex(index);
+  };
+
   const addDateOverride = () => {
     if (!newOverrideFromDate) {
       toast.error('Please select a from date');
+      return;
+    }
+    const todayISO = getISTDateString();
+    if (newOverrideFromDate < todayISO) {
+      toast.error('From date cannot be before today');
       return;
     }
     const toDate = newOverrideToDate || newOverrideFromDate;
@@ -380,16 +407,16 @@ export default function AdminOperators() {
       evening: newOverrideEvening,
       ...(newOverrideRecurringDays.length > 0 ? { recurringDays: [...newOverrideRecurringDays].sort((a, b) => a - b) } : {}),
     };
-    const updated = [...dateOverrides, newRange].sort((a, b) => a.from.localeCompare(b.from));
+    const base = editingOverrideIndex !== null
+      ? dateOverrides.filter((_, i) => i !== editingOverrideIndex)
+      : dateOverrides;
+    const updated = [...base, newRange].sort((a, b) => a.from.localeCompare(b.from));
     confirmAndSaveOverrides(updated);
-    setNewOverrideFromDate('');
-    setNewOverrideToDate('');
-    setNewOverrideMorning(1);
-    setNewOverrideEvening(1);
-    setNewOverrideRecurringDays([]);
+    resetOverrideForm();
   };
 
   const removeDateOverride = (index: number) => {
+    if (editingOverrideIndex === index) resetOverrideForm();
     const updated = dateOverrides.filter((_, i) => i !== index);
     saveDateOverrides(updated);
   };
@@ -966,7 +993,20 @@ export default function AdminOperators() {
         <div className="space-y-4">
           {/* Add new override */}
           <div className="bg-white/[0.03] border border-white/[0.07] rounded-xl p-4">
-            <h3 className="text-xs font-bold text-white uppercase tracking-wider mb-3">Add Date Override</h3>
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-xs font-bold text-white uppercase tracking-wider">
+                {editingOverrideIndex !== null ? 'Edit Date Override' : 'Add Date Override'}
+              </h3>
+              {editingOverrideIndex !== null && (
+                <button
+                  type="button"
+                  onClick={resetOverrideForm}
+                  className="text-[10px] font-medium text-slate-400 hover:text-white px-2 py-1 rounded transition-colors cursor-pointer"
+                >
+                  Cancel edit
+                </button>
+              )}
+            </div>
             <p className="text-[11px] text-slate-400 mb-4">
               Set operator count to <strong className="text-amber-400">0</strong> for a slab to make leather machines unavailable and tennis machines self-operate. Select a date range to apply across multiple days.
             </p>
@@ -976,6 +1016,7 @@ export default function AdminOperators() {
                 <input
                   type="date"
                   value={newOverrideFromDate}
+                  min={getISTDateString()}
                   onChange={e => setNewOverrideFromDate(e.target.value)}
                   className="w-full bg-white/[0.04] border border-white/[0.1] text-white rounded-lg px-2 py-1.5 text-[11px] outline-none focus:border-accent"
                 />
@@ -985,7 +1026,7 @@ export default function AdminOperators() {
                 <input
                   type="date"
                   value={newOverrideToDate}
-                  min={newOverrideFromDate}
+                  min={newOverrideFromDate || getISTDateString()}
                   onChange={e => setNewOverrideToDate(e.target.value)}
                   className="w-full bg-white/[0.04] border border-white/[0.1] text-white rounded-lg px-2 py-1.5 text-[11px] outline-none focus:border-accent"
                 />
@@ -1068,14 +1109,24 @@ export default function AdminOperators() {
                           )}
                         </div>
                       </div>
-                      <button
-                        onClick={() => removeDateOverride(idx)}
-                        disabled={savingOverrides}
-                        className="p-1.5 text-slate-500 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-colors cursor-pointer disabled:opacity-50"
-                        title="Remove override"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
+                      <div className="flex items-center gap-1">
+                        <button
+                          onClick={() => startEditOverride(idx)}
+                          disabled={savingOverrides}
+                          className="p-1.5 text-slate-500 hover:text-accent hover:bg-accent/10 rounded-lg transition-colors cursor-pointer disabled:opacity-50"
+                          title="Edit override"
+                        >
+                          <Pencil className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          onClick={() => removeDateOverride(idx)}
+                          disabled={savingOverrides}
+                          className="p-1.5 text-slate-500 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-colors cursor-pointer disabled:opacity-50"
+                          title="Remove override"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
                     </div>
                   ))}
               </div>
