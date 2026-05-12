@@ -8,6 +8,7 @@ import { MACHINES } from '@/lib/constants';
 import { notifyBookingCancelled, notifyWalletCredit, notifyOperatorBookingCancelled } from '@/lib/notifications';
 import { autoAssignOperator } from '@/lib/operatorAssign';
 import { creditWallet, isWalletEnabled, getDefaultRefundMethod } from '@/lib/wallet';
+import { adjustSiblingPricesForCancellation } from '@/lib/booking-cancellation';
 
 type MachineIdFilter = 'GRAVITY' | 'YANTRA' | 'LEVERAGE_INDOOR' | 'LEVERAGE_OUTDOOR';
 
@@ -314,6 +315,18 @@ export async function PATCH(req: NextRequest) {
     // Process refund when booking is cancelled by admin
     let refundInfo: string | undefined;
     if (status === 'CANCELLED' && booking.userId) {
+      // Reprice consecutive siblings first. The cancelled booking's
+      // `price` is reduced in-place by the helper, so the refund logic
+      // below automatically uses the post-adjustment amount.
+      try {
+        const adjustment = await adjustSiblingPricesForCancellation(booking);
+        if (adjustment > 0) {
+          console.log(`[AdminCancel] Booking ${bookingId}: consecutive adjustment ₹${adjustment}, refundablePrice=${booking.price}`);
+        }
+      } catch (adjErr) {
+        console.error('Consecutive pricing adjustment failed:', adjErr);
+      }
+
       try {
         // Check how much has already been refunded for this booking
         const existingRefunds = await prisma.refund.findMany({
@@ -390,9 +403,14 @@ export async function PATCH(req: NextRequest) {
           });
 
           if (payment?.razorpayPaymentId) {
-            const fullRefundAmount = payment.bookingIds.length > 1
-              ? payment.amount / payment.bookingIds.length
-              : payment.amount;
+            // Prefer the booking's own price (post adjustSiblingPricesForCancellation)
+            // over an even payment-amount split — per-slot prices differ
+            // when consecutive discounts are at play.
+            const fullRefundAmount = (booking.price && booking.price > 0)
+              ? booking.price
+              : (payment.bookingIds.length > 1
+                  ? payment.amount / payment.bookingIds.length
+                  : payment.amount);
             const remainingRefund = fullRefundAmount - alreadyRefunded;
 
             if (remainingRefund > 0) {

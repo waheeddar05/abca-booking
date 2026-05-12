@@ -5,8 +5,8 @@ import { getISTTime, formatIST } from '@/lib/time';
 import { isBefore } from 'date-fns';
 import { creditWallet, getDefaultRefundMethod, isWalletEnabled } from '@/lib/wallet';
 import { notifyBookingCancelled, notifyWalletCredit, notifyOperatorBookingCancelled } from '@/lib/notifications';
-import { MACHINES, getBallTypeForMachine, MACHINE_A_BALLS } from '@/lib/constants';
-import { calculateNewPricing, getPricingConfig, getTimeSlabConfig } from '@/lib/pricing';
+import { MACHINES } from '@/lib/constants';
+import { adjustSiblingPricesForCancellation } from '@/lib/booking-cancellation';
 
 export async function POST(req: NextRequest) {
   try {
@@ -75,147 +75,14 @@ export async function POST(req: NextRequest) {
     }
 
     // ─── Consecutive Pricing Adjustment ──────────────────────────────
-    // When cancelling a booking that was part of a consecutive group,
-    // recalculate sibling prices (including recurring slot discounts) and
-    // adjust the refund accordingly.
-    // e.g. If 2 consecutive slots cost ₹800 (₹400 each) and single is ₹500,
-    //   cancelling one should refund ₹300 (not ₹400) and reprice sibling to ₹500.
-    let consecutiveAdjustment = 0; // Amount to subtract from refund due to sibling repricing
-
-    try {
-      // Check for consecutive siblings regardless of discountAmount — the
-      // discount field may be null for older bookings but the pricing gap
-      // still needs to be clawed back on cancellation.
-      if (booking.machineId && booking.userId) {
-        // Find active sibling bookings on the same date, machine, and pitch
-        const siblingBookings = await prisma.booking.findMany({
-          where: {
-            id: { not: bookingId },
-            userId: booking.userId,
-            date: booking.date,
-            machineId: booking.machineId,
-            pitchType: booking.pitchType,
-            status: 'BOOKED',
-          },
-          orderBy: { startTime: 'asc' },
-        });
-
-        if (siblingBookings.length > 0) {
-          // Recalculate pricing for remaining slots (without the cancelled one)
-          const ballType = booking.ballType || getBallTypeForMachine(booking.machineId);
-          const category: 'MACHINE' | 'TENNIS' = MACHINE_A_BALLS.includes(ballType) ? 'MACHINE' : 'TENNIS';
-
-          const pricingConfig = await getPricingConfig();
-          const timeSlabConfig = await getTimeSlabConfig();
-
-          const remainingSlots = siblingBookings.map(b => ({
-            startTime: new Date(b.startTime),
-            endTime: new Date(b.endTime),
-          }));
-
-          const newPricing = calculateNewPricing(
-            remainingSlots,
-            category,
-            ballType,
-            booking.pitchType,
-            timeSlabConfig,
-            pricingConfig,
-            booking.machineId
-          );
-
-          // ── Re-apply Recurring Slot Discounts to repriced siblings ─────
-          // The booking route applies recurring discounts on top of
-          // consecutive pricing. We must do the same here so that sibling
-          // prices stay correct and the consecutiveAdjustment is accurate.
-          const getISTTimeStr = (d: Date): string => {
-            const utcMs = d.getTime();
-            const istMs = utcMs + (5 * 60 + 30) * 60 * 1000;
-            const istDate = new Date(istMs);
-            const h = istDate.getUTCHours().toString().padStart(2, '0');
-            const m = istDate.getUTCMinutes().toString().padStart(2, '0');
-            return `${h}:${m}`;
-          };
-          const getISTDay = (d: Date): number => {
-            const utcMs = d.getTime();
-            const istMs = utcMs + (5 * 60 + 30) * 60 * 1000;
-            return new Date(istMs).getUTCDay();
-          };
-
-          let recurringDiscountRules: Array<any> = [];
-          try {
-            recurringDiscountRules = await prisma.recurringSlotDiscount.findMany({
-              where: { enabled: true },
-            });
-          } catch {
-            // Table may not exist; skip recurring discounts
-          }
-
-          const isRemainingConsecutive = remainingSlots.length >= 2;
-          const perSlotDiscountKey = isRemainingConsecutive ? 'twoSlotDiscount' : 'oneSlotDiscount';
-
-          for (let i = 0; i < newPricing.length; i++) {
-            const slotStart = remainingSlots[i].startTime;
-            const dayOfWeek = getISTDay(slotStart);
-            const istTimeStr = getISTTimeStr(slotStart);
-
-            for (const rule of recurringDiscountRules) {
-              if (!rule.days.includes(dayOfWeek)) continue;
-              const ruleStartTime = rule.slotStartTime.padStart(5, '0');
-              const ruleEndTime = (rule.slotEndTime || rule.slotStartTime).padStart(5, '0');
-              if (istTimeStr < ruleStartTime || istTimeStr >= ruleEndTime) continue;
-              if (rule.machineIds && rule.machineIds.length > 0 && booking.machineId && !rule.machineIds.includes(booking.machineId)) continue;
-
-              const discountAmt = rule[perSlotDiscountKey] as number;
-              const maxReduction = Math.min(discountAmt, newPricing[i].price);
-              newPricing[i].price = Math.max(0, newPricing[i].price - maxReduction);
-              newPricing[i].discountAmount += maxReduction;
-              break; // first matching rule wins
-            }
-          }
-
-          // Update sibling bookings with new prices and accumulate price increases.
-          // ONLY update when new price is HIGHER — never lower a sibling's price,
-          // as that would change the amount the user already paid and misalign
-          // booking history, CSV exports, and admin views.
-          for (let i = 0; i < siblingBookings.length; i++) {
-            const sibling = siblingBookings[i];
-            const newPrice = newPricing[i].price;
-            const oldPrice = sibling.price || 0;
-            const priceIncrease = newPrice - oldPrice;
-
-            console.log(`[Cancel] Sibling ${sibling.id}: oldPrice=${oldPrice}, newPrice=${newPrice}, increase=${priceIncrease}, discount=${newPricing[i].discountAmount}`);
-
-            if (priceIncrease > 0) {
-              consecutiveAdjustment += priceIncrease;
-
-              await prisma.booking.update({
-                where: { id: sibling.id },
-                data: {
-                  price: newPrice,
-                  originalPrice: newPricing[i].originalPrice,
-                  discountAmount: newPricing[i].discountAmount > 0 ? newPricing[i].discountAmount : null,
-                  discountType: newPricing[i].discountAmount > 0 ? 'FIXED' : null,
-                },
-              });
-            }
-          }
-        }
-      }
-      // Update the cancelled booking's price to the adjusted amount so that
-      // refund status displays correctly (totalRefunded >= price → "Refunded")
-      if (consecutiveAdjustment > 0 && booking.price) {
-        const adjustedBookingPrice = Math.max(0, booking.price - consecutiveAdjustment);
-        console.log(`[Cancel] Booking ${bookingId}: paidPrice=${booking.price}, adjustment=${consecutiveAdjustment}, refundablePrice=${adjustedBookingPrice}`);
-        await prisma.booking.update({
-          where: { id: bookingId },
-          data: { price: adjustedBookingPrice },
-        });
-        // Update local reference so refund logic uses the adjusted price
-        booking.price = adjustedBookingPrice;
-      }
-    } catch (adjustErr) {
-      console.error('Consecutive pricing adjustment failed:', adjustErr);
-      // Continue with standard refund if adjustment fails
+    // When cancelling a booking that was part of a consecutive chain,
+    // reprice the remaining siblings (they lose the chain discount) and
+    // claw the difference back from the user's refund. Works for both
+    // ABCA (MACHINE_PITCH) and Toplay (RESOURCE_BASED) via the shared
+    // helper. Mutates booking.price in-place when an adjustment lands.
+    const consecutiveAdjustment = await adjustSiblingPricesForCancellation(booking);
+    if (consecutiveAdjustment > 0) {
+      console.log(`[Cancel] Booking ${bookingId}: consecutive adjustment ₹${consecutiveAdjustment}, refundablePrice=${booking.price}`);
     }
 
     // ─── Refund Logic ─────────────────────────────────────────────────
