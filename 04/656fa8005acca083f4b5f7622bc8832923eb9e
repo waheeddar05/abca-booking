@@ -1,0 +1,21 @@
+src/app/api/payments/verify/route.ts
+  s_e0175fb4b4f942::t_8ad0a411aa46fe 159-191
+  s_e0175fb4b4f942::t_03ed220122214f 57-92,128-145
+  s_e0175fb4b4f942::t_d5314d3d6d7bc0 93-127
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.4",
+  "base_commit_sha": "04656fa8005acca083f4b5f7622bc8832923eb9e",
+  "prompts": {},
+  "sessions": {
+    "s_e0175fb4b4f942": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "f3864c65-ac36-4572-a64e-c1d488c0cbdf",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Waheed <waheeddar8@gmail.com>"
+    }
+  }
+}
