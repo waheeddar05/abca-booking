@@ -38,6 +38,7 @@ import { useToast } from '@/components/ui/Toast';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { PageBackground } from '@/components/ui/PageBackground';
 import { DateSelector } from '@/components/slots/DateSelector';
+import { PaymentMethodSelector } from '@/components/ui/PaymentMethodSelector';
 import { ContactFooter } from '@/components/ContactFooter';
 import { useCenter } from '@/lib/center-context';
 import { api } from '@/lib/api-client';
@@ -220,6 +221,14 @@ export default function ResourceSlotsPage() {
   const [showConfirm, setShowConfirm] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
+  // Payment method + wallet — mirrors ABCA's /slots flow. Default to
+  // ONLINE; the PaymentMethodSelector flips to CASH when the user picks
+  // "Pay at Center", and exposes a wallet toggle when the center has
+  // wallet enabled and the user has a positive balance.
+  const [paymentMethod, setPaymentMethod] = useState<'ONLINE' | 'CASH'>('ONLINE');
+  const [useWallet, setUseWallet] = useState(false);
+  const [walletBalance, setWalletBalance] = useState<number>(0);
+
   // Payment gateway integration (mirrors ABCA's /slots flow). When
   // SLOT_PAYMENT_REQUIRED is on for the center, we route the booking
   // through Razorpay; the verify route then creates the bookings
@@ -231,6 +240,15 @@ export default function ResourceSlotsPage() {
     },
     !!paymentConfig?.paymentEnabled,
   );
+
+  // Snap paymentMethod back to ONLINE when the center disables cash — the
+  // PaymentMethodSelector self-hides the cash button but the state could
+  // already be stuck on CASH from a previous render.
+  useEffect(() => {
+    if (paymentConfig && !paymentConfig.cashPaymentEnabled && paymentMethod === 'CASH') {
+      setPaymentMethod('ONLINE');
+    }
+  }, [paymentConfig, paymentMethod]);
 
   // Reset selections when category changes. We deliberately DON'T
   // reset pitchType / ballType / coachId / staffId here — the
@@ -565,7 +583,21 @@ export default function ResourceSlotsPage() {
       // Pitch type is meaningful for MACHINE / SIDEARM / NET. Ball type
       // only for MACHINE (the others don't use a bowling machine).
       const wantsPitch = category === 'MACHINE' || category === 'SIDEARM' || category === 'NET';
-      const body = {
+
+      // Resolve payment intent. Three terminal paths, mutually exclusive:
+      //   - walletCoversAll → POST direct with paymentMethod=WALLET
+      //   - CASH (pay at center) → POST direct with paymentMethod=CASH
+      //   - else → Razorpay flow (with optional partial wallet debit
+      //     applied server-side after capture)
+      const isCashPayment = paymentMethod === 'CASH';
+      const walletDeduction = useWallet && walletBalance > 0
+        ? Math.min(walletBalance, totalPrice)
+        : 0;
+      const amountAfterWallet = Math.max(0, totalPrice - walletDeduction);
+      const walletCoversAll =
+        !isFreeBooking && walletDeduction > 0 && amountAfterWallet === 0;
+
+      const body: Record<string, unknown> = {
         slots: selectedSlots.map((s) => ({
           date: data!.date,
           startTime: s.startTime,
@@ -578,28 +610,40 @@ export default function ResourceSlotsPage() {
         ballType: category === 'MACHINE' ? ballType : undefined,
         coachId: category === 'COACHING' ? coachId : undefined,
         staffId: category === 'SIDEARM' ? staffId : undefined,
+        ...(walletCoversAll
+          ? { paymentMethod: 'WALLET' as const, walletDeduction }
+          : isCashPayment
+            ? { paymentMethod: 'CASH' as const, ...(walletDeduction > 0 ? { walletDeduction } : {}) }
+            : walletDeduction > 0
+              ? { walletDeduction }
+              : {}),
       };
 
       // Route through Razorpay when the center has the payment gateway
-      // on AND slot payment is required. Free/super-admin users skip
-      // (server lets them through). FULL_COURT/CORPORATE_BATCH and any
-      // future zero-price category also skip when total is 0.
+      // on AND slot payment is required AND the wallet doesn't cover
+      // the full amount AND the user isn't paying at center. Free/super-
+      // admin users always skip Razorpay. Zero-price bookings too.
       const requiresOnlinePayment =
         !!paymentConfig?.paymentEnabled &&
         !!paymentConfig?.slotPaymentRequired &&
         !isFreeBooking &&
-        totalPrice > 0;
+        !isCashPayment &&
+        !walletCoversAll &&
+        amountAfterWallet > 0;
 
       if (requiresOnlinePayment) {
         const categoryLabel = CATEGORIES.find((c) => c.key === category)?.label ?? category;
         const paymentResult = await initiatePayment({
           type: 'SLOT_BOOKING',
-          amount: totalPrice,
-          slots: body.slots,
+          amount: amountAfterWallet,
+          slots: body.slots as Array<{ date: string; startTime: string; endTime: string }>,
+          walletDeduction: walletDeduction > 0 ? walletDeduction : undefined,
           // Verify route parses bookingPayload[0] against
           // ResourceBookingBodySchema and calls executeResourceBooking,
-          // so the bookings are created atomically post-capture.
-          bookingPayload: [body as unknown as Record<string, unknown>],
+          // so the bookings are created atomically post-capture. The
+          // wallet portion (if any) is debited server-side after the
+          // bookings commit.
+          bookingPayload: [body],
           description: `${selectedSlots.length} slot(s) · ${categoryLabel} · ${format(selectedDate, 'MMM d')}`,
           prefill: {
             name: session?.user?.name || undefined,
@@ -622,7 +666,15 @@ export default function ResourceSlotsPage() {
       }
 
       const res = await api.post<{ bookings: { id: string }[] }>('/api/slots/book-resource', body);
-      toast.success(`Booked ${res.bookings.length} slot${res.bookings.length === 1 ? '' : 's'}`);
+      toast.success(
+        isCashPayment
+          ? walletDeduction > 0
+            ? `Booking confirmed! ₹${walletDeduction} from wallet. Pay ₹${amountAfterWallet} at center.`
+            : 'Booking confirmed! Pay at center when you arrive.'
+          : walletCoversAll
+            ? 'Booking confirmed! Payment deducted from wallet.'
+            : `Booked ${res.bookings.length} slot${res.bookings.length === 1 ? '' : 's'}`,
+      );
       router.push('/bookings');
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Booking failed';
@@ -633,16 +685,10 @@ export default function ResourceSlotsPage() {
     }
   };
 
-  if (!currentCenter) {
-    return (
-      <div className="flex items-center justify-center min-h-screen">
-        <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
-      </div>
-    );
-  }
-
   // ABCA's BookingBar shows "<Category> · <secondary>" as the label —
-  // mirror that here so the sticky bar reads consistently.
+  // mirror that here so the sticky bar reads consistently. Declared
+  // above the early `!currentCenter` return so the hook order stays
+  // stable across renders (react-hooks/rules-of-hooks).
   const machineLabel = useMemo(() => {
     const cat = CATEGORIES.find((c) => c.key === category);
     const baseLabel = cat?.label ?? category;
@@ -658,6 +704,14 @@ export default function ResourceSlotsPage() {
     }
     return baseLabel;
   }, [category, machineId, filteredMachines, ballType, pitchType]);
+
+  if (!currentCenter) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
+      </div>
+    );
+  }
 
   return (
     <div className="max-w-2xl mx-auto px-4 py-5 pb-40 md:pb-28">
@@ -934,26 +988,92 @@ export default function ResourceSlotsPage() {
         )}
       </div>
 
+      {/* Payment method (online / cash / wallet). Same component ABCA uses
+          so wallet behaviour is identical across centers. Rendered
+          whenever any payment surface is on AND the user has selected
+          slots AND it's not a free booking. */}
+      {selectedSlots.length > 0
+        && (
+          (paymentConfig?.paymentEnabled && paymentConfig?.slotPaymentRequired)
+          || paymentConfig?.cashPaymentEnabled
+          || paymentConfig?.walletEnabled
+        )
+        && !isFreeBooking
+        && (
+          <div className="mb-4">
+            <p className="text-xs font-medium text-slate-400 mb-2 uppercase tracking-wider">Payment</p>
+            <PaymentMethodSelector
+              selected={paymentMethod}
+              onChange={setPaymentMethod}
+              disabled={submitting || paymentProcessing}
+              showOnline={!!(paymentConfig?.paymentEnabled && paymentConfig?.slotPaymentRequired)}
+              showCash={paymentConfig?.cashPaymentEnabled}
+              showWallet={paymentConfig?.walletEnabled}
+              totalAmount={totalPrice}
+              useWallet={useWallet}
+              onUseWalletChange={setUseWallet}
+              onWalletBalanceLoaded={setWalletBalance}
+            />
+          </div>
+        )}
+
       <ContactFooter />
 
-      <ConfirmDialog
-        open={showConfirm}
-        title="Confirm Booking"
-        message={[
+      {(() => {
+        const isCashPayment = paymentMethod === 'CASH';
+        const walletDeduction = useWallet && walletBalance > 0
+          ? Math.min(walletBalance, totalPrice)
+          : 0;
+        const amountAfterWallet = Math.max(0, totalPrice - walletDeduction);
+        const walletCoversAll =
+          !isFreeBooking && walletDeduction > 0 && amountAfterWallet === 0;
+        const requiresOnline =
+          !!paymentConfig?.paymentEnabled
+          && !!paymentConfig?.slotPaymentRequired
+          && !isFreeBooking
+          && !isCashPayment
+          && !walletCoversAll
+          && amountAfterWallet > 0;
+
+        const lines = [
           `${CATEGORIES.find((c) => c.key === category)?.label} on ${format(selectedDate, 'EEE, dd MMM yyyy')}`,
           `Slots: ${selectedSlots.map((s) => formatTimeRangeIST(s.startTime, s.endTime)).join(', ')}`,
-          `Total: ₹${totalPrice}`,
-        ].join('\n')}
-        confirmLabel={
-          paymentConfig?.paymentEnabled && paymentConfig?.slotPaymentRequired && !isFreeBooking && totalPrice > 0
-            ? `Pay ₹${totalPrice.toLocaleString()}`
-            : 'Confirm Booking'
+        ];
+        if (isFreeBooking) {
+          lines.push('Total: FREE');
+        } else if (walletCoversAll) {
+          lines.push(`Total: ₹${totalPrice} (Wallet — ₹${walletDeduction} deducted)`);
+        } else if (walletDeduction > 0 && isCashPayment) {
+          lines.push(`₹${walletDeduction} from wallet · ₹${amountAfterWallet} at center`);
+        } else if (walletDeduction > 0) {
+          lines.push(`₹${walletDeduction} from wallet · ₹${amountAfterWallet} online`);
+        } else if (isCashPayment) {
+          lines.push(`Total: ₹${totalPrice} (Pay at center)`);
+        } else {
+          lines.push(`Total: ₹${totalPrice}`);
         }
-        cancelLabel="Go Back"
-        onCancel={() => setShowConfirm(false)}
-        onConfirm={submit}
-        loading={submitting || paymentProcessing}
-      />
+
+        const confirmLabel = requiresOnline
+          ? `Pay ₹${amountAfterWallet.toLocaleString()}`
+          : walletCoversAll
+            ? 'Confirm (Wallet)'
+            : isCashPayment
+              ? 'Confirm Booking'
+              : 'Confirm Booking';
+
+        return (
+          <ConfirmDialog
+            open={showConfirm}
+            title="Confirm Booking"
+            message={lines.join('\n')}
+            confirmLabel={confirmLabel}
+            cancelLabel="Go Back"
+            onCancel={() => setShowConfirm(false)}
+            onConfirm={submit}
+            loading={submitting || paymentProcessing}
+          />
+        );
+      })()}
 
       {/* Booking bar — same fixed position, dark glassy bar, IndianRupee
           accent price, slot count + date + label, Confirm button as

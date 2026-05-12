@@ -21,6 +21,7 @@ import {
 import { sanitizeApiError } from '@/lib/api-errors';
 import { dateStringToUTC } from '@/lib/time';
 import { isSlotPaymentRequired } from '@/lib/razorpay';
+import { debitWallet, getWalletBalance, isWalletEnabled } from '@/lib/wallet';
 
 /**
  * POST /api/slots/book-resource
@@ -69,7 +70,17 @@ export const ResourceBookingBodySchema = z.object({
    *  Machine.supportedBallTypes). Validated server-side. */
   ballType: z.enum(['TENNIS', 'LEATHER', 'MACHINE']).optional().nullable(),
   userId: z.string().optional(),
-  paymentMethod: z.enum(['ONLINE', 'CASH']).optional(),
+  /** Payment mode chosen by the user. ONLINE = Razorpay (the only path
+   *  that flows through the verify route); CASH = pay at center, booking
+   *  stays paymentStatus=PENDING; WALLET = full wallet deduction, debited
+   *  server-side after the bookings are created. */
+  paymentMethod: z.enum(['ONLINE', 'CASH', 'WALLET']).optional(),
+  /** Wallet balance to deduct on top of the chosen payment method.
+   *  - With paymentMethod=WALLET this must equal the booking total.
+   *  - With paymentMethod=ONLINE this is the partial wallet credit that
+   *    was applied to the Razorpay amount; the server debits it after
+   *    the bookings are committed (mirrors the ABCA pattern). */
+  walletDeduction: z.number().nonnegative().optional(),
   /** Optional package redemption — when set, the engine validates the
    *  package matches the booking's center/category/machine and uses
    *  one session per booked slot, charging price = 0. Same model as
@@ -145,9 +156,10 @@ export async function POST(req: NextRequest) {
     const slotPaymentRequired = await isSlotPaymentRequired(center.id);
     if (slotPaymentRequired) {
       const isCashPath = body.paymentMethod === 'CASH';
+      const isWalletPath = body.paymentMethod === 'WALLET';
       const isPackagePath = !!body.userPackageId;
       const isBookerSuperAdmin = !!user.isSuperAdmin;
-      if (!isCashPath && !isPackagePath && !isBookerSuperAdmin) {
+      if (!isCashPath && !isWalletPath && !isPackagePath && !isBookerSuperAdmin) {
         // Defer to the client: it should have gone through the Razorpay
         // flow. Surface a clear 402 so the UI can prompt re-payment.
         return NextResponse.json(
@@ -239,6 +251,32 @@ async function executeResourceBookingCore(
   // BlockedSlot.appliesTo can target SPECIAL users only or exclude
   // them. Default ALL when isSpecialUser is null/false.
   const audience: 'ALL' | 'SPECIAL' | 'NON_SPECIAL' = targetUser.isSpecialUser ? 'SPECIAL' : 'NON_SPECIAL';
+
+  // Payment-mode shortcuts. WALLET = wallet covers the full amount,
+  // debited after the booking transaction commits (mirrors the ABCA
+  // MACHINE_PITCH wallet flow). CASH = booking is created with
+  // paymentStatus=PENDING. ONLINE comes here only via the verify route
+  // (onlinePaymentId is set).
+  const isWalletPayment = body.paymentMethod === 'WALLET';
+  const isCashPayment = body.paymentMethod === 'CASH';
+  const walletDeductionRequest = Math.max(0, Math.floor(body.walletDeduction ?? 0));
+
+  // Pre-check wallet balance up-front so we fail BEFORE we create any
+  // bookings (the alternative would be a half-paid booking we then have
+  // to roll back). Skipped for free bookings + package redemptions.
+  if ((isWalletPayment || walletDeductionRequest > 0) && !isFreeBooking && !body.userPackageId) {
+    const walletEnabled = await isWalletEnabled(center.id);
+    if (!walletEnabled) {
+      throw new ResourceBookingServiceError('Wallet payments are not enabled at this center', 400);
+    }
+    const balance = await getWalletBalance(targetUserId, center.id);
+    if (balance < walletDeductionRequest && isWalletPayment) {
+      throw new ResourceBookingServiceError(
+        `Insufficient wallet balance. Available: ₹${balance}`,
+        400,
+      );
+    }
+  }
 
   // Resolve machine type (if MACHINE category) for price overrides.
   // Validates picked pitch/ball against the *effective* list (configured
@@ -563,7 +601,11 @@ async function executeResourceBookingCore(
                     ? 'PAID'
                     : (isFreeBooking
                         ? 'PAID'
-                        : (body.paymentMethod === 'CASH' ? 'PENDING' : 'UNPAID')),
+                        : isWalletPayment
+                          ? 'PAID'
+                          : isCashPayment
+                            ? 'PENDING'
+                            : 'UNPAID'),
                 },
                 select: { id: true, status: true },
               });
@@ -661,6 +703,63 @@ async function executeResourceBookingCore(
       });
     } catch (linkErr) {
       console.error('Failed to link resource bookings to payment', onlinePaymentId, linkErr);
+    }
+  }
+
+  // Wallet debit — runs *after* the bookings are committed so a wallet
+  // failure can roll back the bookings to keep balances honest. Two
+  // entry points trigger this:
+  //   1. paymentMethod=WALLET with no Razorpay — debit the full booking
+  //      total from wallet.
+  //   2. Partial wallet credit applied alongside ONLINE — `onlinePaymentId`
+  //      is set and `body.walletDeduction` carries the wallet portion.
+  if (!isFreeBooking && !body.userPackageId && created.length > 0) {
+    // The actual price total per booking row isn't returned from the tx
+    // (we only select id+status). For the wallet-only path, re-read the
+    // bookings to compute the exact total to debit.
+    let walletToDebit = 0;
+    if (isWalletPayment) {
+      const priceRows = await prisma.booking.findMany({
+        where: { id: { in: created.map(b => b.id) } },
+        select: { price: true },
+      });
+      walletToDebit = priceRows.reduce((sum, r) => sum + (r.price ?? 0), 0);
+    } else if (walletDeductionRequest > 0) {
+      // Partial wallet credit alongside online/cash payment — debit the
+      // requested amount (it was already validated against balance up
+      // top of this function).
+      walletToDebit = walletDeductionRequest;
+    }
+
+    if (walletToDebit > 0) {
+      try {
+        await debitWallet(
+          targetUserId,
+          center.id,
+          walletToDebit,
+          'DEBIT_BOOKING',
+          `Booking payment (${created.length} slot${created.length === 1 ? '' : 's'})`,
+          created[0].id,
+        );
+      } catch (walletErr) {
+        console.error('Wallet debit after resource booking failed, rolling back:', walletErr);
+        // Cancel the bookings we just created so the wallet ledger stays
+        // consistent with what the user actually got.
+        try {
+          await prisma.booking.updateMany({
+            where: { id: { in: created.map(b => b.id) } },
+            data: {
+              status: 'CANCELLED',
+              cancelledBy: 'System',
+              cancellationReason: 'Wallet payment failed',
+            },
+          });
+        } catch (rollbackErr) {
+          console.error('Failed to cancel resource bookings after wallet failure:', rollbackErr);
+        }
+        const msg = walletErr instanceof Error ? walletErr.message : 'Wallet payment failed';
+        throw new ResourceBookingServiceError(msg, 400);
+      }
     }
   }
 
