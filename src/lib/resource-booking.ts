@@ -585,16 +585,29 @@ export function evaluateBlockForBooking(
         (b.legacyMachineType ? 1 : 0) +
         (b.legacyPitchType ? 1 : 0);
       if (legacyAxes === 0) {
-        return b.reason || 'This slot is currently blocked';
+        return formatBlockReason(b.reason, 'This slot is currently blocked');
       }
       continue;
     }
 
     if (axisMatched === axisCount) {
-      return b.reason || 'This booking is blocked by an admin policy';
+      return formatBlockReason(b.reason, 'This booking is blocked by an admin policy');
     }
   }
   return null;
+}
+
+/**
+ * Wrap an admin-provided block reason so it always reads as a sentence
+ * to the user. Empty / very short reasons (e.g. "X" left over from a
+ * test) get folded into the default; longer reasons are prefixed with
+ * "Slot blocked: " so the user has context for what they're seeing,
+ * even when the admin's reason is fine on its own.
+ */
+function formatBlockReason(reason: string | null | undefined, fallback: string): string {
+  const trimmed = (reason ?? '').trim();
+  if (trimmed.length < 5) return fallback;
+  return `Slot blocked: ${trimmed}`;
 }
 
 // ─── Validation for booking creation ─────────────────────────────────
