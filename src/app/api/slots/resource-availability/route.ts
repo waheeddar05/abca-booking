@@ -450,6 +450,12 @@ export async function GET(req: NextRequest) {
           operatorsBusy: busyOperators,
           operatorAvailable,
           selfOperate,
+          // Machine rows already booked at this slot. The client uses
+          // this to grey out the slot when the user's *selected*
+          // machine is taken — without it, the picker might show "Open"
+          // for a slot the server would 409 on submit because another
+          // booking already claimed that specific machine.
+          busyMachineIds: Array.from(busyMachineIds),
           // Recurring + promo discounts by category. Empty when no rule
           // matches; client treats missing entries as 0 discount.
           discountsByCategory,

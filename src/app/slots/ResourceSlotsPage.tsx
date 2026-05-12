@@ -104,6 +104,12 @@ interface ResourceSlot {
    *  When the user has pinned a MACHINE booking to one of these rows,
    *  the slot is unbookable for them even if other machines are free. */
   blockedMachineRowIds?: string[];
+  /** Machine rows already booked at this slot. Distinct from
+   *  `blockedMachineRowIds`: a machine is "busy" when another booking
+   *  claimed it; it's "blocked" when an admin policy hides it. Either
+   *  way the user's pinned machine is unbookable, but the labels
+   *  read differently. */
+  busyMachineIds?: string[];
 }
 
 interface PerSlabRates { morning: number; evening: number }
@@ -506,8 +512,16 @@ export default function ResourceSlotsPage() {
     }
 
     if (cat === 'MACHINE') {
+      // Selected machine itself busy? If yes, the slot is unbookable for
+      // this user regardless of what nets / operators look like. Without
+      // this check the grid could read "Open" and the server would 409
+      // at submit. The user can switch to a different machine and the
+      // grid will re-evaluate.
+      if (machineId && (s.busyMachineIds ?? []).includes(machineId)) {
+        return { ok: false, reason: 'This machine is already booked at this slot' };
+      }
       if (s.freeIndoorNets.length === 0 && s.freeOutdoorResources.length === 0) {
-        return { ok: false, reason: 'No nets free' };
+        return { ok: false, reason: 'All nets are taken at this slot' };
       }
       // Operator gating — only for non-tennis (leather) machines. Tennis
       // machines (LEVERAGE) can self-operate, so a busy operator pool
@@ -1205,6 +1219,14 @@ export default function ResourceSlotsPage() {
                       </span>
                     )}
                   </div>
+                  {/* Surface the specific unavailable reason on the card
+                      so users don't have to hover for the tooltip. Keeps
+                      the existing "NOT AVAILABLE" / "BLOCKED" header. */}
+                  {isUnavailable && bookable.reason && (
+                    <div className="mt-1 text-[9px] text-slate-500 leading-snug line-clamp-2">
+                      {bookable.reason}
+                    </div>
+                  )}
 
                   {slot.corporateBatchHolds > 0 && !isUnavailable && category !== 'FULL_COURT' && (
                     <div className={`mt-1 text-[8px] font-bold px-1.5 py-0.5 rounded-full text-center ${
