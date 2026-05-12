@@ -1,0 +1,19 @@
+src/lib/resource-booking.ts
+  s_e0175fb4b4f942::t_5103045330bcc9 588,594,600-610
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.4",
+  "base_commit_sha": "ee679d82cffaf356162d596fdb6117922888ba7a",
+  "prompts": {},
+  "sessions": {
+    "s_e0175fb4b4f942": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "f3864c65-ac36-4572-a64e-c1d488c0cbdf",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Waheed <waheeddar8@gmail.com>"
+    }
+  }
+}
