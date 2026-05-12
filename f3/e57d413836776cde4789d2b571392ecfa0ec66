@@ -1,0 +1,24 @@
+src/app/api/admin/bookings/route.ts
+  s_e0175fb4b4f942::t_010851b7dea1cb 43-66
+  s_e0175fb4b4f942::t_513c8eaa454d0c 513-533
+src/components/BookingCard.tsx
+  s_e0175fb4b4f942::t_b48d78f8c95b99 170-199
+src/app/admin/bookings/page.tsx
+  s_e0175fb4b4f942::t_d868008607ec39 779-818
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.4",
+  "base_commit_sha": "f3e57d413836776cde4789d2b571392ecfa0ec66",
+  "prompts": {},
+  "sessions": {
+    "s_e0175fb4b4f942": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "f3864c65-ac36-4572-a64e-c1d488c0cbdf",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Waheed <waheeddar8@gmail.com>"
+    }
+  }
+}
