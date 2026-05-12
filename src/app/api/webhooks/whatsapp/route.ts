@@ -88,13 +88,37 @@ export async function POST(req: NextRequest) {
         // Handle status updates (sent, delivered, read, failed)
         const statuses = value?.statuses || [];
         for (const status of statuses) {
-          console.log(
-            `[WhatsApp Webhook] Message ${status?.id} to ${status?.recipient_id}: ${status?.status}`,
-          );
-
           if (status?.status === 'failed') {
             const errors = status?.errors || [];
-            console.error('[WhatsApp Webhook] Delivery failed:', JSON.stringify(errors));
+            // Meta error 131047 = "Re-engagement message": message was a
+            // free-form text sent outside the 24h conversation window.
+            // This is an expected outcome for booking-confirmation /
+            // operator-notification messages when the recipient hasn't
+            // messaged the business recently — not a bug. Downgrade to
+            // a single-line warning so Vercel logs stay clean. The
+            // proper fix is sending a pre-approved template instead
+            // (handled in lib/whatsapp.ts), but until every operator
+            // notification is templated this will keep firing.
+            const isReEngagement = Array.isArray(errors)
+              && errors.some((e: { code?: number }) => e?.code === 131047);
+            if (isReEngagement) {
+              console.warn(
+                `[WhatsApp Webhook] Skipped: ${status?.recipient_id} outside 24h window (131047)`,
+              );
+            } else {
+              console.error(
+                `[WhatsApp Webhook] Delivery failed for ${status?.recipient_id}:`,
+                JSON.stringify(errors),
+              );
+            }
+          } else if (status?.status === 'read' || status?.status === 'delivered') {
+            // Successful delivery events are noisy — only log on debug
+            // when explicitly requested. Default: silent.
+            if (process.env.WHATSAPP_LOG_DELIVERY === 'true') {
+              console.log(
+                `[WhatsApp Webhook] ${status.status}: ${status?.id} → ${status?.recipient_id}`,
+              );
+            }
           }
         }
       }

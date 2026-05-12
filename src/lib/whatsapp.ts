@@ -23,6 +23,11 @@ export interface WhatsAppSendResult {
   success: boolean;
   messageId?: string;
   error?: string;
+  /** When Meta returns error 131047 ("Re-engagement message"), the
+   *  recipient is outside the 24-hour customer-service window and a
+   *  free-form text can't be delivered. This isn't a bug — callers
+   *  should treat it as a soft skip rather than a noisy error. */
+  outsideWindow?: boolean;
 }
 
 export interface WhatsAppProvider {
@@ -259,8 +264,26 @@ class MetaCloudAPIProvider implements WhatsAppProvider {
       const data = await res.json();
 
       if (!res.ok) {
+        // 131047 = "Re-engagement message". Plain text is not allowed
+        // outside the 24h conversation window. Downgrade to a warning;
+        // this is an expected outcome for users who haven't messaged
+        // the business recently. The proper fix is using a pre-approved
+        // template instead, but until every notification is templated
+        // we shouldn't pollute the error logs.
+        const code = data?.error?.code;
+        if (code === 131047) {
+          console.warn(
+            `[WhatsApp/Meta] Skipped: ${to} outside 24h conversation window (131047). Use a template message instead.`,
+          );
+          return {
+            success: false,
+            error: 'outside-24h-window',
+            outsideWindow: true,
+          };
+        }
         console.error('[WhatsApp/Meta] API error (text):', {
           status: res.status,
+          code,
           error: data?.error,
           to,
         });

@@ -352,13 +352,17 @@ export async function notifyOperatorNewBooking(
       type: 'SUCCESS',
     });
 
-    // WhatsApp text notification — only if operator has a mobile number
+    // WhatsApp text notification — only if operator has a mobile number.
+    // The in-app notification above is the primary signal; WhatsApp is
+    // a nice-to-have that fails silently when the operator is outside
+    // the 24h conversation window (no error log in that case — that's
+    // expected, not a bug).
     if (operator.mobileNumber) {
       const waEnabled = await isWhatsAppEnabled();
       if (waEnabled) {
         const { sendWhatsAppText } = await import('@/lib/whatsapp');
         const result = await sendWhatsAppText(operator.mobileNumber, msg);
-        if (!result?.success) {
+        if (!result?.success && !result?.outsideWindow) {
           console.warn('[Notifications] Operator WhatsApp send failed:', {
             operatorId: operator.operatorId,
             error: result?.error || 'unknown',
@@ -413,13 +417,14 @@ export async function notifyOperatorBookingCancelled(
       type: 'WARNING',
     });
 
-    // WhatsApp text notification — only if operator has a mobile number
+    // WhatsApp text notification — see notifyOperatorNewBooking above
+    // for the rationale on the outside-window soft fail.
     if (operator.mobileNumber) {
       const waEnabled = await isWhatsAppEnabled();
       if (waEnabled) {
         const { sendWhatsAppText } = await import('@/lib/whatsapp');
         const result = await sendWhatsAppText(operator.mobileNumber, msg);
-        if (!result?.success) {
+        if (!result?.success && !result?.outsideWindow) {
           console.warn('[Notifications] Operator cancel WhatsApp send failed:', {
             operatorId: operator.operatorId,
             error: result?.error || 'unknown',

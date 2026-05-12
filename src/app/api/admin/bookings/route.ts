@@ -5,10 +5,12 @@ import { getAuthenticatedUser } from '@/lib/auth';
 import { resolveCurrentCenter } from '@/lib/centers';
 import { getISTTodayUTC, getISTLastMonthRange, dateStringToUTC, formatIST } from '@/lib/time';
 import { MACHINES } from '@/lib/constants';
-import { notifyBookingCancelled, notifyWalletCredit, notifyOperatorBookingCancelled } from '@/lib/notifications';
+import { notifyBookingCancelled, notifyOperatorBookingCancelled } from '@/lib/notifications';
 import { autoAssignOperator } from '@/lib/operatorAssign';
-import { creditWallet, isWalletEnabled, getDefaultRefundMethod } from '@/lib/wallet';
-import { adjustSiblingPricesForCancellation } from '@/lib/booking-cancellation';
+import {
+  adjustSiblingPricesForCancellation,
+  processCancellationRefund,
+} from '@/lib/booking-cancellation';
 import { log } from '@/lib/logger';
 
 type MachineIdFilter = 'GRAVITY' | 'YANTRA' | 'LEVERAGE_INDOOR' | 'LEVERAGE_OUTDOOR';
@@ -349,213 +351,25 @@ export async function PATCH(req: NextRequest) {
         log.error(adminCtx, 'Consecutive pricing adjustment failed', adjErr);
       }
 
+      // ─── Refund (delegates to shared helper) ─────────────────────
       try {
-        // Check how much has already been refunded for this booking
-        const existingRefunds = await prisma.refund.findMany({
-          where: { bookingId, status: { not: 'FAILED' } },
+        const refund = await processCancellationRefund({
+          booking,
+          initiatedByUserId: authUser!.id,
+          initiatedByName: adminName,
         });
-        const alreadyRefunded = existingRefunds.reduce((sum, r) => sum + r.amount, 0);
-
-        // Case 1: Wallet-paid booking — refund remaining to wallet
-        if (booking.paymentMethod === 'WALLET' && booking.paymentStatus === 'PAID' && booking.price && booking.price > 0) {
-          const remainingRefund = booking.price - alreadyRefunded;
-
-          if (remainingRefund > 0) {
-            const walletResult = await creditWallet(
-              booking.userId,
-              booking.centerId,
-              remainingRefund,
-              'CREDIT_REFUND',
-              `Refund for booking cancelled by admin (${adminName})`,
-              bookingId,
-            );
-
-            await prisma.booking.update({
-              where: { id: bookingId },
-              data: { paymentStatus: 'UNPAID' },
-            });
-
-            // Create Refund record so canRefund() knows this booking was already refunded
-            await prisma.refund.create({
-              data: {
-                bookingId,
-                amount: remainingRefund,
-                method: 'WALLET',
-                status: 'PROCESSED',
-                reason: `Auto-refund: booking cancelled by admin (${adminName})`,
-                walletTransactionId: walletResult.transactionId || undefined,
-                initiatedById: authUser!.id,
-              },
-            });
-
-            refundInfo = alreadyRefunded > 0
-              ? `Refund: ₹${remainingRefund} credited to wallet (₹${alreadyRefunded} was already refunded). Balance: ₹${walletResult.newBalance}`
-              : `Refund: ₹${remainingRefund} credited to wallet (Balance: ₹${walletResult.newBalance})`;
-
-            log.info(
-              { ...adminCtx, op: 'payment.refund', amount: remainingRefund, extra: { ...adminCtx.extra, refundMethod: 'WALLET', newWalletBalance: walletResult.newBalance, source: 'wallet-paid-booking', alreadyRefunded } },
-              'Wallet refund processed (admin cancel)',
-            );
-
-            // Notify wallet credit
-            try {
-              const notifUser = await prisma.user.findUnique({
-                where: { id: booking.userId },
-                select: { mobileNumber: true, mobileVerified: true },
-              });
-              await notifyWalletCredit(booking.userId, {
-                amount: remainingRefund,
-                reason: 'Booking cancelled by admin',
-                newBalance: walletResult.newBalance,
-                mobileNumber: notifUser?.mobileVerified ? notifUser.mobileNumber : null,
-              });
-            } catch (notifErr) {
-              log.error(adminCtx, 'Wallet credit notification failed', notifErr);
-            }
+        if (refund) {
+          if (refund.method === 'WALLET') {
+            refundInfo = `Refund: ₹${refund.amount} credited to wallet (Balance: ₹${refund.newBalance ?? 'N/A'})`;
           } else {
-            // Already fully refunded — just update payment status
-            await prisma.booking.update({
-              where: { id: bookingId },
-              data: { paymentStatus: 'UNPAID' },
-            });
-            refundInfo = `Already refunded: ₹${alreadyRefunded} was previously refunded`;
+            refundInfo = `Refund: ₹${refund.amount} will be credited to bank in 5-7 business days`;
           }
-        } else if (booking.paymentMethod === 'ONLINE' && booking.paymentStatus === 'PAID') {
-          // Case 2: Online payment — check for Razorpay refund or wallet refund
-          const payment = await prisma.payment.findFirst({
-            where: {
-              bookingIds: { has: bookingId },
-              status: 'CAPTURED',
-            },
-          });
-
-          if (payment?.razorpayPaymentId) {
-            // Prefer the booking's own price (post adjustSiblingPricesForCancellation)
-            // over an even payment-amount split — per-slot prices differ
-            // when consecutive discounts are at play.
-            const fullRefundAmount = (booking.price && booking.price > 0)
-              ? booking.price
-              : (payment.bookingIds.length > 1
-                  ? payment.amount / payment.bookingIds.length
-                  : payment.amount);
-            const remainingRefund = fullRefundAmount - alreadyRefunded;
-
-            if (remainingRefund > 0) {
-              const walletEnabled = await isWalletEnabled(booking.centerId);
-              const resolvedMethod = walletEnabled
-                ? await getDefaultRefundMethod(booking.centerId)
-                : 'RAZORPAY';
-
-              if (resolvedMethod === 'WALLET') {
-                const walletResult = await creditWallet(
-                  booking.userId,
-                  booking.centerId,
-                  remainingRefund,
-                  'CREDIT_REFUND',
-                  `Refund for booking cancelled by admin (${adminName})`,
-                  bookingId,
-                );
-
-                const totalRefundedOnPayment = (payment.refundAmount || 0) + remainingRefund;
-                const isFullPaymentRefund = totalRefundedOnPayment >= payment.amount;
-                await prisma.payment.update({
-                  where: { id: payment.id },
-                  data: {
-                    status: isFullPaymentRefund ? 'REFUNDED' : 'PARTIALLY_REFUNDED',
-                    refundAmount: { increment: remainingRefund },
-                    refundedAt: new Date(),
-                    refundMethod: 'WALLET',
-                  },
-                });
-
-                // Create Refund record so canRefund() knows this booking was already refunded
-                await prisma.refund.create({
-                  data: {
-                    bookingId,
-                    paymentId: payment.id,
-                    amount: remainingRefund,
-                    method: 'WALLET',
-                    status: 'PROCESSED',
-                    reason: `Auto-refund: booking cancelled by admin (${adminName})`,
-                    walletTransactionId: walletResult.transactionId || undefined,
-                    initiatedById: authUser!.id,
-                  },
-                });
-
-                refundInfo = alreadyRefunded > 0
-                  ? `Refund: ₹${remainingRefund} credited to wallet (₹${alreadyRefunded} was already refunded). Balance: ₹${walletResult.newBalance}`
-                  : `Refund: ₹${remainingRefund} credited to wallet (Balance: ₹${walletResult.newBalance})`;
-
-                log.info(
-                  { ...adminCtx, op: 'payment.refund', amount: remainingRefund, paymentId: payment.id, razorpayPaymentId: payment.razorpayPaymentId, extra: { ...adminCtx.extra, refundMethod: 'WALLET', newWalletBalance: walletResult.newBalance, source: 'online-paid-booking', alreadyRefunded } },
-                  'Wallet refund processed (admin cancel, online payment)',
-                );
-
-                try {
-                  const notifUser = await prisma.user.findUnique({
-                    where: { id: booking.userId },
-                    select: { mobileNumber: true, mobileVerified: true },
-                  });
-                  await notifyWalletCredit(booking.userId, {
-                    amount: remainingRefund,
-                    reason: 'Booking cancelled by admin',
-                    newBalance: walletResult.newBalance,
-                    mobileNumber: notifUser?.mobileVerified ? notifUser.mobileNumber : null,
-                  });
-                } catch (notifErr) {
-                  log.error(adminCtx, 'Wallet credit notification failed', notifErr);
-                }
-              } else {
-                // Razorpay refund — use the originating center's account.
-                const { initiateRefund } = await import('@/lib/razorpay');
-                const refund = await initiateRefund({
-                  centerId: booking.centerId,
-                  paymentId: payment.razorpayPaymentId,
-                  amount: remainingRefund,
-                  notes: { bookingId, cancelledBy: adminName },
-                });
-
-                const totalRefundedOnPayment = (payment.refundAmount || 0) + remainingRefund;
-                const isFullPaymentRefund = totalRefundedOnPayment >= payment.amount;
-                await prisma.payment.update({
-                  where: { id: payment.id },
-                  data: {
-                    status: isFullPaymentRefund ? 'REFUNDED' : 'PARTIALLY_REFUNDED',
-                    refundId: refund.id,
-                    refundAmount: { increment: remainingRefund },
-                    refundedAt: new Date(),
-                    refundMethod: 'RAZORPAY',
-                  },
-                });
-
-                // Create Refund record so canRefund() knows this booking was already refunded
-                await prisma.refund.create({
-                  data: {
-                    bookingId,
-                    paymentId: payment.id,
-                    amount: remainingRefund,
-                    method: 'RAZORPAY',
-                    status: 'INITIATED',
-                    reason: `Auto-refund: booking cancelled by admin (${adminName})`,
-                    razorpayRefundId: refund.id,
-                    initiatedById: authUser!.id,
-                  },
-                });
-
-                refundInfo = alreadyRefunded > 0
-                  ? `Refund: ₹${remainingRefund} will be credited to bank in 5-7 days (₹${alreadyRefunded} was already refunded)`
-                  : `Refund: ₹${remainingRefund} will be credited to bank in 5-7 business days`;
-
-                log.info(
-                  { ...adminCtx, op: 'payment.refund', amount: remainingRefund, paymentId: payment.id, razorpayPaymentId: payment.razorpayPaymentId, extra: { ...adminCtx.extra, refundMethod: 'RAZORPAY', razorpayRefundId: refund.id, alreadyRefunded } },
-                  'Razorpay refund initiated (admin cancel)',
-                );
-              }
-            } else {
-              refundInfo = `Already refunded: ₹${alreadyRefunded} was previously refunded`;
-              log.info(adminCtx, `Refund skipped — already fully refunded ₹${alreadyRefunded}`);
-            }
-          }
+          log.info(
+            { ...adminCtx, op: 'payment.refund', amount: refund.amount, extra: { ...adminCtx.extra, refundMethod: refund.method } },
+            `Refund processed (${refund.method}, admin cancel)`,
+          );
+        } else {
+          refundInfo = 'No refund needed (already refunded, cash, or free booking)';
         }
       } catch (refundErr) {
         log.error(adminCtx, 'Admin cancellation refund failed', refundErr);
