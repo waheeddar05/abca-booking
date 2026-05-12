@@ -1,0 +1,40 @@
+src/app/api/slots/book/route.ts
+  s_e0175fb4b4f942::t_afb6c59714e8e5 582
+  s_e0175fb4b4f942::t_f88b7be9c01bc7 645
+src/app/api/slots/resource-availability/route.ts
+  s_e0175fb4b4f942::t_2a1ac6fd1315f6 300-304
+  s_e0175fb4b4f942::t_ec1fc8e8a97131 124-125
+  s_e0175fb4b4f942::t_21f7d3876c9f31 27
+  s_e0175fb4b4f942::t_51599cefe21de3 195-212
+src/app/api/admin/bookings/route.ts
+  s_e0175fb4b4f942::t_a4b8e9b532d5eb 549-551
+src/app/api/slots/available/route.ts
+  s_e0175fb4b4f942::t_721ee4e3257b11 203
+src/app/api/slots/book-resource/route.ts
+  s_e0175fb4b4f942::t_4c902c31f5ee47 729-780,789-790
+  s_e0175fb4b4f942::t_88ff428cdb5906 626-630
+  s_e0175fb4b4f942::t_224b124358ed35 26-27
+src/app/slots/ResourceSlotsPage.tsx
+  s_e0175fb4b4f942::t_9b3823af43c48a 1130-1145
+  s_e0175fb4b4f942::t_5d13b86719f637 404-409
+  s_e0175fb4b4f942::t_6a26e1adab2350 75-85
+  s_e0175fb4b4f942::t_3dbdeaafd2282c 1010-1021
+src/lib/operatorAssign.ts
+  s_e0175fb4b4f942::t_9c4f89445c731d 3,77-81,86-87,93,109,122,168-200,206-209,216-217,223,227,240,242,250-251,253-259
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.4",
+  "base_commit_sha": "fbb9048f2ff3c5e6a6e05cc1fb6e19279a89961f",
+  "prompts": {},
+  "sessions": {
+    "s_e0175fb4b4f942": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "f3864c65-ac36-4572-a64e-c1d488c0cbdf",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Waheed <waheeddar8@gmail.com>"
+    }
+  }
+}
