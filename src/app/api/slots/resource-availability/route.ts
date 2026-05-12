@@ -24,6 +24,7 @@ import {
 import { getResourcePricingConfig, getResourceSlotPrice } from '@/lib/resource-pricing';
 import { getSidearmPitchTypes, getNetPitchTypes, getEnabledBookingCategories } from '@/lib/pitch-config';
 import { sanitizeApiError } from '@/lib/api-errors';
+import { getOperatorCount } from '@/lib/operatorAssign';
 
 /**
  * GET /api/slots/resource-availability?date=YYYY-MM-DD[&center=<slug>]
@@ -120,6 +121,8 @@ export async function GET(req: NextRequest) {
           assignedMachineId: true,
           assignedCoachId: true,
           assignedStaffId: true,
+          operatorId: true,
+          category: true,
           resourceAssignments: { select: { resourceId: true } },
         },
       }),
@@ -188,6 +191,24 @@ export async function GET(req: NextRequest) {
         );
 
         const timeSlab = getTimeSlab(slot.startTime, timeSlabConfig);
+
+        // Operator availability for this slot (MACHINE category only).
+        // Mirrors ABCA's /api/slots/available `operatorAvailable` flag.
+        //   - operatorCount=0 → self-operate (no operator needed).
+        //   - busyOperators >= operatorCount → MACHINE is full.
+        // SIDEARM / COACHING / FULL_COURT don't consume operators, so
+        // this gating only affects the MACHINE category in the UI.
+        const operatorCount = await getOperatorCount(
+          dateUTC,
+          slot.startTime,
+          timeSlabConfig,
+          center.id,
+        );
+        const busyOperators = bookings.filter(
+          (b) => b.startTime.getTime() === slot.startTime.getTime() && b.operatorId,
+        ).length;
+        const selfOperate = operatorCount === 0;
+        const operatorAvailable = selfOperate || busyOperators < operatorCount;
 
         // Pre-compute per-category prices. MACHINE is the base — when the
         // user picks a specific machine the UI swaps in the entry from
@@ -276,6 +297,11 @@ export async function GET(req: NextRequest) {
           // re-fetching block rows.
           blockedCategories: Array.from(blockedCategories),
           blockedMachineRowIds: Array.from(blockedMachineRowIds),
+          // Operator availability — only meaningful for MACHINE category.
+          operatorCount,
+          operatorsBusy: busyOperators,
+          operatorAvailable,
+          selfOperate,
         };
       }),
     );

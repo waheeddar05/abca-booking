@@ -23,6 +23,8 @@ import { dateStringToUTC } from '@/lib/time';
 import { isSlotPaymentRequired } from '@/lib/razorpay';
 import { creditWallet, debitWallet, getWalletBalance, isWalletEnabled } from '@/lib/wallet';
 import { log } from '@/lib/logger';
+import { autoAssignOperator, getOperatorCount } from '@/lib/operatorAssign';
+import { getTimeSlab, getTimeSlabConfig } from '@/lib/pricing';
 
 /**
  * POST /api/slots/book-resource
@@ -621,6 +623,11 @@ async function executeResourceBookingCore(
     await planBooking(plan, { audience });
   }
 
+  // Resolve the center's time-slab config once (CenterPolicy → default).
+  // Needed for operator scheduling on MACHINE bookings to mirror ABCA's
+  // morning/evening operator schedule semantics.
+  const timeSlabConfig = await getTimeSlabConfig(center.id, true);
+
     // Detect consecutive slot chains. ABCA's pricing config has a
     // separate `consecutive` price for back-to-back slot pairs;
     // resource centers use the same convention via the new
@@ -719,6 +726,58 @@ async function executeResourceBookingCore(
                 }
               }
 
+              // ─── Operator auto-assignment (MACHINE category only) ───
+              // Mirrors ABCA's WITH_OPERATOR booking flow:
+              //   - Read center's operator count (per day/slab).
+              //   - If 0 → self-operate slot, no assignment.
+              //   - Else check live availability: fail with 409 if every
+              //     operator is already booked at this date+startTime.
+              //   - Pick the highest-priority free operator via
+              //     autoAssignOperator (falls back to highest-priority
+              //     even when all are busy, matching ABCA semantics).
+              // SIDEARM/COACHING/FULL_COURT skip this — those categories
+              // already pin a specific staff/coach via assignedStaffId /
+              // assignedCoachId, or need no operator at all.
+              let assignedOperatorId: string | null = null;
+              let operationMode: 'WITH_OPERATOR' | 'SELF_OPERATE' = 'WITH_OPERATOR';
+              if (plan.category === 'MACHINE') {
+                const operatorCount = await getOperatorCount(
+                  plan.date,
+                  plan.startTime,
+                  timeSlabConfig,
+                  center.id,
+                );
+                if (operatorCount === 0) {
+                  operationMode = 'SELF_OPERATE';
+                } else {
+                  const operatorBookings = await tx.booking.findMany({
+                    where: {
+                      centerId: center.id,
+                      date: plan.date,
+                      startTime: plan.startTime,
+                      status: 'BOOKED',
+                      operatorId: { not: null },
+                    },
+                    select: { id: true },
+                  });
+                  if (operatorBookings.length >= operatorCount) {
+                    throw new BookingResourceError(
+                      `Operator not available for slot at ${plan.startTime.toISOString()}. All ${operatorCount} operator(s) are already booked.`,
+                      409,
+                    );
+                  }
+                  const slab = getTimeSlab(plan.startTime, timeSlabConfig);
+                  assignedOperatorId = await autoAssignOperator(
+                    plan.date,
+                    plan.startTime,
+                    tx,
+                    null, // resource-based bookings don't use the legacy enum machineId
+                    slab,
+                    center.id,
+                  );
+                }
+              }
+
               const booking = await tx.booking.create({
                 data: {
                   centerId: center.id,
@@ -727,6 +786,8 @@ async function executeResourceBookingCore(
                   startTime: plan.startTime,
                   endTime: plan.endTime,
                   status: 'BOOKED',
+                  operatorId: assignedOperatorId,
+                  operationMode,
                   // ballType column on Booking is non-null. For resource
                   // bookings: use the user pick when present; otherwise
                   // fall back to the machine type's default; otherwise

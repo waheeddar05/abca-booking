@@ -579,7 +579,7 @@ export async function executeSlotBooking(
             // Operator constraint check — use per-day/slab operator count
             if (requiresOperator) {
               const slotTimeSlab = getTimeSlab(slot.startTime, timeSlabConfig);
-              const numberOfOperators = await getOperatorCount(slot.date, slot.startTime, timeSlabConfig);
+              const numberOfOperators = await getOperatorCount(slot.date, slot.startTime, timeSlabConfig, centerId);
 
               const operatorWhere: Prisma.BookingWhereInput = {
                 date: slot.date,
@@ -642,7 +642,7 @@ export async function executeSlotBooking(
             let assignedOperatorId: string | null = null;
             if (requiresOperator) {
               const slotTimeSlab = getTimeSlab(slot.startTime, timeSlabConfig);
-              assignedOperatorId = await autoAssignOperator(slot.date, slot.startTime, tx, slot.machineId, slotTimeSlab);
+              assignedOperatorId = await autoAssignOperator(slot.date, slot.startTime, tx, slot.machineId, slotTimeSlab, centerId);
             }
 
             // Kit rental: add per-slot charge to the booking price

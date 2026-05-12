@@ -200,7 +200,7 @@ export async function GET(req: NextRequest) {
     for (const slot of slots) {
       const timeKey = slot.startTime.getTime();
       if (!operatorCountsMap.has(timeKey)) {
-        const count = await getOperatorCount(dateUTC, slot.startTime, timeSlabConfig);
+        const count = await getOperatorCount(dateUTC, slot.startTime, timeSlabConfig, centerId);
         operatorCountsMap.set(timeKey, count);
       }
     }

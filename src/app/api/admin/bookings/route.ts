@@ -546,7 +546,9 @@ export async function POST(req: NextRequest) {
           sourceBooking.date,
           nextStartTime,
           undefined,
-          sourceBooking.machineId
+          sourceBooking.machineId,
+          undefined,
+          sourceBooking.centerId,
         );
       }
 

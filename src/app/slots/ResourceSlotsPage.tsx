@@ -72,6 +72,17 @@ interface ResourceSlot {
    *  per-machine-type overrides (e.g. Yantra premium). Empty when the
    *  center has no active machines. */
   machinePrices?: Record<string, number>;
+  /** Total operators configured for this slot/day/slab. 0 means
+   *  self-operate (no operator required). Only consumed by the
+   *  MACHINE category — SIDEARM/COACHING/FULL_COURT ignore. */
+  operatorCount?: number;
+  operatorsBusy?: number;
+  /** True when an operator can still take this slot (or self-operate). */
+  operatorAvailable?: boolean;
+  /** True when the center has 0 operators scheduled for this slot —
+   *  the booking proceeds, but the user is expected to operate the
+   *  machine themselves. Mirrors ABCA's tennis-machine self-operate. */
+  selfOperate?: boolean;
 }
 
 interface PerSlabRates { morning: number; evening: number }
@@ -389,6 +400,12 @@ export default function ResourceSlotsPage() {
     if (cat === 'MACHINE') {
       if (s.freeIndoorNets.length === 0 && s.freeOutdoorResources.length === 0) {
         return { ok: false, reason: 'No nets free' };
+      }
+      // Operator gating — mirrors ABCA's WITH_OPERATOR check. If the
+      // server says operators are full and this isn't a self-operate
+      // slot, the MACHINE category can't be booked.
+      if (s.operatorAvailable === false && s.selfOperate === false) {
+        return { ok: false, reason: 'All operators are booked for this slot' };
       }
       return { ok: true };
     }
@@ -990,6 +1007,18 @@ export default function ResourceSlotsPage() {
                       Batch holds {slot.corporateBatchHolds} net{slot.corporateBatchHolds === 1 ? '' : 's'}
                     </div>
                   )}
+
+                  {/* Self-operate badge — only for MACHINE slots where
+                      the center has 0 operators scheduled. Mirrors
+                      ABCA's tennis-machine self-operate banner so the
+                      user isn't surprised at the centre. */}
+                  {category === 'MACHINE' && slot.selfOperate && !isUnavailable && (
+                    <div className={`mt-1 text-[8px] font-bold px-1.5 py-0.5 rounded-full text-center ${
+                      selected ? 'bg-primary/20 text-primary/80' : 'bg-sky-500/15 text-sky-300 border border-sky-500/20'
+                    }`}>
+                      Self-operate
+                    </div>
+                  )}
                 </button>
               );
             })}
@@ -1098,10 +1127,22 @@ export default function ResourceSlotsPage() {
                 {format(selectedDate, 'EEE, MMM d')} &middot; {machineLabel}
               </p>
               <div className="flex items-center gap-1 mt-0.5">
-                <IndianRupee className="w-3 h-3 text-accent" />
-                <span className="text-sm font-bold text-accent">
-                  {totalPrice.toLocaleString()}
-                </span>
+                {isFreeBooking ? (
+                  // Free booking (super admin or free user) — server zeroes
+                  // out the price; show that here instead of the slot rate
+                  // so the user isn't confused about whether they'll be
+                  // charged. Mirrors ABCA's free-booking label.
+                  <span className="text-sm font-bold text-emerald-400 uppercase tracking-wider">
+                    Free booking
+                  </span>
+                ) : (
+                  <>
+                    <IndianRupee className="w-3 h-3 text-accent" />
+                    <span className="text-sm font-bold text-accent">
+                      {totalPrice.toLocaleString()}
+                    </span>
+                  </>
+                )}
               </div>
             </div>
 

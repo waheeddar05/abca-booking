@@ -1,6 +1,6 @@
 import { PrismaClient, MachineId } from '@prisma/client';
 import { prisma as defaultPrisma } from './prisma';
-import { getCachedPolicy } from './policy-cache';
+import { getPolicyValue } from './policy';
 import type { TimeSlabConfig } from './pricing';
 import { getTimeSlab } from './pricing';
 
@@ -74,17 +74,23 @@ function findOverrideForDate(
  * Get the number of operators needed for a given date + time slot.
  * Priority: 1. Date-specific overrides, 2. Day-of-week schedule, 3. Legacy NUMBER_OF_OPERATORS, 4. Default 1.
  * Returns 0 when explicitly configured (allows "no operator" mode).
+ *
+ * `centerId` is optional. When supplied, every policy lookup cascades
+ * CenterPolicy → Policy → fallback so each center can override scheduling
+ * independently. Passing `null` preserves the pre-multi-center behaviour
+ * of reading only the global `Policy` table.
  */
 export async function getOperatorCount(
   date: Date,
   startTime: Date,
-  timeSlabs: TimeSlabConfig
+  timeSlabs: TimeSlabConfig,
+  centerId: string | null = null,
 ): Promise<number> {
   const slab = getTimeSlab(startTime, timeSlabs);
 
   // 1. Check date-specific overrides first (highest priority)
   try {
-    const overridesStr = await getCachedPolicy('OPERATOR_DATE_OVERRIDES');
+    const overridesStr = await getPolicyValue('OPERATOR_DATE_OVERRIDES', centerId);
     if (overridesStr) {
       const overrides = JSON.parse(overridesStr);
       const dateKey = getDateStringIST(date);
@@ -100,7 +106,7 @@ export async function getOperatorCount(
 
   // 2. Check day-of-week schedule config
   try {
-    const configStr = await getCachedPolicy('OPERATOR_SCHEDULE_CONFIG');
+    const configStr = await getPolicyValue('OPERATOR_SCHEDULE_CONFIG', centerId);
     if (configStr) {
       const config: OperatorScheduleConfig = JSON.parse(configStr);
       const day = getDayOfWeekIST(date);
@@ -113,7 +119,7 @@ export async function getOperatorCount(
 
   // 3. Legacy fallback
   try {
-    const val = await getCachedPolicy('NUMBER_OF_OPERATORS');
+    const val = await getPolicyValue('NUMBER_OF_OPERATORS', centerId);
     if (val) return Math.max(1, parseInt(val, 10));
   } catch { /* ignore */ }
 
@@ -160,27 +166,65 @@ function sortByPriority(operators: OperatorInfo[], slab: 'morning' | 'evening', 
 }
 
 /**
+ * Resolve the candidate operator pool for a center.
+ *
+ * - `centerId` null  → legacy ABCA path: `role: 'OPERATOR'` on User.
+ * - `centerId` set   → users with a CenterMembership(centerId, role: OPERATOR).
+ *
+ * The new path matches how RESOURCE_BASED centers are administered (Toplay's
+ * operators live as memberships, not as User.role).
+ */
+async function loadCenterOperators(
+  db: PrismaTransaction | typeof defaultPrisma,
+  centerId: string | null,
+): Promise<OperatorInfo[]> {
+  if (!centerId) {
+    const rows = await db.user.findMany({
+      where: { role: 'OPERATOR' },
+      select: OPERATOR_SELECT,
+    });
+    return rows.map(op => ({ ...op, operatorDayPriorities: op.operatorDayPriorities as DayPriorities | null }));
+  }
+  const memberships = await db.centerMembership.findMany({
+    where: { centerId, role: 'OPERATOR' },
+    include: { user: { select: OPERATOR_SELECT } },
+  });
+  return memberships.map(m => ({
+    id: m.user.id,
+    operatorPriority: m.user.operatorPriority,
+    operatorMorningPriority: m.user.operatorMorningPriority,
+    operatorEveningPriority: m.user.operatorEveningPriority,
+    operatorDayPriorities: m.user.operatorDayPriorities as DayPriorities | null,
+  }));
+}
+
+/**
  * Auto-assign an operator to a booking based on priority and availability.
  * Picks the highest-priority operator not already booked at the same time.
  * Falls back to highest-priority operator if all are busy.
  * Respects weekday preferences from OperatorAssignment.days.
+ *
+ * `centerId` scopes the candidate pool to a center's memberships. ABCA
+ * callers can pass `null` to keep the legacy global `role: 'OPERATOR'`
+ * lookup; new code should pass the resolved center.
  */
 export async function autoAssignOperator(
   date: Date,
   startTime: Date,
   tx?: PrismaTransaction,
   machineId?: MachineId | null,
-  timeSlab?: 'morning' | 'evening'
+  timeSlab?: 'morning' | 'evening',
+  centerId: string | null = null,
 ): Promise<string | null> {
   const db = tx || defaultPrisma;
   const slab = timeSlab || 'morning';
   const dayOfWeek = getDayOfWeekIST(date);
 
-  // Get candidate operators — machine-specific first, fallback to all
+  // Get candidate operators — machine-specific first, fallback to all center operators.
   let operators: OperatorInfo[] = [];
   if (machineId) {
     const assignments = await db.operatorAssignment.findMany({
-      where: { machineId },
+      where: centerId ? { machineId, centerId } : { machineId },
       include: { user: { select: { ...OPERATOR_SELECT, role: true } } },
     });
     operators = assignments
@@ -193,16 +237,9 @@ export async function autoAssignOperator(
       .map(a => ({ id: a.user.id, operatorPriority: a.user.operatorPriority, operatorMorningPriority: a.user.operatorMorningPriority, operatorEveningPriority: a.user.operatorEveningPriority, operatorDayPriorities: a.user.operatorDayPriorities as DayPriorities | null }));
   }
 
-  // Fallback: no machine-specific assignments → use all operators
+  // Fallback: no machine-specific assignments → use all operators at this center.
   if (operators.length === 0) {
-    const allOps = await db.user.findMany({
-      where: { role: 'OPERATOR' },
-      select: OPERATOR_SELECT,
-    });
-    operators = allOps.map(op => ({
-      ...op,
-      operatorDayPriorities: op.operatorDayPriorities as DayPriorities | null,
-    }));
+    operators = await loadCenterOperators(db, centerId);
   }
 
   if (operators.length === 0) return null;
@@ -210,9 +247,16 @@ export async function autoAssignOperator(
 
   const sorted = sortByPriority(operators, slab, dayOfWeek);
 
-  // Find which operators are already booked at this time
+  // Find which operators are already booked at this time (scoped to center
+  // when supplied so cross-center bookings don't mask availability).
   const busyBookings = await db.booking.findMany({
-    where: { date, startTime, status: 'BOOKED', operatorId: { in: sorted.map(o => o.id) } },
+    where: {
+      date,
+      startTime,
+      status: 'BOOKED',
+      operatorId: { in: sorted.map(o => o.id) },
+      ...(centerId ? { centerId } : {}),
+    },
     select: { operatorId: true },
   });
   const busyIds = new Set(busyBookings.map(b => b.operatorId));
