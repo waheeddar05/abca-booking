@@ -331,7 +331,23 @@ export async function PUT(req: NextRequest) {
     }
 
     const body = await req.json();
-    const { id, startDate, endDate, startTime, endTime, machineId, reason, appliesTo } = body;
+    const {
+      id,
+      startDate,
+      endDate,
+      startTime,
+      endTime,
+      machineId,
+      reason,
+      appliesTo,
+      // RESOURCE_BASED targeting axes — accepted on the PUT path too so
+      // Toplay's edit dialog can round-trip every field that was set on
+      // creation.
+      machineRowIds,
+      resourceIds,
+      categories,
+      recurringDays,
+    } = body;
 
     if (!id) {
       return NextResponse.json({ error: 'Block id is required' }, { status: 400 });
@@ -376,6 +392,48 @@ export async function PUT(req: NextRequest) {
 
     if (appliesTo !== undefined && ['ALL', 'SPECIAL', 'NON_SPECIAL'].includes(appliesTo)) {
       updateData.appliesTo = appliesTo;
+    }
+
+    if (Array.isArray(recurringDays)) {
+      updateData.recurringDays = recurringDays
+        .filter((d: unknown) => typeof d === 'number' && d >= 0 && d <= 6);
+    }
+
+    // RESOURCE_BASED axes — only accept rows that actually belong to
+    // this block's center, mirroring the validation in POST.
+    if (Array.isArray(machineRowIds)) {
+      if (machineRowIds.length === 0) {
+        updateData.machineRowIds = [];
+      } else {
+        const rows = await prisma.machine.findMany({
+          where: {
+            id: { in: machineRowIds.filter((x: unknown) => typeof x === 'string') },
+            centerId: existing.centerId,
+          },
+          select: { id: true },
+        });
+        updateData.machineRowIds = rows.map((r) => r.id);
+      }
+    }
+    if (Array.isArray(resourceIds)) {
+      if (resourceIds.length === 0) {
+        updateData.resourceIds = [];
+      } else {
+        const rows = await prisma.resource.findMany({
+          where: {
+            id: { in: resourceIds.filter((x: unknown) => typeof x === 'string') },
+            centerId: existing.centerId,
+          },
+          select: { id: true },
+        });
+        updateData.resourceIds = rows.map((r) => r.id);
+      }
+    }
+    if (Array.isArray(categories)) {
+      const validBookingCategories = ['MACHINE', 'SIDEARM', 'COACHING', 'NET', 'FULL_COURT', 'CORPORATE_BATCH'];
+      updateData.categories = categories.filter(
+        (c: unknown): c is string => typeof c === 'string' && validBookingCategories.includes(c),
+      );
     }
 
     const updated = await prisma.blockedSlot.update({

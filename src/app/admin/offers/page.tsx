@@ -146,6 +146,129 @@ function ChipSelect({ label, hint, options, selected, onChange }: {
   );
 }
 
+// ─── Applied-On Detail Strip ────────────────────────────────────────
+// Renders a labelled chip row for each non-empty targeting axis on an
+// offer / recurring rule. Mirrors what the admin picked on the create
+// form so the listing view is self-documenting (the previous design
+// just appended raw IDs as tiny grey text, which made it impossible to
+// tell at a glance which offer applied to which category).
+function AppliedOnRows({
+  legacyMachineIds,
+  legacyPitchTypes,
+  categories,
+  machineRowIds,
+  centerMachines,
+  isResourceBased,
+}: {
+  legacyMachineIds?: string[];
+  legacyPitchTypes?: string[];
+  categories?: string[];
+  machineRowIds?: string[];
+  centerMachines: CenterMachineLite[];
+  isResourceBased: boolean;
+}) {
+  const hasCategories = categories && categories.length > 0;
+  const hasMachineRows = machineRowIds && machineRowIds.length > 0;
+  const hasLegacyMachines = legacyMachineIds && legacyMachineIds.length > 0;
+  const hasLegacyPitches = legacyPitchTypes && legacyPitchTypes.length > 0;
+
+  if (!hasCategories && !hasMachineRows && !hasLegacyMachines && !hasLegacyPitches) {
+    return (
+      <div className="flex items-center gap-1.5 mt-2 text-[10px] text-slate-500 italic">
+        <span className="font-medium uppercase tracking-wider not-italic text-slate-400">
+          Applied On:
+        </span>
+        <span>All bookings (no targeting filter set)</span>
+      </div>
+    );
+  }
+
+  const machineRowLabel = (id: string): string => {
+    const m = centerMachines.find((x) => x.id === id);
+    return m?.shortName || m?.name || id;
+  };
+
+  return (
+    <div className="mt-2 space-y-1">
+      {/* Booking categories — the top-level "Applied On" line. The
+          card layout above shows the offer name + date/time/days; this
+          one answers the user's question: WHAT does it apply to? */}
+      {(hasCategories || (isResourceBased && !hasCategories)) && (
+        <div className="flex flex-wrap items-center gap-1.5">
+          <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+            Applied On:
+          </span>
+          {hasCategories ? (
+            categories!.map((c) => {
+              const label = RESOURCE_CATEGORY_OPTIONS.find((o) => o.id === c)?.label ?? c;
+              return (
+                <span
+                  key={c}
+                  className="text-[10px] font-medium px-2 py-0.5 rounded-md bg-purple-500/15 text-purple-300 border border-purple-500/30"
+                >
+                  {label}
+                </span>
+              );
+            })
+          ) : (
+            <span className="text-[10px] text-slate-500 italic">All categories</span>
+          )}
+        </div>
+      )}
+
+      {/* Machines — both the legacy ABCA enum chips and the
+          RESOURCE_BASED (per-Machine-row) chips. We surface them under
+          the same label since admins think of them as "the machine
+          this applies to". */}
+      {(hasMachineRows || hasLegacyMachines) && (
+        <div className="flex flex-wrap items-center gap-1.5">
+          <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+            Machines:
+          </span>
+          {hasMachineRows && (
+            machineRowIds!.map((id) => (
+              <span
+                key={`mrow-${id}`}
+                className="text-[10px] font-medium px-2 py-0.5 rounded-md bg-cyan-500/15 text-cyan-300 border border-cyan-500/30"
+              >
+                {machineRowLabel(id)}
+              </span>
+            ))
+          )}
+          {hasLegacyMachines && (
+            legacyMachineIds!.map((id) => (
+              <span
+                key={`mlegacy-${id}`}
+                className="text-[10px] font-medium px-2 py-0.5 rounded-md bg-cyan-500/15 text-cyan-300 border border-cyan-500/30"
+              >
+                {MACHINE_OPTIONS.find((o) => o.id === id)?.label ?? id}
+              </span>
+            ))
+          )}
+        </div>
+      )}
+
+      {/* Pitch types — ABCA legacy axis. Toplay doesn't use this on
+          offers (pitch lives on Machine.supportedPitchTypes instead). */}
+      {hasLegacyPitches && (
+        <div className="flex flex-wrap items-center gap-1.5">
+          <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+            Pitch Types:
+          </span>
+          {legacyPitchTypes!.map((p) => (
+            <span
+              key={`p-${p}`}
+              className="text-[10px] font-medium px-2 py-0.5 rounded-md bg-emerald-500/15 text-emerald-300 border border-emerald-500/30"
+            >
+              {PITCH_TYPES.find((o) => o.id === p)?.label ?? p}
+            </span>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function DayChipSelect({ selected, onChange }: { selected: number[]; onChange: (v: number[]) => void }) {
   return (
     <div>
@@ -703,13 +826,19 @@ function AdminOffersLegacy({ isResourceBased, centerMachines }: AdminOffersInjec
                           <span className="text-sky-400">{rule.days.map(d => DAYS_OF_WEEK.find(dw => dw.id === d)?.label).join(', ')}</span>
                         )}
                         <span className="text-emerald-400 font-medium">-₹{rule.oneSlotDiscount} / -₹{rule.twoSlotDiscount}</span>
-                        {rule.machineIds?.length > 0 && (
-                          <span>{rule.machineIds.map(m => MACHINE_OPTIONS.find(o => o.id === m)?.label).join(', ')}</span>
-                        )}
-                        {rule.pitchTypes?.length > 0 && (
-                          <span>{rule.pitchTypes.map(p => PITCH_TYPES.find(o => o.id === p)?.label).join(', ')}</span>
-                        )}
                       </div>
+                      {/* Applied On — surface every targeting axis so admins
+                          can see at a glance what the offer covers without
+                          opening the edit form. Mirrors what the user picked
+                          when creating the rule. */}
+                      <AppliedOnRows
+                        legacyMachineIds={rule.machineIds}
+                        legacyPitchTypes={rule.pitchTypes}
+                        categories={rule.categories}
+                        machineRowIds={rule.machineRowIds}
+                        centerMachines={centerMachines}
+                        isResourceBased={isResourceBased}
+                      />
                     </div>
                     <div className="flex items-center gap-0.5 flex-shrink-0">
                       <button onClick={() => startEditRule(rule)} title="Edit"
@@ -810,13 +939,18 @@ function AdminOffersLegacy({ isResourceBased, centerMachines }: AdminOffersInjec
                         {offer.days?.length > 0 && (
                           <span className="text-sky-400">{offer.days.map(d => DAYS_OF_WEEK.find(dw => dw.id === d)?.label).join(', ')}</span>
                         )}
-                        {offer.machineIds?.length > 0 && (
-                          <span>{offer.machineIds.map(m => MACHINE_OPTIONS.find(o => o.id === m)?.label).join(', ')}</span>
-                        )}
-                        {offer.pitchTypes?.length > 0 && (
-                          <span>{offer.pitchTypes.map(p => PITCH_TYPES.find(o => o.id === p)?.label).join(', ')}</span>
-                        )}
                       </div>
+                      {/* Applied On — see RecurringOffers cards above for
+                          rationale. Shows category, machine, pitch chips
+                          inline so admins can audit coverage at a glance. */}
+                      <AppliedOnRows
+                        legacyMachineIds={offer.machineIds}
+                        legacyPitchTypes={offer.pitchTypes}
+                        categories={offer.categories}
+                        machineRowIds={offer.machineRowIds}
+                        centerMachines={centerMachines}
+                        isResourceBased={isResourceBased}
+                      />
                     </div>
                     <div className="flex items-center gap-0.5 flex-shrink-0">
                       <button onClick={() => startEditPromo(offer)} title="Edit"
