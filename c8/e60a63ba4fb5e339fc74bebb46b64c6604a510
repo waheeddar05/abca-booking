@@ -1,0 +1,28 @@
+src/lib/resource-booking.ts
+  s_e0175fb4b4f942::t_26a2c71979e0ad 418-431,434-435,453,455-461,492-503
+src/app/api/slots/resource-availability/route.ts
+  s_e0175fb4b4f942::t_438237fa1aa1d1 214-226
+  s_e0175fb4b4f942::t_dba7a62fe1213e 108-122
+  s_e0175fb4b4f942::t_93cdcdae4a32a4 123-128
+  s_e0175fb4b4f942::t_35c63f6a83e0f4 227
+  s_e0175fb4b4f942::t_24d73ec068b684 21-22
+  s_e0175fb4b4f942::t_235a837f5db118 355-358,363-386,389
+  s_e0175fb4b4f942::t_a6219f19339255 324-325
+  s_e0175fb4b4f942::t_ed7fb49baf19ab 34,37-54
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.4",
+  "base_commit_sha": "c8e60a63ba4fb5e339fc74bebb46b64c6604a510",
+  "prompts": {},
+  "sessions": {
+    "s_e0175fb4b4f942": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "f3864c65-ac36-4572-a64e-c1d488c0cbdf",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Waheed <waheeddar8@gmail.com>"
+    }
+  }
+}
