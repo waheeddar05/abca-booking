@@ -715,6 +715,12 @@ export async function executeSlotBooking(
             }
           }, {
             isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+            // Match the resource-based path's headroom. ABCA writes are
+            // simpler (1 row per slot), but multi-slot + package linkage
+            // can still creep close to Prisma's 5s default. Generous
+            // bounds — serializable isolation is the real guard.
+            maxWait: 10_000,
+            timeout: 30_000,
           });
 
           break;

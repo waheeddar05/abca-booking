@@ -820,7 +820,18 @@ async function executeResourceBookingCore(
             }
             return out;
           },
-          { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+          {
+            isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+            // FULL_COURT with multiple slots writes 1 Booking + N resource
+            // assignments (one per indoor net) + optional package row per
+            // slot. Prisma's default 5s tx timeout is too tight: a 4-slot
+            // FULL_COURT booking on Toplay was observed taking ~7.3s and
+            // failing with P2028 ("Transaction not found"). Give it
+            // generous headroom — the serializable isolation already
+            // protects against concurrent grabs.
+            maxWait: 10_000,
+            timeout: 30_000,
+          },
         );
 
       created.push(...results);
