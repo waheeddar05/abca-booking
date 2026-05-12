@@ -656,10 +656,19 @@ export default function ResourceSlotsPage() {
           return;
         }
 
+        if (!paymentResult.bookings || paymentResult.bookings.length === 0) {
+          // Payment captured but the server didn't return any bookings —
+          // we used to say "Booking confirmed" here, which is a lie. Show
+          // a clear error so the user knows to contact admin (the server
+          // also flagged the payment for recovery).
+          toast.error(
+            'Payment captured but no booking was created. Our team has been notified. Please contact admin.',
+          );
+          return;
+        }
+
         toast.success(
-          paymentResult.bookings && paymentResult.bookings.length > 0
-            ? `Payment successful! Booked ${paymentResult.bookings.length} slot${paymentResult.bookings.length === 1 ? '' : 's'}.`
-            : 'Payment successful! Booking confirmed.',
+          `Payment successful! Booked ${paymentResult.bookings.length} slot${paymentResult.bookings.length === 1 ? '' : 's'}.`,
         );
         router.push('/bookings');
         return;

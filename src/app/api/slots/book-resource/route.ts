@@ -21,7 +21,7 @@ import {
 import { sanitizeApiError } from '@/lib/api-errors';
 import { dateStringToUTC } from '@/lib/time';
 import { isSlotPaymentRequired } from '@/lib/razorpay';
-import { debitWallet, getWalletBalance, isWalletEnabled } from '@/lib/wallet';
+import { creditWallet, debitWallet, getWalletBalance, isWalletEnabled } from '@/lib/wallet';
 
 /**
  * POST /api/slots/book-resource
@@ -218,8 +218,68 @@ export async function executeResourceBooking(
   }
 
   const onlinePaymentId = options.onlinePaymentId;
+  const logPrefix = `[ResourceBooking user=${user.id} center=${center.id}${onlinePaymentId ? ` payment=${onlinePaymentId}` : ''}]`;
+  console.log(
+    `${logPrefix} Booking start: ${body.slots.length} slot(s), category=${body.category}, machineId=${body.machineId ?? 'none'}, pitchType=${body.pitchType ?? 'none'}, ballType=${body.ballType ?? 'none'}, paymentMethod=${body.paymentMethod ?? 'ONLINE'}, walletDeduction=${body.walletDeduction ?? 0}`,
+  );
 
-  return executeResourceBookingCore(user, body, center, { onlinePaymentId });
+  try {
+    const created = await executeResourceBookingCore(user, body, center, { onlinePaymentId });
+    console.log(`${logPrefix} Booking success: ${created.length} row(s) created [${created.map(b => b.id).join(', ')}]`);
+    return created;
+  } catch (error) {
+    console.error(`${logPrefix} Booking failed:`, error);
+
+    // Auto-refund-to-wallet when a Razorpay-captured payment can't be
+    // turned into a booking. Mirrors executeSlotBooking's recovery
+    // (src/app/api/slots/book/route.ts ~990). Without this, the money
+    // is captured and the user sees "no booking created" with no
+    // way to get a refund except admin intervention.
+    if (onlinePaymentId) {
+      try {
+        const payment = await prisma.payment.findUnique({ where: { id: onlinePaymentId } });
+        if (payment && payment.status === 'CAPTURED' && payment.bookingIds.length === 0) {
+          const refundAmount = payment.amount;
+          const walletResult = await creditWallet(
+            payment.userId,
+            payment.centerId,
+            refundAmount,
+            'CREDIT_REFUND',
+            'Auto-refund: resource booking failed after payment',
+            onlinePaymentId,
+          );
+          await prisma.payment.update({
+            where: { id: onlinePaymentId },
+            data: {
+              status: 'REFUNDED',
+              refundAmount,
+              refundedAt: new Date(),
+              refundMethod: 'WALLET',
+              failureReason: `Booking failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
+            },
+          });
+          console.log(`${logPrefix} Auto-refunded ₹${refundAmount} to wallet (new balance: ₹${walletResult.newBalance})`);
+
+          const errMessage = error instanceof Error ? error.message : 'Booking failed';
+          throw new ResourceBookingServiceError(
+            `${errMessage}. ₹${refundAmount} has been refunded to your wallet.`,
+            error instanceof ResourceBookingServiceError
+              ? error.status
+              : error instanceof BookingResourceError
+                ? error.status
+                : 500,
+            { refunded: true, refundAmount, walletBalance: walletResult.newBalance },
+          );
+        }
+      } catch (refundErr) {
+        if (refundErr instanceof ResourceBookingServiceError) throw refundErr;
+        console.error(`${logPrefix} CRITICAL: auto-refund failed after booking failure:`, refundErr);
+        console.error(`${logPrefix} Original booking error:`, error);
+      }
+    }
+
+    throw error;
+  }
 }
 
 async function executeResourceBookingCore(
