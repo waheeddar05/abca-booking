@@ -509,10 +509,14 @@ export default function ResourceSlotsPage() {
       if (s.freeIndoorNets.length === 0 && s.freeOutdoorResources.length === 0) {
         return { ok: false, reason: 'No nets free' };
       }
-      // Operator gating — mirrors ABCA's WITH_OPERATOR check. If the
-      // server says operators are full and this isn't a self-operate
-      // slot, the MACHINE category can't be booked.
-      if (s.operatorAvailable === false && s.selfOperate === false) {
+      // Operator gating — only for non-tennis (leather) machines. Tennis
+      // machines (LEVERAGE) can self-operate, so a busy operator pool
+      // doesn't block them. Mirrors ABCA's behaviour in
+      // /api/slots/available:360-377 — leather goes to OperatorUnavailable,
+      // tennis falls back to self-operate.
+      const selectedMachine = machineId ? filteredMachines.find((m) => m.id === machineId) : null;
+      const isTennisMachine = selectedMachine?.machineType?.code === 'LEVERAGE';
+      if (!isTennisMachine && s.operatorAvailable === false && s.selfOperate === false) {
         return { ok: false, reason: 'All operators are booked for this slot' };
       }
       return { ok: true };
@@ -1210,17 +1214,30 @@ export default function ResourceSlotsPage() {
                     </div>
                   )}
 
-                  {/* Self-operate badge — only for MACHINE slots where
-                      the center has 0 operators scheduled. Mirrors
-                      ABCA's tennis-machine self-operate banner so the
-                      user isn't surprised at the centre. */}
-                  {category === 'MACHINE' && slot.selfOperate && !isUnavailable && (
-                    <div className={`mt-1 text-[8px] font-bold px-1.5 py-0.5 rounded-full text-center ${
-                      selected ? 'bg-primary/20 text-primary/80' : 'bg-sky-500/15 text-sky-300 border border-sky-500/20'
-                    }`}>
-                      Self-operate
-                    </div>
-                  )}
+                  {/* Self-operate badge — appears for MACHINE slots when
+                      no operator will be assigned. Two cases:
+                        a) Center has 0 operators scheduled for this slot
+                           (`slot.selfOperate` from the server).
+                        b) Operators exist but are all busy AND the user
+                           picked a tennis (LEVERAGE) machine — the booking
+                           still goes through, just as self-operate.
+                      Leather machines don't show this because they hard-
+                      require an operator and the slot is already greyed
+                      out by `slotIsBookable`. */}
+                  {category === 'MACHINE' && !isUnavailable && (() => {
+                    const sel = machineId ? filteredMachines.find((m) => m.id === machineId) : null;
+                    const isTennis = sel?.machineType?.code === 'LEVERAGE';
+                    const showBadge = slot.selfOperate
+                      || (isTennis && slot.operatorAvailable === false);
+                    if (!showBadge) return null;
+                    return (
+                      <div className={`mt-1 text-[8px] font-bold px-1.5 py-0.5 rounded-full text-center ${
+                        selected ? 'bg-primary/20 text-primary/80' : 'bg-sky-500/15 text-sky-300 border border-sky-500/20'
+                      }`}>
+                        Self-operate
+                      </div>
+                    );
+                  })()}
 
                   {/* Discount badge — recurring or promotional offer
                       applicable to this slot under the active category.

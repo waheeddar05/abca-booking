@@ -789,6 +789,14 @@ async function executeResourceBookingCore(
               let assignedOperatorId: string | null = null;
               let operationMode: 'WITH_OPERATOR' | 'SELF_OPERATE' = 'WITH_OPERATOR';
               if (plan.category === 'MACHINE') {
+                // Tennis-style machines (LEVERAGE) don't strictly need an
+                // operator — the user can run the machine themselves. This
+                // mirrors ABCA's logic in /api/slots/available:360-377, where
+                // tennis machines fall back to SELF_OPERATE when all
+                // operators are busy. Leather machines (Yantra / Gravity)
+                // still hard-require an operator.
+                const isTennisMachine = machineTypeCode === 'LEVERAGE';
+
                 const operatorCount = await getOperatorCount(
                   plan.date,
                   plan.startTime,
@@ -796,6 +804,14 @@ async function executeResourceBookingCore(
                   center.id,
                 );
                 if (operatorCount === 0) {
+                  // No operators scheduled: leather can't be booked at all,
+                  // tennis falls back to self-operate.
+                  if (!isTennisMachine) {
+                    throw new BookingResourceError(
+                      `No operator scheduled for this slot, and ${machineTypeCode ?? 'this'} machine requires one.`,
+                      409,
+                    );
+                  }
                   operationMode = 'SELF_OPERATE';
                 } else {
                   const operatorBookings = await tx.booking.findMany({
@@ -809,20 +825,42 @@ async function executeResourceBookingCore(
                     select: { id: true },
                   });
                   if (operatorBookings.length >= operatorCount) {
-                    throw new BookingResourceError(
-                      `Operator not available for slot at ${plan.startTime.toISOString()}. All ${operatorCount} operator(s) are already booked.`,
-                      409,
+                    // All operators busy. Tennis machine: graceful self-
+                    // operate fallback (this is what ABCA does). Leather
+                    // machine: hard fail — admin needs to either schedule
+                    // more operators or the user picks a different slot.
+                    if (!isTennisMachine) {
+                      throw new BookingResourceError(
+                        `Operator not available for slot at ${plan.startTime.toISOString()}. All ${operatorCount} operator(s) are already booked.`,
+                        409,
+                      );
+                    }
+                    operationMode = 'SELF_OPERATE';
+                  } else {
+                    const slab = getTimeSlab(plan.startTime, timeSlabConfig);
+                    assignedOperatorId = await autoAssignOperator(
+                      plan.date,
+                      plan.startTime,
+                      tx,
+                      null, // resource-based bookings don't use the legacy enum machineId
+                      slab,
+                      center.id,
                     );
+                    // autoAssignOperator falls back to highest-priority
+                    // operator even when all are busy. If that fallback
+                    // returned no one (no operators configured at this
+                    // center at all), treat as self-operate for tennis,
+                    // hard fail for leather.
+                    if (!assignedOperatorId) {
+                      if (!isTennisMachine) {
+                        throw new BookingResourceError(
+                          'No operator could be assigned for this slot.',
+                          409,
+                        );
+                      }
+                      operationMode = 'SELF_OPERATE';
+                    }
                   }
-                  const slab = getTimeSlab(plan.startTime, timeSlabConfig);
-                  assignedOperatorId = await autoAssignOperator(
-                    plan.date,
-                    plan.startTime,
-                    tx,
-                    null, // resource-based bookings don't use the legacy enum machineId
-                    slab,
-                    center.id,
-                  );
                 }
               }
 
