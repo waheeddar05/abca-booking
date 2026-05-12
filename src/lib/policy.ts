@@ -87,6 +87,53 @@ export async function getPolicyValue(
   return fallback;
 }
 
+/**
+ * Like `getPolicyValue` but **only** reads from `CenterPolicy` — never falls
+ * back to the global `Policy` table. Use this for centers that should be
+ * fully isolated from platform-wide defaults (e.g. Toplay's slot-booking
+ * surface, where the operator wants every knob to live exclusively in the
+ * center's own settings).
+ *
+ * Returns `fallback` when no center-scoped row exists.
+ */
+export async function getCenterOnlyPolicy(
+  key: string,
+  centerId: string,
+  fallback: string | null = null,
+): Promise<string | null> {
+  const now = Date.now();
+  const cKey = cacheKey(centerId, key);
+  const cached = cache.get(cKey);
+  if (cached && cached.expiresAt > now) {
+    return cached.value ?? fallback;
+  }
+  const row = await prisma.centerPolicy.findUnique({
+    where: { centerId_key: { centerId, key } },
+  });
+  if (row) {
+    cache.set(cKey, { value: row.value, expiresAt: now + ttlFor(key) });
+    return row.value;
+  }
+  // Cache the miss with a short TTL so we re-check soon.
+  cache.set(cKey, { value: null, expiresAt: now + 10_000 });
+  return fallback;
+}
+
+/** JSON variant of `getCenterOnlyPolicy`. */
+export async function getCenterOnlyPolicyJson<T>(
+  key: string,
+  centerId: string,
+  fallback: T,
+): Promise<T> {
+  const raw = await getCenterOnlyPolicy(key, centerId, null);
+  if (!raw) return fallback;
+  try {
+    return JSON.parse(raw) as T;
+  } catch {
+    return fallback;
+  }
+}
+
 /** Convenience: parse the resolved value as JSON, or return fallback. */
 export async function getPolicyJson<T>(
   key: string,

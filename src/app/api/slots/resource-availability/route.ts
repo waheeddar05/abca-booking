@@ -3,7 +3,7 @@ import { isValid, isSameDay } from 'date-fns';
 import { prisma } from '@/lib/prisma';
 import { getAuthenticatedUser } from '@/lib/auth';
 import { resolveCurrentCenter } from '@/lib/centers';
-import { getCachedPolicies } from '@/lib/policy-cache';
+import { getCenterOnlyPolicy } from '@/lib/policy';
 import {
   generateSlotsForDateDualWindow,
   filterPastSlots,
@@ -75,8 +75,13 @@ export async function GET(req: NextRequest) {
     }
 
     // Fetch everything we need ONCE; per-slot work is then pure JS.
+    // RESOURCE_BASED centers (Toplay et al.) deliberately read every
+    // booking-affecting knob from CenterPolicy ONLY — never from the
+    // global Policy table. Toplay's admin sets each setting at the
+    // center level; ABCA's global Policy rows must not leak in.
     const [
-      policyMap,
+      slotDurationRaw,
+      disabledDatesRaw,
       timeSlabConfig,
       pricingConfig,
       resources,
@@ -89,8 +94,9 @@ export async function GET(req: NextRequest) {
       bookings,
       batchConfig,
     ] = await Promise.all([
-      getCachedPolicies(['SLOT_DURATION', 'DISABLED_DATES']),
-      getTimeSlabConfig(),
+      getCenterOnlyPolicy('SLOT_DURATION', center.id, null),
+      getCenterOnlyPolicy('DISABLED_DATES', center.id, null),
+      getTimeSlabConfig(center.id, /* centerOnly */ true),
       getResourcePricingConfig(center.id),
       getCenterResources(center.id),
       getCenterCoaches(center.id),
@@ -120,16 +126,12 @@ export async function GET(req: NextRequest) {
       getCorporateBatchConfig(center.id),
     ]);
 
-    const disabledDates = policyMap['DISABLED_DATES']
-      ? policyMap['DISABLED_DATES'].split(',')
-      : [];
+    const disabledDates = disabledDatesRaw ? disabledDatesRaw.split(',') : [];
     if (disabledDates.includes(dateStr)) {
       return NextResponse.json({ slots: [], date: dateStr, centerId: center.id });
     }
 
-    const duration = policyMap['SLOT_DURATION']
-      ? parseInt(policyMap['SLOT_DURATION'])
-      : undefined;
+    const duration = slotDurationRaw ? parseInt(slotDurationRaw) : undefined;
 
     let slots = generateSlotsForDateDualWindow(dateUTC, timeSlabConfig, duration);
     if (isSameDay(dateUTC, todayUTC)) slots = filterPastSlots(slots);

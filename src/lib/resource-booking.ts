@@ -37,7 +37,7 @@
  */
 
 import { prisma } from '@/lib/prisma';
-import { getPolicyJson } from '@/lib/policy';
+import { getCenterOnlyPolicyJson } from '@/lib/policy';
 import type {
   BookingCategory,
   BookingStatus,
@@ -109,7 +109,13 @@ function overlaps(aStart: Date, aEnd: Date, bStart: Date, bEnd: Date): boolean {
 // ─── Center config ───────────────────────────────────────────────────
 
 export async function getCorporateBatchConfig(centerId: string): Promise<CorporateBatchConfig> {
-  return getPolicyJson('CORPORATE_BATCH_CONFIG', centerId, DEFAULT_CORPORATE_BATCH_CONFIG);
+  // RESOURCE_BASED centers ignore the global Policy table — the corporate
+  // batch reservation is purely a center-level arrangement.
+  return getCenterOnlyPolicyJson(
+    'CORPORATE_BATCH_CONFIG',
+    centerId,
+    DEFAULT_CORPORATE_BATCH_CONFIG,
+  );
 }
 
 /**

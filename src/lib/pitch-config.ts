@@ -10,10 +10,13 @@
  *   `SIDEARM_PITCH_TYPES` from the per-center policy.
  * - **Net bookings**: same idea — `NET_PITCH_TYPES` per-center.
  *
- * All three respect the standard policy resolver (center override → global
- * default → code-level fallback in `ALL_PITCH_TYPES`).
+ * All three resolve from `CenterPolicy` ONLY — never from the global Policy
+ * table. RESOURCE_BASED centers (Toplay et al.) are intentionally isolated
+ * from platform-wide defaults so no global override can sneak into their
+ * booking surface. Missing center-scoped value falls back to
+ * `ALL_PITCH_TYPES` / `ALL_BOOKABLE_CATEGORIES`.
  */
-import { getPolicyJson } from '@/lib/policy';
+import { getCenterOnlyPolicyJson } from '@/lib/policy';
 import type { PitchType } from '@prisma/client';
 
 /**
@@ -58,7 +61,7 @@ export function effectiveBallTypes(
 }
 
 export async function getSidearmPitchTypes(centerId: string): Promise<PitchType[]> {
-  const list = await getPolicyJson<PitchType[]>(
+  const list = await getCenterOnlyPolicyJson<PitchType[]>(
     'SIDEARM_PITCH_TYPES',
     centerId,
     ALL_PITCH_TYPES,
@@ -68,7 +71,7 @@ export async function getSidearmPitchTypes(centerId: string): Promise<PitchType[
 }
 
 export async function getNetPitchTypes(centerId: string): Promise<PitchType[]> {
-  const list = await getPolicyJson<PitchType[]>(
+  const list = await getCenterOnlyPolicyJson<PitchType[]>(
     'NET_PITCH_TYPES',
     centerId,
     ALL_PITCH_TYPES,
@@ -101,7 +104,7 @@ export const ALL_BOOKABLE_CATEGORIES: BookableCategoryId[] = [
 export async function getEnabledBookingCategories(
   centerId: string,
 ): Promise<BookableCategoryId[]> {
-  const list = await getPolicyJson<BookableCategoryId[]>(
+  const list = await getCenterOnlyPolicyJson<BookableCategoryId[]>(
     'ENABLED_BOOKING_CATEGORIES',
     centerId,
     ALL_BOOKABLE_CATEGORIES,

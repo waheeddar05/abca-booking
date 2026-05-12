@@ -1,4 +1,5 @@
 import { getCachedPolicy } from '@/lib/policy-cache';
+import { getCenterOnlyPolicy } from '@/lib/policy';
 
 export interface SlabPricing {
   single: number;
@@ -301,10 +302,29 @@ export function normalizePricingConfig(config: any): PricingConfig {
 }
 
 /**
- * Fetch time slab config from database Policy table, falling back to defaults.
+ * Fetch time slab config from the database, falling back to defaults.
+ *
+ * Resolution rules:
+ *   - `centerId` omitted → legacy global `Policy.TIME_SLAB_CONFIG`. Kept for
+ *     ABCA's untouched MACHINE_PITCH path.
+ *   - `centerId` provided + `centerOnly=true` → ONLY read `CenterPolicy`
+ *     for that center. No global fallback. Used for centers (Toplay, et al.)
+ *     where every booking knob must live at the center level.
+ *   - `centerId` provided + `centerOnly=false` → center → global → default
+ *     cascade (the same as `getPolicyJson`).
  */
-export async function getTimeSlabConfig(): Promise<TimeSlabConfig> {
+export async function getTimeSlabConfig(
+  centerId?: string | null,
+  centerOnly: boolean = false,
+): Promise<TimeSlabConfig> {
   try {
+    if (centerId && centerOnly) {
+      const value = await getCenterOnlyPolicy('TIME_SLAB_CONFIG', centerId, null);
+      if (value) return JSON.parse(value) as TimeSlabConfig;
+      return DEFAULT_TIME_SLABS;
+    }
+    // Legacy: global-only. Same behaviour every caller had before this
+    // function grew the centerId parameter, so ABCA is unaffected.
     const value = await getCachedPolicy('TIME_SLAB_CONFIG');
     if (value) {
       return JSON.parse(value) as TimeSlabConfig;

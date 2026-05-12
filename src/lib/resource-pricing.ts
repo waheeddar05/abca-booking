@@ -14,7 +14,7 @@
  * bookings (so Yantra can cost more than Leverage at the same center).
  */
 
-import { getPolicyJson } from '@/lib/policy';
+import { getCenterOnlyPolicyJson } from '@/lib/policy';
 import { getTimeSlab, getTimeSlabConfig, type TimeSlabConfig } from '@/lib/pricing';
 
 export type TimeSlab = 'morning' | 'evening';
@@ -118,7 +118,11 @@ export const DEFAULT_RESOURCE_PRICING: ResourcePricingConfig = {
 };
 
 export async function getResourcePricingConfig(centerId: string): Promise<ResourcePricingConfig> {
-  return getPolicyJson('RESOURCE_PRICING_CONFIG', centerId, DEFAULT_RESOURCE_PRICING);
+  // RESOURCE_BASED centers are isolated from the global Policy table — the
+  // pricing config must come from CenterPolicy only. This prevents ABCA's
+  // PRICING_CONFIG (or any other platform-wide pricing knob) from leaking
+  // into a Toplay-style center.
+  return getCenterOnlyPolicyJson('RESOURCE_PRICING_CONFIG', centerId, DEFAULT_RESOURCE_PRICING);
 }
 
 export interface PriceLookup {
@@ -166,7 +170,14 @@ export interface PriceLookup {
 export async function getResourceSlotPrice(args: PriceLookup): Promise<number> {
   const pricing = args.pricingConfig
     ?? (args.centerId ? await getResourcePricingConfig(args.centerId) : DEFAULT_RESOURCE_PRICING);
-  const timeSlabs = args.timeSlabConfig ?? (await getTimeSlabConfig());
+  // Toplay-style centers are isolated from the global Policy table — pass
+  // centerId + centerOnly so TIME_SLAB_CONFIG resolves from CenterPolicy
+  // alone. When no centerId is known, fall through to the legacy global
+  // lookup (used by ABCA's MACHINE_PITCH path).
+  const timeSlabs = args.timeSlabConfig
+    ?? (args.centerId
+      ? await getTimeSlabConfig(args.centerId, true)
+      : await getTimeSlabConfig());
 
   const slab = getTimeSlab(args.startTime, timeSlabs);
   const cons = !!args.isConsecutive;
