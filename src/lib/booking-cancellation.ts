@@ -341,7 +341,20 @@ export async function processCancellationRefund(opts: {
 }): Promise<CancellationRefundResult | null> {
   const { booking, initiatedByUserId, initiatedByName, requestedRefundMethod } = opts;
 
-  if (!booking.userId || !booking.price || booking.price <= 0) return null;
+  // Diagnostic prefix kept consistent across every early-return below so
+  // support investigations can grep `[Refund]` and see exactly why a
+  // booking didn't get a wallet credit (the most common production
+  // mystery — silent no-op).
+  const tag = `[Refund booking=${booking.id} center=${booking.centerId}]`;
+
+  if (!booking.userId) {
+    console.warn(`${tag} skipped: booking has no userId (anonymous booking)`);
+    return null;
+  }
+  if (!booking.price || booking.price <= 0) {
+    console.warn(`${tag} skipped: booking.price=${booking.price ?? 'null'} (free or zero-priced)`);
+    return null;
+  }
 
   // Sum of refunds already issued on this booking (avoids double-refund
   // when the user cancels again after a partial refund, or when an
@@ -351,6 +364,10 @@ export async function processCancellationRefund(opts: {
     select: { amount: true },
   });
   const alreadyRefunded = existingRefunds.reduce((sum, r) => sum + r.amount, 0);
+
+  console.log(
+    `${tag} start: paymentMethod=${booking.paymentMethod ?? 'null'} paymentStatus=${booking.paymentStatus ?? 'null'} price=${booking.price} alreadyRefunded=${alreadyRefunded}`,
+  );
 
   // ─── Case 1: Wallet-paid booking ─────────────────────────────────
   if (booking.paymentMethod === 'WALLET' && booking.paymentStatus === 'PAID') {
@@ -407,16 +424,36 @@ export async function processCancellationRefund(opts: {
   if (booking.paymentMethod !== 'ONLINE' || booking.paymentStatus !== 'PAID') {
     // FREE booking, CASH booking, or package redemption — nothing to
     // refund automatically.
+    console.log(
+      `${tag} skipped: paymentMethod=${booking.paymentMethod ?? 'null'} paymentStatus=${booking.paymentStatus ?? 'null'} — not a refundable case`,
+    );
     return null;
   }
 
+  // CRITICAL: include PARTIALLY_REFUNDED in the status filter. A
+  // common multi-slot scenario is "user cancels slot 1 (Payment flips
+  // to PARTIALLY_REFUNDED), then admin cancels slot 2" — if the
+  // filter was `CAPTURED` only, the second cancellation would skip
+  // refund silently. This was a real prod incident; the test for it
+  // is captured in this comment so it doesn't regress.
   const payment = await prisma.payment.findFirst({
     where: {
       bookingIds: { has: booking.id },
       status: { in: ['CAPTURED', 'PARTIALLY_REFUNDED'] },
     },
   });
-  if (!payment?.razorpayPaymentId) return null;
+  if (!payment) {
+    console.warn(
+      `${tag} skipped: no Payment row with status CAPTURED|PARTIALLY_REFUNDED containing this bookingId. Booking marked online-paid but no live payment found — manual review needed.`,
+    );
+    return null;
+  }
+  if (!payment.razorpayPaymentId) {
+    console.warn(
+      `${tag} skipped: Payment ${payment.id} has no razorpayPaymentId — cannot refund. Likely captured via webhook with missing payment id.`,
+    );
+    return null;
+  }
 
   // Per-slot refund = booking.price (handles consecutive discounts and
   // mixed prices on a multi-slot payment). Fall back to an even split
@@ -427,7 +464,12 @@ export async function processCancellationRefund(opts: {
         ? payment.amount / payment.bookingIds.length
         : payment.amount);
   const remaining = perSlotRefund - alreadyRefunded;
-  if (remaining <= 0) return null;
+  if (remaining <= 0) {
+    console.log(
+      `${tag} skipped: nothing left to refund (perSlot=${perSlotRefund}, alreadyRefunded=${alreadyRefunded})`,
+    );
+    return null;
+  }
 
   // Resolve refund method:
   //   1. Explicit request from user/admin.

@@ -369,10 +369,19 @@ export async function PATCH(req: NextRequest) {
             `Refund processed (${refund.method}, admin cancel)`,
           );
         } else {
-          refundInfo = 'No refund needed (already refunded, cash, or free booking)';
+          // Helper logs the exact reason it returned null (see
+          // `[Refund booking=...]` lines). Surface a neutral message
+          // here so the admin sees "we tried, nothing to refund" —
+          // and the dev can grep the helper's log for the why.
+          refundInfo = 'No refund processed (see server logs for reason)';
+          log.warn(
+            adminCtx,
+            'processCancellationRefund returned null — see [Refund booking=...] log for reason',
+          );
         }
       } catch (refundErr) {
         log.error(adminCtx, 'Admin cancellation refund failed', refundErr);
+        refundInfo = 'Refund attempt failed — please check server logs and process manually';
       }
 
       // Restore package session if this was a package booking
