@@ -1,0 +1,29 @@
+src/lib/booking-cancellation.ts
+  s_e0175fb4b4f942::t_f89e7b6e8a44a2 110-113
+src/app/api/slots/available/route.ts
+  s_e0175fb4b4f942::t_cb721f51d64456 93-96
+src/app/api/admin/bookings/route.ts
+  s_e0175fb4b4f942::t_70bf9022dd9f60 559-560
+src/lib/pricing.ts
+  s_e0175fb4b4f942::t_e3dda8ce4755b0 220-226,228,230-232
+  s_e0175fb4b4f942::t_3b4c0ddd9ff9a9 335-340
+  s_e0175fb4b4f942::t_ebfe7aac952e89 2
+src/app/api/slots/book/route.ts
+  s_e0175fb4b4f942::t_1e4c44ee09629d 208-210,213-214
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.4",
+  "base_commit_sha": "e1d63086e03c0f68c64d1fc7e3709a1a8c51a036",
+  "prompts": {},
+  "sessions": {
+    "s_e0175fb4b4f942": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "f3864c65-ac36-4572-a64e-c1d488c0cbdf",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Waheed <waheeddar8@gmail.com>"
+    }
+  }
+}
