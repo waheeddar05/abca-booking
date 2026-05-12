@@ -1,0 +1,22 @@
+src/lib/booking-cancellation.ts
+  s_e0175fb4b4f942::t_100722fdff8602 344-357,368-370
+  s_e0175fb4b4f942::t_e897c71ac226c9 427-429,433-438,445-456,467-472
+src/app/api/admin/bookings/route.ts
+  s_e0175fb4b4f942::t_18093e4d9f7a31 372-380,384
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.4",
+  "base_commit_sha": "ca500f8c2066395cc47ad5de7652ae317262dcde",
+  "prompts": {},
+  "sessions": {
+    "s_e0175fb4b4f942": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "f3864c65-ac36-4572-a64e-c1d488c0cbdf",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Waheed <waheeddar8@gmail.com>"
+    }
+  }
+}
