@@ -714,6 +714,34 @@ export default function ResourceSlotsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedSlots, category, machineId, pitchType, ballType, data?.pricingConfig, packageCoversBooking]);
 
+  /** Sum of base prices (before any recurring/promo discounts). Used
+   *  by the booking bar to render the strike-through "you would've
+   *  paid X" total, matching ABCA's behaviour. */
+  const originalTotal = useMemo(() => {
+    if (packageCoversBooking) return 0;
+    return selectedSlots.reduce((sum, s) => sum + slotBaseFor(s), 0);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedSlots, category, machineId, pitchType, ballType, data?.pricingConfig, packageCoversBooking]);
+
+  /** Aggregate per-slot discount preview into two buckets for the
+   *  booking-bar breakdown. promoLabel uses the first non-null
+   *  promoName encountered so the user sees a real offer name when
+   *  one is in play. */
+  const discountBreakdown = useMemo(() => {
+    let recurring = 0;
+    let promo = 0;
+    let promoLabel: string | null = null;
+    for (const s of selectedSlots) {
+      const d = s.discountsByCategory?.[category];
+      if (!d) continue;
+      recurring += d.recurring || 0;
+      promo += d.promo || 0;
+      if (!promoLabel && d.promoName) promoLabel = d.promoName;
+    }
+    return { recurring, promo, promoLabel };
+  }, [selectedSlots, category]);
+  const totalSavings = originalTotal - totalPrice;
+
   const toggleSlot = (slot: ResourceSlot) => {
     const idx = selectedSlots.findIndex((s) => s.startTime === slot.startTime);
     if (idx >= 0) {
@@ -1163,13 +1191,33 @@ export default function ResourceSlotsPage() {
             {data.slots.map((slot) => {
               const bookable = slotIsBookable(slot, category);
               const selected = selectedSlots.some((s) => s.startTime === slot.startTime);
-              const price = slotPriceFor(slot);
+              // Slot card shows the BASE price (un-discounted). Recurring/
+              // promo savings get aggregated into the booking bar at the
+              // bottom — matches ABCA's behaviour, which is what the user
+              // expects across both centers.
+              const basePrice = slotBaseFor(slot);
               const isUnavailable = !bookable.ok;
+
+              // Self-operate state — drives the amber warning theme below
+              // (matches ABCA SlotGrid). True when no operator will be
+              // assigned to this booking: either operatorCount=0 at the
+              // slot, or operators exist but are all busy AND the user
+              // picked a tennis machine (LEVERAGE ballType).
+              const sel = machineId ? filteredMachines.find((m) => m.id === machineId) : null;
+              const isTennisMachine = sel?.machineType?.ballType === 'TENNIS';
+              const isSelfOperate = !isUnavailable && category === 'MACHINE' && (
+                slot.selfOperate === true
+                || (isTennisMachine && slot.operatorAvailable === false)
+              );
+
               const bgClass = isUnavailable
                 ? 'bg-white/[0.02] border border-white/[0.05] cursor-not-allowed'
                 : selected
                   ? 'bg-accent text-primary shadow-md shadow-accent/20 border border-accent'
-                  : 'bg-white/[0.04] border border-white/[0.08] hover:border-accent/40 active:scale-[0.97]';
+                  : isSelfOperate
+                    ? 'bg-amber-500/10 border border-amber-500/20 hover:border-amber-500/30 active:scale-[0.97]'
+                    : 'bg-white/[0.04] border border-white/[0.08] hover:border-accent/40 active:scale-[0.97]';
+
               // "Blocked" is louder than "Not Available" — surface it so
               // the user knows the slot was specifically taken off the
               // schedule (vs. just being booked out).
@@ -1183,23 +1231,36 @@ export default function ResourceSlotsPage() {
                   ? 'Not Available'
                   : selected
                     ? 'Selected'
-                    : 'Open';
+                    : isSelfOperate
+                      ? 'Self Operate'
+                      : 'Open';
               const statusColor = isUnavailable
                 ? 'text-red-400'
                 : selected
                   ? 'text-primary/80'
-                  : 'text-green-400';
+                  : isSelfOperate
+                    ? 'text-amber-400'
+                    : 'text-green-400';
               return (
                 <button
                   key={slot.startTime}
                   onClick={() => bookable.ok && toggleSlot(slot)}
                   disabled={isUnavailable || submitting}
                   className={`relative p-3.5 rounded-xl transition-all text-left cursor-pointer ${bgClass}`}
-                  title={bookable.reason}
+                  title={bookable.reason ?? (isSelfOperate ? 'You will run this machine yourself' : undefined)}
                 >
                   {selected && (
                     <div className="absolute top-2 right-2">
                       <Check className="w-4 h-4" />
+                    </div>
+                  )}
+                  {/* Warning triangle on self-operate slots (only when
+                      not selected — the Check icon takes that spot once
+                      the slot is in the cart). Matches ABCA's SlotGrid
+                      visual cue. */}
+                  {isSelfOperate && !selected && (
+                    <div className="absolute top-2 right-2">
+                      <AlertTriangle className="w-3.5 h-3.5 text-amber-500" />
                     </div>
                   )}
 
@@ -1218,7 +1279,7 @@ export default function ResourceSlotsPage() {
                     </span>
                     {!isUnavailable && (
                       <span className={`text-[10px] font-medium ${selected ? 'text-primary/70' : 'text-slate-400'}`}>
-                        ₹{price}
+                        ₹{basePrice}
                       </span>
                     )}
                   </div>
@@ -1239,48 +1300,11 @@ export default function ResourceSlotsPage() {
                     </div>
                   )}
 
-                  {/* Self-operate badge — appears for MACHINE slots when
-                      no operator will be assigned. Two cases:
-                        a) Center has 0 operators scheduled for this slot
-                           (`slot.selfOperate` from the server).
-                        b) Operators exist but are all busy AND the user
-                           picked a tennis (LEVERAGE) machine — the booking
-                           still goes through, just as self-operate.
-                      Leather machines don't show this because they hard-
-                      require an operator and the slot is already greyed
-                      out by `slotIsBookable`. */}
-                  {category === 'MACHINE' && !isUnavailable && (() => {
-                    const sel = machineId ? filteredMachines.find((m) => m.id === machineId) : null;
-                    const isTennis = sel?.machineType?.ballType === 'TENNIS';
-                    const showBadge = slot.selfOperate
-                      || (isTennis && slot.operatorAvailable === false);
-                    if (!showBadge) return null;
-                    return (
-                      <div className={`mt-1 text-[8px] font-bold px-1.5 py-0.5 rounded-full text-center ${
-                        selected ? 'bg-primary/20 text-primary/80' : 'bg-sky-500/15 text-sky-300 border border-sky-500/20'
-                      }`}>
-                        Self-operate
-                      </div>
-                    );
-                  })()}
-
-                  {/* Discount badge — recurring or promotional offer
-                      applicable to this slot under the active category.
-                      Mirrors ABCA's slot-grid badging from /api/slots/
-                      available. */}
-                  {!isUnavailable && (() => {
-                    const disc = discountFor(slot);
-                    if (!disc) return null;
-                    const label = disc.promoName ?? `₹${disc.amount} off`;
-                    return (
-                      <div className={`mt-1 text-[8px] font-bold px-1.5 py-0.5 rounded-full text-center truncate ${
-                        selected ? 'bg-primary/20 text-primary/80' : 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/20'
-                      }`}
-                        title={`Recurring/promo discount: ₹${disc.amount} off`}>
-                        {label}
-                      </div>
-                    );
-                  })()}
+                  {/* No per-slot self-operate pill or discount pill —
+                      the slot status above (amber "Self Operate") and
+                      the booking-bar breakdown below carry that info.
+                      Mirrors ABCA: discount summary lives in the bar,
+                      not on each card. */}
                 </button>
               );
             })}
@@ -1388,8 +1412,18 @@ export default function ResourceSlotsPage() {
               </p>
               <p className="text-[11px] text-slate-400">
                 {format(selectedDate, 'EEE, MMM d')} &middot; {machineLabel}
+                {/* Show "Self Operate" inline next to the date when any
+                    selected slot will run without an operator. Matches
+                    ABCA's BookingBar subtitle treatment. */}
+                {category === 'MACHINE' && selectedSlots.some((s) => {
+                  const m = machineId ? filteredMachines.find((mm) => mm.id === machineId) : null;
+                  const tennis = m?.machineType?.ballType === 'TENNIS';
+                  return s.selfOperate || (tennis && s.operatorAvailable === false);
+                }) && (
+                  <span> &middot; <span className="text-amber-400">Self Operate</span></span>
+                )}
               </p>
-              <div className="flex items-center gap-1 mt-0.5">
+              <div className="flex items-center gap-1 mt-0.5 flex-wrap">
                 {packageCoversBooking ? (
                   // Package redemption: server consumes one session per
                   // slot and charges nothing. Show the package label so
@@ -1412,6 +1446,30 @@ export default function ResourceSlotsPage() {
                     <span className="text-sm font-bold text-accent">
                       {totalPrice.toLocaleString()}
                     </span>
+                    {/* Discount breakdown — mirrors ABCA's BookingBar.
+                        Original total struck through + "Save ₹X" pill,
+                        with recurring + promo lines underneath when
+                        either bucket is non-zero. */}
+                    {totalSavings > 0 && (
+                      <>
+                        <span className="text-[10px] text-slate-500 line-through ml-1">
+                          ₹{originalTotal.toLocaleString()}
+                        </span>
+                        <span className="text-[10px] text-green-400 ml-1">
+                          Save ₹{totalSavings.toLocaleString()}
+                        </span>
+                      </>
+                    )}
+                    {discountBreakdown.recurring > 0 && (
+                      <span className="text-[10px] text-emerald-400 ml-1">
+                        (incl. Slot Discount: -₹{discountBreakdown.recurring})
+                      </span>
+                    )}
+                    {discountBreakdown.promo > 0 && (
+                      <span className="text-[10px] text-amber-400 ml-1">
+                        ({discountBreakdown.promoLabel || 'Promo'}: -₹{discountBreakdown.promo})
+                      </span>
+                    )}
                   </>
                 )}
               </div>
