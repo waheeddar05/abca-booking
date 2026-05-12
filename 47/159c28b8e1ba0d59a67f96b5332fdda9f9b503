@@ -1,0 +1,46 @@
+src/app/api/packages/route.ts
+  s_e0175fb4b4f942::t_ce1fdfffd605f2 31-43
+src/app/slots/ResourceSlotsPage.tsx
+  s_e0175fb4b4f942::t_705e4ed7193552 747-752
+  s_e0175fb4b4f942::t_c31150985936f2 672
+  s_e0175fb4b4f942::t_d711a6753dc4be 1055-1102
+  s_e0175fb4b4f942::t_7cce3e6fd9b915 1229
+  s_e0175fb4b4f942::t_20b2c8ae2d92a4 427-444
+  s_e0175fb4b4f942::t_e9124c66f2a057 659-666,668
+  s_e0175fb4b4f942::t_92059f72b55550 1320-1328
+  s_e0175fb4b4f942::t_d022ed456cd6bf 302-305,308-339
+  s_e0175fb4b4f942::t_63785450f5bd8b 34
+src/app/api/slots/book-resource/route.ts
+  s_e0175fb4b4f942::t_6daa6d64fc059a 874-878,880-884
+src/app/packages/page.tsx
+  s_e0175fb4b4f942::t_efa240884d00bd 13,17-18,30-39
+  s_e0175fb4b4f942::t_2179e6c9c72e38 49-51
+  s_e0175fb4b4f942::t_b48cbdd16c98b3 607-608
+  s_e0175fb4b4f942::t_78f417f5674906 756-769
+  s_e0175fb4b4f942::t_938a7c1a45aaff 782-804
+  s_e0175fb4b4f942::t_70c8302e0353a3 80-102
+  s_e0175fb4b4f942::t_8e3bcf6a5c3544 677-697,711-712
+  s_e0175fb4b4f942::t_8d2032184b9fa6 277-279,283,287,290-294,307-324
+  s_e0175fb4b4f942::t_0c9bd8483c6fae 936-950
+  s_e0175fb4b4f942::t_6b35e5fa8188bd 112,114-115
+  s_e0175fb4b4f942::t_e4d029583cd5dd 498,510-542
+  s_e0175fb4b4f942::t_3f9c63c724c0f3 414,423-429
+src/app/api/packages/my/route.ts
+  s_e0175fb4b4f942::t_49cb1808f04071 99-101
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.4",
+  "base_commit_sha": "47159c28b8e1ba0d59a67f96b5332fdda9f9b503",
+  "prompts": {},
+  "sessions": {
+    "s_e0175fb4b4f942": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "f3864c65-ac36-4572-a64e-c1d488c0cbdf",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Waheed <waheeddar8@gmail.com>"
+    }
+  }
+}
