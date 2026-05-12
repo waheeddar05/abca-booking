@@ -1,0 +1,33 @@
+src/app/slots/ResourceSlotsPage.tsx
+  s_e0175fb4b4f942::t_00d23ead4c3c7e 41
+  s_e0175fb4b4f942::t_209b57a9ff6133 224-231
+  s_e0175fb4b4f942::t_4b987ce3e46b95 244-252
+  s_e0175fb4b4f942::t_cd5fc593e8c089 586-600,613-619,623-625,630-632,638-640,643-646,669-677
+  s_e0175fb4b4f942::t_4c39d370d90c75 991-1019
+  s_e0175fb4b4f942::t_ff785ef9759118 689-691,708-714
+  s_e0175fb4b4f942::t_3cb3660cc7ff70 1022-1038,1041-1053,1055-1076
+src/app/api/slots/book-resource/route.ts
+  s_e0175fb4b4f942::t_b33322114b4c19 709-726,731-765
+  s_e0175fb4b4f942::t_59323f8e384434 727-730
+  s_e0175fb4b4f942::t_c0d74119f9fc20 604-608
+  s_e0175fb4b4f942::t_44e3323cbd8057 255-280
+  s_e0175fb4b4f942::t_c44f3227613c0c 159,162
+  s_e0175fb4b4f942::t_a2dbcd7a4a80cc 24
+  s_e0175fb4b4f942::t_5d43961f2d7114 73-83
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.4",
+  "base_commit_sha": "c60b7949d66012408efcb1f00240616bd103a549",
+  "prompts": {},
+  "sessions": {
+    "s_e0175fb4b4f942": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "f3864c65-ac36-4572-a64e-c1d488c0cbdf",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Waheed <waheeddar8@gmail.com>"
+    }
+  }
+}
