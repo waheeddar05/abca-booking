@@ -1,0 +1,56 @@
+src/app/api/slots/book-resource/route.ts
+  s_e0175fb4b4f942::t_cb23b12910b746 121
+  s_e0175fb4b4f942::t_946f4db5eede21 223-240,244,247,277-280,295-296
+  s_e0175fb4b4f942::t_98ebc54a7ebc55 25
+src/app/api/admin/bookings/route.ts
+  s_e0175fb4b4f942::t_79df2de9f59857 395-399,413
+  s_e0175fb4b4f942::t_02a441ca13574e 606
+  s_e0175fb4b4f942::t_bcc5004530d544 318-333,335-336,343-346,349
+  s_e0175fb4b4f942::t_24c4b6944939e8 578
+  s_e0175fb4b4f942::t_f9d9df1176089c 626,628-629,634
+  s_e0175fb4b4f942::t_ce2ac70630486b 12
+  s_e0175fb4b4f942::t_3dd7f05d4ff7ff 489-493,506
+  s_e0175fb4b4f942::t_523307fc2c1e00 548-552,556,561
+src/app/api/payments/verify/route.ts
+  s_e0175fb4b4f942::t_5bae680fe9507c 373
+  s_e0175fb4b4f942::t_830ce735d29f38 14
+  s_e0175fb4b4f942::t_bd7b714a0ebf0c 349,353
+  s_e0175fb4b4f942::t_be3880ea912996 149,162,178,196
+  s_e0175fb4b4f942::t_0b49aef42711b1 46-59,61,66,71,82
+  s_e0175fb4b4f942::t_f289af2146df78 317,327,330
+  s_e0175fb4b4f942::t_cf2a909538d7e0 243,247-252,259,269,271,275,277
+src/lib/logger.ts
+  s_e0175fb4b4f942::t_8ca8b35089401d 1-188
+src/app/api/slots/book/route.ts
+  s_e0175fb4b4f942::t_32959d6072884b 21
+  s_e0175fb4b4f942::t_136d26ccf38079 125-141
+  s_e0175fb4b4f942::t_cfb7e2bf271a78 176
+  s_e0175fb4b4f942::t_72df2495cbaed8 1001,1034-1037,1048-1049,1061
+src/app/api/slots/cancel/route.ts
+  s_e0175fb4b4f942::t_670f5ea8a8660d 420,423
+  s_e0175fb4b4f942::t_0469ddaa876b69 347-351,357
+  s_e0175fb4b4f942::t_e72173e3c9166f 105-108
+  s_e0175fb4b4f942::t_2184fb64a95270 160-164,191
+  s_e0175fb4b4f942::t_2c145e51aa4c22 32-45,47,52,60,72
+  s_e0175fb4b4f942::t_0944800531ea67 10
+  s_e0175fb4b4f942::t_f4c9dfcd629374 397
+  s_e0175fb4b4f942::t_954d3d07d51333 127-130
+  s_e0175fb4b4f942::t_0502d8f0163df0 271-275,303
+  s_e0175fb4b4f942::t_9b727ef872d244 427
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.4",
+  "base_commit_sha": "561a7502cb0db9957b114f9366b2dab2188e51ae",
+  "prompts": {},
+  "sessions": {
+    "s_e0175fb4b4f942": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "f3864c65-ac36-4572-a64e-c1d488c0cbdf",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Waheed <waheeddar8@gmail.com>"
+    }
+  }
+}
