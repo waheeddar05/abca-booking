@@ -7,6 +7,7 @@ import { creditWallet, getDefaultRefundMethod, isWalletEnabled } from '@/lib/wal
 import { notifyBookingCancelled, notifyWalletCredit, notifyOperatorBookingCancelled } from '@/lib/notifications';
 import { MACHINES } from '@/lib/constants';
 import { adjustSiblingPricesForCancellation } from '@/lib/booking-cancellation';
+import { log } from '@/lib/logger';
 
 export async function POST(req: NextRequest) {
   try {
@@ -28,11 +29,27 @@ export async function POST(req: NextRequest) {
       where: { id: bookingId },
     });
 
+    // Structured log context — one search by email pulls the whole
+    // cancellation + refund history for support investigations.
+    const ctx = {
+      op: user.role === 'ADMIN' ? 'booking.cancel.admin' : 'booking.cancel.user',
+      user: { id: user.id, email: user.email, name: user.name, role: user.role },
+      centerId: booking?.centerId ?? null,
+      bookingId,
+      extra: {
+        bookingPrice: booking?.price ?? null,
+        paymentMethod: booking?.paymentMethod ?? null,
+        category: booking?.category ?? null,
+      },
+    } as const;
+
     if (!booking) {
+      log.warn(ctx, 'Booking not found');
       return NextResponse.json({ error: 'Booking not found' }, { status: 404 });
     }
 
     if (booking.userId !== userId && user.role !== 'ADMIN') {
+      log.warn(ctx, `Ownership mismatch: booking.userId=${booking.userId}`);
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
@@ -40,6 +57,7 @@ export async function POST(req: NextRequest) {
     if (user.role !== 'ADMIN') {
       const now = getISTTime();
       if (isBefore(booking.startTime, now)) {
+        log.warn(ctx, 'Refused: cannot cancel past session');
         return NextResponse.json({ error: 'Cannot cancel past sessions' }, { status: 400 });
       }
     }
@@ -50,6 +68,8 @@ export async function POST(req: NextRequest) {
         ? `Cancelled by Admin (${cancelledByName})`
         : `Cancelled by User (${cancelledByName})`
     );
+
+    log.info(ctx, `Cancel start — reason: ${cancelReason}`);
 
     await prisma.booking.update({
       where: { id: bookingId },
@@ -82,7 +102,10 @@ export async function POST(req: NextRequest) {
     // helper. Mutates booking.price in-place when an adjustment lands.
     const consecutiveAdjustment = await adjustSiblingPricesForCancellation(booking);
     if (consecutiveAdjustment > 0) {
-      console.log(`[Cancel] Booking ${bookingId}: consecutive adjustment ₹${consecutiveAdjustment}, refundablePrice=${booking.price}`);
+      log.info(
+        { ...ctx, extra: { ...ctx.extra, consecutiveAdjustment, refundablePrice: booking.price } },
+        'Sibling reprice applied',
+      );
     }
 
     // ─── Refund Logic ─────────────────────────────────────────────────
@@ -101,7 +124,10 @@ export async function POST(req: NextRequest) {
         where: { bookingId, status: { not: 'FAILED' } },
       });
       const alreadyRefunded = existingRefunds.reduce((sum, r) => sum + r.amount, 0);
-      console.log(`[Cancel] Refund calc for ${bookingId}: bookingPrice=${booking.price}, paymentMethod=${booking.paymentMethod}, alreadyRefunded=${alreadyRefunded}, consecutiveAdj=${consecutiveAdjustment}`);
+      log.info(
+        { ...ctx, op: 'payment.refund', extra: { ...ctx.extra, alreadyRefunded, consecutiveAdjustment } },
+        'Refund calculation',
+      );
 
       // Case 1: Wallet-paid booking — refund remaining to wallet
       if (booking.paymentMethod === 'WALLET' && booking.paymentStatus === 'PAID' && booking.userId && booking.price && booking.price > 0) {
@@ -131,6 +157,11 @@ export async function POST(req: NextRequest) {
             newBalance: walletResult.newBalance,
           };
 
+          log.info(
+            { ...ctx, op: 'payment.refund', amount: remainingRefund, extra: { ...ctx.extra, refundMethod: 'WALLET', newWalletBalance: walletResult.newBalance, source: 'wallet-paid-booking' } },
+            'Wallet refund processed',
+          );
+
           // Create Refund record so the refund button is correctly disabled
           await prisma.refund.create({
             data: {
@@ -157,7 +188,7 @@ export async function POST(req: NextRequest) {
               mobileNumber: notifUser?.mobileVerified ? notifUser.mobileNumber : null,
             });
           } catch (notifErr) {
-            console.error('Wallet credit notification failed:', notifErr);
+            log.error(ctx, 'Wallet credit notification failed', notifErr);
           }
         } else {
           // Already fully refunded — just update payment status
@@ -237,6 +268,11 @@ export async function POST(req: NextRequest) {
                 newBalance: walletResult.newBalance,
               };
 
+              log.info(
+                { ...ctx, op: 'payment.refund', amount: remainingRefund, paymentId: payment.id, razorpayPaymentId: payment.razorpayPaymentId, extra: { ...ctx.extra, refundMethod: 'WALLET', newWalletBalance: walletResult.newBalance, source: 'online-paid-booking' } },
+                'Wallet refund processed (online payment)',
+              );
+
               // Create Refund record so the refund button is correctly disabled
               await prisma.refund.create({
                 data: {
@@ -264,7 +300,7 @@ export async function POST(req: NextRequest) {
                   mobileNumber: notifUser?.mobileVerified ? notifUser.mobileNumber : null,
                 });
               } catch (notifErr) {
-                console.error('Wallet credit notification failed:', notifErr);
+                log.error(ctx, 'Wallet credit notification failed', notifErr);
               }
             } else {
               // Razorpay refund — use the originating center's account.
@@ -308,12 +344,17 @@ export async function POST(req: NextRequest) {
                   initiatedById: user.id,
                 },
               });
+
+              log.info(
+                { ...ctx, op: 'payment.refund', amount: remainingRefund, paymentId: payment.id, razorpayPaymentId: payment.razorpayPaymentId, extra: { ...ctx.extra, refundMethod: 'RAZORPAY', razorpayRefundId: refund.id } },
+                'Razorpay refund initiated',
+              );
             }
           }
         }
       }
     } catch (refundErr) {
-      console.error('Refund failed (booking still cancelled):', refundErr);
+      log.error(ctx, 'Refund failed (booking still cancelled)', refundErr);
     }
 
     // Send cancellation notification
@@ -353,7 +394,7 @@ export async function POST(req: NextRequest) {
         });
       }
     } catch (notifErr) {
-      console.error('Cancellation notification failed:', notifErr);
+      log.error(ctx, 'Cancellation notification failed', notifErr);
     }
 
     // ─── Notify Assigned Operator about Cancellation ──────────────────
@@ -376,12 +417,14 @@ export async function POST(req: NextRequest) {
         });
       }
     } catch (opNotifErr) {
-      console.error('Failed to notify operator about cancellation:', opNotifErr);
+      log.error(ctx, 'Failed to notify operator about cancellation', opNotifErr);
     }
+
+    log.info({ ...ctx, extra: { ...ctx.extra, refundMethod: refundResult?.method ?? 'NONE', refundAmount: refundResult?.amount ?? 0 } }, 'Cancellation complete');
 
     return NextResponse.json({ message: 'Booking cancelled', refund: refundResult });
   } catch (error) {
-    console.error('Cancel booking error:', error);
+    log.error({ op: 'booking.cancel' }, 'Unhandled error', error);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }

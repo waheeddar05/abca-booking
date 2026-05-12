@@ -11,6 +11,7 @@ import {
   ResourceBookingServiceError,
 } from '@/app/api/slots/book-resource/route';
 import { BookingResourceError } from '@/lib/resource-booking';
+import { log } from '@/lib/logger';
 
 // POST /api/payments/verify - Verify payment and complete booking/purchase
 export async function POST(req: NextRequest) {
@@ -42,15 +43,32 @@ export async function POST(req: NextRequest) {
       where: { id: paymentId },
     });
 
+    // Base log context for every line in this handler. Always includes
+    // the action user's id + email so a support engineer can grep one
+    // line in Vercel and pull the entire verify lifecycle.
+    const baseCtx = {
+      op: 'payment.verify',
+      user: { id: user.id, email: user.email, name: user.name },
+      centerId: payment?.centerId ?? null,
+      paymentId,
+      razorpayOrderId: razorpay_order_id,
+      razorpayPaymentId: razorpay_payment_id,
+      amount: payment?.amount ?? null,
+      extra: { paymentType: payment?.paymentType ?? null },
+    } as const;
+
     if (!payment) {
+      log.warn(baseCtx, 'Payment record not found');
       return NextResponse.json({ error: 'Payment record not found' }, { status: 404 });
     }
 
     if (payment.userId !== user.id) {
+      log.warn(baseCtx, `Ownership mismatch: payment.userId=${payment.userId}`);
       return NextResponse.json({ error: 'Payment does not belong to this user' }, { status: 403 });
     }
 
     if (payment.razorpayOrderId !== razorpay_order_id) {
+      log.warn(baseCtx, `Order ID mismatch: stored=${payment.razorpayOrderId}`);
       return NextResponse.json({ error: 'Order ID mismatch' }, { status: 400 });
     }
 
@@ -61,7 +79,7 @@ export async function POST(req: NextRequest) {
     // to /bookings. Same story for REFUNDED (the webhook + auto-refund
     // already handled the failure).
     if (payment.status === 'CAPTURED') {
-      console.log(`[PaymentVerify user=${user.id}] Payment ${paymentId} already CAPTURED (likely by webhook). Returning current state.`);
+      log.info(baseCtx, 'Payment already CAPTURED (likely by webhook); returning current state');
       if (payment.bookingIds.length > 0) {
         const existing = await prisma.booking.findMany({
           where: { id: { in: payment.bookingIds } },
@@ -128,6 +146,7 @@ export async function POST(req: NextRequest) {
     }
 
     if (payment.status === 'REFUNDED') {
+      log.info(baseCtx, `Payment already REFUNDED (amount=₹${payment.refundAmount ?? 0})`);
       return NextResponse.json({
         success: false,
         error: payment.failureReason || 'Payment was refunded',
@@ -140,6 +159,7 @@ export async function POST(req: NextRequest) {
     }
 
     if (payment.status !== 'CREATED' && payment.status !== 'CAPTURED') {
+      log.warn(baseCtx, `Cannot verify — payment in non-verifiable state (status=${payment.status})`);
       return NextResponse.json({
         error: `Payment cannot be verified (status=${payment.status})`,
       }, { status: 400 });
@@ -155,7 +175,7 @@ export async function POST(req: NextRequest) {
     });
 
     if (!isValid) {
-      console.error(`[PaymentVerify user=${user.id} name=${user.name || 'N/A'}] Invalid signature for payment ${paymentId}, order ${razorpay_order_id}`);
+      log.error(baseCtx, 'Invalid Razorpay signature on verify');
       // Only flip to FAILED when the Payment is still in CREATED — once
       // it's been promoted to CAPTURED (by us or the webhook) it would
       // be wrong to revert that on a stale verify call.
@@ -173,7 +193,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Payment verification failed' }, { status: 400 });
     }
 
-    console.log(`[PaymentVerify user=${user.id} name=${user.name || 'N/A'}] Payment verified successfully: ${paymentId}, razorpay=${razorpay_payment_id}, type=${payment.paymentType}, currentStatus=${payment.status}`);
+    log.info(baseCtx, `Signature verified (currentStatus=${payment.status})`);
     // Mark as captured (idempotent — webhook may have already done this).
     // We always re-write the razorpay payment id + signature so the row
     // captures both event sources.
@@ -220,16 +240,23 @@ export async function POST(req: NextRequest) {
           select: { id: true, name: true, bookingModel: true },
         });
         if (!center) {
+          log.error(baseCtx, 'Center missing while verifying payment');
           throw new Error(`Center ${payment.centerId} not found while verifying payment ${payment.id}`);
         }
 
-        console.log(`[PaymentVerify user=${user.id} name=${user.name || 'N/A'}] Creating bookings atomically for payment ${payment.id} (${bookingPayload.length} slot(s), bookingModel=${center.bookingModel})`);
+        log.info({
+          ...baseCtx,
+          centerId: center.id,
+          centerSlug: center.name,
+          extra: { ...baseCtx.extra, slots: bookingPayload.length, bookingModel: center.bookingModel },
+        }, 'Creating bookings atomically');
 
         if (center.bookingModel === 'RESOURCE_BASED') {
           try {
             const raw = bookingPayload[0];
             const parsed = ResourceBookingBodySchema.safeParse(raw);
             if (!parsed.success) {
+              log.error(baseCtx, `Resource booking payload invalid: ${JSON.stringify(parsed.error.issues)}`);
               throw new Error(`Resource booking payload invalid: ${JSON.stringify(parsed.error.issues)}`);
             }
             const bookings = await executeResourceBooking(user, parsed.data, center, {
@@ -239,15 +266,15 @@ export async function POST(req: NextRequest) {
             await prisma.payment.update({
               where: { id: payment.id },
               data: { bookingIds: bookings.map(b => b.id) },
-            }).catch((e) => console.error(`[PaymentVerify] Failed to link bookingIds on ${payment.id}:`, e));
+            }).catch((e) => log.error(baseCtx, 'Failed to link bookingIds on payment row', e));
 
-            console.log(`[PaymentVerify user=${user.id}] Resource bookings created: ${bookings.map(b => b.id).join(', ')}`);
+            log.info({ ...baseCtx, bookingIds: bookings.map(b => b.id) }, 'Resource bookings created successfully');
             result = { bookings };
           } catch (bookingErr) {
             const errMsg = bookingErr instanceof Error ? bookingErr.message : 'Resource booking creation failed after payment';
-            console.error(`[PaymentVerify user=${user.id}] Resource booking failed after CAPTURED:`, bookingErr);
+            log.error(baseCtx, 'Resource booking failed after CAPTURED', bookingErr);
             await markCaptureNeedsRecovery(payment.id, errMsg).catch((e) =>
-              console.error(`[PaymentVerify] Failed to mark recovery flag on ${payment.id}:`, e),
+              log.error(baseCtx, 'Failed to mark recovery flag', e),
             );
             const status = bookingErr instanceof ResourceBookingServiceError
               ? bookingErr.status
@@ -287,7 +314,7 @@ export async function POST(req: NextRequest) {
             onlinePaymentId: payment.id,
           });
 
-          console.log(`[PaymentVerify user=${user.id}] Bookings created successfully: ${bookings.map(b => b.id).join(', ')}`);
+          log.info({ ...baseCtx, bookingIds: bookings.map(b => b.id) }, 'Bookings created successfully');
           result = { bookings };
         } catch (bookingErr) {
           // Booking failed after payment was captured. executeSlotBooking
@@ -297,10 +324,10 @@ export async function POST(req: NextRequest) {
           // payment row so the orphan-recovery admin endpoint can find
           // it later. Returning 5xx so the client also alerts the user.
           const errMsg = bookingErr instanceof Error ? bookingErr.message : 'Booking creation failed after payment';
-          console.error(`[PaymentVerify user=${user.id}] Booking creation failed after payment CAPTURED:`, bookingErr);
+          log.error(baseCtx, 'Booking creation failed after payment CAPTURED', bookingErr);
 
           await markCaptureNeedsRecovery(payment.id, errMsg).catch((e) =>
-            console.error(`[PaymentVerify] Failed to mark recovery flag on ${payment.id}:`, e),
+            log.error(baseCtx, 'Failed to mark recovery flag', e),
           );
 
           const extra = bookingErr instanceof BookingServiceError ? bookingErr.extra : {};
@@ -319,11 +346,11 @@ export async function POST(req: NextRequest) {
         // that path created money-without-service incidents in prod.
         // Now: log + flag for recovery + return a 5xx so the frontend
         // alerts the user instead of confirming a non-existent booking.
-        console.error(`[PaymentVerify user=${user.id}] No bookingPayload in payment metadata for ${payment.id} — refusing to silent-success`);
+        log.error(baseCtx, 'No bookingPayload in payment.metadata — refusing silent-success');
         await markCaptureNeedsRecovery(
           payment.id,
           'Verify called but bookingPayload missing in payment.metadata',
-        ).catch((e) => console.error(`[PaymentVerify] Failed to flag ${payment.id}:`, e));
+        ).catch((e) => log.error(baseCtx, 'Failed to flag for recovery', e));
         return NextResponse.json({
           success: false,
           error:
@@ -343,7 +370,7 @@ export async function POST(req: NextRequest) {
       ...result,
     });
   } catch (error) {
-    console.error('Payment verify error:', error);
+    log.error({ op: 'payment.verify' }, 'Unhandled error', error);
     const message = error instanceof Error ? error.message : 'Payment verification failed';
     return NextResponse.json({ error: message }, { status: 500 });
   }

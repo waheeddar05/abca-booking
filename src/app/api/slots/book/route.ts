@@ -18,6 +18,7 @@ import { resolveCurrentCenter } from '@/lib/centers';
 import { autoAssignOperator, getOperatorCount } from '@/lib/operatorAssign';
 import { getAllApplicablePromoDiscounts } from '@/lib/promotionalOffers';
 import { calculateStackedDiscount } from '@/lib/specialUsers';
+import { log } from '@/lib/logger';
 
 /** Typed user shape from getAuthenticatedUser */
 export type AuthenticatedUser = {
@@ -121,7 +122,23 @@ export async function executeSlotBooking(
   options?: { onlinePaymentId?: string },
 ): Promise<Array<{ id: string; status: string }>> {
   const onlinePaymentId = options?.onlinePaymentId || slotsToBook[0]?.paymentId as string | undefined;
-  const logPrefix = `[Booking user=${user.id} name=${user.name || 'N/A'} center=${centerId}]`;
+  // Structured log context — every line under this booking attempt carries
+  // the same op tag + identifiers, so a Vercel search by email/paymentId
+  // pulls the full attempt history.
+  const ctx = {
+    op: 'booking.create.machinepitch',
+    user: { id: user.id, email: user.email, name: user.name },
+    centerId,
+    paymentId: onlinePaymentId ?? null,
+    extra: {
+      slots: slotsToBook.length,
+      machineId: (slotsToBook[0]?.machineId as string | undefined) ?? null,
+      ballType: (slotsToBook[0]?.ballType as string | undefined) ?? null,
+      pitchType: (slotsToBook[0]?.pitchType as string | undefined) ?? null,
+      paymentMethod: (slotsToBook[0]?.paymentMethod as string | undefined) ?? (onlinePaymentId ? 'ONLINE' : 'NONE'),
+      userPackageId: (slotsToBook[0]?.userPackageId as string | undefined) ?? null,
+    },
+  } as const;
 
   try {
     if (slotsToBook.length === 0) {
@@ -156,7 +173,7 @@ export async function executeSlotBooking(
     const isCashPayment = requestedPaymentMethod === 'CASH';
     const isWalletPayment = requestedPaymentMethod === 'WALLET';
 
-    console.log(`${logPrefix} Starting booking: ${slotsToBook.length} slot(s), payment=${requestedPaymentMethod || 'ONLINE'}, onlinePaymentId=${onlinePaymentId || 'none'}`);
+    log.info(ctx, 'Booking attempt start');
 
     // Kit rental - read config from policy (server-side truth)
     const kitRentalRequested = !!slotsToBook[0]?.kitRental;
@@ -981,7 +998,7 @@ export async function executeSlotBooking(
       }
     }
 
-    console.log(`${logPrefix} Booking completed successfully: ${results.length} booking(s) created [${results.map(r => r.id).join(', ')}]`);
+    log.info({ ...ctx, bookingIds: results.map(r => r.id) }, `Booking success — ${results.length} row(s) created`);
     return results;
   } catch (error: unknown) {
     // ─── Auto-Refund on Booking Failure ─────────────────────────────
@@ -1014,7 +1031,10 @@ export async function executeSlotBooking(
             },
           });
 
-          console.log(`${logPrefix} Auto-refunded ₹${refundAmount} to wallet for failed booking (payment: ${onlinePaymentId})`);
+          log.info(
+            { ...ctx, op: 'payment.refund', amount: refundAmount, extra: { ...ctx.extra, refundMethod: 'WALLET', newWalletBalance: walletResult.newBalance } },
+            'Auto-refunded to wallet after booking failure',
+          );
 
           const errMessage = error instanceof Error ? error.message : 'Booking failed';
           throw new BookingServiceError(
@@ -1025,8 +1045,8 @@ export async function executeSlotBooking(
         }
       } catch (refundErr) {
         if (refundErr instanceof BookingServiceError) throw refundErr;
-        console.error(`${logPrefix} CRITICAL: Auto-refund failed after booking failure:`, refundErr);
-        console.error(`${logPrefix} Original booking error:`, error);
+        log.error(ctx, 'CRITICAL: auto-refund failed after booking failure', refundErr);
+        log.error(ctx, 'Original booking error', error);
       }
     }
 
@@ -1038,7 +1058,7 @@ export async function executeSlotBooking(
       throw new BookingServiceError(error.message, 409);
     }
     const message = error instanceof Error ? error.message : 'Internal server error';
-    console.error(`${logPrefix} Booking error:`, error);
+    log.error(ctx, 'Booking error', error);
     throw new BookingServiceError(message, 400);
   }
 }

@@ -22,6 +22,7 @@ import { sanitizeApiError } from '@/lib/api-errors';
 import { dateStringToUTC } from '@/lib/time';
 import { isSlotPaymentRequired } from '@/lib/razorpay';
 import { creditWallet, debitWallet, getWalletBalance, isWalletEnabled } from '@/lib/wallet';
+import { log } from '@/lib/logger';
 
 /**
  * POST /api/slots/book-resource
@@ -117,6 +118,7 @@ const MAX_TX_RETRIES = 3;
 type AuthedUser = {
   id: string;
   name?: string | null;
+  email?: string | null;
   role?: string;
   isSuperAdmin?: boolean;
 };
@@ -218,17 +220,31 @@ export async function executeResourceBooking(
   }
 
   const onlinePaymentId = options.onlinePaymentId;
-  const logPrefix = `[ResourceBooking user=${user.id} center=${center.id}${onlinePaymentId ? ` payment=${onlinePaymentId}` : ''}]`;
-  console.log(
-    `${logPrefix} Booking start: ${body.slots.length} slot(s), category=${body.category}, machineId=${body.machineId ?? 'none'}, pitchType=${body.pitchType ?? 'none'}, ballType=${body.ballType ?? 'none'}, paymentMethod=${body.paymentMethod ?? 'ONLINE'}, walletDeduction=${body.walletDeduction ?? 0}`,
-  );
+  const ctx = {
+    op: 'booking.create.resource',
+    user: { id: user.id, email: user.email, name: user.name },
+    centerId: center.id,
+    centerSlug: center.name,
+    paymentId: onlinePaymentId ?? null,
+    extra: {
+      slots: body.slots.length,
+      category: body.category,
+      machineId: body.machineId ?? null,
+      pitchType: body.pitchType ?? null,
+      ballType: body.ballType ?? null,
+      paymentMethod: body.paymentMethod ?? (onlinePaymentId ? 'ONLINE' : 'NONE'),
+      walletDeduction: body.walletDeduction ?? 0,
+    },
+  } as const;
+
+  log.info(ctx, 'Booking attempt start');
 
   try {
     const created = await executeResourceBookingCore(user, body, center, { onlinePaymentId });
-    console.log(`${logPrefix} Booking success: ${created.length} row(s) created [${created.map(b => b.id).join(', ')}]`);
+    log.info({ ...ctx, bookingIds: created.map(b => b.id) }, `Booking success — ${created.length} row(s) created`);
     return created;
   } catch (error) {
-    console.error(`${logPrefix} Booking failed:`, error);
+    log.error(ctx, 'Booking failed', error);
 
     // Auto-refund-to-wallet when a Razorpay-captured payment can't be
     // turned into a booking. Mirrors executeSlotBooking's recovery
@@ -258,7 +274,10 @@ export async function executeResourceBooking(
               failureReason: `Booking failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
             },
           });
-          console.log(`${logPrefix} Auto-refunded ₹${refundAmount} to wallet (new balance: ₹${walletResult.newBalance})`);
+          log.info(
+            { ...ctx, op: 'payment.refund', amount: refundAmount, extra: { ...ctx.extra, refundMethod: 'WALLET', newWalletBalance: walletResult.newBalance } },
+            'Auto-refunded to wallet after booking failure',
+          );
 
           const errMessage = error instanceof Error ? error.message : 'Booking failed';
           throw new ResourceBookingServiceError(
@@ -273,8 +292,8 @@ export async function executeResourceBooking(
         }
       } catch (refundErr) {
         if (refundErr instanceof ResourceBookingServiceError) throw refundErr;
-        console.error(`${logPrefix} CRITICAL: auto-refund failed after booking failure:`, refundErr);
-        console.error(`${logPrefix} Original booking error:`, error);
+        log.error(ctx, 'CRITICAL: auto-refund failed after booking failure', refundErr);
+        log.error(ctx, 'Original booking error', error);
       }
     }
 

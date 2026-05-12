@@ -9,6 +9,7 @@ import { notifyBookingCancelled, notifyWalletCredit, notifyOperatorBookingCancel
 import { autoAssignOperator } from '@/lib/operatorAssign';
 import { creditWallet, isWalletEnabled, getDefaultRefundMethod } from '@/lib/wallet';
 import { adjustSiblingPricesForCancellation } from '@/lib/booking-cancellation';
+import { log } from '@/lib/logger';
 
 type MachineIdFilter = 'GRAVITY' | 'YANTRA' | 'LEVERAGE_INDOOR' | 'LEVERAGE_OUTDOOR';
 
@@ -314,17 +315,38 @@ export async function PATCH(req: NextRequest) {
 
     // Process refund when booking is cancelled by admin
     let refundInfo: string | undefined;
+
+    // Structured log context — admin attribution + booking owner so a
+    // single email search pulls every admin action against that user.
+    const adminCtx = {
+      op: 'booking.cancel.admin',
+      user: { id: authUser?.id, email: authUser?.email, name: adminName, role: 'ADMIN' },
+      targetUser: booking.userId ? { id: booking.userId } : null,
+      centerId: booking.centerId,
+      bookingId,
+      extra: {
+        bookingPrice: booking.price ?? null,
+        paymentMethod: booking.paymentMethod ?? null,
+        category: booking.category ?? null,
+      },
+    } as const;
+
     if (status === 'CANCELLED' && booking.userId) {
+      log.info(adminCtx, 'Admin cancellation start');
+
       // Reprice consecutive siblings first. The cancelled booking's
       // `price` is reduced in-place by the helper, so the refund logic
       // below automatically uses the post-adjustment amount.
       try {
         const adjustment = await adjustSiblingPricesForCancellation(booking);
         if (adjustment > 0) {
-          console.log(`[AdminCancel] Booking ${bookingId}: consecutive adjustment ₹${adjustment}, refundablePrice=${booking.price}`);
+          log.info(
+            { ...adminCtx, extra: { ...adminCtx.extra, consecutiveAdjustment: adjustment, refundablePrice: booking.price } },
+            'Sibling reprice applied',
+          );
         }
       } catch (adjErr) {
-        console.error('Consecutive pricing adjustment failed:', adjErr);
+        log.error(adminCtx, 'Consecutive pricing adjustment failed', adjErr);
       }
 
       try {
@@ -370,6 +392,11 @@ export async function PATCH(req: NextRequest) {
               ? `Refund: ₹${remainingRefund} credited to wallet (₹${alreadyRefunded} was already refunded). Balance: ₹${walletResult.newBalance}`
               : `Refund: ₹${remainingRefund} credited to wallet (Balance: ₹${walletResult.newBalance})`;
 
+            log.info(
+              { ...adminCtx, op: 'payment.refund', amount: remainingRefund, extra: { ...adminCtx.extra, refundMethod: 'WALLET', newWalletBalance: walletResult.newBalance, source: 'wallet-paid-booking', alreadyRefunded } },
+              'Wallet refund processed (admin cancel)',
+            );
+
             // Notify wallet credit
             try {
               const notifUser = await prisma.user.findUnique({
@@ -383,7 +410,7 @@ export async function PATCH(req: NextRequest) {
                 mobileNumber: notifUser?.mobileVerified ? notifUser.mobileNumber : null,
               });
             } catch (notifErr) {
-              console.error('Wallet credit notification failed:', notifErr);
+              log.error(adminCtx, 'Wallet credit notification failed', notifErr);
             }
           } else {
             // Already fully refunded — just update payment status
@@ -459,6 +486,11 @@ export async function PATCH(req: NextRequest) {
                   ? `Refund: ₹${remainingRefund} credited to wallet (₹${alreadyRefunded} was already refunded). Balance: ₹${walletResult.newBalance}`
                   : `Refund: ₹${remainingRefund} credited to wallet (Balance: ₹${walletResult.newBalance})`;
 
+                log.info(
+                  { ...adminCtx, op: 'payment.refund', amount: remainingRefund, paymentId: payment.id, razorpayPaymentId: payment.razorpayPaymentId, extra: { ...adminCtx.extra, refundMethod: 'WALLET', newWalletBalance: walletResult.newBalance, source: 'online-paid-booking', alreadyRefunded } },
+                  'Wallet refund processed (admin cancel, online payment)',
+                );
+
                 try {
                   const notifUser = await prisma.user.findUnique({
                     where: { id: booking.userId },
@@ -471,7 +503,7 @@ export async function PATCH(req: NextRequest) {
                     mobileNumber: notifUser?.mobileVerified ? notifUser.mobileNumber : null,
                   });
                 } catch (notifErr) {
-                  console.error('Wallet credit notification failed:', notifErr);
+                  log.error(adminCtx, 'Wallet credit notification failed', notifErr);
                 }
               } else {
                 // Razorpay refund — use the originating center's account.
@@ -513,14 +545,20 @@ export async function PATCH(req: NextRequest) {
                 refundInfo = alreadyRefunded > 0
                   ? `Refund: ₹${remainingRefund} will be credited to bank in 5-7 days (₹${alreadyRefunded} was already refunded)`
                   : `Refund: ₹${remainingRefund} will be credited to bank in 5-7 business days`;
+
+                log.info(
+                  { ...adminCtx, op: 'payment.refund', amount: remainingRefund, paymentId: payment.id, razorpayPaymentId: payment.razorpayPaymentId, extra: { ...adminCtx.extra, refundMethod: 'RAZORPAY', razorpayRefundId: refund.id, alreadyRefunded } },
+                  'Razorpay refund initiated (admin cancel)',
+                );
               }
             } else {
               refundInfo = `Already refunded: ₹${alreadyRefunded} was previously refunded`;
+              log.info(adminCtx, `Refund skipped — already fully refunded ₹${alreadyRefunded}`);
             }
           }
         }
       } catch (refundErr) {
-        console.error('Admin cancellation refund failed:', refundErr);
+        log.error(adminCtx, 'Admin cancellation refund failed', refundErr);
       }
 
       // Restore package session if this was a package booking
@@ -537,7 +575,7 @@ export async function PATCH(req: NextRequest) {
           });
         }
       } catch (pkgErr) {
-        console.error('Failed to restore package session:', pkgErr);
+        log.error(adminCtx, 'Failed to restore package session', pkgErr);
       }
 
       // Send cancellation notification
@@ -565,7 +603,7 @@ export async function PATCH(req: NextRequest) {
           refundInfo,
         });
       } catch (notifErr) {
-        console.error('Failed to create cancellation notification:', notifErr);
+        log.error(adminCtx, 'Failed to create cancellation notification', notifErr);
       }
 
       // Notify assigned operator about cancellation
@@ -585,13 +623,15 @@ export async function PATCH(req: NextRequest) {
           });
         }
       } catch (opNotifErr) {
-        console.error('Failed to notify operator about admin cancellation:', opNotifErr);
+        log.error(adminCtx, 'Failed to notify operator about admin cancellation', opNotifErr);
       }
+
+      log.info({ ...adminCtx, extra: { ...adminCtx.extra, refundInfo: refundInfo ?? null } }, 'Admin cancellation complete');
     }
 
     return NextResponse.json({ id: booking.id, status: booking.status, price: booking.price });
   } catch (error: any) {
-    console.error('Admin booking update error:', error);
+    log.error({ op: 'booking.cancel.admin' }, 'Admin booking update error', error);
     return NextResponse.json({ error: error?.message || 'Internal server error' }, { status: 500 });
   }
 }
