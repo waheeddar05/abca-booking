@@ -415,19 +415,24 @@ export interface ActiveBlock {
  * categories, appliesTo) are intentionally NOT applied here — callers
  * decide how to interpret them per the booking they're evaluating.
  */
-export async function getActiveBlocksForSlot(
-  centerId: string,
-  slot: BookableSlotWindow,
-): Promise<ActiveBlock[]> {
-  // Date-range filter at the DB layer; time-overlap and dow are too
-  // expressive for a SQL filter without raw SQL, so we compute them
-  // in JS over the trimmed result.
-  const dayDate = slot.date;
-  const candidates = await prisma.blockedSlot.findMany({
+/** Raw row shape returned by getDayCandidateBlocks. Internal type used
+ *  to share the prefetched list with the synchronous per-slot filter. */
+type CandidateBlock = Awaited<ReturnType<typeof getDayCandidateBlocks>>[number];
+
+/**
+ * Fetch every block whose date-range covers `date` at this center.
+ * Caller-side filtering (per-slot time/dow/audience) happens via
+ * `filterBlocksForSlotSync`. This split removes an N+1 against
+ * BlockedSlot on the resource-availability hot path — previously the
+ * route called `getActiveBlocksForSlot` per slot, each round-tripping
+ * to the DB with the same date filter.
+ */
+export async function getDayCandidateBlocks(centerId: string, date: Date) {
+  return prisma.blockedSlot.findMany({
     where: {
       centerId,
-      startDate: { lte: dayDate },
-      endDate: { gte: dayDate },
+      startDate: { lte: date },
+      endDate: { gte: date },
     },
     select: {
       id: true,
@@ -445,26 +450,29 @@ export async function getActiveBlocksForSlot(
       pitchType: true,
     },
   });
+}
 
+/** Apply the per-slot filters (day-of-week + time overlap) to a prefetched
+ *  candidate list. Pure JS, no DB. Returns the ActiveBlocks affecting the
+ *  given window — same shape `applyBlocksToAvailability` expects. */
+export function filterBlocksForSlotSync(
+  candidates: CandidateBlock[],
+  slot: BookableSlotWindow,
+): ActiveBlock[] {
   const dow = getISTDayOfWeek(slot.startTime);
   const slotStartHHMM = getISTHHMM(slot.startTime);
   const slotEndHHMM = getISTHHMM(slot.endTime);
 
   const matching: ActiveBlock[] = [];
   for (const b of candidates) {
-    // Day-of-week filter — empty array = every day in range.
     if (b.recurringDays && b.recurringDays.length > 0 && !b.recurringDays.includes(dow)) {
       continue;
     }
-
-    // Time-window overlap. null start/end = full-day block.
     if (b.startTime && b.endTime) {
       const blockStartHHMM = getISTHHMM(b.startTime);
       const blockEndHHMM = getISTHHMM(b.endTime);
-      // Overlap in HH:MM space.
       if (slotEndHHMM <= blockStartHHMM || slotStartHHMM >= blockEndHHMM) continue;
     }
-
     matching.push({
       id: b.id,
       reason: b.reason,
@@ -479,6 +487,20 @@ export async function getActiveBlocksForSlot(
     });
   }
   return matching;
+}
+
+/**
+ * Backwards-compatible wrapper. Existing callers (book-resource,
+ * resource-pricing tests) keep working; the new resource-availability
+ * hot path goes through `getDayCandidateBlocks` + `filterBlocksForSlotSync`
+ * to avoid an N+1 of the same DB filter.
+ */
+export async function getActiveBlocksForSlot(
+  centerId: string,
+  slot: BookableSlotWindow,
+): Promise<ActiveBlock[]> {
+  const candidates = await getDayCandidateBlocks(centerId, slot.date);
+  return filterBlocksForSlotSync(candidates, slot);
 }
 
 /**

@@ -18,7 +18,8 @@ import {
   getCorporateBatchConfig,
   getCorporateBatchNetsForSlot,
   computeSlotAvailability,
-  getActiveBlocksForSlot,
+  getDayCandidateBlocks,
+  filterBlocksForSlotSync,
   applyBlocksToAvailability,
 } from '@/lib/resource-booking';
 import { getResourcePricingConfig, getResourceSlotPrice } from '@/lib/resource-pricing';
@@ -30,8 +31,27 @@ import {
   recurringRuleMatches,
   computeRecurringDiscountForSlot,
 } from '@/lib/resource-discounts';
-import { getAllApplicablePromoDiscounts } from '@/lib/promotionalOffers';
+import { timeToMinutes } from '@/lib/pricing';
 import type { BookingCategory } from '@prisma/client';
+
+/** IST day-of-week (0=Sun..6=Sat) without locale formatters. */
+function getDayOfWeekIST(d: Date): number {
+  const istMs = d.getTime() + (5 * 60 + 30) * 60 * 1000;
+  return new Date(istMs).getUTCDay();
+}
+
+/** IST minutes-of-day for a Date. Used to compare against offer time
+ *  windows stored as HH:MM strings. */
+function getMinutesOfDayIST(d: Date): number {
+  const istMs = d.getTime() + (5 * 60 + 30) * 60 * 1000;
+  const ist = new Date(istMs);
+  return ist.getUTCHours() * 60 + ist.getUTCMinutes();
+}
+
+/** HH:MM string → minutes since midnight. */
+function timeStrToMinutes(s: string): number {
+  return timeToMinutes(s);
+}
 
 /**
  * GET /api/slots/resource-availability?date=YYYY-MM-DD[&center=<slug>]
@@ -84,6 +104,27 @@ export async function GET(req: NextRequest) {
 
     const recurringRules = await getCenterRecurringDiscountRules(center.id);
     const isSpecialUser = !!user && (user as { isSpecialUser?: boolean }).isSpecialUser === true;
+
+    // Promotional offers — fetched ONCE per request and filtered
+    // synchronously below. Previously the per-slot, per-category
+    // discount preview called getAllApplicablePromoDiscounts() inside
+    // a nested loop, which round-tripped to the DB ~120 times per page
+    // load on a 24-slot × 5-category center. Combined with Neon's cold-
+    // start latency, that turned the slot grid into a 10s+ experience.
+    const activePromoOffers = await prisma.promotionalOffer.findMany({
+      where: {
+        centerId: center.id,
+        isActive: true,
+        startDate: { lte: dateUTC },
+        endDate: { gte: dateUTC },
+      },
+    });
+
+    // Prefetch the day's BlockedSlot candidates once. Per-slot filter
+    // (dow + time overlap) happens synchronously inside the slot loop
+    // via `filterBlocksForSlotSync`. Saves N round-trips against the
+    // same date-range query.
+    const candidateBlocks = await getDayCandidateBlocks(center.id, dateUTC);
 
     // Fetch everything we need ONCE; per-slot work is then pure JS.
     // RESOURCE_BASED centers (Toplay et al.) deliberately read every
@@ -170,10 +211,20 @@ export async function GET(req: NextRequest) {
           startTime: slot.startTime,
           endTime: slot.endTime,
         };
-        const [batchNets, blocks] = await Promise.all([
-          getCorporateBatchNetsForSlot(center.id, slotWindow),
-          getActiveBlocksForSlot(center.id, slotWindow),
-        ]);
+        // Corporate batch — was a per-slot async call into the same
+        // policy (already prefetched as `batchConfig`). Inline the
+        // overlap check so we don't hit the policy cache per slot.
+        const batchNets = (() => {
+          if (!batchConfig.enabled || batchConfig.netsConsumed <= 0) return 0;
+          const dow = getDayOfWeekIST(slotWindow.startTime);
+          if (batchConfig.days.length > 0 && !batchConfig.days.includes(dow)) return 0;
+          const sStart = `${String(getMinutesOfDayIST(slotWindow.startTime) / 60 | 0).padStart(2, '0')}:${String(getMinutesOfDayIST(slotWindow.startTime) % 60).padStart(2, '0')}`;
+          const sEnd = `${String(getMinutesOfDayIST(slotWindow.endTime) / 60 | 0).padStart(2, '0')}:${String(getMinutesOfDayIST(slotWindow.endTime) % 60).padStart(2, '0')}`;
+          if (sEnd <= batchConfig.startTime) return 0;
+          if (sStart >= batchConfig.endTime) return 0;
+          return batchConfig.netsConsumed;
+        })();
+        const blocks = filterBlocksForSlotSync(candidateBlocks, slotWindow);
         const baseAvailability = computeSlotAvailability({
           resources,
           coaches,
@@ -270,6 +321,8 @@ export async function GET(req: NextRequest) {
         // Shown as a badge / used to update the displayed slot price.
         // Audience-aware (isSpecialUser); the actual booking will
         // recompute server-side — these numbers are the "preview".
+        const slotDayOfWeek = getDayOfWeekIST(slot.startTime);
+        const slotMinutes = getMinutesOfDayIST(slot.startTime);
         const discountsByCategory: Partial<Record<BookingCategory, {
           recurring: number;
           promo: number;
@@ -299,30 +352,41 @@ export async function GET(req: NextRequest) {
           });
           const recurringAmount = Math.min(recSummary.total, basePrice);
 
-          // Promotional offers — pick the best absolute discount on this
-          // slot. Filtered via the shared helper that already honours
-          // category + audience + day + time + machine targeting.
+          // Promotional offers — filter the prefetched list in-memory.
+          // Mirrors getAllApplicablePromoDiscounts but with category +
+          // audience + slot context applied here so we don't pay the
+          // round-trip per (slot × category).
           let promoAmount = 0;
           let promoName: string | null = null;
           const remaining = Math.max(0, basePrice - recurringAmount);
           if (remaining > 0) {
-            const allPromos = await getAllApplicablePromoDiscounts(
-              dateUTC,
-              slot.startTime,
-              null,
-              null,
-              isSpecialUser,
-              null,
-              cat,
-              center.id,
-            );
-            for (const p of allPromos) {
-              const d = p.discountType === 'PERCENTAGE'
-                ? Math.min(remaining, Math.floor((remaining * p.discountValue) / 100))
-                : Math.min(remaining, Math.floor(p.discountValue));
+            for (const offer of activePromoOffers) {
+              // Audience gate
+              if (offer.appliesTo === 'SPECIAL' && !isSpecialUser) continue;
+              if (offer.appliesTo === 'NON_SPECIAL' && isSpecialUser) continue;
+              // Day-of-week gate
+              if (offer.days && offer.days.length > 0 && !offer.days.includes(slotDayOfWeek)) continue;
+              // Time-of-day gate (offer.timeSlotStart / End are HH:MM strings)
+              if (offer.timeSlotStart && offer.timeSlotEnd) {
+                const oStart = timeStrToMinutes(offer.timeSlotStart);
+                const oEnd = timeStrToMinutes(offer.timeSlotEnd);
+                if (slotMinutes < oStart || slotMinutes >= oEnd) continue;
+              }
+              // Category gate — non-empty list means "only these
+              // categories". Empty list means "any category".
+              if (offer.categories && offer.categories.length > 0
+                && !offer.categories.includes(cat)) continue;
+              // Resource-row gate: when offer pins to specific machine
+              // rows, the grid preview ignores it (the user hasn't
+              // picked one yet). Server-side booking will re-evaluate.
+              if (offer.machineRowIds && offer.machineRowIds.length > 0) continue;
+
+              const d = offer.discountType === 'PERCENTAGE'
+                ? Math.min(remaining, Math.floor((remaining * offer.discountValue) / 100))
+                : Math.min(remaining, Math.floor(offer.discountValue));
               if (d > promoAmount) {
                 promoAmount = d;
-                promoName = p.name;
+                promoName = offer.name;
               }
             }
           }
