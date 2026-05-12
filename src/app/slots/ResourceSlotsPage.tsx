@@ -31,6 +31,7 @@ import {
   Users,
   UserCog,
   LayoutGrid,
+  Package as PackageIcon,
 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { useSession } from 'next-auth/react';
@@ -251,6 +252,25 @@ export default function ResourceSlotsPage() {
   const [useWallet, setUseWallet] = useState(false);
   const [walletBalance, setWalletBalance] = useState<number>(0);
 
+  // ─── Package redemption (Toplay parity with ABCA) ─────────────
+  // /api/packages/my returns active (non-expired) UserPackages with the
+  // resource-based axes (category, machineRowId) populated when present.
+  // The picker below filters those packages down to ones compatible with
+  // the user's current category + machineId selection.
+  interface MyPackageLite {
+    id: string;
+    packageName: string;
+    category: string | null;
+    machineRowId: string | null;
+    totalSessions: number;
+    usedSessions: number;
+    remainingSessions: number;
+    status: string;
+    pendingActivation?: boolean;
+  }
+  const [myPackages, setMyPackages] = useState<MyPackageLite[]>([]);
+  const [selectedPackageId, setSelectedPackageId] = useState<string | null>(null);
+
   // Payment gateway integration (mirrors ABCA's /slots flow). When
   // SLOT_PAYMENT_REQUIRED is on for the center, we route the booking
   // through Razorpay; the verify route then creates the bookings
@@ -279,7 +299,44 @@ export default function ResourceSlotsPage() {
   useEffect(() => {
     setSelectedSlots([]);
     setMachineId(null);
+    // Drop the selected package when the user switches category — the
+    // category gate on the server will reject it anyway. We'll let the
+    // user re-pick if a different package still applies.
+    setSelectedPackageId(null);
   }, [category]);
+
+  // Drop the package selection when the user switches machines if the
+  // selected package is pinned to a different machine row.
+  useEffect(() => {
+    if (!selectedPackageId) return;
+    const pkg = myPackages.find((p) => p.id === selectedPackageId);
+    if (pkg?.machineRowId && pkg.machineRowId !== machineId) {
+      setSelectedPackageId(null);
+    }
+  }, [machineId, selectedPackageId, myPackages]);
+
+  /** Active packages compatible with the current category + machine
+   *  selection. Mirrors the server-side gates in
+   *  `/api/slots/book-resource` (category match, machineRowId match if
+   *  pinned, status ACTIVE, sessions remaining). */
+  const eligiblePackages = useMemo(() => {
+    return myPackages.filter((p) => {
+      if (p.status !== 'ACTIVE') return false;
+      if (p.remainingSessions <= 0) return false;
+      // ABCA-shape packages have category=null and redeem against any
+      // category (legacy back-compat). Resource-shape packages must
+      // match the active category exactly.
+      if (p.category && p.category !== category) return false;
+      // If pinned to a machine row, the user must have picked that one.
+      if (p.machineRowId && p.machineRowId !== machineId) return false;
+      return true;
+    });
+  }, [myPackages, category, machineId]);
+
+  const selectedPackage = useMemo(
+    () => eligiblePackages.find((p) => p.id === selectedPackageId) ?? null,
+    [eligiblePackages, selectedPackageId],
+  );
 
   // Picking a different machine wipes pitch/ball — they're per-machine
   // — but only because the *next* effect will repopulate them with the
@@ -366,6 +423,24 @@ export default function ResourceSlotsPage() {
       setCategory(data.enabledCategories[0]);
     }
   }, [data?.enabledCategories, category]);
+
+  // Fetch the user's active packages once per center. Used by the
+  // package-redemption picker further down; gracefully no-ops on
+  // unauthenticated users (the API returns 401).
+  useEffect(() => {
+    if (!currentCenter || !session?.user) {
+      setMyPackages([]);
+      return;
+    }
+    api
+      .get<MyPackageLite[]>(`/api/packages/my`)
+      .then((res) => {
+        if (Array.isArray(res)) setMyPackages(res);
+      })
+      .catch(() => {/* non-critical; user simply can't redeem */});
+    // We intentionally don't depend on MyPackageLite (it's a local interface)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentCenter?.id, session?.user]);
 
   // Fetch availability whenever date / center changes
   useEffect(() => {
@@ -581,11 +656,20 @@ export default function ResourceSlotsPage() {
     return Math.max(0, base - disc.amount);
   };
 
+  /** Whether the active package covers every selected slot (consumes
+   *  one session per slot). If so, totalPrice drops to 0 and the
+   *  Razorpay/cash/wallet flow is skipped — the booking POSTs directly
+   *  with userPackageId. */
+  const packageCoversBooking = !!selectedPackage
+    && selectedSlots.length > 0
+    && selectedPackage.remainingSessions >= selectedSlots.length;
+
   const totalPrice = useMemo(() => {
+    if (packageCoversBooking) return 0;
     return selectedSlots.reduce((sum, s) => sum + slotPriceFor(s), 0);
     // slotPriceFor depends on every selection that affects the cascade.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedSlots, category, machineId, pitchType, ballType, data?.pricingConfig]);
+  }, [selectedSlots, category, machineId, pitchType, ballType, data?.pricingConfig, packageCoversBooking]);
 
   const toggleSlot = (slot: ResourceSlot) => {
     const idx = selectedSlots.findIndex((s) => s.startTime === slot.startTime);
@@ -660,6 +744,12 @@ export default function ResourceSlotsPage() {
         ballType: category === 'MACHINE' ? ballType : undefined,
         coachId: category === 'COACHING' ? coachId : undefined,
         staffId: category === 'SIDEARM' ? staffId : undefined,
+        // Package redemption — server validates the package belongs to
+        // the user, is at this center, active, has enough sessions, and
+        // matches the booking's category + pinned machine row.
+        ...(packageCoversBooking && selectedPackageId
+          ? { userPackageId: selectedPackageId }
+          : {}),
         ...(walletCoversAll
           ? { paymentMethod: 'WALLET' as const, walletDeduction }
           : isCashPayment
@@ -962,6 +1052,54 @@ export default function ResourceSlotsPage() {
         <label className="block text-[10px] font-medium text-accent mb-2 uppercase tracking-wider">
           Available Slots
         </label>
+        {/* Package picker — only when the user has an active package
+            compatible with the current category + machine selection.
+            Mirrors ABCA's package redemption: tapping the chip routes
+            the booking through `userPackageId`, zeros the bill, and
+            consumes one session per slot on commit. */}
+        {eligiblePackages.length > 0 && (
+          <div className="mb-4">
+            <p className="text-xs font-medium text-slate-400 mb-2 uppercase tracking-wider">
+              Redeem from package
+            </p>
+            <div className="flex flex-wrap gap-2">
+              {eligiblePackages.map((p) => {
+                const isSelected = selectedPackageId === p.id;
+                const tooFewSessions = p.remainingSessions < selectedSlots.length;
+                return (
+                  <button
+                    key={p.id}
+                    onClick={() => setSelectedPackageId(isSelected ? null : p.id)}
+                    className={`flex items-center gap-2 px-3 py-2 rounded-lg text-left transition-all border ${
+                      isSelected
+                        ? 'bg-purple-500/15 border-purple-400/50 text-purple-200'
+                        : 'bg-white/[0.04] border-white/[0.08] text-slate-300 hover:border-purple-400/30'
+                    }`}
+                    title={tooFewSessions && isSelected
+                      ? `Not enough sessions left (${p.remainingSessions}) to cover ${selectedSlots.length}`
+                      : `${p.remainingSessions} session(s) remaining`}
+                  >
+                    <PackageIcon className={`w-3.5 h-3.5 ${isSelected ? 'text-purple-300' : 'text-slate-500'}`} />
+                    <div className="min-w-0">
+                      <div className="text-[11px] font-semibold leading-tight">{p.packageName}</div>
+                      <div className="text-[9px] opacity-70">
+                        {p.remainingSessions}/{p.totalSessions} sessions left
+                      </div>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+            {selectedPackage && selectedSlots.length > 0 && (
+              <p className={`mt-2 text-[10px] ${packageCoversBooking ? 'text-emerald-400' : 'text-amber-400'}`}>
+                {packageCoversBooking
+                  ? `Will redeem ${selectedSlots.length} session${selectedSlots.length === 1 ? '' : 's'} from "${selectedPackage.packageName}" · No charge`
+                  : `Not enough sessions in "${selectedPackage.packageName}" (${selectedPackage.remainingSessions} left, ${selectedSlots.length} selected)`}
+              </p>
+            )}
+          </div>
+        )}
+
         {loading ? (
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
             {Array.from({ length: 6 }).map((_, i) => (
@@ -1088,6 +1226,7 @@ export default function ResourceSlotsPage() {
           || paymentConfig?.walletEnabled
         )
         && !isFreeBooking
+        && !packageCoversBooking
         && (
           <div className="mb-4">
             <p className="text-xs font-medium text-slate-400 mb-2 uppercase tracking-wider">Payment</p>
@@ -1178,7 +1317,15 @@ export default function ResourceSlotsPage() {
                 {format(selectedDate, 'EEE, MMM d')} &middot; {machineLabel}
               </p>
               <div className="flex items-center gap-1 mt-0.5">
-                {isFreeBooking ? (
+                {packageCoversBooking ? (
+                  // Package redemption: server consumes one session per
+                  // slot and charges nothing. Show the package label so
+                  // the user can see exactly what's being decremented.
+                  <span className="text-sm font-bold text-purple-300 uppercase tracking-wider truncate"
+                    title={`Redeem ${selectedSlots.length} session(s) from "${selectedPackage?.packageName ?? ''}"`}>
+                    Package redemption
+                  </span>
+                ) : isFreeBooking ? (
                   // Free booking (super admin or free user) — server zeroes
                   // out the price; show that here instead of the slot rate
                   // so the user isn't confused about whether they'll be

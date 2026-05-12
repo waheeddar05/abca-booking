@@ -10,8 +10,11 @@ import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { LABEL_MAP } from '@/lib/client-constants';
 import { ContactFooter } from '@/components/ContactFooter';
 import { PackageFirstBookingBanner } from '@/components/ui/PackageFirstBookingBanner';
+import { useCenter } from '@/lib/center-context';
 
 import { Wallet } from 'lucide-react';
+
+type ResourceCategory = 'MACHINE' | 'SIDEARM' | 'COACHING' | 'NET' | 'FULL_COURT';
 
 interface PackageInfo {
   id: string;
@@ -24,6 +27,16 @@ interface PackageInfo {
   totalSessions: number;
   validityDays: number;
   price: number;
+  // Resource-based (Toplay) axes. Null on legacy ABCA packages — those
+  // continue to render via machineId / machineType.
+  category?: ResourceCategory | null;
+  machineRowId?: string | null;
+  machineRow?: {
+    id: string;
+    name: string;
+    shortName?: string | null;
+    machineType?: { code: string; name: string };
+  } | null;
 }
 
 interface MyPackage {
@@ -33,6 +46,9 @@ interface MyPackage {
   ballType: string;
   wicketType: string;
   pitchTypes?: string[];
+  /** Resource-based (Toplay) targeting. Null on ABCA-style packages. */
+  category?: string | null;
+  machineRowId?: string | null;
   timingType: string;
   totalSessions: number;
   usedSessions: number;
@@ -61,6 +77,29 @@ const PACKAGE_MACHINE_CARDS: { id: MachineFilter; label: string; sub: string; ca
   { id: 'LEVERAGE_OUTDOOR', label: 'Leverage Tennis', sub: 'Outdoor', category: 'TENNIS', image: '/images/tennismachine.jpeg', dot: 'bg-green-500' },
 ];
 
+type ResourceCategoryFilter = 'all' | ResourceCategory;
+
+/** Category cards for RESOURCE_BASED centers (Toplay). Mirror the
+ *  structure of `PACKAGE_MACHINE_CARDS` so the same JSX block can
+ *  render either. `sub` carries a short tagline; `dot` is the accent
+ *  colour reused on the section header. */
+const PACKAGE_CATEGORY_CARDS: { id: ResourceCategory; label: string; sub: string; dot: string }[] = [
+  { id: 'MACHINE', label: 'Bowling Machine', sub: 'Gravity / Yantra / Leverage', dot: 'bg-red-500' },
+  { id: 'SIDEARM', label: 'Sidearm', sub: 'Specialist throws', dot: 'bg-emerald-500' },
+  { id: 'COACHING', label: 'Coaching', sub: 'Personal session with coach', dot: 'bg-amber-500' },
+  { id: 'NET', label: 'Net Only', sub: 'Just the practice net', dot: 'bg-cyan-500' },
+  { id: 'FULL_COURT', label: 'Full Court', sub: 'Entire indoor court', dot: 'bg-purple-500' },
+];
+
+const CATEGORY_LABEL: Record<string, string> = {
+  MACHINE: 'Bowling Machine',
+  SIDEARM: 'Sidearm',
+  COACHING: 'Coaching',
+  NET: 'Net Only',
+  FULL_COURT: 'Full Court',
+  CORPORATE_BATCH: 'Corporate',
+};
+
 export default function PackagesPage() {
   const { data: session } = useSession();
   const [tab, setTab] = useState<'browse' | 'my'>('my');
@@ -70,7 +109,10 @@ export default function PackagesPage() {
   const [purchasing, setPurchasing] = useState<string | null>(null);
   const [message, setMessage] = useState({ text: '', type: '' });
   const [machineFilter, setMachineFilter] = useState<MachineFilter>('all');
+  const [categoryFilter, setCategoryFilter] = useState<ResourceCategoryFilter>('all');
   const [timingFilter, setTimingFilter] = useState<'DAY' | 'EVENING' | ''>('');
+  const { currentCenter } = useCenter();
+  const isResourceCenter = currentCenter?.bookingModel === 'RESOURCE_BASED';
   const [selectedPackage, setSelectedPackage] = useState<PackageInfo | null>(null);
   const [confirmPurchaseId, setConfirmPurchaseId] = useState<string | null>(null);
   const [useWalletForPkg, setUseWalletForPkg] = useState(false);
@@ -232,17 +274,24 @@ export default function PackagesPage() {
     }
   };
 
-  const hasActiveFilter = machineFilter !== 'all' || timingFilter !== '';
+  const hasActiveFilter = isResourceCenter
+    ? (categoryFilter !== 'all' || timingFilter !== '')
+    : (machineFilter !== 'all' || timingFilter !== '');
 
   const clearFilters = () => {
     setMachineFilter('all');
+    setCategoryFilter('all');
     setTimingFilter('');
   };
 
-  // Filtered packages based on machine card + timing
+  // Filtered packages based on machine card / category card + timing
   const filteredPackages = useMemo(() => {
     let filtered = packages;
-    if (machineFilter !== 'all') {
+    if (isResourceCenter) {
+      if (categoryFilter !== 'all') {
+        filtered = filtered.filter((pkg) => pkg.category === categoryFilter);
+      }
+    } else if (machineFilter !== 'all') {
       const card = PACKAGE_MACHINE_CARDS.find(c => c.id === machineFilter);
       if (card) {
         // Filter by machineId if available, fallback to machineType category for older packages
@@ -255,10 +304,24 @@ export default function PackagesPage() {
       filtered = filtered.filter(pkg => pkg.timingType === timingFilter || pkg.timingType === 'BOTH');
     }
     return filtered;
-  }, [packages, machineFilter, timingFilter]);
+  }, [packages, machineFilter, categoryFilter, timingFilter, isResourceCenter]);
 
-  const leatherPackages = filteredPackages.filter(p => p.machineType === 'LEATHER');
-  const tennisPackages = filteredPackages.filter(p => p.machineType === 'TENNIS');
+  // ABCA-style splits — packages without a resource category fall through
+  // to these. Resource-only packages never hit them because `machineType`
+  // on a category-targeted package is the placeholder 'LEATHER' but is
+  // grouped via `resourcePackagesByCategory` below.
+  const leatherPackages = filteredPackages.filter(p => !p.category && p.machineType === 'LEATHER');
+  const tennisPackages = filteredPackages.filter(p => !p.category && p.machineType === 'TENNIS');
+
+  /** Resource packages grouped by category, preserving the order in
+   *  PACKAGE_CATEGORY_CARDS. Returned as [card, packages][] so the
+   *  render block can use the card's label + dot directly. */
+  const resourcePackagesByCategory = useMemo(() => {
+    if (!isResourceCenter) return [] as Array<[typeof PACKAGE_CATEGORY_CARDS[number], PackageInfo[]]>;
+    return PACKAGE_CATEGORY_CARDS
+      .map((card) => [card, filteredPackages.filter((p) => p.category === card.id)] as [typeof PACKAGE_CATEGORY_CARDS[number], PackageInfo[]])
+      .filter(([, pkgs]) => pkgs.length > 0);
+  }, [filteredPackages, isResourceCenter]);
 
   const getTimingLabel = (t: string) => {
     if (t === 'DAY') return 'Day';
@@ -348,7 +411,7 @@ export default function PackagesPage() {
                     <div className="bg-white/[0.04] backdrop-blur-sm rounded-xl border border-white/[0.08] p-5">
                       <div className="flex items-start justify-between mb-3">
                         <div>
-                          <div className="flex items-center gap-2 mb-1">
+                          <div className="flex items-center gap-2 mb-1 flex-wrap">
                             <h3 className="text-sm font-semibold text-white">{up.packageName}</h3>
                             <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${
                               isActive ? 'bg-green-500/15 text-green-400' :
@@ -357,6 +420,13 @@ export default function PackagesPage() {
                             }`}>
                               {up.status}
                             </span>
+                            {/* Category chip for resource-based packages
+                                (Toplay). Hidden on ABCA rows. */}
+                            {up.category && (
+                              <span className="text-[10px] px-2 py-0.5 rounded-full font-medium bg-purple-500/15 text-purple-300">
+                                {CATEGORY_LABEL[up.category] || up.category}
+                              </span>
+                            )}
                           </div>
                           <div className="flex flex-col gap-1 text-[11px] text-slate-400">
                             <span className="flex items-center gap-1">
@@ -425,7 +495,7 @@ export default function PackagesPage() {
               <div className="mb-4">
                 <div className="flex items-center justify-between mb-2">
                   <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
-                    Machine Type
+                    {isResourceCenter ? 'Category' : 'Machine Type'}
                   </label>
                   {hasActiveFilter && (
                     <button
@@ -437,6 +507,39 @@ export default function PackagesPage() {
                     </button>
                   )}
                 </div>
+                {/* Resource categories (Toplay-style centers) — replaces the
+                    legacy leather/tennis machine cards with category chips
+                    so the user filters by what they're booking, not the
+                    machine model. */}
+                {isResourceCenter ? (
+                  <div className="grid grid-cols-2 gap-1.5">
+                    {PACKAGE_CATEGORY_CARDS.map((card) => {
+                      const isSelected = categoryFilter === card.id;
+                      return (
+                        <button
+                          key={card.id}
+                          onClick={() => { setCategoryFilter(isSelected ? 'all' : card.id); setTimingFilter(''); }}
+                          className={`flex items-center gap-2 px-2 py-1.5 rounded-lg transition-all cursor-pointer text-left ${
+                            isSelected
+                              ? 'bg-accent/15 ring-1 ring-accent/50 shadow-sm'
+                              : 'bg-white/[0.04] border border-white/[0.08] hover:border-accent/30'
+                          }`}
+                        >
+                          <span className={`w-2 h-2 rounded-full flex-shrink-0 ${card.dot}`} />
+                          <div className="min-w-0">
+                            <span className={`text-[10px] font-bold leading-tight block ${isSelected ? 'text-accent' : 'text-slate-300'}`}>
+                              {card.label}
+                            </span>
+                            <p className={`text-[8px] truncate ${isSelected ? 'text-accent/70' : 'text-slate-500'}`}>
+                              {card.sub}
+                            </p>
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                ) : (
+                <>
                 {/* Leather Machines */}
                 <div className="grid grid-cols-2 gap-1.5 mb-1.5">
                   {PACKAGE_MACHINE_CARDS.filter(c => c.category === 'LEATHER').map((card) => {
@@ -501,6 +604,8 @@ export default function PackagesPage() {
                     );
                   })}
                 </div>
+                </>
+                )}
               </div>
 
               {/* Timing Filter */}
@@ -569,8 +674,27 @@ export default function PackagesPage() {
               </div>
             ) : (
               <div className="space-y-5">
-                {/* Leather Packages */}
-                {leatherPackages.length > 0 && (
+                {/* Resource-based packages (Toplay) — one section per
+                    category present in the result set. Keeps the same
+                    PackageSection visual treatment so ABCA and Toplay
+                    users get a consistent feel. */}
+                {isResourceCenter && resourcePackagesByCategory.map(([card, pkgs]) => (
+                  <PackageSection
+                    key={card.id}
+                    title={card.label}
+                    dotColor={card.dot}
+                    count={pkgs.length}
+                    packages={pkgs}
+                    showBallType={false}
+                    purchasing={purchasing}
+                    onPurchase={handlePurchase}
+                    onSelect={setSelectedPackage}
+                    getTimingLabel={getTimingLabel}
+                  />
+                ))}
+
+                {/* Leather Packages (ABCA) */}
+                {!isResourceCenter && leatherPackages.length > 0 && (
                   <PackageSection
                     title="Leather Ball Machines"
                     dotColor="bg-red-500"
@@ -584,8 +708,8 @@ export default function PackagesPage() {
                   />
                 )}
 
-                {/* Tennis Packages */}
-                {tennisPackages.length > 0 && (
+                {/* Tennis Packages (ABCA) */}
+                {!isResourceCenter && tennisPackages.length > 0 && (
                   <PackageSection
                     title="Tennis Machines"
                     dotColor="bg-green-500"
@@ -629,13 +753,20 @@ export default function PackagesPage() {
             <div className="flex items-start justify-between mb-5">
               <div>
                 <h2 className="text-lg font-bold text-white">{selectedPackage.name}</h2>
-                <span className={`inline-block mt-1 text-[10px] px-2 py-0.5 rounded-full font-semibold ${
-                  selectedPackage.machineType === 'LEATHER'
-                    ? 'bg-red-500/15 text-red-400'
-                    : 'bg-green-500/15 text-green-400'
-                }`}>
-                  {selectedPackage.machineId ? labelMap[selectedPackage.machineId] : (selectedPackage.machineType === 'LEATHER' ? 'Leather Ball Machine' : 'Tennis Machine')}
-                </span>
+                {selectedPackage.category ? (
+                  <span className="inline-block mt-1 text-[10px] px-2 py-0.5 rounded-full font-semibold bg-purple-500/15 text-purple-300">
+                    {CATEGORY_LABEL[selectedPackage.category] || selectedPackage.category}
+                    {selectedPackage.machineRow ? ` · ${selectedPackage.machineRow.shortName ?? selectedPackage.machineRow.name}` : ''}
+                  </span>
+                ) : (
+                  <span className={`inline-block mt-1 text-[10px] px-2 py-0.5 rounded-full font-semibold ${
+                    selectedPackage.machineType === 'LEATHER'
+                      ? 'bg-red-500/15 text-red-400'
+                      : 'bg-green-500/15 text-green-400'
+                  }`}>
+                    {selectedPackage.machineId ? labelMap[selectedPackage.machineId] : (selectedPackage.machineType === 'LEATHER' ? 'Leather Ball Machine' : 'Tennis Machine')}
+                  </span>
+                )}
               </div>
               <button
                 onClick={() => setSelectedPackage(null)}
@@ -648,9 +779,29 @@ export default function PackagesPage() {
             <div className="space-y-4">
               {/* Details Grid */}
               <div className="grid grid-cols-2 gap-3">
-                <DetailItem label="Machine" value={selectedPackage.machineId ? labelMap[selectedPackage.machineId] : (selectedPackage.machineType === 'LEATHER' ? 'Leather Ball' : 'Tennis')} />
-                {selectedPackage.machineType === 'LEATHER' && (
-                  <DetailItem label="Ball Type" value={labelMap[selectedPackage.ballType] || selectedPackage.ballType} />
+                {/* Category-targeted packages (Toplay) lead with the
+                    category + optional pinned machine instead of the
+                    legacy enum-based machine label. */}
+                {selectedPackage.category ? (
+                  <>
+                    <DetailItem
+                      label="Category"
+                      value={CATEGORY_LABEL[selectedPackage.category] || selectedPackage.category}
+                    />
+                    {selectedPackage.machineRow && (
+                      <DetailItem
+                        label="Machine"
+                        value={selectedPackage.machineRow.shortName ?? selectedPackage.machineRow.name}
+                      />
+                    )}
+                  </>
+                ) : (
+                  <>
+                    <DetailItem label="Machine" value={selectedPackage.machineId ? labelMap[selectedPackage.machineId] : (selectedPackage.machineType === 'LEATHER' ? 'Leather Ball' : 'Tennis')} />
+                    {selectedPackage.machineType === 'LEATHER' && (
+                      <DetailItem label="Ball Type" value={labelMap[selectedPackage.ballType] || selectedPackage.ballType} />
+                    )}
+                  </>
                 )}
                 <DetailItem
                   label="Timing"
@@ -782,6 +933,21 @@ function PackageSection({
                 <div className="min-w-0 flex-1 cursor-pointer" onClick={() => onSelect(pkg)}>
                   <h4 className="text-sm font-semibold text-white hover:text-accent transition-colors leading-tight">{pkg.name}</h4>
                   <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-1.5">
+                    {/* Resource-based axes — category + optional pinned
+                        machine row, shown ahead of the legacy machineId
+                        chip so the category is the first visual cue. */}
+                    {pkg.category && (
+                      <span className="text-[10px] text-purple-300 flex items-center gap-1">
+                        <Package className="w-3 h-3 text-purple-400/70" />
+                        {CATEGORY_LABEL[pkg.category] || pkg.category}
+                      </span>
+                    )}
+                    {pkg.machineRow && (
+                      <span className="text-[10px] text-cyan-300 flex items-center gap-1">
+                        <Package className="w-3 h-3 text-cyan-400/70" />
+                        {pkg.machineRow.shortName ?? pkg.machineRow.name}
+                      </span>
+                    )}
                     {pkg.machineId && (
                       <span className="text-[10px] text-slate-400 flex items-center gap-1">
                         <Package className="w-3 h-3 text-slate-500" />

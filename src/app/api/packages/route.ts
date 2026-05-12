@@ -28,6 +28,19 @@ export async function GET(req: NextRequest) {
         validityDays: true,
         price: true,
         extraChargeRules: true,
+        // Resource-based (Toplay) fields. Null on legacy ABCA packages;
+        // populated on category-targeted packages so the user page can
+        // surface the right chip/filter.
+        category: true,
+        machineRowId: true,
+        machineRow: {
+          select: {
+            id: true,
+            name: true,
+            shortName: true,
+            machineType: { select: { code: true, name: true } },
+          },
+        },
       },
     });
 

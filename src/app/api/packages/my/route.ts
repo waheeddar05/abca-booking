@@ -96,6 +96,9 @@ function formatUserPackage(up: any) {
     ballType: up.package.ballType,
     wicketType: up.package.wicketType,
     pitchTypes: up.package.pitchTypes || [],
+    // Resource-based axes (Toplay). Null on ABCA-style packages.
+    category: up.package.category ?? null,
+    machineRowId: up.package.machineRowId ?? null,
     timingType: up.package.timingType,
     totalSessions: up.totalSessions,
     usedSessions: up.usedSessions,

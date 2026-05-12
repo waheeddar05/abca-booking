@@ -871,11 +871,17 @@ async function executeResourceBookingCore(
                     ? 'PAID'
                     : (isFreeBooking
                         ? 'PAID'
-                        : isWalletPayment
+                        // Package redemption: user paid for the package at
+                        // purchase time, this booking just consumes one
+                        // session. Mark PAID so the bookings list /
+                        // reports don't show an outstanding balance.
+                        : isPackageRedemption
                           ? 'PAID'
-                          : isCashPayment
-                            ? 'PENDING'
-                            : 'UNPAID'),
+                          : isWalletPayment
+                            ? 'PAID'
+                            : isCashPayment
+                              ? 'PENDING'
+                              : 'UNPAID'),
                 },
                 select: { id: true, status: true },
               });
