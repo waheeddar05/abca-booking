@@ -1,0 +1,39 @@
+src/app/api/slots/resource-availability/route.ts
+  s_e0175fb4b4f942::t_9b1fa29f749f4b 129,134
+  s_e0175fb4b4f942::t_1a79b24ff23264 6
+  s_e0175fb4b4f942::t_60a2591f7b58e2 78-81,83-84,97-99
+src/lib/resource-pricing.ts
+  s_e0175fb4b4f942::t_e291d1415b6e6b 17
+  s_e0175fb4b4f942::t_7f15186dbcc704 121-125
+  s_e0175fb4b4f942::t_1c3d2a712028b0 173-180
+src/lib/policy.ts
+  s_e0175fb4b4f942::t_2dc1856dcbe489 90-136
+src/lib/resource-booking.ts
+  s_e0175fb4b4f942::t_9cf01a42235110 40
+  s_e0175fb4b4f942::t_d08242207e00c8 112-118
+src/lib/pricing.ts
+  s_e0175fb4b4f942::t_66dbde90816615 305-314,316-319,321-327
+  s_e0175fb4b4f942::t_e2ecc55eba25cc 2
+src/lib/pitch-config.ts
+  s_e0175fb4b4f942::t_37831d23c0f534 64
+  s_e0175fb4b4f942::t_655d97921cedfd 19
+  s_e0175fb4b4f942::t_a8a941a8ae3116 107
+  s_e0175fb4b4f942::t_20573c3f8b03f8 13-17
+  s_e0175fb4b4f942::t_bde2ff4e625633 74
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.4",
+  "base_commit_sha": "4bdc384fc07f098c66d26aa81156041612e654f2",
+  "prompts": {},
+  "sessions": {
+    "s_e0175fb4b4f942": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "f3864c65-ac36-4572-a64e-c1d488c0cbdf",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Waheed <waheeddar8@gmail.com>"
+    }
+  }
+}
