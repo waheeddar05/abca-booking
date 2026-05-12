@@ -1,0 +1,21 @@
+src/app/api/slots/book/route.ts
+  s_e0175fb4b4f942::t_20395f61431f16 718-723
+src/app/api/slots/book-resource/route.ts
+  s_e0175fb4b4f942::t_d7074045521cd5 823-834
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.4",
+  "base_commit_sha": "1babca0b4e129333170a776542fb651404732cfa",
+  "prompts": {},
+  "sessions": {
+    "s_e0175fb4b4f942": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "f3864c65-ac36-4572-a64e-c1d488c0cbdf",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Waheed <waheeddar8@gmail.com>"
+    }
+  }
+}
