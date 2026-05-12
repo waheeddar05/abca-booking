@@ -25,6 +25,13 @@ import { getResourcePricingConfig, getResourceSlotPrice } from '@/lib/resource-p
 import { getSidearmPitchTypes, getNetPitchTypes, getEnabledBookingCategories } from '@/lib/pitch-config';
 import { sanitizeApiError } from '@/lib/api-errors';
 import { getOperatorCount } from '@/lib/operatorAssign';
+import {
+  getCenterRecurringDiscountRules,
+  recurringRuleMatches,
+  computeRecurringDiscountForSlot,
+} from '@/lib/resource-discounts';
+import { getAllApplicablePromoDiscounts } from '@/lib/promotionalOffers';
+import type { BookingCategory } from '@prisma/client';
 
 /**
  * GET /api/slots/resource-availability?date=YYYY-MM-DD[&center=<slug>]
@@ -74,6 +81,9 @@ export async function GET(req: NextRequest) {
     if (!isAdmin && dateUTC < todayUTC) {
       return NextResponse.json({ slots: [], date: dateStr, centerId: center.id });
     }
+
+    const recurringRules = await getCenterRecurringDiscountRules(center.id);
+    const isSpecialUser = !!user && (user as { isSpecialUser?: boolean }).isSpecialUser === true;
 
     // Fetch everything we need ONCE; per-slot work is then pure JS.
     // RESOURCE_BASED centers (Toplay et al.) deliberately read every
@@ -254,6 +264,80 @@ export async function GET(req: NextRequest) {
           }),
         };
 
+        // ── Per-category discount preview ───────────────────────────
+        // For each enabled category, compute the user-visible discount
+        // (₹ off this slot) from recurring rules + promotional offers.
+        // Shown as a badge / used to update the displayed slot price.
+        // Audience-aware (isSpecialUser); the actual booking will
+        // recompute server-side — these numbers are the "preview".
+        const discountsByCategory: Partial<Record<BookingCategory, {
+          recurring: number;
+          promo: number;
+          promoName: string | null;
+          total: number;
+        }>> = {};
+
+        for (const cat of enabledCategories) {
+          const basePrice = prices[cat as BookingCategory] ?? 0;
+          if (basePrice <= 0) continue;
+
+          // Recurring (matched at category-level only — machineRowId is
+          // resolved per-machine and folded in by the client when the
+          // user picks a specific machine).
+          const matched = recurringRules.filter((rule) =>
+            recurringRuleMatches({
+              rule,
+              startTime: slot.startTime,
+              category: cat,
+              machineRowId: null,
+            }),
+          );
+          const recSummary = computeRecurringDiscountForSlot({
+            matches: matched,
+            isConsecutive: false, // grid shows single-slot estimate
+            isSpecialUser,
+          });
+          const recurringAmount = Math.min(recSummary.total, basePrice);
+
+          // Promotional offers — pick the best absolute discount on this
+          // slot. Filtered via the shared helper that already honours
+          // category + audience + day + time + machine targeting.
+          let promoAmount = 0;
+          let promoName: string | null = null;
+          const remaining = Math.max(0, basePrice - recurringAmount);
+          if (remaining > 0) {
+            const allPromos = await getAllApplicablePromoDiscounts(
+              dateUTC,
+              slot.startTime,
+              null,
+              null,
+              isSpecialUser,
+              null,
+              cat,
+              center.id,
+            );
+            for (const p of allPromos) {
+              const d = p.discountType === 'PERCENTAGE'
+                ? Math.min(remaining, Math.floor((remaining * p.discountValue) / 100))
+                : Math.min(remaining, Math.floor(p.discountValue));
+              if (d > promoAmount) {
+                promoAmount = d;
+                promoName = p.name;
+              }
+            }
+          }
+
+          const total = recurringAmount + promoAmount;
+          if (total > 0) {
+            discountsByCategory[cat] = {
+              recurring: recurringAmount,
+              promo: promoAmount,
+              promoName,
+              total,
+            };
+          }
+        }
+
         // Per-machine price map: machineId → final ₹ for this slot
         // under THAT specific machine row. Two Yantra machines at the
         // same center can have different per-row prices, so we pass
@@ -302,6 +386,9 @@ export async function GET(req: NextRequest) {
           operatorsBusy: busyOperators,
           operatorAvailable,
           selfOperate,
+          // Recurring + promo discounts by category. Empty when no rule
+          // matches; client treats missing entries as 0 discount.
+          discountsByCategory,
         };
       }),
     );

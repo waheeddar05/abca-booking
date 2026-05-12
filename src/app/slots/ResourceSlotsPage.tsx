@@ -83,6 +83,17 @@ interface ResourceSlot {
    *  the booking proceeds, but the user is expected to operate the
    *  machine themselves. Mirrors ABCA's tennis-machine self-operate. */
   selfOperate?: boolean;
+  /** Per-category discount preview. The active category's entry (if any)
+   *  is rendered as a small "₹X off" badge on the slot card and
+   *  subtracted from the displayed slot price; the actual booking
+   *  recomputes server-side. Mirrors ABCA's recurring/promo slot
+   *  badging from /api/slots/available. */
+  discountsByCategory?: Partial<Record<Category, {
+    recurring: number;
+    promo: number;
+    promoName: string | null;
+    total: number;
+  }>>;
 }
 
 interface PerSlabRates { morning: number; evening: number }
@@ -499,7 +510,21 @@ export default function ResourceSlotsPage() {
     return machines;
   }, [machines]);
 
-  const slotPriceFor = (s: ResourceSlot): number => {
+  /** Server-computed discount preview for this slot under the active
+   *  category. Returns null when no recurring or promotional offer
+   *  applies. The slot card uses this to render a "₹X off" badge and
+   *  `slotPriceFor` subtracts it from the displayed price so the user
+   *  sees what they'll actually pay (server recomputes on book). */
+  const discountFor = (s: ResourceSlot): {
+    amount: number;
+    promoName: string | null;
+  } | null => {
+    const d = s.discountsByCategory?.[category];
+    if (!d || d.total <= 0) return null;
+    return { amount: d.total, promoName: d.promoName };
+  };
+
+  const slotBaseFor = (s: ResourceSlot): number => {
     const slab = s.timeSlab;
     const cfg = data?.pricingConfig;
 
@@ -546,6 +571,14 @@ export default function ResourceSlotsPage() {
     }
 
     return cfg.categoryRates[category]?.[slab] ?? s.prices[category] ?? 0;
+  };
+
+  /** Final ₹ for this slot after applying recurring + promo discounts. */
+  const slotPriceFor = (s: ResourceSlot): number => {
+    const base = slotBaseFor(s);
+    const disc = discountFor(s);
+    if (!disc) return base;
+    return Math.max(0, base - disc.amount);
   };
 
   const totalPrice = useMemo(() => {
@@ -1019,6 +1052,24 @@ export default function ResourceSlotsPage() {
                       Self-operate
                     </div>
                   )}
+
+                  {/* Discount badge — recurring or promotional offer
+                      applicable to this slot under the active category.
+                      Mirrors ABCA's slot-grid badging from /api/slots/
+                      available. */}
+                  {!isUnavailable && (() => {
+                    const disc = discountFor(slot);
+                    if (!disc) return null;
+                    const label = disc.promoName ?? `₹${disc.amount} off`;
+                    return (
+                      <div className={`mt-1 text-[8px] font-bold px-1.5 py-0.5 rounded-full text-center truncate ${
+                        selected ? 'bg-primary/20 text-primary/80' : 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/20'
+                      }`}
+                        title={`Recurring/promo discount: ₹${disc.amount} off`}>
+                        {label}
+                      </div>
+                    );
+                  })()}
                 </button>
               );
             })}

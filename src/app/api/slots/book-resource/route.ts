@@ -25,6 +25,11 @@ import { creditWallet, debitWallet, getWalletBalance, isWalletEnabled } from '@/
 import { log } from '@/lib/logger';
 import { autoAssignOperator, getOperatorCount } from '@/lib/operatorAssign';
 import { getTimeSlab, getTimeSlabConfig } from '@/lib/pricing';
+import {
+  getCenterRecurringDiscountRules,
+  recurringRuleMatches,
+  computeRecurringDiscountForSlot,
+} from '@/lib/resource-discounts';
 
 /**
  * POST /api/slots/book-resource
@@ -628,6 +633,11 @@ async function executeResourceBookingCore(
   // morning/evening operator schedule semantics.
   const timeSlabConfig = await getTimeSlabConfig(center.id, true);
 
+  // Recurring slot discounts for this center. Fetched once and matched
+  // per-slot inside the tx — same shape ABCA uses, but matched on the
+  // resource axes (categories + machineRowIds).
+  const recurringRules = await getCenterRecurringDiscountRules(center.id);
+
     // Detect consecutive slot chains. ABCA's pricing config has a
     // separate `consecutive` price for back-to-back slot pairs;
     // resource centers use the same convention via the new
@@ -685,13 +695,47 @@ async function executeResourceBookingCore(
                     centerId: center.id,
                   });
 
+              // ── Recurring slot discount ──────────────────────────────
+              // Apply on top of basePrice (before promotional offers) so
+              // promo % discounts compute against the post-recurring price,
+              // matching ABCA's order of operations. Only for paid
+              // bookings — free/package redemptions already short-circuit
+              // basePrice to 0.
+              let priceAfterRecurring = basePrice;
+              let recurringDiscount = 0;
+              let recurringLabel: string | null = null;
+              if (basePrice > 0 && recurringRules.length > 0) {
+                const matched = recurringRules.filter((rule) =>
+                  recurringRuleMatches({
+                    rule,
+                    startTime: plan.startTime,
+                    category: plan.category,
+                    machineRowId: assignment.machineId ?? null,
+                  }),
+                );
+                const summary = computeRecurringDiscountForSlot({
+                  matches: matched,
+                  isConsecutive,
+                  isSpecialUser: audience === 'SPECIAL',
+                });
+                if (summary.total > 0) {
+                  recurringDiscount = Math.min(summary.total, basePrice);
+                  priceAfterRecurring = Math.max(0, basePrice - recurringDiscount);
+                  recurringLabel = summary.label;
+                }
+              }
+
               // Apply the best applicable promotional offer. Resource-
               // based bookings can target offers via category +
               // machineRowId in addition to the legacy enum axes.
-              let finalPrice = basePrice;
-              let discountAmount = 0;
+              let finalPrice = priceAfterRecurring;
+              let discountAmount = recurringDiscount;
               let appliedOffer: { offerId: string; name: string; discountType: 'PERCENTAGE' | 'FIXED'; discountValue: number } | null = null;
-              if (basePrice > 0) {
+              // Keep `recurringLabel` referenced even when no promo runs —
+              // it ends up in the booking's discount note via the catch-
+              // all below when no promo wins.
+              void recurringLabel;
+              if (priceAfterRecurring > 0) {
                 const allPromos = await getAllApplicablePromoDiscounts(
                   plan.date,
                   plan.startTime,
@@ -704,18 +748,22 @@ async function executeResourceBookingCore(
                 );
                 if (allPromos.length > 0) {
                   // Pick the offer that produces the largest absolute
-                  // discount on this booking.
+                  // discount. Computed against priceAfterRecurring so
+                  // the promo stacks ON TOP of any recurring discount,
+                  // matching ABCA's order of operations.
                   const computed = allPromos.map((p) => {
                     const d = p.discountType === 'PERCENTAGE'
-                      ? Math.min(basePrice, Math.floor((basePrice * p.discountValue) / 100))
-                      : Math.min(basePrice, Math.floor(p.discountValue));
+                      ? Math.min(priceAfterRecurring, Math.floor((priceAfterRecurring * p.discountValue) / 100))
+                      : Math.min(priceAfterRecurring, Math.floor(p.discountValue));
                     return { promo: p, d };
                   });
                   computed.sort((a, b) => b.d - a.d);
                   const best = computed[0];
                   if (best && best.d > 0) {
-                    discountAmount = best.d;
-                    finalPrice = basePrice - best.d;
+                    // discountAmount already carries recurringDiscount;
+                    // promo stacks on top.
+                    discountAmount = recurringDiscount + best.d;
+                    finalPrice = Math.max(0, priceAfterRecurring - best.d);
                     appliedOffer = {
                       offerId: best.promo.offerId,
                       name: best.promo.name,
@@ -810,8 +858,12 @@ async function executeResourceBookingCore(
                   discountAmount: discountAmount > 0 ? discountAmount : null,
                   // discountType uses the same enum as the offer (PERCENTAGE/
                   // FIXED) so reports can render either, mirroring the
-                  // legacy MACHINE_PITCH booking flow.
-                  discountType: appliedOffer ? appliedOffer.discountType : null,
+                  // legacy MACHINE_PITCH booking flow. Recurring-only
+                  // discounts (no promo) are labelled FIXED to match
+                  // ABCA's convention in book/route.ts.
+                  discountType: appliedOffer
+                    ? appliedOffer.discountType
+                    : (recurringDiscount > 0 ? 'FIXED' : null),
                   paymentMethod: onlinePaymentId
                     ? 'ONLINE'
                     : (body.paymentMethod ?? null),
