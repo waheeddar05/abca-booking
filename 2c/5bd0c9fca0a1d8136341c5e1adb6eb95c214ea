@@ -1,0 +1,26 @@
+src/components/admin/ResourceBlockManagement.tsx
+  s_e0175fb4b4f942::t_5b1e1c024a8076 17-22,29,33,50-51,88-117,122,130,135,143-159,170,194,213-221,231-232,248,272-345,358-359,361-396,398-402,405-426,429-461,464,466-468,471,473-474,480,485-487,490,493,496-497,500,502,509,515-595,597-602,604-613,616,618-639,641-661,663-665,667-669,671-674,676-691,693-750,752-805,807-811,813,816-1021,1023-1024
+src/app/api/admin/slots/block/route.ts
+  s_e0175fb4b4f942::t_02eff4d44d1369 334-350,397-433
+  s_e0175fb4b4f942::t_786f789af5562e 434-436
+src/app/admin/offers/page.tsx
+  s_e0175fb4b4f942::t_f8c38e4a376f09 830-841
+  s_e0175fb4b4f942::t_19b75956a9bb5f 149-271
+  s_e0175fb4b4f942::t_44e96b91eddf8e 943-953
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.4",
+  "base_commit_sha": "2c5bd0c9fca0a1d8136341c5e1adb6eb95c214ea",
+  "prompts": {},
+  "sessions": {
+    "s_e0175fb4b4f942": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "f3864c65-ac36-4572-a64e-c1d488c0cbdf",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Waheed <waheeddar8@gmail.com>"
+    }
+  }
+}
