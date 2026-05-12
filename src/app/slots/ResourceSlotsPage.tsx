@@ -95,6 +95,15 @@ interface ResourceSlot {
     promoName: string | null;
     total: number;
   }>>;
+  /** Categories blocked at this slot by an admin block. Empty when the
+   *  slot is fully open. Used to grey out the slot card for the active
+   *  category — without this, the user could tap an apparently-free
+   *  slot and only get the 409 at submit. */
+  blockedCategories?: string[];
+  /** Specific Machine rows blocked at this slot by an admin block.
+   *  When the user has pinned a MACHINE booking to one of these rows,
+   *  the slot is unbookable for them even if other machines are free. */
+  blockedMachineRowIds?: string[];
 }
 
 interface PerSlabRates { morning: number; evening: number }
@@ -483,6 +492,19 @@ export default function ResourceSlotsPage() {
 
   // Per-slot bookability under the current category
   const slotIsBookable = (s: ResourceSlot, cat: Category): { ok: boolean; reason?: string } => {
+    // Admin blocks — check before per-category capacity so the grid
+    // greys out blocked slots up front (without this, the user could
+    // tap a slot, get into the booking flow, and only see the 409
+    // "Slot blocked" error at submit).
+    const blockedCats = s.blockedCategories ?? [];
+    const blockedRows = s.blockedMachineRowIds ?? [];
+    if (blockedCats.includes(cat)) {
+      return { ok: false, reason: 'Slot blocked by admin' };
+    }
+    if (cat === 'MACHINE' && machineId && blockedRows.includes(machineId)) {
+      return { ok: false, reason: 'This machine is blocked for this slot' };
+    }
+
     if (cat === 'MACHINE') {
       if (s.freeIndoorNets.length === 0 && s.freeOutdoorResources.length === 0) {
         return { ok: false, reason: 'No nets free' };
@@ -1127,11 +1149,20 @@ export default function ResourceSlotsPage() {
                 : selected
                   ? 'bg-accent text-primary shadow-md shadow-accent/20 border border-accent'
                   : 'bg-white/[0.04] border border-white/[0.08] hover:border-accent/40 active:scale-[0.97]';
-              const statusLabel = isUnavailable
-                ? 'Not Available'
-                : selected
-                  ? 'Selected'
-                  : 'Open';
+              // "Blocked" is louder than "Not Available" — surface it so
+              // the user knows the slot was specifically taken off the
+              // schedule (vs. just being booked out).
+              const isBlocked = isUnavailable && (
+                (slot.blockedCategories ?? []).includes(category)
+                || (category === 'MACHINE' && !!machineId && (slot.blockedMachineRowIds ?? []).includes(machineId))
+              );
+              const statusLabel = isBlocked
+                ? 'Blocked'
+                : isUnavailable
+                  ? 'Not Available'
+                  : selected
+                    ? 'Selected'
+                    : 'Open';
               const statusColor = isUnavailable
                 ? 'text-red-400'
                 : selected
