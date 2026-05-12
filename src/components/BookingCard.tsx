@@ -167,6 +167,36 @@ export function BookingCard({ booking, role, renderActions, renderPrice, renderO
             {booking.pitchType === 'ASTRO' ? 'Astro' : booking.pitchType === 'CEMENT' ? 'Cement' : 'Natural'}
           </span>
         )}
+        {/* Resource-based booking chips. Hidden on ABCA rows (category
+            defaults to MACHINE everywhere) — only render the category
+            tag for non-MACHINE categories. Coach/staff name is
+            surfaced as a chip so the staff dashboard reads consistently
+            with the user-side selection. */}
+        {booking.category && booking.category !== 'MACHINE' && (
+          <span className="text-[10px] px-1.5 py-0.5 rounded font-medium bg-indigo-500/10 text-indigo-300">
+            {booking.category === 'SIDEARM' ? 'Sidearm'
+              : booking.category === 'COACHING' ? 'Coaching'
+              : booking.category === 'FULL_COURT' ? 'Full Court'
+              : booking.category === 'CORPORATE_BATCH' ? 'Corporate'
+              : booking.category === 'NET' ? 'Net only'
+              : booking.category}
+          </span>
+        )}
+        {booking.assignedMachineName && (
+          <span className="text-[10px] px-1.5 py-0.5 rounded bg-white/[0.04] text-slate-400 font-medium">
+            {booking.assignedMachineName}
+          </span>
+        )}
+        {booking.assignedCoachName && (
+          <span className="text-[10px] px-1.5 py-0.5 rounded font-medium bg-amber-500/10 text-amber-300">
+            Coach: {booking.assignedCoachName}
+          </span>
+        )}
+        {booking.assignedStaffName && (
+          <span className="text-[10px] px-1.5 py-0.5 rounded font-medium bg-cyan-500/10 text-cyan-300">
+            Staff: {booking.assignedStaffName}
+          </span>
+        )}
         {booking.operationMode && (
           <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${
             booking.operationMode === 'SELF_OPERATE' ? 'bg-orange-500/10 text-orange-400' : 'bg-blue-500/10 text-blue-400'

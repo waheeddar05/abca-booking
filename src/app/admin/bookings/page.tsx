@@ -776,6 +776,46 @@ function AdminBookingsContent() {
                           {booking.pitchType === 'ASTRO' ? 'Astro' : booking.pitchType === 'CEMENT' ? 'Cement' : 'Natural'}
                         </span>
                       )}
+                      {/* Resource-based booking chips (Toplay). Hidden
+                          on ABCA rows because category defaults to
+                          MACHINE everywhere — only show the category
+                          chip for non-MACHINE categories or when the
+                          legacy machineId is null. */}
+                      {booking.category && booking.category !== 'MACHINE' && (
+                        <span className="text-[10px] px-1.5 py-0.5 rounded font-medium bg-indigo-500/10 text-indigo-300">
+                          {booking.category === 'SIDEARM' ? 'Sidearm'
+                            : booking.category === 'COACHING' ? 'Coaching'
+                            : booking.category === 'FULL_COURT' ? 'Full Court'
+                            : booking.category === 'CORPORATE_BATCH' ? 'Corporate'
+                            : booking.category === 'NET' ? 'Net only'
+                            : booking.category}
+                        </span>
+                      )}
+                      {booking.assignedMachine && (
+                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-white/[0.04] text-slate-400 font-medium">
+                          {booking.assignedMachine.name}
+                        </span>
+                      )}
+                      {booking.assignedCoach && (
+                        <span className="text-[10px] px-1.5 py-0.5 rounded font-medium bg-amber-500/10 text-amber-300">
+                          Coach: {booking.assignedCoach.name}
+                        </span>
+                      )}
+                      {booking.assignedStaff && (
+                        <span className="text-[10px] px-1.5 py-0.5 rounded font-medium bg-cyan-500/10 text-cyan-300">
+                          Staff: {booking.assignedStaff.name}
+                        </span>
+                      )}
+                      {Array.isArray(booking.resourceAssignments)
+                        && booking.resourceAssignments.length > 0
+                        && booking.category !== 'MACHINE' && (
+                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-white/[0.04] text-slate-400 font-medium"
+                          title={booking.resourceAssignments.map((ra: { resource: { name: string } }) => ra.resource.name).join(', ')}>
+                          {booking.resourceAssignments.length === 1
+                            ? booking.resourceAssignments[0].resource.name
+                            : `${booking.resourceAssignments.length} nets`}
+                        </span>
+                      )}
                       {booking.operationMode && (
                         <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${booking.operationMode === 'SELF_OPERATE' ? 'bg-orange-500/10 text-orange-400' : 'bg-blue-500/10 text-blue-400'}`}>
                           {booking.operationMode === 'SELF_OPERATE' ? 'Self' : 'Operator'}

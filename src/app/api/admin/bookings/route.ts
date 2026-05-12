@@ -40,6 +40,30 @@ const SAFE_BOOKING_SELECT = {
   isSuperAdminBooking: true,
   kitRental: true,
   kitRentalCharge: true,
+  // Resource-based booking fields (Toplay). null on ABCA rows; the
+  // admin UI uses these to render the right chips instead of the
+  // legacy machine/pitch enums. category disambiguates the booking
+  // kind (MACHINE / SIDEARM / COACHING / FULL_COURT / NET /
+  // CORPORATE_BATCH); the three assigned* joins resolve human-
+  // readable names; resourceAssignments lists the consumed nets.
+  category: true,
+  assignedMachineId: true,
+  assignedMachine: {
+    select: {
+      id: true,
+      name: true,
+      machineType: { select: { code: true, name: true } },
+    },
+  },
+  assignedCoachId: true,
+  assignedCoach: { select: { id: true, name: true } },
+  assignedStaffId: true,
+  assignedStaff: { select: { id: true, name: true } },
+  resourceAssignments: {
+    select: {
+      resource: { select: { id: true, name: true, type: true, category: true } },
+    },
+  },
   user: { select: { name: true, email: true, mobileNumber: true } },
 } as const;
 
@@ -484,6 +508,27 @@ export async function POST(req: NextRequest) {
 
       if (!sourceBooking) {
         return NextResponse.json({ error: 'Booking not found' }, { status: 404 });
+      }
+
+      // Copy Next is the ABCA legacy (MACHINE_PITCH) consecutive flow:
+      // it only knows how to clone machineId + pitchType + ballType.
+      // Resource-based bookings (Toplay) carry assignedMachineId,
+      // assignedCoachId, assignedStaffId, and a set of consumed Resources
+      // that this flow doesn't replicate — copying would create a row
+      // with the right time but no assignments, causing availability
+      // gaps and refund chaos. Block here with a clear message; the
+      // admin can re-book the next slot through the normal flow.
+      if (sourceBooking.category && sourceBooking.category !== 'MACHINE') {
+        return NextResponse.json(
+          { error: `Copy Next is only available for machine bookings. ${sourceBooking.category} bookings must be created from the slot grid so coach/staff/resources can be reassigned.` },
+          { status: 400 },
+        );
+      }
+      if (!sourceBooking.machineId && sourceBooking.assignedMachineId) {
+        return NextResponse.json(
+          { error: 'Copy Next is not supported for resource-based bookings yet. Use the slot grid to book the next slot.' },
+          { status: 400 },
+        );
       }
 
       // Calculate next slot time (30 min after current endTime)
