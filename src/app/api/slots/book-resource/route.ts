@@ -447,6 +447,12 @@ async function executeResourceBookingCore(
   // values, or the universe when the admin left them empty) so client
   // tampering can't sneak in unsupported types.
   let machineTypeCode: string | null = null;
+  // `machineTypeBallType` (TENNIS / LEATHER / MACHINE) drives the
+  // operator-required vs self-operate gate below. Sourced from the
+  // MachineType.ballType column — the authoritative semantic. Tying the
+  // gate to the code string (LEVERAGE / YANTRA / GRAVITY) would silently
+  // miss any future machine type added with a different code.
+  let machineTypeBallType: string | null = null;
   if (body.category === 'MACHINE' && body.machineId) {
     const m = await prisma.machine.findUnique({
       where: { id: body.machineId },
@@ -461,6 +467,7 @@ async function executeResourceBookingCore(
       throw new ResourceBookingServiceError('Machine not found at this center', 400);
     }
     machineTypeCode = m.machineType.code;
+    machineTypeBallType = m.machineType.ballType;
 
     const effPitch = effectivePitchTypes(m.supportedPitchTypes);
     const effBall = effectiveBallTypes(
@@ -789,13 +796,16 @@ async function executeResourceBookingCore(
               let assignedOperatorId: string | null = null;
               let operationMode: 'WITH_OPERATOR' | 'SELF_OPERATE' = 'WITH_OPERATOR';
               if (plan.category === 'MACHINE') {
-                // Tennis-style machines (LEVERAGE) don't strictly need an
-                // operator — the user can run the machine themselves. This
-                // mirrors ABCA's logic in /api/slots/available:360-377, where
+                // Tennis machines don't strictly need an operator — the
+                // user can run the machine themselves. This mirrors
+                // ABCA's logic in /api/slots/available:360-377, where
                 // tennis machines fall back to SELF_OPERATE when all
                 // operators are busy. Leather machines (Yantra / Gravity)
-                // still hard-require an operator.
-                const isTennisMachine = machineTypeCode === 'LEVERAGE';
+                // still hard-require an operator. Gate on ballType
+                // (TENNIS / LEATHER) instead of the code string so the
+                // check survives future machine types being added with
+                // arbitrary codes.
+                const isTennisMachine = machineTypeBallType === 'TENNIS';
 
                 const operatorCount = await getOperatorCount(
                   plan.date,

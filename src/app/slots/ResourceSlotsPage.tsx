@@ -524,12 +524,15 @@ export default function ResourceSlotsPage() {
         return { ok: false, reason: 'All nets are taken at this slot' };
       }
       // Operator gating — only for non-tennis (leather) machines. Tennis
-      // machines (LEVERAGE) can self-operate, so a busy operator pool
-      // doesn't block them. Mirrors ABCA's behaviour in
-      // /api/slots/available:360-377 — leather goes to OperatorUnavailable,
-      // tennis falls back to self-operate.
+      // machines can self-operate, so a busy operator pool doesn't block
+      // them. Mirrors ABCA's behaviour in /api/slots/available:360-377 —
+      // leather goes to OperatorUnavailable, tennis falls back to
+      // self-operate. The source of truth is the machine type's
+      // ballType — relying on the code string would silently miss any
+      // future Tennis machine added with a different code than
+      // 'LEVERAGE'.
       const selectedMachine = machineId ? filteredMachines.find((m) => m.id === machineId) : null;
-      const isTennisMachine = selectedMachine?.machineType?.code === 'LEVERAGE';
+      const isTennisMachine = selectedMachine?.machineType?.ballType === 'TENNIS';
       if (!isTennisMachine && s.operatorAvailable === false && s.selfOperate === false) {
         return { ok: false, reason: 'All operators are booked for this slot' };
       }
@@ -1248,7 +1251,7 @@ export default function ResourceSlotsPage() {
                       out by `slotIsBookable`. */}
                   {category === 'MACHINE' && !isUnavailable && (() => {
                     const sel = machineId ? filteredMachines.find((m) => m.id === machineId) : null;
-                    const isTennis = sel?.machineType?.code === 'LEVERAGE';
+                    const isTennis = sel?.machineType?.ballType === 'TENNIS';
                     const showBadge = slot.selfOperate
                       || (isTennis && slot.operatorAvailable === false);
                     if (!showBadge) return null;
