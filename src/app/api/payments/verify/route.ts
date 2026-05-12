@@ -50,12 +50,99 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Payment does not belong to this user' }, { status: 403 });
     }
 
-    if (payment.status !== 'CREATED') {
-      return NextResponse.json({ error: 'Payment already processed' }, { status: 400 });
-    }
-
     if (payment.razorpayOrderId !== razorpay_order_id) {
       return NextResponse.json({ error: 'Order ID mismatch' }, { status: 400 });
+    }
+
+    // Idempotency: the Razorpay *webhook* can race the client-side verify
+    // call. If the webhook arrived first, the Payment is already CAPTURED
+    // and the bookings are already created. In that case the client must
+    // see success — not "Payment already processed" — so it can route
+    // to /bookings. Same story for REFUNDED (the webhook + auto-refund
+    // already handled the failure).
+    if (payment.status === 'CAPTURED') {
+      console.log(`[PaymentVerify user=${user.id}] Payment ${paymentId} already CAPTURED (likely by webhook). Returning current state.`);
+      if (payment.bookingIds.length > 0) {
+        const existing = await prisma.booking.findMany({
+          where: { id: { in: payment.bookingIds } },
+          select: { id: true, status: true },
+        });
+        return NextResponse.json({
+          success: true,
+          paymentId: payment.id,
+          razorpayPaymentId: payment.razorpayPaymentId,
+          type: payment.paymentType,
+          bookings: existing,
+          alreadyProcessed: true,
+        });
+      }
+      if (payment.paymentType === 'PACKAGE_PURCHASE' && payment.userPackageId) {
+        const userPackage = await prisma.userPackage.findUnique({
+          where: { id: payment.userPackageId },
+          include: { package: true },
+        });
+        return NextResponse.json({
+          success: true,
+          paymentId: payment.id,
+          razorpayPaymentId: payment.razorpayPaymentId,
+          type: payment.paymentType,
+          userPackage,
+          alreadyProcessed: true,
+        });
+      }
+      // CAPTURED but neither bookings nor a userPackage exist yet —
+      // either the webhook is currently inside its booking transaction
+      // (lost the race by milliseconds) OR the webhook failed silently
+      // earlier. Give it a brief window to finish, then re-check.
+      // Running our own booking concurrently would risk a duplicate.
+      await new Promise((r) => setTimeout(r, 1500));
+      const recheck = await prisma.payment.findUnique({ where: { id: paymentId } });
+      if (recheck && recheck.bookingIds.length > 0) {
+        const existing = await prisma.booking.findMany({
+          where: { id: { in: recheck.bookingIds } },
+          select: { id: true, status: true },
+        });
+        return NextResponse.json({
+          success: true,
+          paymentId: recheck.id,
+          razorpayPaymentId: recheck.razorpayPaymentId,
+          type: recheck.paymentType,
+          bookings: existing,
+          alreadyProcessed: true,
+        });
+      }
+      if (recheck && recheck.status === 'REFUNDED') {
+        return NextResponse.json({
+          success: false,
+          error: recheck.failureReason || 'Payment was refunded',
+          paymentId: recheck.id,
+          razorpayPaymentId: recheck.razorpayPaymentId,
+          type: recheck.paymentType,
+          refunded: true,
+          refundAmount: recheck.refundAmount,
+        }, { status: 200 });
+      }
+      // Still nothing after the wait — fall through and let this call
+      // attempt the booking. The booking engine's serializable transaction
+      // is the final defence against a duplicate.
+    }
+
+    if (payment.status === 'REFUNDED') {
+      return NextResponse.json({
+        success: false,
+        error: payment.failureReason || 'Payment was refunded',
+        paymentId: payment.id,
+        razorpayPaymentId: payment.razorpayPaymentId,
+        type: payment.paymentType,
+        refunded: true,
+        refundAmount: payment.refundAmount,
+      }, { status: 200 });
+    }
+
+    if (payment.status !== 'CREATED' && payment.status !== 'CAPTURED') {
+      return NextResponse.json({
+        error: `Payment cannot be verified (status=${payment.status})`,
+      }, { status: 400 });
     }
 
     // Verify signature against the center's Razorpay secret. Different
@@ -69,29 +156,47 @@ export async function POST(req: NextRequest) {
 
     if (!isValid) {
       console.error(`[PaymentVerify user=${user.id} name=${user.name || 'N/A'}] Invalid signature for payment ${paymentId}, order ${razorpay_order_id}`);
-      // Mark payment as failed
+      // Only flip to FAILED when the Payment is still in CREATED — once
+      // it's been promoted to CAPTURED (by us or the webhook) it would
+      // be wrong to revert that on a stale verify call.
+      if (payment.status === 'CREATED') {
+        await prisma.payment.update({
+          where: { id: paymentId },
+          data: {
+            status: 'FAILED',
+            failureReason: 'Invalid payment signature',
+            razorpayPaymentId: razorpay_payment_id,
+            razorpaySignature: razorpay_signature,
+          },
+        });
+      }
+      return NextResponse.json({ error: 'Payment verification failed' }, { status: 400 });
+    }
+
+    console.log(`[PaymentVerify user=${user.id} name=${user.name || 'N/A'}] Payment verified successfully: ${paymentId}, razorpay=${razorpay_payment_id}, type=${payment.paymentType}, currentStatus=${payment.status}`);
+    // Mark as captured (idempotent — webhook may have already done this).
+    // We always re-write the razorpay payment id + signature so the row
+    // captures both event sources.
+    if (payment.status === 'CREATED') {
       await prisma.payment.update({
         where: { id: paymentId },
         data: {
-          status: 'FAILED',
-          failureReason: 'Invalid payment signature',
+          status: 'CAPTURED',
           razorpayPaymentId: razorpay_payment_id,
           razorpaySignature: razorpay_signature,
         },
       });
-      return NextResponse.json({ error: 'Payment verification failed' }, { status: 400 });
+    } else if (!payment.razorpaySignature) {
+      // Already CAPTURED by webhook (which doesn't store the signature).
+      // Backfill so refunds + audits have the full record.
+      await prisma.payment.update({
+        where: { id: paymentId },
+        data: {
+          razorpayPaymentId: razorpay_payment_id,
+          razorpaySignature: razorpay_signature,
+        },
+      });
     }
-
-    console.log(`[PaymentVerify user=${user.id} name=${user.name || 'N/A'}] Payment verified successfully: ${paymentId}, razorpay=${razorpay_payment_id}, type=${payment.paymentType}`);
-    // Signature valid — mark as captured
-    await prisma.payment.update({
-      where: { id: paymentId },
-      data: {
-        status: 'CAPTURED',
-        razorpayPaymentId: razorpay_payment_id,
-        razorpaySignature: razorpay_signature,
-      },
-    });
 
     // Now complete the actual booking/purchase based on payment type
     let result: Record<string, unknown> = {};
