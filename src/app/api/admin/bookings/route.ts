@@ -556,8 +556,8 @@ export async function POST(req: NextRequest) {
       try {
         const { getPricingConfig, getTimeSlabConfig, calculateNewPricing } = await import('@/lib/pricing');
         const [pricingConfig, timeSlabConfig] = await Promise.all([
-          getPricingConfig(),
-          getTimeSlabConfig(),
+          getPricingConfig(sourceBooking.centerId),
+          getTimeSlabConfig(sourceBooking.centerId),
         ]);
 
         const isMachineA = ['LEATHER', 'MACHINE'].includes(sourceBooking.ballType);

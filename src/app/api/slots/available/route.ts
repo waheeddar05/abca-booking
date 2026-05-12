@@ -90,8 +90,10 @@ export async function GET(req: NextRequest) {
     // Fetch all data in parallel: policies (cached), pricing, time slabs, blocked slots, ALL bookings, discounts, and promo offers
     const [policyMap, pricingConfig, timeSlabConfig, blockedSlots, allBookings, recurringDiscounts, activePromoOffers] = await Promise.all([
       getCachedPolicies(['SLOT_DURATION', 'DISABLED_DATES', 'NUMBER_OF_OPERATORS', 'MACHINE_PITCH_CONFIG']),
-      getPricingConfig(),
-      getTimeSlabConfig(),
+      // centerId routed through both lookups so ABCA-style centers can
+      // override PRICING_CONFIG / TIME_SLAB_CONFIG per-center.
+      getPricingConfig(centerId),
+      getTimeSlabConfig(centerId),
       prisma.blockedSlot.findMany({
         where: {
           centerId,

@@ -107,8 +107,10 @@ async function adjustSiblingsMachinePitch(booking: Booking): Promise<number> {
   const ballType = booking.ballType || getBallTypeForMachine(booking.machineId);
   const category: 'MACHINE' | 'TENNIS' = MACHINE_A_BALLS.includes(ballType) ? 'MACHINE' : 'TENNIS';
 
-  const pricingConfig = await getPricingConfig();
-  const timeSlabConfig = await getTimeSlabConfig();
+  // Center-aware reads so the sibling re-price uses the same pricing rows
+  // the original booking was created with.
+  const pricingConfig = await getPricingConfig(booking.centerId);
+  const timeSlabConfig = await getTimeSlabConfig(booking.centerId);
 
   const remainingSlots = siblings.map((b) => ({
     startTime: new Date(b.startTime),

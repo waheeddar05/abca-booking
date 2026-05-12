@@ -205,11 +205,13 @@ export async function executeSlotBooking(
       }
     }
 
-    // Fetch configs in parallel
+    // Fetch configs in parallel. centerId routed through both lookups so
+    // ABCA-style centers can publish their own PRICING_CONFIG and
+    // TIME_SLAB_CONFIG via CenterPolicy without touching the global rows.
     const [machineConfig, pricingConfig, timeSlabConfig] = await Promise.all([
       getMachineConfig(),
-      getPricingConfig(),
-      getTimeSlabConfig(),
+      getPricingConfig(centerId),
+      getTimeSlabConfig(centerId),
     ]);
 
     // Validate all slots first
