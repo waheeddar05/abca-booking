@@ -72,79 +72,8 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Order ID mismatch' }, { status: 400 });
     }
 
-    // Idempotency: the Razorpay *webhook* can race the client-side verify
-    // call. If the webhook arrived first, the Payment is already CAPTURED
-    // and the bookings are already created. In that case the client must
-    // see success — not "Payment already processed" — so it can route
-    // to /bookings. Same story for REFUNDED (the webhook + auto-refund
-    // already handled the failure).
-    if (payment.status === 'CAPTURED') {
-      log.info(baseCtx, 'Payment already CAPTURED (likely by webhook); returning current state');
-      if (payment.bookingIds.length > 0) {
-        const existing = await prisma.booking.findMany({
-          where: { id: { in: payment.bookingIds } },
-          select: { id: true, status: true },
-        });
-        return NextResponse.json({
-          success: true,
-          paymentId: payment.id,
-          razorpayPaymentId: payment.razorpayPaymentId,
-          type: payment.paymentType,
-          bookings: existing,
-          alreadyProcessed: true,
-        });
-      }
-      if (payment.paymentType === 'PACKAGE_PURCHASE' && payment.userPackageId) {
-        const userPackage = await prisma.userPackage.findUnique({
-          where: { id: payment.userPackageId },
-          include: { package: true },
-        });
-        return NextResponse.json({
-          success: true,
-          paymentId: payment.id,
-          razorpayPaymentId: payment.razorpayPaymentId,
-          type: payment.paymentType,
-          userPackage,
-          alreadyProcessed: true,
-        });
-      }
-      // CAPTURED but neither bookings nor a userPackage exist yet —
-      // either the webhook is currently inside its booking transaction
-      // (lost the race by milliseconds) OR the webhook failed silently
-      // earlier. Give it a brief window to finish, then re-check.
-      // Running our own booking concurrently would risk a duplicate.
-      await new Promise((r) => setTimeout(r, 1500));
-      const recheck = await prisma.payment.findUnique({ where: { id: paymentId } });
-      if (recheck && recheck.bookingIds.length > 0) {
-        const existing = await prisma.booking.findMany({
-          where: { id: { in: recheck.bookingIds } },
-          select: { id: true, status: true },
-        });
-        return NextResponse.json({
-          success: true,
-          paymentId: recheck.id,
-          razorpayPaymentId: recheck.razorpayPaymentId,
-          type: recheck.paymentType,
-          bookings: existing,
-          alreadyProcessed: true,
-        });
-      }
-      if (recheck && recheck.status === 'REFUNDED') {
-        return NextResponse.json({
-          success: false,
-          error: recheck.failureReason || 'Payment was refunded',
-          paymentId: recheck.id,
-          razorpayPaymentId: recheck.razorpayPaymentId,
-          type: recheck.paymentType,
-          refunded: true,
-          refundAmount: recheck.refundAmount,
-        }, { status: 200 });
-      }
-      // Still nothing after the wait — fall through and let this call
-      // attempt the booking. The booking engine's serializable transaction
-      // is the final defence against a duplicate.
-    }
-
+    // Reject unrecoverable states up-front so the rest of the handler
+    // can assume CREATED-or-CAPTURED only.
     if (payment.status === 'REFUNDED') {
       log.info(baseCtx, `Payment already REFUNDED (amount=₹${payment.refundAmount ?? 0})`);
       return NextResponse.json({
@@ -193,30 +122,129 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Payment verification failed' }, { status: 400 });
     }
 
-    log.info(baseCtx, `Signature verified (currentStatus=${payment.status})`);
-    // Mark as captured (idempotent — webhook may have already done this).
-    // We always re-write the razorpay payment id + signature so the row
-    // captures both event sources.
-    if (payment.status === 'CREATED') {
-      await prisma.payment.update({
-        where: { id: paymentId },
-        data: {
-          status: 'CAPTURED',
-          razorpayPaymentId: razorpay_payment_id,
-          razorpaySignature: razorpay_signature,
-        },
-      });
-    } else if (!payment.razorpaySignature) {
-      // Already CAPTURED by webhook (which doesn't store the signature).
-      // Backfill so refunds + audits have the full record.
-      await prisma.payment.update({
-        where: { id: paymentId },
-        data: {
-          razorpayPaymentId: razorpay_payment_id,
-          razorpaySignature: razorpay_signature,
-        },
-      });
+    // ─── Atomic claim ───────────────────────────────────────────────
+    // The Razorpay webhook + this client-driven verify can both arrive
+    // ~simultaneously. Whichever flips CREATED→CAPTURED *first* owns
+    // the responsibility for creating bookings; the other one MUST NOT
+    // run the booking engine a second time. The old code racy-flipped
+    // with `prisma.payment.update` (no `where` on status), which let
+    // both paths "win" and create duplicate work — symptoms included:
+    //   • duplicate bookings (one set hidden via FK conflict, one
+    //     visible) plus an erroneous auto-refund-to-wallet for the
+    //     "second" path that hit "no nets available" because its
+    //     sibling had already claimed the resources;
+    //   • user ends up with both bookings AND a wallet refund.
+    //
+    // updateMany with `where: { status: 'CREATED' }` is atomic at the
+    // DB row level: exactly one caller's update returns count=1.
+    const claim = await prisma.payment.updateMany({
+      where: { id: paymentId, status: 'CREATED' },
+      data: {
+        status: 'CAPTURED',
+        razorpayPaymentId: razorpay_payment_id,
+        razorpaySignature: razorpay_signature,
+      },
+    });
+    const wonClaim = claim.count === 1;
+
+    log.info(
+      { ...baseCtx, extra: { ...baseCtx.extra, wonClaim, priorStatus: payment.status } },
+      wonClaim ? 'Won capture claim — proceeding to create bookings' : 'Lost capture claim — webhook is processing; polling for result',
+    );
+
+    if (!wonClaim) {
+      // Someone else (the webhook, almost certainly) is between
+      // "marked CAPTURED" and "linked bookingIds". Poll the row for a
+      // generous window — the inner serializable tx + retries can
+      // legitimately take several seconds on a contended center.
+      // We deliberately do NOT call executeResourceBooking ourselves
+      // here: a concurrent attempt would either duplicate the booking
+      // or fail with "no nets available" and trigger a spurious refund.
+      const MAX_POLL_MS = 15_000;
+      const POLL_INTERVAL_MS = 500;
+      const deadline = Date.now() + MAX_POLL_MS;
+      let final = await prisma.payment.findUnique({ where: { id: paymentId } });
+      while (
+        final
+        && final.status === 'CAPTURED'
+        && final.bookingIds.length === 0
+        && (payment.paymentType !== 'PACKAGE_PURCHASE' || !final.userPackageId)
+        && Date.now() < deadline
+      ) {
+        await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
+        final = await prisma.payment.findUnique({ where: { id: paymentId } });
+      }
+      if (!final) {
+        log.error(baseCtx, 'Payment disappeared mid-poll');
+        return NextResponse.json({ error: 'Payment record vanished' }, { status: 500 });
+      }
+      if (final.status === 'REFUNDED') {
+        log.info(baseCtx, 'Webhook finished by refunding (booking failure recovered)');
+        return NextResponse.json({
+          success: false,
+          error: final.failureReason || 'Payment was refunded',
+          paymentId: final.id,
+          razorpayPaymentId: final.razorpayPaymentId,
+          type: final.paymentType,
+          refunded: true,
+          refundAmount: final.refundAmount,
+        }, { status: 200 });
+      }
+      if (final.bookingIds.length > 0) {
+        const existing = await prisma.booking.findMany({
+          where: { id: { in: final.bookingIds } },
+          select: { id: true, status: true },
+        });
+        log.info(
+          { ...baseCtx, bookingIds: final.bookingIds },
+          `Bookings created by other path — returning ${existing.length} booking(s) from poll`,
+        );
+        return NextResponse.json({
+          success: true,
+          paymentId: final.id,
+          razorpayPaymentId: final.razorpayPaymentId,
+          type: final.paymentType,
+          bookings: existing,
+          alreadyProcessed: true,
+        });
+      }
+      if (payment.paymentType === 'PACKAGE_PURCHASE' && final.userPackageId) {
+        const userPackage = await prisma.userPackage.findUnique({
+          where: { id: final.userPackageId },
+          include: { package: true },
+        });
+        return NextResponse.json({
+          success: true,
+          paymentId: final.id,
+          razorpayPaymentId: final.razorpayPaymentId,
+          type: final.paymentType,
+          userPackage,
+          alreadyProcessed: true,
+        });
+      }
+      // The other path took the claim but never linked anything within
+      // 15s. Either it's still running on a slow DB or it crashed
+      // silently. Don't pretend success and don't try to create the
+      // bookings ourselves — flag the Payment for the orphan-recovery
+      // admin tool and surface a clear "processing" error to the user.
+      log.error(
+        baseCtx,
+        'Capture claim lost but no bookings appeared after 15s poll; flagging for recovery',
+      );
+      await markCaptureNeedsRecovery(
+        payment.id,
+        'Verify lost claim but other path did not link bookings within 15s',
+      ).catch((e) => log.error(baseCtx, 'Failed to flag for recovery', e));
+      return NextResponse.json({
+        success: false,
+        error: 'Payment captured but booking is still being processed. Please refresh in a moment — your booking should appear shortly. If not, our team has been notified.',
+        paymentId: payment.id,
+        razorpayPaymentId: razorpay_payment_id,
+        type: payment.paymentType,
+      }, { status: 202 });
     }
+
+    log.info(baseCtx, 'Signature verified, claim won — creating bookings');
 
     // Now complete the actual booking/purchase based on payment type
     let result: Record<string, unknown> = {};

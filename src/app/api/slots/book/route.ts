@@ -1004,11 +1004,43 @@ export async function executeSlotBooking(
     // ─── Auto-Refund on Booking Failure ─────────────────────────────
     // If an online payment was captured but booking creation failed,
     // automatically refund to the user's wallet so money isn't lost.
+    //
+    // ── Race-safety guard ────────────────────────────────────────
+    // The Razorpay webhook + verify can race; if the *other* path
+    // created the bookings while we were failing, `Payment.bookingIds`
+    // may not yet reflect that. Poll briefly before refunding so we
+    // never refund a booking the user actually has. See the verify
+    // route's atomic-claim block for the broader race fix.
     if (onlinePaymentId) {
       try {
-        const payment = await prisma.payment.findUnique({
-          where: { id: onlinePaymentId },
-        });
+        const MAX_POLL_MS = 8_000;
+        const POLL_INTERVAL_MS = 400;
+        const deadline = Date.now() + MAX_POLL_MS;
+        let payment = await prisma.payment.findUnique({ where: { id: onlinePaymentId } });
+        while (
+          payment
+          && payment.status === 'CAPTURED'
+          && payment.bookingIds.length === 0
+          && Date.now() < deadline
+        ) {
+          await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
+          payment = await prisma.payment.findUnique({ where: { id: onlinePaymentId } });
+        }
+
+        if (payment && payment.status === 'CAPTURED' && payment.bookingIds.length > 0) {
+          // The other path created the bookings during our retry
+          // window. Don't refund. Return their bookings as our own.
+          const linked = await prisma.booking.findMany({
+            where: { id: { in: payment.bookingIds } },
+            select: { id: true, status: true },
+          });
+          log.warn(
+            { ...ctx, bookingIds: payment.bookingIds },
+            `Booking failure suppressed: bookings already exist on payment (other path created them)`,
+          );
+          return linked;
+        }
+
         if (payment && payment.status === 'CAPTURED' && payment.bookingIds.length === 0) {
           const refundAmount = payment.amount;
           const walletResult = await creditWallet(

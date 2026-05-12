@@ -251,10 +251,20 @@ export async function executeResourceBooking(
     // (src/app/api/slots/book/route.ts ~990). Without this, the money
     // is captured and the user sees "no booking created" with no
     // way to get a refund except admin intervention.
+    //
+    // ── Race-safety check ─────────────────────────────────────────
+    // The webhook + verify race can have us land here with bookings
+    // already created by the *other* path but `Payment.bookingIds`
+    // not yet linked (the post-tx update is still in flight). Poll
+    // briefly before refunding so we never refund a booking that
+    // actually exists. Without this guard a user could end up with
+    // both bookings AND a wallet refund. See the verify route's
+    // atomic-claim block for the broader fix.
     if (onlinePaymentId) {
       try {
-        const payment = await prisma.payment.findUnique({ where: { id: onlinePaymentId } });
-        if (payment && payment.status === 'CAPTURED' && payment.bookingIds.length === 0) {
+        const refundDecision = await shouldAutoRefund(onlinePaymentId);
+        if (refundDecision.refund) {
+          const payment = refundDecision.payment;
           const refundAmount = payment.amount;
           const walletResult = await creditWallet(
             payment.userId,
@@ -290,6 +300,17 @@ export async function executeResourceBooking(
             { refunded: true, refundAmount, walletBalance: walletResult.newBalance },
           );
         }
+        if (refundDecision.reason === 'bookings_exist') {
+          // The other path created the bookings while we were failing.
+          // The user already has a booking — eat the failure silently
+          // and pretend success (the verify route's poll will return
+          // the bookings to the client).
+          log.warn(
+            ctx,
+            `Booking failure suppressed: bookings already exist on payment (linkedIds=${refundDecision.linkedBookingIds.join(',')})`,
+          );
+          return refundDecision.linkedBookings;
+        }
       } catch (refundErr) {
         if (refundErr instanceof ResourceBookingServiceError) throw refundErr;
         log.error(ctx, 'CRITICAL: auto-refund failed after booking failure', refundErr);
@@ -299,6 +320,63 @@ export async function executeResourceBooking(
 
     throw error;
   }
+}
+
+/**
+ * Defensive helper for the auto-refund branch.
+ *
+ * Returns:
+ *   - `{ refund: true, payment }` when the payment is genuinely orphaned
+ *     (CAPTURED + no bookings linked + no concurrent path to wait for).
+ *   - `{ refund: false, reason: 'bookings_exist', linkedBookings, linkedBookingIds }`
+ *     when bookings appeared during the poll — we MUST NOT refund.
+ *   - `{ refund: false, reason: ... }` for every other terminal state.
+ *
+ * Polls `Payment.bookingIds` for up to 8s with 400ms intervals. The
+ * caller decides what to do with each outcome.
+ */
+async function shouldAutoRefund(paymentId: string): Promise<
+  | { refund: true; payment: { id: string; userId: string; centerId: string; amount: number } }
+  | { refund: false; reason: 'bookings_exist'; linkedBookings: ResourceBookingResult[]; linkedBookingIds: string[] }
+  | { refund: false; reason: 'not_captured' | 'already_refunded' | 'gone' }
+> {
+  const MAX_POLL_MS = 8_000;
+  const POLL_INTERVAL_MS = 400;
+  const deadline = Date.now() + MAX_POLL_MS;
+  let payment = await prisma.payment.findUnique({ where: { id: paymentId } });
+  while (
+    payment
+    && payment.status === 'CAPTURED'
+    && payment.bookingIds.length === 0
+    && Date.now() < deadline
+  ) {
+    await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
+    payment = await prisma.payment.findUnique({ where: { id: paymentId } });
+  }
+  if (!payment) return { refund: false, reason: 'gone' };
+  if (payment.status === 'REFUNDED') return { refund: false, reason: 'already_refunded' };
+  if (payment.status !== 'CAPTURED') return { refund: false, reason: 'not_captured' };
+  if (payment.bookingIds.length > 0) {
+    const linkedBookings = await prisma.booking.findMany({
+      where: { id: { in: payment.bookingIds } },
+      select: { id: true, status: true },
+    });
+    return {
+      refund: false,
+      reason: 'bookings_exist',
+      linkedBookings,
+      linkedBookingIds: payment.bookingIds,
+    };
+  }
+  return {
+    refund: true,
+    payment: {
+      id: payment.id,
+      userId: payment.userId,
+      centerId: payment.centerId,
+      amount: payment.amount,
+    },
+  };
 }
 
 async function executeResourceBookingCore(

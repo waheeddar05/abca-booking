@@ -106,16 +106,25 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ status: 'already_refunded' });
     }
 
-    // If still CREATED, the browser's verify call never arrived. Mark as CAPTURED.
+    // Atomic claim — match the same protocol /api/payments/verify uses.
+    // Whichever path (this webhook or the client-driven verify) flips
+    // CREATED→CAPTURED first owns the booking creation. The losing
+    // path bails out instead of attempting its own booking, which
+    // previously caused duplicate-booking + spurious-refund incidents
+    // (see verify route's same atomic-claim comment).
     if (payment.status === 'CREATED') {
-      console.log(`[RazorpayWebhook] Payment ${payment.id} still CREATED — marking CAPTURED via webhook`);
-      await prisma.payment.update({
-        where: { id: payment.id },
+      const claim = await prisma.payment.updateMany({
+        where: { id: payment.id, status: 'CREATED' },
         data: {
           status: 'CAPTURED',
           razorpayPaymentId,
         },
       });
+      if (claim.count === 0) {
+        console.log(`[RazorpayWebhook] Lost claim for payment ${payment.id} — verify is processing`);
+        return NextResponse.json({ status: 'claim_lost_to_verify' });
+      }
+      console.log(`[RazorpayWebhook] Won claim for payment ${payment.id} — proceeding to create bookings`);
     }
 
     // If CAPTURED but no bookings — the verify call either didn't happen or booking failed.
