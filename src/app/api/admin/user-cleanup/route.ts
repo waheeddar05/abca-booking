@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { getAuthenticatedUser } from '@/lib/auth';
+import { resolveCurrentCenter } from '@/lib/centers';
 
 const SUPER_ADMIN_EMAIL = process.env.SUPER_ADMIN_EMAIL || process.env.INITIAL_ADMIN_EMAIL || 'waheeddar8@gmail.com';
 
@@ -134,13 +135,27 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'userId and action are required' }, { status: 400 });
     }
 
-    // Wallet mutations are center-scoped — admin can pass `centerId` in
-    // the body to target a specific center, otherwise we default to ABCA
-    // (which is the only center in the world today). Phase 2's super-admin
-    // UI will surface a center picker.
-    const walletCenterId: string = typeof bodyCenterId === 'string' && bodyCenterId.length > 0
+    // Wallet mutations are center-scoped. Resolution order:
+    //   1. `centerId` in the request body (explicit pick)
+    //   2. The admin's currently-selected center cookie
+    // The old fallback to a hardcoded `ctr_abca` was a footgun — a Toplay
+    // admin clearing a wallet without realising they had to pass the
+    // center would silently mutate the ABCA wallet instead. We now refuse
+    // when neither source resolves a center.
+    let walletCenterId: string | null = typeof bodyCenterId === 'string' && bodyCenterId.length > 0
       ? bodyCenterId
-      : 'ctr_abca';
+      : null;
+    if (!walletCenterId) {
+      const actor = await getAuthenticatedUser(req);
+      const resolved = actor ? await resolveCurrentCenter(req, actor) : null;
+      walletCenterId = resolved?.id ?? null;
+    }
+    if (!walletCenterId) {
+      return NextResponse.json(
+        { error: 'No center selected. Pass centerId in the body or select a center first.' },
+        { status: 400 },
+      );
+    }
 
     const user = await prisma.user.findUnique({ where: { id: userId } });
     if (!user) {

@@ -26,6 +26,13 @@ const SAFE_BOOKING_SELECT = {
   discountAmount: true,
   kitRental: true,
   kitRentalCharge: true,
+  // Resource-based (Toplay) fields. Null on ABCA rows; populated on
+  // category-based bookings so the CSV captures the actual machine /
+  // coach / staff that ran the session.
+  category: true,
+  assignedMachine: { select: { name: true, shortName: true } },
+  assignedCoach: { select: { name: true } },
+  assignedStaff: { select: { name: true } },
   user: { select: { email: true, mobileNumber: true } },
 } as const;
 
@@ -92,6 +99,12 @@ export async function GET(req: NextRequest) {
         where,
         include: {
           user: { select: { email: true, mobileNumber: true } },
+          // Resource-based axes — joined here too so the CSV row can
+          // surface category / assigned machine / coach / staff for
+          // Toplay rows. Null fields are simply blank on ABCA rows.
+          assignedMachine: { select: { name: true, shortName: true } },
+          assignedCoach: { select: { name: true } },
+          assignedStaff: { select: { name: true } },
           packageBooking: {
             include: {
               userPackage: {
@@ -189,6 +202,10 @@ export async function GET(req: NextRequest) {
       'Ball Type',
       'Pitch Type',
       'Machine',
+      // Resource-based axes (Toplay). Empty on ABCA rows.
+      'Category',
+      'Coach',
+      'Staff',
       'Operation Mode',
       'Status',
       'Amount',
@@ -237,6 +254,12 @@ export async function GET(req: NextRequest) {
         }
       }
 
+      // Single machine label that works for both models: legacy enum on
+      // ABCA, resource Machine row on Toplay. Whichever is non-null.
+      const machineLabel = b.machineId
+        || b.assignedMachine?.shortName
+        || b.assignedMachine?.name
+        || '';
       return [
         b.id,
         formatIST(b.date, 'yyyy-MM-dd'),
@@ -251,7 +274,14 @@ export async function GET(req: NextRequest) {
         pkg ? (b.packageBooking?.userPackageId || '') : 'NA',
         b.ballType,
         b.pitchType || '',
-        b.machineId || '',
+        machineLabel,
+        // Resource-based columns: category, coach, staff. Empty on ABCA
+        // rows because the schema defaults category to 'MACHINE' there
+        // (which equals the ABCA legacy default, so the column reads
+        // 'MACHINE' for everyone — clear enough).
+        b.category || '',
+        b.assignedCoach?.name || '',
+        b.assignedStaff?.name || '',
         b.operationMode || '',
         b.status,
         pkg ? ((b.packageBooking?.extraCharge || 0) + (b.kitRentalCharge || 0)).toString() : (b.price?.toString() || ''),
