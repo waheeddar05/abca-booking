@@ -642,14 +642,19 @@ export default function ResourceSlotsPage() {
     return { amount: d.total, promoName: d.promoName };
   };
 
-  const slotBaseFor = (s: ResourceSlot): number => {
+  /** Shared backend — picks the right rate against the prefetched
+   *  pricingConfig. `consecutive=true` selects the pair rate when
+   *  available. Declared first so the two thin wrappers below can
+   *  close over it without hitting a temporal-dead-zone error in
+   *  minified production builds (see the comment further up about
+   *  `filteredMachines` for the same pattern). */
+  const slotPriceWithConsecutive = (s: ResourceSlot, consecutive: boolean): number => {
     const slab = s.timeSlab;
     const cfg = data?.pricingConfig;
 
     if (!cfg) return s.prices[category] || 0;
 
     if (category === 'MACHINE' && machineId) {
-      const consecutive = isSlotConsecutive(s);
       // Most-specific axis first: per-Machine-row pair pricing.
       if (pitchType && ballType) {
         const v = cfg.machineRowPricing?.[machineId]?.[pitchType]?.[ballType];
@@ -691,6 +696,21 @@ export default function ResourceSlotsPage() {
     return cfg.categoryRates[category]?.[slab] ?? s.prices[category] ?? 0;
   };
 
+  /** Per-slot price WITH consecutive rate applied. Used by the totalPrice
+   *  aggregate (bar) so back-to-back chains pay the pair rate. */
+  const slotBaseFor = (s: ResourceSlot): number => {
+    return slotPriceWithConsecutive(s, isSlotConsecutive(s));
+  };
+
+  /** Always-single per-slot price for the card. Independent of how many
+   *  slots are currently in the cart, so the displayed per-slot ₹
+   *  doesn't shift when the user adds a second back-to-back slot. The
+   *  consecutive savings get surfaced as "Save ₹X" on the booking bar
+   *  instead — matches ABCA's getSlotDisplayPrice. */
+  const slotSinglePriceFor = (s: ResourceSlot): number => {
+    return slotPriceWithConsecutive(s, false);
+  };
+
   /** Final ₹ for this slot after applying recurring + promo discounts. */
   const slotPriceFor = (s: ResourceSlot): number => {
     const base = slotBaseFor(s);
@@ -714,12 +734,14 @@ export default function ResourceSlotsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedSlots, category, machineId, pitchType, ballType, data?.pricingConfig, packageCoversBooking]);
 
-  /** Sum of base prices (before any recurring/promo discounts). Used
-   *  by the booking bar to render the strike-through "you would've
-   *  paid X" total, matching ABCA's behaviour. */
+  /** Sum of SINGLE-slot rates — what the user would've paid if every
+   *  slot were billed independently (no consecutive pair pricing, no
+   *  recurring offer, no promo). The booking bar renders this struck-
+   *  through next to the actual total so the user can see the full
+   *  "Save ₹X" — same convention as ABCA's BookingBar. */
   const originalTotal = useMemo(() => {
     if (packageCoversBooking) return 0;
-    return selectedSlots.reduce((sum, s) => sum + slotBaseFor(s), 0);
+    return selectedSlots.reduce((sum, s) => sum + slotSinglePriceFor(s), 0);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedSlots, category, machineId, pitchType, ballType, data?.pricingConfig, packageCoversBooking]);
 
@@ -1191,11 +1213,13 @@ export default function ResourceSlotsPage() {
             {data.slots.map((slot) => {
               const bookable = slotIsBookable(slot, category);
               const selected = selectedSlots.some((s) => s.startTime === slot.startTime);
-              // Slot card shows the BASE price (un-discounted). Recurring/
-              // promo savings get aggregated into the booking bar at the
-              // bottom — matches ABCA's behaviour, which is what the user
-              // expects across both centers.
-              const basePrice = slotBaseFor(slot);
+              // Slot card always shows the single-slot rate. Consecutive
+              // savings + recurring/promo discounts get aggregated into
+              // the booking bar at the bottom so per-card numbers don't
+              // shift when the user picks a second back-to-back slot.
+              // Mirrors ABCA's getSlotDisplayPrice which never applies
+              // consecutive pricing on the card itself.
+              const basePrice = slotSinglePriceFor(slot);
               const isUnavailable = !bookable.ok;
 
               // Self-operate state — drives the amber warning theme below
