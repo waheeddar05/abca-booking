@@ -1,0 +1,42 @@
+src/app/admin/layout.tsx
+  s_e0175fb4b4f942::t_59fa3b0b710c1a 62-66
+src/app/api/admin/user-cleanup/route.ts
+  s_e0175fb4b4f942::t_24c4d1ae6baff8 171-173,182-189
+  s_e0175fb4b4f942::t_3e8a4dadb90e36 193-202
+  s_e0175fb4b4f942::t_eb8564e0e35e10 39-41,65-85,98-102,104,107,109-110,112,115-118,128-130
+  s_e0175fb4b4f942::t_b050e3dfb8aba2 11,13-14,18-31
+  s_e0175fb4b4f942::t_9550b9ba8ec67b 8-10
+src/app/admin/user-management/page.tsx
+  s_e0175fb4b4f942::t_d2dae0a911bf8d 467
+  s_e0175fb4b4f942::t_b7d7b0e41843d5 585-586
+  s_e0175fb4b4f942::t_0e24909445e630 222-224
+  s_e0175fb4b4f942::t_a11514f2ec43a6 247,252-256,276-278,280-281,283-294,301-304
+  s_e0175fb4b4f942::t_43412e9ce8d749 208,212
+  s_e0175fb4b4f942::t_5ed8d70b435a4f 100-102,104,107
+  s_e0175fb4b4f942::t_53f6129a5d19ef 109-112,114,118-119,129,131
+  s_e0175fb4b4f942::t_86e4f2671b36a7 482-485,504
+  s_e0175fb4b4f942::t_33bd99d30d2472 612
+  s_e0175fb4b4f942::t_f08775d925ce5b 424,426-427
+  s_e0175fb4b4f942::t_4306fb17e03fde 14,29-31
+  s_e0175fb4b4f942::t_12cbe6c1df51ba 350-353
+  s_e0175fb4b4f942::t_57eecf37d74f66 61,63-73
+src/app/api/admin/users/route.ts
+  s_e0175fb4b4f942::t_d8e5ca121f1f6f 177-183,191-206
+  s_e0175fb4b4f942::t_aae151ce2b40dc 126,132
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.4",
+  "base_commit_sha": "66c9125fa5df35cb32f30a0536dbf20c3739dbb8",
+  "prompts": {},
+  "sessions": {
+    "s_e0175fb4b4f942": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "f3864c65-ac36-4572-a64e-c1d488c0cbdf",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Waheed <waheeddar8@gmail.com>"
+    }
+  }
+}
