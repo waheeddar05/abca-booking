@@ -1,0 +1,21 @@
+src/components/admin/centers/CenterMembersTab.tsx
+  s_e0175fb4b4f942::t_5a35d75d43afe0 203-218,234-250,263-287,298-314,341-348,377,379,381,383-453,455-496
+src/app/api/admin/users/search/route.ts
+  s_e0175fb4b4f942::t_b624c3f45f6564 1-65
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.4",
+  "base_commit_sha": "25afa25a70795f674328ffdfb8328b9f7b219aa4",
+  "prompts": {},
+  "sessions": {
+    "s_e0175fb4b4f942": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "f3864c65-ac36-4572-a64e-c1d488c0cbdf",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Waheed <waheeddar8@gmail.com>"
+    }
+  }
+}
