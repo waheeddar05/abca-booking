@@ -489,19 +489,28 @@ async function completePackagePurchase(
     }
   }
 
-  // Send notification (in-app + WhatsApp if configured)
-  try {
-    const notifUser = await prisma.user.findUnique({
-      where: { id: userId },
-      select: { mobileNumber: true, mobileVerified: true },
-    });
-    await notifyPaymentSuccess(userId, {
-      message: `Your "${pkg.name}" package (${pkg.totalSessions} sessions) is now active. Valid until ${expiry.toLocaleDateString('en-IN')}.`,
-      mobileNumber: notifUser?.mobileVerified ? notifUser.mobileNumber : null,
-    });
-  } catch (notifErr) {
-    console.error('Failed to send package purchase notification:', notifErr);
-  }
+  // Notifications run fire-and-forget so a slow Twilio / Meta WhatsApp
+  // API can't stall the verify response. The user has already paid and
+  // the UserPackage row is persisted — there's nothing for the request
+  // path to wait on. The BSP fetch also has a 5s timeout in
+  // `src/lib/whatsapp.ts` for defence in depth.
+  //
+  // The IIFE below explicitly captures the userId so a stale ref can't
+  // leak; the catch logs but does not propagate.
+  void (async () => {
+    try {
+      const notifUser = await prisma.user.findUnique({
+        where: { id: userId },
+        select: { mobileNumber: true, mobileVerified: true },
+      });
+      await notifyPaymentSuccess(userId, {
+        message: `Your "${pkg.name}" package (${pkg.totalSessions} sessions) is now active. Valid until ${expiry.toLocaleDateString('en-IN')}.`,
+        mobileNumber: notifUser?.mobileVerified ? notifUser.mobileNumber : null,
+      });
+    } catch (notifErr) {
+      console.error('Failed to send package purchase notification:', notifErr);
+    }
+  })();
 
   return { userPackage };
 }

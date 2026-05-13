@@ -17,6 +17,36 @@
  *   WHATSAPP_OTP_TEMPLATE    – (optional) template name (default: "otp_login")
  */
 
+// ─── Constants ──────────────────────────────────────────────────────
+
+/**
+ * Hard cap on each WhatsApp BSP request. Without this, a hung Twilio
+ * or Meta endpoint blocks the calling request (typically a payment
+ * verify or booking flow) until the Vercel function itself times out
+ * at ~10s, which manifests to users as "unable to buy package" or
+ * "taking too long". 5s is enough headroom for normal latency and
+ * short enough that a failed BSP doesn't cost users a real request.
+ */
+const WHATSAPP_REQUEST_TIMEOUT_MS = 5_000;
+
+/**
+ * Wrap a `fetch` with an AbortController so it can't hang forever.
+ * Returns a Response on success; throws on abort/network error.
+ */
+async function fetchWithTimeout(
+  url: string,
+  init: RequestInit,
+  timeoutMs: number = WHATSAPP_REQUEST_TIMEOUT_MS,
+): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...init, signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 // ─── Types ──────────────────────────────────────────────────────────
 
 export interface WhatsAppSendResult {
@@ -130,7 +160,7 @@ class TwilioWhatsAppProvider implements WhatsAppProvider {
         Body: body,
       });
 
-      const res = await fetch(url, {
+      const res = await fetchWithTimeout(url, {
         method: 'POST',
         headers: {
           Authorization: `Basic ${credentials}`,
@@ -198,7 +228,7 @@ class MetaCloudAPIProvider implements WhatsAppProvider {
       const url = `${this.baseUrl}/messages`;
       console.log('[WhatsApp/Meta] Sending template:', { url, to, templateName, language });
 
-      const res = await fetch(url, {
+      const res = await fetchWithTimeout(url, {
         method: 'POST',
         headers: {
           Authorization: `Bearer ${this.accessToken}`,
@@ -247,7 +277,7 @@ class MetaCloudAPIProvider implements WhatsAppProvider {
       const url = `${this.baseUrl}/messages`;
       console.log('[WhatsApp/Meta] Sending text to:', to);
 
-      const res = await fetch(url, {
+      const res = await fetchWithTimeout(url, {
         method: 'POST',
         headers: {
           Authorization: `Bearer ${this.accessToken}`,
@@ -355,7 +385,7 @@ class MetaCloudAPIProvider implements WhatsAppProvider {
 
       console.log('[WhatsApp/Meta] Auth OTP payload:', JSON.stringify(payload, null, 2));
 
-      const res = await fetch(url, {
+      const res = await fetchWithTimeout(url, {
         method: 'POST',
         headers: {
           Authorization: `Bearer ${this.accessToken}`,

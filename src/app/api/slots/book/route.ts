@@ -868,8 +868,10 @@ export async function executeSlotBooking(
       }
     }
 
-    // Create booking confirmation notification
-    try {
+    // Create booking confirmation notification (fire-and-forget so a
+    // slow Twilio/Meta WhatsApp API can't block the booking response
+    // — the user has already paid / committed to the booking).
+    void (async () => { try {
       const firstSlot = validatedSlots[0];
       const machineName = firstSlot.machineId ? MACHINES[firstSlot.machineId]?.shortName : (firstBallType === 'TENNIS' ? 'Tennis' : 'Leather');
       const dateStr = formatIST(firstSlot.date, 'EEE, dd MMM yyyy');
@@ -958,10 +960,12 @@ export async function executeSlotBooking(
       });
     } catch (notifErr) {
       console.error('Failed to create booking notification:', notifErr);
-    }
+    } })();
 
     // ─── Notify Assigned Operator via WhatsApp + In-App ───────────────
-    try {
+    // Same fire-and-forget pattern — the operator dashboard subscribes
+    // to bookings independently; the WhatsApp ping is best-effort.
+    void (async () => { try {
       const firstSlot = validatedSlots[0];
       const machineName = firstSlot.machineId ? MACHINES[firstSlot.machineId]?.shortName : (firstBallType === 'TENNIS' ? 'Tennis' : 'Leather');
       const pitchLabels: Record<string, string> = {
@@ -988,7 +992,7 @@ export async function executeSlotBooking(
       });
     } catch (opNotifErr) {
       console.error('Failed to notify operator about new booking:', opNotifErr);
-    }
+    } })();
 
     // ─── Link Online Payment to Bookings (Server-Side) ────────────────
     // If an online paymentId was provided, link it to the created bookings
