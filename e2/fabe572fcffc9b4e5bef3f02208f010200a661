@@ -1,0 +1,30 @@
+src/lib/packages.ts
+  s_e0175fb4b4f942::t_00f658010a3dc9 291-300
+src/app/api/slots/book-resource/route.ts
+  s_e0175fb4b4f942::t_300dbf47949011 564-568
+  s_e0175fb4b4f942::t_acea9dd9759368 540-543
+  s_e0175fb4b4f942::t_2e063aecc89e24 633
+  s_e0175fb4b4f942::t_59f59a4e463971 739-746,752,758-766
+src/components/admin/ResourcePackageManagement.tsx
+  s_e0175fb4b4f942::t_356dbe40a7b2de 50,57-63
+  s_e0175fb4b4f942::t_c222126d73b33e 219-222,228,234
+  s_e0175fb4b4f942::t_b27db41789030e 78-82,88-92
+  s_e0175fb4b4f942::t_83003a78b8c0ee 155-180,186
+  s_e0175fb4b4f942::t_58f9eed42b39a4 355-404
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.4",
+  "base_commit_sha": "e2fabe572fcffc9b4e5bef3f02208f010200a661",
+  "prompts": {},
+  "sessions": {
+    "s_e0175fb4b4f942": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "f3864c65-ac36-4572-a64e-c1d488c0cbdf",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Waheed <waheeddar8@gmail.com>"
+    }
+  }
+}
