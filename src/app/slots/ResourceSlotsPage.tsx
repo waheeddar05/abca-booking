@@ -298,6 +298,24 @@ export default function ResourceSlotsPage() {
   // becoming a state-tracked dependency.
   const hasAutoSelectedMachineRef = useRef(false);
 
+  // Package validation — mirrors ABCA's `usePackages.validation`. When
+  // a package is selected and slots are picked, we POST to
+  // `/api/packages/validate-booking` to get the server's verdict:
+  //   - valid: boolean
+  //   - error?: human reason when invalid
+  //   - extraCharge?: ₹ on top of the package (e.g. DAY package booking
+  //     an evening slot). Surfaced in the package panel + booking bar
+  //     so the user knows the cart isn't free even though a package
+  //     is selected.
+  interface PackageValidation {
+    valid: boolean;
+    error?: string;
+    extraCharge?: number;
+    extraChargeType?: string;
+  }
+  const [packageValidation, setPackageValidation] = useState<PackageValidation | null>(null);
+  const [packageValidating, setPackageValidating] = useState(false);
+
   // Payment gateway integration (mirrors ABCA's /slots flow). When
   // SLOT_PAYMENT_REQUIRED is on for the center, we route the booking
   // through Razorpay; the verify route then creates the bookings
@@ -409,6 +427,61 @@ export default function ResourceSlotsPage() {
     const compatible = exactMatch || categoryMatch;
     if (compatible) setSelectedPackageId(compatible.id);
   }, [myPackages, eligiblePackages, selectedSlots, selectedPackageId, machineId, userDeclinedPackage]);
+
+  // ─── Validate selected package against the current selection ─────
+  // Mirrors ABCA's effect at src/app/slots/page.tsx:155. When a package
+  // is selected and the user has picked at least one slot, POST to
+  // /api/packages/validate-booking to learn (a) whether the package is
+  // still valid for this booking and (b) any extra charge that applies
+  // (e.g. DAY package booking an evening slot). The result drives the
+  // green-check / red-AlertTriangle panel below the dropdown and the
+  // "Extra: ₹X" line in the bottom booking bar.
+  useEffect(() => {
+    if (!selectedPackageId || selectedSlots.length === 0) {
+      setPackageValidation(null);
+      return;
+    }
+    const pkg = myPackages.find((p) => p.id === selectedPackageId);
+    if (!pkg) {
+      setPackageValidation(null);
+      return;
+    }
+    let cancelled = false;
+    setPackageValidating(true);
+    // Resource-based packages don't carry ballType — the server now
+    // skips the legacy machineType compatibility check when the
+    // package has a `category` set (see `validatePackageBooking`).
+    // We still send a defensible ballType so the legacy ABCA path
+    // through the same endpoint keeps working when a non-Toplay
+    // package is wired here later.
+    const fallbackBall = ballType ?? 'TENNIS';
+    fetch('/api/packages/validate-booking', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        userPackageId: selectedPackageId,
+        ballType: fallbackBall,
+        pitchType: pitchType ?? null,
+        startTime: selectedSlots[0].startTime,
+        numberOfSlots: selectedSlots.length,
+        slotTimes: selectedSlots.map((s) => s.startTime),
+        machineId: machineId ?? null,
+      }),
+    })
+      .then((res) => res.json())
+      .then((data: PackageValidation) => {
+        if (cancelled) return;
+        setPackageValidation(data);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setPackageValidation({ valid: false, error: 'Could not validate package' });
+      })
+      .finally(() => {
+        if (!cancelled) setPackageValidating(false);
+      });
+    return () => { cancelled = true; };
+  }, [selectedPackageId, selectedSlots, myPackages, ballType, pitchType, machineId]);
 
   // ─── Auto-select machine based on user's package ─────────────────
   // Mirrors ABCA's effect at src/app/slots/page.tsx:251. If the user
@@ -819,11 +892,20 @@ export default function ResourceSlotsPage() {
     && selectedPackage.remainingSessions >= selectedSlots.length;
 
   const totalPrice = useMemo(() => {
-    if (packageCoversBooking) return 0;
+    // Package covers the booking → user only pays the timing /
+    // upgrade extra (₹0 when the package matches the slot's slab).
+    // Without this, a DAY package booking an evening slot would
+    // appear free here but be charged at the server, which would be
+    // a nasty surprise. Mirrors ABCA's BookingBar logic that uses
+    // `validation.extraCharge` as the displayed total when a package
+    // is selected.
+    if (packageCoversBooking) {
+      return packageValidation?.valid ? (packageValidation.extraCharge || 0) : 0;
+    }
     return selectedSlots.reduce((sum, s) => sum + slotPriceFor(s), 0);
     // slotPriceFor depends on every selection that affects the cascade.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedSlots, category, machineId, pitchType, ballType, data?.pricingConfig, packageCoversBooking]);
+  }, [selectedSlots, category, machineId, pitchType, ballType, data?.pricingConfig, packageCoversBooking, packageValidation]);
 
   /** Sum of SINGLE-slot rates — what the user would've paid if every
    *  slot were billed independently (no consecutive pair pricing, no
@@ -1284,11 +1366,53 @@ export default function ResourceSlotsPage() {
                   <PackageIcon className="w-4 h-4 text-accent" />
                   <span className="text-xs font-bold text-accent">Package Selected</span>
                 </div>
+
                 {selectedSlots.length === 0 ? (
+                  // No slots picked yet — just announce the package is
+                  // armed. Validation can't run server-side without slot
+                  // context, so this branch never hits the API.
                   <p className="text-[11px] text-slate-400">
                     {selectedPackage.remainingSessions} session{selectedPackage.remainingSessions === 1 ? '' : 's'} remaining. Pick slots below to redeem.
                   </p>
+                ) : packageValidating ? (
+                  <div className="flex items-center gap-2 text-[10px] text-slate-400">
+                    <Loader2 className="w-3 h-3 animate-spin" />
+                    Validating package rules...
+                  </div>
+                ) : packageValidation ? (
+                  packageValidation.valid ? (
+                    <div className="space-y-1">
+                      <p className="text-[11px] text-green-400 flex items-center gap-1">
+                        <Check className="w-3 h-3" />
+                        Valid for this booking. {selectedSlots.length} session{selectedSlots.length === 1 ? '' : 's'} will be deducted.
+                      </p>
+                      {packageValidation.extraCharge && packageValidation.extraCharge > 0 && (
+                        <div className="mt-2 pt-2 border-t border-white/5">
+                          <p className="text-[11px] font-bold text-amber-400">
+                            Extra Charge: ₹{packageValidation.extraCharge}
+                          </p>
+                          <p className="text-[10px] text-slate-400">
+                            {packageValidation.extraChargeType === 'TIMING'
+                              ? 'Evening timing upgrade'
+                              : packageValidation.extraChargeType === 'BALL_TYPE'
+                                ? 'Leather ball upgrade'
+                                : packageValidation.extraChargeType === 'WICKET_TYPE'
+                                  ? 'Wicket type upgrade'
+                                  : 'Booking upgrade'}
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <p className="text-[11px] text-red-400 flex items-center gap-1">
+                      <AlertTriangle className="w-3 h-3" />
+                      {packageValidation.error || 'This package cannot be used for the current selection'}
+                    </p>
+                  )
                 ) : packageCoversBooking ? (
+                  // Validation hasn't resolved yet but the cart fits the
+                  // package's session count — show optimistic green so the
+                  // user isn't staring at a blank panel between renders.
                   <p className="text-[11px] text-green-400 flex items-center gap-1">
                     <Check className="w-3 h-3" />
                     Valid for this booking. {selectedSlots.length} session{selectedSlots.length === 1 ? '' : 's'} will be deducted.
@@ -1576,12 +1700,28 @@ export default function ResourceSlotsPage() {
               <div className="flex items-center gap-1 mt-0.5 flex-wrap">
                 {packageCoversBooking ? (
                   // Package redemption: server consumes one session per
-                  // slot and charges nothing. Show the package label so
-                  // the user can see exactly what's being decremented.
-                  <span className="text-sm font-bold text-purple-300 uppercase tracking-wider truncate"
-                    title={`Redeem ${selectedSlots.length} session(s) from "${selectedPackage?.packageName ?? ''}"`}>
-                    Package redemption
-                  </span>
+                  // slot. If validation surfaced an extra charge
+                  // (timing upgrade etc.), show it inline like ABCA's
+                  // BookingBar does — "Extra: ₹X" — instead of the
+                  // bare "Package redemption" label, so the user is
+                  // never surprised at the payment step.
+                  packageValidation?.valid && packageValidation.extraCharge && packageValidation.extraCharge > 0 ? (
+                    <>
+                      <IndianRupee className="w-3 h-3 text-amber-400" />
+                      <span className="text-sm font-bold text-amber-400">
+                        Extra: ₹{packageValidation.extraCharge.toLocaleString()}
+                      </span>
+                      <span className="text-[10px] text-purple-300 ml-1 uppercase tracking-wider truncate"
+                        title={`Redeem ${selectedSlots.length} session(s) from "${selectedPackage?.packageName ?? ''}"`}>
+                        from package
+                      </span>
+                    </>
+                  ) : (
+                    <span className="text-sm font-bold text-purple-300 uppercase tracking-wider truncate"
+                      title={`Redeem ${selectedSlots.length} session(s) from "${selectedPackage?.packageName ?? ''}"`}>
+                      Included in Package
+                    </span>
+                  )
                 ) : isFreeBooking ? (
                   // Free booking (super admin or free user) — server zeroes
                   // out the price; show that here instead of the slot rate

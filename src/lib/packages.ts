@@ -270,31 +270,51 @@ export async function validatePackageBooking(
     return { valid: false, error: `Not enough sessions. Remaining: ${remainingSessions}, Required: ${numberOfSlots}` };
   }
 
-  // Machine type check
-  if (!isMachineTypeCompatible(userPackage.package.machineType, bookingBallType)) {
-    return { valid: false, error: `Package machine type (${userPackage.package.machineType}) does not support ${bookingBallType} ball type` };
-  }
-
-  // Calculate extra charges
+  // Resource-based packages (Toplay et al.) live in a different
+  // taxonomy — they use `category` + optional `machineRowId` + the
+  // shared `timingType`. The ABCA-shape compatibility checks
+  // (machineType ↔ ballType, wicketType upgrades) don't apply here:
+  // category gating is enforced in book-resource, and machine pinning
+  // by `eligiblePackages` on the client. We only compute the timing
+  // upgrade here, since that's the one ABCA-shape extra charge that
+  // also makes sense at Toplay (DAY package, evening slot).
+  const isResourcePackage = userPackage.package.category !== null;
   const tsConfig = timeSlabConfig || await getTimeSlabConfig();
   const slotTimeSlab = getTimeSlab(slotStartTime, tsConfig);
 
-  const { totalExtra, breakdown } = calculatePackageExtraCharge(
-    {
-      machineId: userPackage.package.machineId,
-      machineType: userPackage.package.machineType,
-      ballType: userPackage.package.ballType,
-      wicketType: userPackage.package.wicketType,
-      timingType: userPackage.package.timingType,
-      extraChargeRules: userPackage.package.extraChargeRules as ExtraChargeRules | null,
-    },
-    {
-      machineId: bookingMachineId || null,
-      ballType: bookingBallType,
-      pitchType: bookingPitchType,
-      slotTimeSlab,
+  let totalExtra: number;
+  let breakdown: { ballTypeExtra: number; wicketTypeExtra: number; timingExtra: number; machineExtra: number };
+
+  if (isResourcePackage) {
+    const rules = (userPackage.package.extraChargeRules as ExtraChargeRules | null) || {};
+    const timingExtra = getTimingExtraCharge(userPackage.package.timingType, slotTimeSlab, rules);
+    totalExtra = timingExtra;
+    breakdown = { ballTypeExtra: 0, wicketTypeExtra: 0, timingExtra, machineExtra: 0 };
+  } else {
+    // Machine type check — ABCA-only; resource packages skip this.
+    if (!isMachineTypeCompatible(userPackage.package.machineType, bookingBallType)) {
+      return { valid: false, error: `Package machine type (${userPackage.package.machineType}) does not support ${bookingBallType} ball type` };
     }
-  );
+
+    const result = calculatePackageExtraCharge(
+      {
+        machineId: userPackage.package.machineId,
+        machineType: userPackage.package.machineType,
+        ballType: userPackage.package.ballType,
+        wicketType: userPackage.package.wicketType,
+        timingType: userPackage.package.timingType,
+        extraChargeRules: userPackage.package.extraChargeRules as ExtraChargeRules | null,
+      },
+      {
+        machineId: bookingMachineId || null,
+        ballType: bookingBallType,
+        pitchType: bookingPitchType,
+        slotTimeSlab,
+      }
+    );
+    totalExtra = result.totalExtra;
+    breakdown = result.breakdown;
+  }
 
   // Determine extra charge type for record
   let extraChargeType: string | undefined;

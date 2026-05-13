@@ -53,6 +53,9 @@ interface PackageRow {
   price: number;
   isActive: boolean;
   createdAt: string;
+  // Extra-charge rules JSON — Toplay only uses `timingUpgrade` today,
+  // but the column carries the full ABCA-shape blob.
+  extraChargeRules?: { timingUpgrade?: number } | null;
   _count?: { userPackages: number };
 }
 
@@ -67,6 +70,11 @@ const emptyForm = {
   totalSessions: 4,
   validityDays: 30,
   price: 1000,
+  // Per-slot extra charge when a DAY package is redeemed against an
+  // evening slot. Mirrors ABCA's `extraChargeRules.timingUpgrade`.
+  // Default 0 = no upgrade fee (DAY packages can't cover evening).
+  // Set to e.g. 125 to charge ₹125/slot when DAY package books evening.
+  timingUpgrade: 0,
 };
 
 export function ResourcePackageManagement() {
@@ -129,6 +137,14 @@ export function ResourcePackageManagement() {
       // column). For resource-based packages we always send 'LEATHER'
       // as a placeholder — the new `category` field is the real
       // discriminator and the old field is unused at redemption time.
+      // extraChargeRules is only meaningful when timingType=DAY (the
+      // only ABCA-shape upgrade that maps cleanly to Toplay packages
+      // for now). For BOTH / EVENING packages we leave it null so the
+      // server-side validator doesn't accidentally fire on a slab the
+      // package already covers.
+      const extraChargeRules = form.timingType === 'DAY' && form.timingUpgrade > 0
+        ? { timingUpgrade: form.timingUpgrade }
+        : null;
       const body = {
         name: form.name,
         category: form.category,
@@ -138,6 +154,7 @@ export function ResourcePackageManagement() {
         totalSessions: form.totalSessions,
         validityDays: form.validityDays,
         price: form.price,
+        extraChargeRules,
       };
       const res = editingId
         ? await fetch('/api/admin/packages', {
@@ -165,6 +182,10 @@ export function ResourcePackageManagement() {
   };
 
   const startEdit = (p: PackageRow) => {
+    // Pull the existing timingUpgrade off the JSON blob (if any) so
+    // editing a saved package shows the same value back.
+    const rules = (p as PackageRow & { extraChargeRules?: { timingUpgrade?: number } | null })
+      .extraChargeRules;
     setEditingId(p.id);
     setForm({
       name: p.name,
@@ -174,6 +195,7 @@ export function ResourcePackageManagement() {
       totalSessions: p.totalSessions,
       validityDays: p.validityDays,
       price: p.price,
+      timingUpgrade: rules?.timingUpgrade ?? 0,
     });
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
@@ -308,6 +330,33 @@ export function ResourcePackageManagement() {
             ))}
           </select>
         </div>
+
+        {/* Evening upgrade fee — only relevant when the package is
+            DAY-only. ABCA exposes the same control under
+            `extraChargeRules.timingUpgrade`. Leave at 0 to keep DAY
+            packages strictly daytime; set > 0 to let users redeem on
+            an evening slot for the extra fee per session. */}
+        {form.timingType === 'DAY' && (
+          <div className="mt-3">
+            <label className="block text-[11px] font-medium text-slate-400 mb-1">
+              Evening upgrade (₹ per slot)
+            </label>
+            <input
+              type="number"
+              min={0}
+              value={form.timingUpgrade}
+              onChange={(e) =>
+                setForm({ ...form, timingUpgrade: parseInt(e.target.value, 10) || 0 })
+              }
+              placeholder="0 = no upgrade allowed"
+              className={inputClass}
+            />
+            <p className="mt-1 text-[10px] text-slate-500">
+              Charged per slot when a user redeems this DAY package on an evening slot.
+              Set to 0 to disallow evening redemption entirely.
+            </p>
+          </div>
+        )}
 
         <div className="flex gap-2 pt-4">
           <button

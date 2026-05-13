@@ -529,6 +529,7 @@ async function executeResourceBookingCore(
       category: BookingCategory | null;
       machineRowId: string | null;
       timingType: string;
+      extraChargeRules: unknown;
     };
   } | null = null;
   if (body.userPackageId) {
@@ -548,6 +549,12 @@ async function executeResourceBookingCore(
             category: true,
             machineRowId: true,
             timingType: true,
+            // `extraChargeRules` carries the per-package upgrade
+            // pricing (timingUpgrade, ballTypeUpgrade, etc.). Needed
+            // here so the per-slot extra charge math below sees the
+            // same numbers the user saw when they selected the
+            // package on the slot grid.
+            extraChargeRules: true,
             isActive: true,
           },
         },
@@ -606,6 +613,7 @@ async function executeResourceBookingCore(
         category: found.package.category,
         machineRowId: found.package.machineRowId,
         timingType: found.package.timingType,
+        extraChargeRules: found.package.extraChargeRules,
       },
     };
   }
@@ -683,24 +691,47 @@ async function executeResourceBookingCore(
               const assignment = await planBooking(plan, { audience });
 
               const isPackageRedemption = !!userPackage;
-              const basePrice = isFreeBooking || isPackageRedemption
+
+              // Per-slot package extra charge — mirrors ABCA's
+              // `validatePackageBooking` flow but inlined so we don't
+              // round-trip to /api/packages/validate-booking from
+              // inside the transaction. Currently only the timing
+              // upgrade applies to Toplay packages; the other axes
+              // (ball/wicket/machine) don't have a clean Toplay
+              // mapping yet. ABCA-shape packages fall through with
+              // the full breakdown.
+              let packageExtra = 0;
+              if (isPackageRedemption && userPackage) {
+                const slab = getTimeSlab(plan.startTime, timeSlabConfig);
+                const rules = (userPackage.package.extraChargeRules || {}) as {
+                  timingUpgrade?: number;
+                };
+                // DAY package, evening slot → upgrade charge.
+                if (userPackage.package.timingType === 'DAY' && slab === 'evening') {
+                  packageExtra += Math.max(0, Math.floor(rules.timingUpgrade ?? 0));
+                }
+              }
+
+              const basePrice = isFreeBooking
                 ? 0
-                : await getResourceSlotPrice({
-                    category: plan.category as Exclude<BookingCategory, never>,
-                    machineTypeCode,
-                    // Most-specific override axis: per-Machine-row
-                    // pricing (e.g. "Yantra 1" priced separately from
-                    // "Yantra 2" at the same center).
-                    machineRowId: assignment.machineId ?? null,
-                    // Specificity in the pricing matrix — pass the user
-                    // pick so machinePricing[code][pitch][ball] applies
-                    // when configured.
-                    pitchType: body.pitchType ?? null,
-                    ballType: body.ballType ?? null,
-                    isConsecutive,
-                    startTime: plan.startTime,
-                    centerId: center.id,
-                  });
+                : isPackageRedemption
+                  ? packageExtra
+                  : await getResourceSlotPrice({
+                      category: plan.category as Exclude<BookingCategory, never>,
+                      machineTypeCode,
+                      // Most-specific override axis: per-Machine-row
+                      // pricing (e.g. "Yantra 1" priced separately from
+                      // "Yantra 2" at the same center).
+                      machineRowId: assignment.machineId ?? null,
+                      // Specificity in the pricing matrix — pass the user
+                      // pick so machinePricing[code][pitch][ball] applies
+                      // when configured.
+                      pitchType: body.pitchType ?? null,
+                      ballType: body.ballType ?? null,
+                      isConsecutive,
+                      startTime: plan.startTime,
+                      centerId: center.id,
+                    });
 
               // ── Recurring slot discount ──────────────────────────────
               // Apply on top of basePrice (before promotional offers) so
