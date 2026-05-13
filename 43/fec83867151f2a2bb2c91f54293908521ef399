@@ -1,0 +1,26 @@
+src/app/api/packages/my/route.ts
+  s_e0175fb4b4f942::t_6c1724d6d4bc80 46-55
+  s_e0175fb4b4f942::t_3527f63b5b0323 111-116
+src/lib/packages.ts
+  s_e0175fb4b4f942::t_1a04db33ac1fc1 193-203
+src/app/slots/ResourceSlotsPage.tsx
+  s_e0175fb4b4f942::t_446f0984b992bb 1182,1188,1191,1195-1196,1198-1202,1204-1210,1212-1214,1216-1227,1231-1235
+  s_e0175fb4b4f942::t_ca6116b23bb70f 280-281
+  s_e0175fb4b4f942::t_df650c13fee55f 335-372,375-378
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.4",
+  "base_commit_sha": "43fec83867151f2a2bb2c91f54293908521ef399",
+  "prompts": {},
+  "sessions": {
+    "s_e0175fb4b4f942": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "f3864c65-ac36-4572-a64e-c1d488c0cbdf",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Waheed <waheeddar8@gmail.com>"
+    }
+  }
+}
