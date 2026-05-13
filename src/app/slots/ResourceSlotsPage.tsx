@@ -366,31 +366,21 @@ export default function ResourceSlotsPage() {
     [eligiblePackages, selectedPackageId],
   );
 
-  // ─── Auto-select first compatible package on initial load ─────────
-  // Mirrors ABCA's effect at src/app/slots/page.tsx:180. Picks the
-  // first ACTIVE package with sessions remaining once the user's
-  // packages have loaded, so they don't have to manually pick one.
-  // Bails if the user has explicitly declined or already chose.
+  // ─── Auto-select first eligible package ──────────────────────────
+  // Mirrors ABCA's effect at src/app/slots/page.tsx:180. The moment a
+  // user has any active package compatible with the current view
+  // (category + machine pin), it becomes the default selection.
+  //
+  // Depends on `eligiblePackages` (not just `myPackages`) so that when
+  // the auto-select-machine effect below switches the machine to a
+  // pinned package's home, this effect picks the package up on the
+  // next render — without that dependency, machine-pinned packages
+  // would land unselected even though everything was ready.
   useEffect(() => {
     if (userDeclinedPackage) return;
-    if (myPackages.length === 0 || selectedPackageId) return;
-
-    const firstActive = myPackages.find(
-      (p) => p.status === 'ACTIVE' && p.remainingSessions > 0,
-    );
-    if (firstActive) {
-      // Only auto-select if it's actually usable RIGHT NOW (matches the
-      // current category and machine pin). Otherwise wait for the slot-
-      // change effect below to pick a more specific match.
-      const usable =
-        (!firstActive.category || firstActive.category === category) &&
-        (!firstActive.machineRowId || firstActive.machineRowId === machineId);
-      if (usable) {
-        setSelectedPackageId(firstActive.id);
-      }
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [myPackages]);
+    if (eligiblePackages.length === 0 || selectedPackageId) return;
+    setSelectedPackageId(eligiblePackages[0].id);
+  }, [eligiblePackages, selectedPackageId, userDeclinedPackage]);
 
   // ─── Auto-select compatible package once slots are chosen ─────────
   // Mirrors ABCA's effect at src/app/slots/page.tsx:194. Prefers a
