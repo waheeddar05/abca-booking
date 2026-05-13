@@ -1324,11 +1324,26 @@ export default function ResourceSlotsPage() {
                     </div>
                   )}
 
-                  {/* No per-slot self-operate pill or discount pill —
-                      the slot status above (amber "Self Operate") and
-                      the booking-bar breakdown below carry that info.
-                      Mirrors ABCA: discount summary lives in the bar,
-                      not on each card. */}
+                  {/* Recurring / promotional offer pill — shown when the
+                      server-computed discount preview is non-zero for the
+                      active category. Mirrors ABCA's SlotGrid which shows
+                      "Extra ₹X off" on each qualifying slot card. Without
+                      this badge, admins who configure a recurring or promo
+                      offer can't see it's taking effect until they pick a
+                      slot and look at the booking bar. */}
+                  {!isUnavailable && (() => {
+                    const disc = discountFor(slot);
+                    if (!disc || disc.amount <= 0) return null;
+                    return (
+                      <div className={`mt-1 text-[8px] font-bold px-1.5 py-0.5 rounded-full text-center ${
+                        selected
+                          ? 'bg-primary/20 text-primary/80'
+                          : 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/20'
+                      }`}>
+                        {disc.promoName ? `${disc.promoName}: ` : ''}₹{disc.amount} off
+                      </div>
+                    );
+                  })()}
                 </button>
               );
             })}

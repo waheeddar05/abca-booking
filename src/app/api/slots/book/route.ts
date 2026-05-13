@@ -358,9 +358,13 @@ export async function executeSlotBooking(
     }
 
     // ── Recurring Slot Discount (Feature 1) ──────────────────────────
-    // After consecutive pricing, check for recurring slot discounts and apply as additional flat reduction.
+    // After consecutive pricing, check for recurring slot discounts and
+    // apply as additional flat reduction. Scoped to THIS center —
+    // without the centerId filter a rule configured at Toplay could
+    // apply to an ABCA booking at the same time-of-day, silently
+    // shaving rupees off the wrong center's pricing.
     const recurringDiscountRules = await prisma.recurringSlotDiscount.findMany({
-      where: { enabled: true },
+      where: { centerId, enabled: true },
     }).catch(() => []);
 
     let totalRecurringDiscount = 0;
@@ -449,8 +453,13 @@ export async function executeSlotBooking(
         const userIsSpecial = targetUser.isSpecialUser;
         for (let i = 0; i < pricing.length; i++) {
           const slot = validatedSlots[i];
+          // Pass centerId so an offer at center A can't accidentally
+          // apply to a booking at center B. The helper treats a missing
+          // centerId as "any center", which was the pre-multi-center
+          // assumption and not what we want anymore.
           const allPromos = await getAllApplicablePromoDiscounts(
             slot.date, slot.startTime, slot.machineId, slot.pitchType, userIsSpecial,
+            null, null, centerId,
           );
           if (allPromos.length > 0) {
             const result = calculateStackedDiscount(
