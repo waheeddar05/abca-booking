@@ -1,13 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { requireSuperAdmin } from '@/lib/adminAuth';
+import { getAuthenticatedUser } from '@/lib/auth';
 import { z } from 'zod';
 
 /**
- * Machine type catalog — global, super admin only.
+ * Machine type catalog — global. Read is open to any admin so they can
+ * pick a type when adding a Machine to their center. Writes
+ * (POST / PATCH / DELETE) remain super-admin-only since editing the
+ * catalog affects every center.
  *
- * GET  /api/admin/machine-types     List all
- * POST /api/admin/machine-types     Add a new type (e.g. "ProBatter")
+ * GET  /api/admin/machine-types     List all (admin OR super admin)
+ * POST /api/admin/machine-types     Add a new type (super admin only)
  *
  * Each Center then creates Machine instances pointing at one of these.
  */
@@ -22,8 +26,14 @@ const MachineTypeCreateSchema = z.object({
 });
 
 export async function GET(req: NextRequest) {
-  const session = await requireSuperAdmin(req);
-  if (!session) return NextResponse.json({ error: 'Super admin required' }, { status: 403 });
+  // Open to any global ADMIN (center admins included) — they need to
+  // pick a machine type when adding a Machine. Authenticated users
+  // without ADMIN role still get a 403.
+  const user = await getAuthenticatedUser(req);
+  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  if (user.role !== 'ADMIN' && !user.isSuperAdmin) {
+    return NextResponse.json({ error: 'Admin required' }, { status: 403 });
+  }
 
   const types = await prisma.machineType.findMany({
     orderBy: { name: 'asc' },

@@ -77,8 +77,11 @@ export function CenterMachinesTab({ centerId }: { centerId: string }) {
   if (types.length === 0) {
     return (
       <Banner kind="info">
-        No machine types exist yet. Create at least one machine type via the API <code>POST /api/admin/machine-types</code> before adding machines.
-        ABCA&apos;s three default types (Yantra, Gravity, Leverage) are seeded automatically on migration.
+        No machine types are available yet. Ask a super admin to add one
+        in the machine-type catalog before configuring a machine here.
+        ABCA&apos;s defaults (Yantra, Gravity, Leverage) are seeded
+        automatically on migration; if they&apos;re missing the
+        catalog likely needs to be re-seeded.
       </Banner>
     );
   }
