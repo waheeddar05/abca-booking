@@ -1,0 +1,22 @@
+src/app/slots/ResourceSlotsPage.tsx
+  s_e0175fb4b4f942::t_1d25cf83e3052c 1327-1346
+src/app/api/slots/book/route.ts
+  s_e0175fb4b4f942::t_cb6b108c0ef2e3 456-459,462
+  s_e0175fb4b4f942::t_85f19b2b2576cd 361-365,367
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.4",
+  "base_commit_sha": "40f0ddbcac0cf1bd2cf1f95aa15add93b3d66849",
+  "prompts": {},
+  "sessions": {
+    "s_e0175fb4b4f942": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "f3864c65-ac36-4572-a64e-c1d488c0cbdf",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Waheed <waheeddar8@gmail.com>"
+    }
+  }
+}
