@@ -1,0 +1,22 @@
+src/app/api/admin/machine-types/route.ts
+  s_e0175fb4b4f942::t_12334cccabcdea 29-36
+  s_e0175fb4b4f942::t_1d830e7fac4e2d 4,8-11,13-14
+src/components/admin/centers/CenterMachinesTab.tsx
+  s_e0175fb4b4f942::t_e6008af131b7ae 80-84
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.4",
+  "base_commit_sha": "2881103b0de343333bd26510b9e119f5c01fb951",
+  "prompts": {},
+  "sessions": {
+    "s_e0175fb4b4f942": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "f3864c65-ac36-4572-a64e-c1d488c0cbdf",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Waheed <waheeddar8@gmail.com>"
+    }
+  }
+}
