@@ -1,0 +1,30 @@
+src/lib/packages.ts
+  s_e0175fb4b4f942::t_c85b9e68ef8a29 299-311
+src/app/api/slots/book-resource/route.ts
+  s_e0175fb4b4f942::t_d8c5e76f42e4a8 643
+  s_e0175fb4b4f942::t_11010c35de641b 574-577,579-582
+  s_e0175fb4b4f942::t_a8446502801a0f 544-548
+  s_e0175fb4b4f942::t_15b1a77029d0f1 749-750,753-757,764,778-797
+src/components/admin/ResourcePackageManagement.tsx
+  s_e0175fb4b4f942::t_96dea5e0e84d69 73-82,96-100,111-114
+  s_e0175fb4b4f942::t_a487a57d948ba0 177-181,185-187,189-194,205-221,224-225,227-229,237
+  s_e0175fb4b4f942::t_8fb55ed8eae1cc 280,287
+  s_e0175fb4b4f942::t_adbc691afc152d 458-529
+  s_e0175fb4b4f942::t_a8c84275270175 51,59-61,65
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.4",
+  "base_commit_sha": "9a6aae9b479c3afcf1e755f68d45643ad50d8f70",
+  "prompts": {},
+  "sessions": {
+    "s_e0175fb4b4f942": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "f3864c65-ac36-4572-a64e-c1d488c0cbdf",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Waheed <waheeddar8@gmail.com>"
+    }
+  }
+}
