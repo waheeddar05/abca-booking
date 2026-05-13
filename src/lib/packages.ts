@@ -288,8 +288,16 @@ export async function validatePackageBooking(
   if (isResourcePackage) {
     const rules = (userPackage.package.extraChargeRules as ExtraChargeRules | null) || {};
     const timingExtra = getTimingExtraCharge(userPackage.package.timingType, slotTimeSlab, rules);
-    totalExtra = timingExtra;
-    breakdown = { ballTypeExtra: 0, wicketTypeExtra: 0, timingExtra, machineExtra: 0 };
+    // Ball-type upgrade — if the package is machine-ball only and the
+    // user is booking with leather balls, charge the upgrade fee.
+    // BOTH / LEATHER packages have no upgrade. Skips for non-MACHINE
+    // categories since they don't use a bowling machine.
+    const ballTypeExtra =
+      userPackage.package.category === 'MACHINE'
+        ? getBallTypeExtraCharge(userPackage.package.ballType, bookingBallType, rules)
+        : 0;
+    totalExtra = timingExtra + ballTypeExtra;
+    breakdown = { ballTypeExtra, wicketTypeExtra: 0, timingExtra, machineExtra: 0 };
   } else {
     // Machine type check — ABCA-only; resource packages skip this.
     if (!isMachineTypeCompatible(userPackage.package.machineType, bookingBallType)) {

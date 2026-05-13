@@ -47,15 +47,20 @@ interface PackageRow {
   name: string;
   category: string | null;
   machineRowId: string | null;
+  ballType: string | null;
   timingType: string;
   totalSessions: number;
   validityDays: number;
   price: number;
   isActive: boolean;
   createdAt: string;
-  // Extra-charge rules JSON — Toplay only uses `timingUpgrade` today,
-  // but the column carries the full ABCA-shape blob.
-  extraChargeRules?: { timingUpgrade?: number } | null;
+  // Extra-charge rules JSON. Toplay populates `timingUpgrade` (DAY →
+  // evening) and `ballTypeUpgrade` (MACHINE ball package → leather
+  // booking); the column carries the full ABCA-shape blob.
+  extraChargeRules?: {
+    timingUpgrade?: number;
+    ballTypeUpgrade?: number;
+  } | null;
   _count?: { userPackages: number };
 }
 
@@ -70,11 +75,21 @@ const emptyForm = {
   totalSessions: 4,
   validityDays: 30,
   price: 1000,
+  // Ball type the package covers for MACHINE category. MACHINE = the
+  // package is for machine-balls only; LEATHER = leather-balls only;
+  // BOTH = either. Mirrors ABCA's `Package.ballType`. Only meaningful
+  // when category=MACHINE; ignored for SIDEARM/COACHING/etc.
+  ballType: 'BOTH' as string,
   // Per-slot extra charge when a DAY package is redeemed against an
   // evening slot. Mirrors ABCA's `extraChargeRules.timingUpgrade`.
   // Default 0 = no upgrade fee (DAY packages can't cover evening).
   // Set to e.g. 125 to charge ₹125/slot when DAY package books evening.
   timingUpgrade: 0,
+  // Per-slot extra charge when a MACHINE-ball package is redeemed
+  // against a leather-ball booking. Mirrors ABCA's
+  // `extraChargeRules.ballTypeUpgrade` (default 100). Only meaningful
+  // when ballType=MACHINE.
+  ballTypeUpgrade: 0,
 };
 
 export function ResourcePackageManagement() {
@@ -137,19 +152,38 @@ export function ResourcePackageManagement() {
       // column). For resource-based packages we always send 'LEATHER'
       // as a placeholder — the new `category` field is the real
       // discriminator and the old field is unused at redemption time.
-      // extraChargeRules is only meaningful when timingType=DAY (the
-      // only ABCA-shape upgrade that maps cleanly to Toplay packages
-      // for now). For BOTH / EVENING packages we leave it null so the
-      // server-side validator doesn't accidentally fire on a slab the
-      // package already covers.
-      const extraChargeRules = form.timingType === 'DAY' && form.timingUpgrade > 0
-        ? { timingUpgrade: form.timingUpgrade }
-        : null;
+      // Assemble `extraChargeRules`:
+      //   - timingUpgrade: applies only when timingType=DAY
+      //   - ballTypeUpgrade: applies only when category=MACHINE AND
+      //     ballType=MACHINE (i.e. the user bought a machine-ball
+      //     package and might want to upgrade to leather balls)
+      // Anything else stays out of the JSON blob so the server-side
+      // validator doesn't accidentally fire on an axis the package
+      // already covers.
+      const rules: { timingUpgrade?: number; ballTypeUpgrade?: number } = {};
+      if (form.timingType === 'DAY' && form.timingUpgrade > 0) {
+        rules.timingUpgrade = form.timingUpgrade;
+      }
+      if (
+        form.category === 'MACHINE'
+        && form.ballType === 'MACHINE'
+        && form.ballTypeUpgrade > 0
+      ) {
+        rules.ballTypeUpgrade = form.ballTypeUpgrade;
+      }
+      const extraChargeRules = Object.keys(rules).length > 0 ? rules : null;
+
+      // ballType is meaningful only for MACHINE category; the other
+      // categories (SIDEARM/COACHING/etc.) don't use a bowling
+      // machine, so we send null to keep the column unset.
+      const ballType = form.category === 'MACHINE' ? form.ballType : null;
+
       const body = {
         name: form.name,
         category: form.category,
         machineRowId: form.machineRowId || null,
         machineType: 'LEATHER',
+        ballType,
         timingType: form.timingType,
         totalSessions: form.totalSessions,
         validityDays: form.validityDays,
@@ -182,20 +216,22 @@ export function ResourcePackageManagement() {
   };
 
   const startEdit = (p: PackageRow) => {
-    // Pull the existing timingUpgrade off the JSON blob (if any) so
-    // editing a saved package shows the same value back.
-    const rules = (p as PackageRow & { extraChargeRules?: { timingUpgrade?: number } | null })
-      .extraChargeRules;
+    // Pull existing extraChargeRules off the JSON blob (if any) so
+    // editing a saved package round-trips the same values back into
+    // the inputs.
+    const rules = p.extraChargeRules ?? null;
     setEditingId(p.id);
     setForm({
       name: p.name,
       category: (p.category ?? 'MACHINE') as string,
       machineRowId: p.machineRowId ?? '',
+      ballType: (p.ballType ?? 'BOTH') as string,
       timingType: p.timingType,
       totalSessions: p.totalSessions,
       validityDays: p.validityDays,
       price: p.price,
       timingUpgrade: rules?.timingUpgrade ?? 0,
+      ballTypeUpgrade: rules?.ballTypeUpgrade ?? 0,
     });
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
@@ -315,6 +351,56 @@ export function ResourcePackageManagement() {
             />
           </div>
         </div>
+
+        {/* Ball type — only meaningful for MACHINE category packages.
+            Determines which ball types this package covers (same model
+            as ABCA's `Package.ballType`):
+              MACHINE → machine-balls only (cheaper)
+              LEATHER → leather-balls only (premium)
+              BOTH    → either, no upgrade fee ever
+            Hidden for SIDEARM/COACHING/etc. where there's no bowling
+            machine and ballType doesn't apply. */}
+        {form.category === 'MACHINE' && (
+          <div className="mt-3">
+            <label className="block text-[11px] font-medium text-slate-400 mb-1">Ball type</label>
+            <select
+              value={form.ballType}
+              onChange={(e) => setForm({ ...form, ballType: e.target.value })}
+              className={inputClass}
+            >
+              <option value="BOTH" className="bg-[#1a2a40]">Both (machine + leather)</option>
+              <option value="MACHINE" className="bg-[#1a2a40]">Machine balls only</option>
+              <option value="LEATHER" className="bg-[#1a2a40]">Leather balls only</option>
+            </select>
+          </div>
+        )}
+
+        {/* Leather upgrade fee — only relevant when the package is
+            machine-ball only. ABCA exposes the same control under
+            `extraChargeRules.ballTypeUpgrade`. Leave at 0 to keep
+            machine-ball packages strictly machine-ball; set > 0 to
+            let users redeem on a leather-ball slot for the fee. */}
+        {form.category === 'MACHINE' && form.ballType === 'MACHINE' && (
+          <div className="mt-3">
+            <label className="block text-[11px] font-medium text-slate-400 mb-1">
+              Leather upgrade (₹ per slot)
+            </label>
+            <input
+              type="number"
+              min={0}
+              value={form.ballTypeUpgrade}
+              onChange={(e) =>
+                setForm({ ...form, ballTypeUpgrade: parseInt(e.target.value, 10) || 0 })
+              }
+              placeholder="0 = no upgrade allowed"
+              className={inputClass}
+            />
+            <p className="mt-1 text-[10px] text-slate-500">
+              Charged per slot when a user with this machine-ball package books a leather-ball
+              session. Set to 0 to disallow leather-ball redemption entirely.
+            </p>
+          </div>
+        )}
 
         <div className="mt-3">
           <label className="block text-[11px] font-medium text-slate-400 mb-1">Timing</label>

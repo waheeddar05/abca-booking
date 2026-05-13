@@ -537,6 +537,10 @@ async function executeResourceBookingCore(
       category: BookingCategory | null;
       machineRowId: string | null;
       timingType: string;
+      // Ball-type the package covers (MACHINE / LEATHER / BOTH).
+      // Drives the per-slot ball-type upgrade charge: a MACHINE-only
+      // package booking a LEATHER slot pays `ballTypeUpgrade` per slot.
+      ballType: string | null;
       extraChargeRules: unknown;
     };
   } | null = null;
@@ -557,6 +561,11 @@ async function executeResourceBookingCore(
             category: true,
             machineRowId: true,
             timingType: true,
+            // `ballType` drives the machine-ball → leather-ball upgrade
+            // charge. Null on legacy ABCA-style packages that don't
+            // discriminate (the admin form sets it to BOTH for any
+            // Toplay package that covers either ball type).
+            ballType: true,
             // `extraChargeRules` carries the per-package upgrade
             // pricing (timingUpgrade, ballTypeUpgrade, etc.). Needed
             // here so the per-slot extra charge math below sees the
@@ -621,6 +630,7 @@ async function executeResourceBookingCore(
         category: found.package.category,
         machineRowId: found.package.machineRowId,
         timingType: found.package.timingType,
+        ballType: found.package.ballType,
         extraChargeRules: found.package.extraChargeRules,
       },
     };
@@ -726,20 +736,34 @@ async function executeResourceBookingCore(
               // Per-slot package extra charge — mirrors ABCA's
               // `validatePackageBooking` flow but inlined so we don't
               // round-trip to /api/packages/validate-booking from
-              // inside the transaction. Currently only the timing
-              // upgrade applies to Toplay packages; the other axes
-              // (ball/wicket/machine) don't have a clean Toplay
-              // mapping yet. ABCA-shape packages fall through with
-              // the full breakdown.
+              // inside the transaction. Two axes apply to Toplay
+              // packages today:
+              //   - timing: DAY package booking an evening slot
+              //   - ballType: machine-ball package booking leather
+              // ABCA-shape packages fall through with their full
+              // breakdown via the validate-booking endpoint; here
+              // we recompute the same two axes inline since the body
+              // already carries the booking's ball type.
               let packageExtra = 0;
               if (isPackageRedemption && userPackage) {
                 const slab = getTimeSlab(plan.startTime, timeSlabConfig);
                 const rules = (userPackage.package.extraChargeRules || {}) as {
                   timingUpgrade?: number;
+                  ballTypeUpgrade?: number;
                 };
                 // DAY package, evening slot → upgrade charge.
                 if (userPackage.package.timingType === 'DAY' && slab === 'evening') {
                   packageExtra += Math.max(0, Math.floor(rules.timingUpgrade ?? 0));
+                }
+                // Machine-ball package, leather-ball booking → upgrade.
+                // Pulled off `userPackage.package.ballType` (now exposed
+                // by the admin form) against the request's `ballType`.
+                if (
+                  plan.category === 'MACHINE'
+                  && userPackage.package.ballType === 'MACHINE'
+                  && body.ballType === 'LEATHER'
+                ) {
+                  packageExtra += Math.max(0, Math.floor(rules.ballTypeUpgrade ?? 0));
                 }
               }
 
