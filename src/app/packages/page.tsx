@@ -100,6 +100,25 @@ const CATEGORY_LABEL: Record<string, string> = {
   CORPORATE_BATCH: 'Corporate',
 };
 
+/** Minimal machine shape pulled from `/api/centers/[id]/machines` —
+ *  enough to render a filter card (label + image) and match against
+ *  `Package.machineRowId`. RESOURCE_BASED centers only. */
+interface CenterMachineRow {
+  id: string;
+  name: string;
+  shortName: string | null;
+  machineType: { code: string; name: string; ballType: string; imageUrl: string | null };
+}
+
+/** Map MachineType.code → fallback image so a freshly-seeded machine
+ *  still gets a card image. Mirrors the assets used by ABCA's
+ *  PACKAGE_MACHINE_CARDS. */
+const MACHINE_TYPE_IMAGE: Record<string, string> = {
+  YANTRA: '/images/yantra-machine.jpeg',
+  GRAVITY: '/images/leathermachine.jpeg',
+  LEVERAGE: '/images/tennismachine.jpeg',
+};
+
 export default function PackagesPage() {
   const { data: session } = useSession();
   const [tab, setTab] = useState<'browse' | 'my'>('my');
@@ -110,6 +129,14 @@ export default function PackagesPage() {
   const [message, setMessage] = useState({ text: '', type: '' });
   const [machineFilter, setMachineFilter] = useState<MachineFilter>('all');
   const [categoryFilter, setCategoryFilter] = useState<ResourceCategoryFilter>('all');
+  /** RESOURCE_BASED only — filter by specific Machine row (Yantra,
+   *  Leverage Tennis, …). `'all'` means "any machine"; setting it to a
+   *  Machine.id narrows the result set to packages pinned to that
+   *  machine. Selecting a machine implicitly forces category=MACHINE
+   *  in the filter logic (we keep `categoryFilter` separate so the
+   *  user can still pick non-machine categories like Coaching). */
+  const [machineRowFilter, setMachineRowFilter] = useState<'all' | string>('all');
+  const [centerMachines, setCenterMachines] = useState<CenterMachineRow[]>([]);
   const [timingFilter, setTimingFilter] = useState<'DAY' | 'EVENING' | ''>('');
   const { currentCenter } = useCenter();
   const isResourceCenter = currentCenter?.bookingModel === 'RESOURCE_BASED';
@@ -174,6 +201,24 @@ export default function PackagesPage() {
     if (tab === 'my' && session) fetchMyPackages();
     if (tab === 'browse') fetchPackages();
   }, [tab, session]);
+
+  // RESOURCE_BASED centers only — fetch the center's actual Machine
+  // rows so the filter row can render real machine cards (Yantra,
+  // Leverage Tennis, …) instead of the ABCA enum allowlist. We avoid
+  // calling this on MACHINE_PITCH centers because the legacy cards
+  // already cover their machines without a network round-trip.
+  useEffect(() => {
+    if (!isResourceCenter || !currentCenter?.id) {
+      setCenterMachines([]);
+      return;
+    }
+    let cancelled = false;
+    fetch(`/api/centers/${currentCenter.id}/machines`)
+      .then((res) => (res.ok ? res.json() : []))
+      .then((data) => { if (!cancelled) setCenterMachines(Array.isArray(data) ? data : []); })
+      .catch(() => { if (!cancelled) setCenterMachines([]); });
+    return () => { cancelled = true; };
+  }, [isResourceCenter, currentCenter?.id]);
 
   const handlePurchase = async (packageId: string) => {
     if (!session) {
@@ -275,20 +320,33 @@ export default function PackagesPage() {
   };
 
   const hasActiveFilter = isResourceCenter
-    ? (categoryFilter !== 'all' || timingFilter !== '')
+    ? (categoryFilter !== 'all' || machineRowFilter !== 'all' || timingFilter !== '')
     : (machineFilter !== 'all' || timingFilter !== '');
 
   const clearFilters = () => {
     setMachineFilter('all');
     setCategoryFilter('all');
+    setMachineRowFilter('all');
     setTimingFilter('');
   };
 
-  // Filtered packages based on machine card / category card + timing
+  // Filtered packages based on machine card / category card + timing.
+  // RESOURCE_BASED centers (Toplay) add a third axis — `machineRowFilter` —
+  // so "select Yantra → only Yantra packages" works the same way the
+  // ABCA enum cards do on the main branch.
   const filteredPackages = useMemo(() => {
     let filtered = packages;
     if (isResourceCenter) {
-      if (categoryFilter !== 'all') {
+      // Machine-row filter implicitly narrows to category=MACHINE because
+      // only MACHINE packages can be pinned to a machine row. We keep
+      // `categoryFilter` independent so picking a category card after a
+      // machine card switches the lens to that category instead of
+      // accumulating both.
+      if (machineRowFilter !== 'all') {
+        filtered = filtered.filter(
+          (pkg) => pkg.category === 'MACHINE' && pkg.machineRowId === machineRowFilter,
+        );
+      } else if (categoryFilter !== 'all') {
         filtered = filtered.filter((pkg) => pkg.category === categoryFilter);
       }
     } else if (machineFilter !== 'all') {
@@ -304,7 +362,7 @@ export default function PackagesPage() {
       filtered = filtered.filter(pkg => pkg.timingType === timingFilter || pkg.timingType === 'BOTH');
     }
     return filtered;
-  }, [packages, machineFilter, categoryFilter, timingFilter, isResourceCenter]);
+  }, [packages, machineFilter, categoryFilter, machineRowFilter, timingFilter, isResourceCenter]);
 
   // ABCA-style splits — packages without a resource category fall through
   // to these. Resource-only packages never hit them because `machineType`
@@ -512,32 +570,107 @@ export default function PackagesPage() {
                     so the user filters by what they're booking, not the
                     machine model. */}
                 {isResourceCenter ? (
-                  <div className="grid grid-cols-2 gap-1.5">
-                    {PACKAGE_CATEGORY_CARDS.map((card) => {
-                      const isSelected = categoryFilter === card.id;
-                      return (
-                        <button
-                          key={card.id}
-                          onClick={() => { setCategoryFilter(isSelected ? 'all' : card.id); setTimingFilter(''); }}
-                          className={`flex items-center gap-2 px-2 py-1.5 rounded-lg transition-all cursor-pointer text-left ${
-                            isSelected
-                              ? 'bg-accent/15 ring-1 ring-accent/50 shadow-sm'
-                              : 'bg-white/[0.04] border border-white/[0.08] hover:border-accent/30'
-                          }`}
-                        >
-                          <span className={`w-2 h-2 rounded-full flex-shrink-0 ${card.dot}`} />
-                          <div className="min-w-0">
-                            <span className={`text-[10px] font-bold leading-tight block ${isSelected ? 'text-accent' : 'text-slate-300'}`}>
-                              {card.label}
-                            </span>
-                            <p className={`text-[8px] truncate ${isSelected ? 'text-accent/70' : 'text-slate-500'}`}>
-                              {card.sub}
-                            </p>
-                          </div>
-                        </button>
-                      );
-                    })}
-                  </div>
+                  <>
+                    {/* By-machine card row — mirrors the ABCA filter row
+                        from the main branch. Renders one card per
+                        Machine row at the center (Yantra, Leverage
+                        Tennis, …) so the user can pick "show me only
+                        Yantra packages" exactly like ABCA. Hidden when
+                        the center has no machines configured. */}
+                    {centerMachines.length > 0 && (
+                      <div className="mb-3">
+                        <p className="text-[9px] font-semibold text-slate-500 uppercase tracking-wider mb-1.5">By Machine</p>
+                        <div className="grid grid-cols-2 gap-1.5">
+                          {centerMachines.map((m) => {
+                            const isSelected = machineRowFilter === m.id;
+                            const img = m.machineType.imageUrl || MACHINE_TYPE_IMAGE[m.machineType.code] || '/images/leathermachine.jpeg';
+                            const label = m.shortName ?? m.name;
+                            const sub = m.machineType.ballType === 'TENNIS' ? 'Tennis' : m.machineType.ballType === 'LEATHER' ? 'Leather' : m.machineType.name;
+                            return (
+                              <button
+                                key={m.id}
+                                onClick={() => {
+                                  // Toggle: clicking the active card clears
+                                  // both filters; clicking a different card
+                                  // switches to that machine and clears the
+                                  // category lens (machine filter implies
+                                  // category=MACHINE in filteredPackages).
+                                  if (isSelected) {
+                                    setMachineRowFilter('all');
+                                  } else {
+                                    setMachineRowFilter(m.id);
+                                    setCategoryFilter('all');
+                                  }
+                                  setTimingFilter('');
+                                }}
+                                className={`flex items-center gap-1.5 px-1.5 py-1 rounded-lg transition-all cursor-pointer text-left ${
+                                  isSelected
+                                    ? 'bg-accent/15 ring-1 ring-accent/50 shadow-sm'
+                                    : 'bg-white/[0.04] border border-white/[0.08] hover:border-accent/30'
+                                }`}
+                              >
+                                {/* eslint-disable-next-line @next/next/no-img-element */}
+                                <img
+                                  src={img}
+                                  alt={label}
+                                  className="w-7 h-7 rounded-md object-cover flex-shrink-0"
+                                />
+                                <div className="min-w-0">
+                                  <span className={`text-[10px] font-bold leading-tight block ${isSelected ? 'text-accent' : 'text-slate-300'}`}>
+                                    {label}
+                                  </span>
+                                  <p className={`text-[8px] truncate ${isSelected ? 'text-accent/70' : 'text-slate-500'}`}>
+                                    {sub}
+                                  </p>
+                                </div>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+
+                    <p className="text-[9px] font-semibold text-slate-500 uppercase tracking-wider mb-1.5">By Category</p>
+                    <div className="grid grid-cols-2 gap-1.5">
+                      {PACKAGE_CATEGORY_CARDS.map((card) => {
+                        const isSelected = categoryFilter === card.id;
+                        return (
+                          <button
+                            key={card.id}
+                            onClick={() => {
+                              // Picking a category card clears the
+                              // machine-row filter so the two lenses
+                              // don't fight each other (machine filter
+                              // implicitly hides every non-MACHINE
+                              // category).
+                              if (isSelected) {
+                                setCategoryFilter('all');
+                              } else {
+                                setCategoryFilter(card.id);
+                                setMachineRowFilter('all');
+                              }
+                              setTimingFilter('');
+                            }}
+                            className={`flex items-center gap-2 px-2 py-1.5 rounded-lg transition-all cursor-pointer text-left ${
+                              isSelected
+                                ? 'bg-accent/15 ring-1 ring-accent/50 shadow-sm'
+                                : 'bg-white/[0.04] border border-white/[0.08] hover:border-accent/30'
+                            }`}
+                          >
+                            <span className={`w-2 h-2 rounded-full flex-shrink-0 ${card.dot}`} />
+                            <div className="min-w-0">
+                              <span className={`text-[10px] font-bold leading-tight block ${isSelected ? 'text-accent' : 'text-slate-300'}`}>
+                                {card.label}
+                              </span>
+                              <p className={`text-[8px] truncate ${isSelected ? 'text-accent/70' : 'text-slate-500'}`}>
+                                {card.sub}
+                              </p>
+                            </div>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </>
                 ) : (
                 <>
                 {/* Leather Machines */}
