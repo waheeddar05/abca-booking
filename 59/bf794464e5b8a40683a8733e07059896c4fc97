@@ -1,0 +1,30 @@
+src/app/admin/configuration/page.tsx
+  s_e0175fb4b4f942::t_59ad48ead07cf2 301-314
+  s_e0175fb4b4f942::t_0ee25093b048e1 566-659,661-698
+  s_e0175fb4b4f942::t_9915903b1404bf 207-220,226-227,229-238
+src/app/api/slots/book-resource/route.ts
+  s_e0175fb4b4f942::t_3764a173479032 683-685,695-712
+src/components/admin/ResourcePackageManagement.tsx
+  s_e0175fb4b4f942::t_5af290905a96f3 320-344
+  s_e0175fb4b4f942::t_f4ceab4a65c4ac 676-677,680
+src/lib/useRazorpay.ts
+  s_e0175fb4b4f942::t_181efa747a5646 7-8,13-14,16-18
+src/app/slots/ResourceSlotsPage.tsx
+  s_e0175fb4b4f942::t_627207d6d32292 902-905,910-922,924-926,928-931
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.4",
+  "base_commit_sha": "59bf794464e5b8a40683a8733e07059896c4fc97",
+  "prompts": {},
+  "sessions": {
+    "s_e0175fb4b4f942": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "f3864c65-ac36-4572-a64e-c1d488c0cbdf",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Waheed <waheeddar8@gmail.com>"
+    }
+  }
+}
