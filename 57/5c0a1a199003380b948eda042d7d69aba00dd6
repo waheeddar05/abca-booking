@@ -1,0 +1,32 @@
+src/app/bookings/page.tsx
+  s_e0175fb4b4f942::t_6fb69ba932d3e9 25-38,65-71
+src/app/api/admin/bookings/route.ts
+  s_e0175fb4b4f942::t_a58dc6ac75d9f0 170-198
+  s_e0175fb4b4f942::t_78f62a3b2d4510 224-259
+  s_e0175fb4b4f942::t_57861e0cb57061 2
+src/app/api/bookings/route.ts
+  s_e0175fb4b4f942::t_4aaeae08ad9129 216-242
+  s_e0175fb4b4f942::t_dad3e849ede5c3 75-106
+src/components/BookingCard.tsx
+  s_e0175fb4b4f942::t_339e268da02f46 151-190
+  s_e0175fb4b4f942::t_6dd4a4140e7d42 4
+src/app/admin/users/page.tsx
+  s_e0175fb4b4f942::t_424cbaa8e310da 78-82
+  s_e0175fb4b4f942::t_01806450e04b64 793-836,847,860-864,867-872,874-884
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.4",
+  "base_commit_sha": "575c0a1a199003380b948eda042d7d69aba00dd6",
+  "prompts": {},
+  "sessions": {
+    "s_e0175fb4b4f942": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "f3864c65-ac36-4572-a64e-c1d488c0cbdf",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Waheed <waheeddar8@gmail.com>"
+    }
+  }
+}
