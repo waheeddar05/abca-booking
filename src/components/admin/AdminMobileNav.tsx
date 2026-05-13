@@ -2,15 +2,29 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { LayoutDashboard, CalendarCheck, Clock, Users, UserCog, SlidersHorizontal, Package, Tag } from 'lucide-react';
+import { useSession } from 'next-auth/react';
+import { LayoutDashboard, CalendarCheck, Clock, Users, UserCog, SlidersHorizontal, Package, Tag, Building2 } from 'lucide-react';
 import { useCenter } from '@/lib/center-context';
 
 type BookingModel = 'MACHINE_PITCH' | 'RESOURCE_BASED';
 
+const SUPER_ADMIN_EMAIL = 'waheeddar8@gmail.com';
+
 export function AdminMobileNav() {
     const pathname = usePathname();
     const { currentCenter } = useCenter();
+    const { data: session } = useSession();
     const currentModel: BookingModel | null = currentCenter?.bookingModel ?? null;
+
+    // Role gating mirrors the desktop sidebar so a center admin on a
+    // phone gets the same surfaces (My Center, etc.) as on desktop.
+    const sessionUser = session?.user as
+      | { email?: string | null; role?: string; isSuperAdmin?: boolean }
+      | undefined;
+    const isSuperAdmin =
+      sessionUser?.isSuperAdmin === true || sessionUser?.email === SUPER_ADMIN_EMAIL;
+    const isCenterAdmin =
+      !isSuperAdmin && sessionUser?.role === 'ADMIN' && !!currentCenter;
 
     // Same parity gating as the desktop sidebar: legacy ABCA-only forms
     // hide on RESOURCE_BASED centers until their resource-aware versions
@@ -24,6 +38,14 @@ export function AdminMobileNav() {
         { href: '/admin/packages', label: 'Packages', icon: Package },
         { href: '/admin/offers', label: 'Offers', icon: Tag },
         { href: '/admin/configuration', label: 'Settings', icon: SlidersHorizontal },
+        // Super admin → cross-center management. Center admin → deep
+        // link to their own center's edit page (members / machines /
+        // resources / policies tabs). Hidden for everyone else.
+        ...(isSuperAdmin
+          ? [{ href: '/admin/centers', label: 'Centers', icon: Building2 }]
+          : isCenterAdmin && currentCenter
+            ? [{ href: `/admin/centers/${currentCenter.id}`, label: 'My Center', icon: Building2 }]
+            : []),
     ];
 
     const visibleTabs = tabs.filter(
