@@ -1,0 +1,23 @@
+src/app/api/admin/operators/route.ts
+  s_e0175fb4b4f942::t_7cad299b45423e 20-30,32-33
+src/app/api/admin/centers/[id]/members/[membershipId]/route.ts
+  s_e0175fb4b4f942::t_feb54def11b993 46-58
+src/lib/operatorAssign.ts
+  s_e0175fb4b4f942::t_f18fdbf88bc952 228-242,250-259
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.4",
+  "base_commit_sha": "09123b004cdd8e71430789cbb1f751d3022f800d",
+  "prompts": {},
+  "sessions": {
+    "s_e0175fb4b4f942": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "f3864c65-ac36-4572-a64e-c1d488c0cbdf",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Waheed <waheeddar8@gmail.com>"
+    }
+  }
+}
