@@ -1,0 +1,25 @@
+src/lib/package-purchase.ts
+  s_e0175fb4b4f942::t_0d4618abef129e 1-136
+src/app/api/payments/verify/route.ts
+  s_e0175fb4b4f942::t_f27bcc8c323a61 252
+  s_e0175fb4b4f942::t_9c58e230b83877 12
+src/app/api/webhooks/razorpay/route.ts
+  s_e0175fb4b4f942::t_07aa5e6c5a69fc 238-275
+  s_e0175fb4b4f942::t_b64df6f9ffde38 9
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.4",
+  "base_commit_sha": "406cac7af8639221e52ac847395147ba9b09acd6",
+  "prompts": {},
+  "sessions": {
+    "s_e0175fb4b4f942": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "f3864c65-ac36-4572-a64e-c1d488c0cbdf",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Waheed <waheeddar8@gmail.com>"
+    }
+  }
+}
