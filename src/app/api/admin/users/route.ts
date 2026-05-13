@@ -39,22 +39,26 @@ function toMembershipRole(role: string): MembershipRoleString | null {
     : null;
 }
 
-/** Idempotent: ensure a CenterMembership(userId, centerId) exists with
- *  exactly the given role + active=true. The schema's `@@unique` is
- *  `(userId, centerId, role)`, so a user could have multiple memberships
- *  at one center under different roles; we collapse to a single one. */
+/** Ensure a CenterMembership(userId, centerId, role) exists and is
+ *  active. The schema's `@@unique` is `(userId, centerId, role)` so a
+ *  user can hold multiple roles at the same center simultaneously
+ *  (e.g. Coach + Sidearm Specialist).
+ *
+ *  Previously this also DELETED every other role at the center to
+ *  enforce a "one role per user per center" view that matches the
+ *  single-valued `User.role` legacy column. That turned out to be
+ *  the wrong default: a center admin who wanted to ADD an Operator
+ *  role to an existing Coach from /admin/users would silently lose
+ *  the Coach membership. We now only ensure the target role exists;
+ *  other roles stay untouched. Deliberate demotions / cleanups still
+ *  happen via the explicit `role === 'USER'` branch in the PATCH
+ *  handler, which does a full sweep of memberships at this center. */
 async function setCenterMembership(
   tx: Prisma.TransactionClient,
   userId: string,
   centerId: string,
   role: MembershipRoleString,
 ): Promise<void> {
-  // Remove any non-matching memberships at this center, then upsert
-  // the target one. Two-step (vs single upsert) because the unique is
-  // on (userId, centerId, role) not (userId, centerId).
-  await tx.centerMembership.deleteMany({
-    where: { userId, centerId, role: { not: role } },
-  });
   const existing = await tx.centerMembership.findFirst({
     where: { userId, centerId, role },
     select: { id: true },
