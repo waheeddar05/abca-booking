@@ -200,6 +200,22 @@ function groupByUser(members: MembershipRow[]): Array<{
   return Array.from(map.values());
 }
 
+// A row returned by /api/admin/users/search — the typeahead source for
+// "Assign user". Includes a flattened membership summary so the admin
+// can see which centers a user already belongs to before assigning.
+type UserSearchHit = {
+  id: string;
+  name: string | null;
+  email: string | null;
+  mobileNumber: string | null;
+  role: string;
+  centerMemberships: Array<{
+    centerId: string;
+    role: string;
+    center: { id: string; name: string; shortName: string | null };
+  }>;
+};
+
 function NewMembershipForm({
   centerId,
   isSuperAdmin,
@@ -215,8 +231,23 @@ function NewMembershipForm({
   // Specialist (or any combination) at one center — backend creates
   // one membership row per role atomically.
   const [roles, setRoles] = useState<Set<MembershipRole>>(() => new Set(['COACH']));
-  const [identifier, setIdentifier] = useState('');
-  const [name, setName] = useState('');
+
+  // Picker state. The admin either:
+  //   - searches and picks an existing user (selected != null), or
+  //   - types an email/mobile in the manual fallback to mint a new one.
+  // `query` drives the typeahead; `selected` is what we send when set.
+  const [query, setQuery] = useState('');
+  const [results, setResults] = useState<UserSearchHit[]>([]);
+  const [selected, setSelected] = useState<UserSearchHit | null>(null);
+  const [searching, setSearching] = useState(false);
+
+  // Manual fallback for users who don't exist yet (only relevant for
+  // COACH / SIDEARM_SPECIALIST — backend rejects "mint" for OPERATOR /
+  // ADMIN). Toggled when the admin clicks "Add new user instead".
+  const [manualMode, setManualMode] = useState(false);
+  const [manualIdentifier, setManualIdentifier] = useState('');
+  const [manualName, setManualName] = useState('');
+
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
@@ -229,6 +260,31 @@ function NewMembershipForm({
     });
   };
 
+  // Debounced typeahead: query the user-search endpoint when the input
+  // has at least 2 characters. 300 ms debounce keeps it cheap.
+  useEffect(() => {
+    if (manualMode) return;
+    if (selected) return; // freeze results while a user is locked in
+    const trimmed = query.trim();
+    if (trimmed.length < 2) {
+      setResults([]);
+      return;
+    }
+    let cancelled = false;
+    setSearching(true);
+    const t = setTimeout(() => {
+      fetch(`/api/admin/users/search?q=${encodeURIComponent(trimmed)}`)
+        .then((r) => (r.ok ? r.json() : { users: [] }))
+        .then((data) => { if (!cancelled) setResults(data.users ?? []); })
+        .catch(() => { if (!cancelled) setResults([]); })
+        .finally(() => { if (!cancelled) setSearching(false); });
+    }, 300);
+    return () => {
+      cancelled = true;
+      clearTimeout(t);
+    };
+  }, [query, manualMode, selected]);
+
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErr(null);
@@ -238,12 +294,24 @@ function NewMembershipForm({
     }
     setSaving(true);
     try {
-      const trimmed = identifier.trim();
-      const isEmail = trimmed.includes('@');
       const body: Record<string, unknown> = { roles: Array.from(roles) };
-      if (isEmail) body.email = trimmed;
-      else body.mobileNumber = trimmed;
-      if (name) body.name = name.trim();
+      if (selected) {
+        body.userId = selected.id;
+      } else if (manualMode) {
+        const trimmed = manualIdentifier.trim();
+        if (!trimmed) {
+          setErr('Enter an email or mobile.');
+          setSaving(false);
+          return;
+        }
+        if (trimmed.includes('@')) body.email = trimmed;
+        else body.mobileNumber = trimmed;
+        if (manualName) body.name = manualName.trim();
+      } else {
+        setErr('Search and pick a user, or click "Add new user instead".');
+        setSaving(false);
+        return;
+      }
 
       const res = await fetch(`/api/admin/centers/${centerId}/members`, {
         method: 'POST',
@@ -269,6 +337,14 @@ function NewMembershipForm({
     { id: 'COACH',              label: 'Coach' },
     { id: 'SIDEARM_SPECIALIST', label: 'Sidearm Specialist' },
   ];
+
+  // Already-at-this-center memberships matter for the typeahead so the
+  // admin can see they're re-assigning vs adding net-new. Computed on
+  // each render — small list, no perf concern.
+  const alreadyHereRoles = (u: UserSearchHit): MembershipRole[] =>
+    u.centerMemberships
+      .filter((m) => m.centerId === centerId)
+      .map((m) => m.role as MembershipRole);
 
   return (
     <form onSubmit={submit} className="space-y-3 rounded-xl bg-white/[0.02] border border-white/[0.06] p-3">
@@ -298,17 +374,126 @@ function NewMembershipForm({
         </div>
       </Field>
 
-      <div className="grid sm:grid-cols-2 gap-3">
+      {!manualMode ? (
         <Field
-          label="Email or mobile"
+          label="Find user"
           required
-          help="ADMIN/OPERATOR must already have signed in. COACH/SIDEARM_SPECIALIST will be created if not found."
+          help="Search by name, email, or phone. Picks from existing users across the platform."
         >
-          <TextInput required value={identifier} onChange={(e) => setIdentifier(e.target.value)} placeholder="user@example.com / 9876543210" />
+          {selected ? (
+            <div className="flex items-center justify-between gap-2 p-2 rounded-lg bg-accent/10 border border-accent/30">
+              <div className="min-w-0">
+                <div className="text-sm font-semibold text-white truncate">
+                  {selected.name || '(no name)'}
+                </div>
+                <div className="text-[11px] text-slate-400 truncate">
+                  {selected.email || selected.mobileNumber || selected.id}
+                </div>
+                {alreadyHereRoles(selected).length > 0 && (
+                  <div className="text-[10px] text-amber-300 mt-0.5">
+                    Already at this center as: {alreadyHereRoles(selected).map((r) => ROLE_LABEL[r]).join(', ')}
+                  </div>
+                )}
+              </div>
+              <button
+                type="button"
+                onClick={() => { setSelected(null); setQuery(''); setResults([]); }}
+                className="shrink-0 p-1 rounded-md text-slate-300 hover:bg-white/[0.08] cursor-pointer"
+                title="Clear selection"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          ) : (
+            <div className="relative">
+              <TextInput
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="Type at least 2 characters…"
+                autoFocus
+              />
+              {(query.trim().length >= 2 || searching) && (
+                <div className="mt-1 max-h-64 overflow-y-auto rounded-lg border border-white/[0.08] bg-[#0f1d2f] divide-y divide-white/[0.04]">
+                  {searching && (
+                    <div className="px-3 py-2 text-[11px] text-slate-500 flex items-center gap-1.5">
+                      <Loader2 className="w-3 h-3 animate-spin" /> Searching…
+                    </div>
+                  )}
+                  {!searching && results.length === 0 && (
+                    <div className="px-3 py-2 text-[11px] text-slate-500">
+                      No users match &ldquo;{query}&rdquo;.
+                    </div>
+                  )}
+                  {results.map((u) => {
+                    const here = alreadyHereRoles(u);
+                    return (
+                      <button
+                        key={u.id}
+                        type="button"
+                        onClick={() => { setSelected(u); setQuery(''); setResults([]); }}
+                        className="w-full text-left px-3 py-2 hover:bg-white/[0.04] cursor-pointer"
+                      >
+                        <div className="text-sm text-white truncate">
+                          {u.name || '(no name)'}
+                        </div>
+                        <div className="text-[11px] text-slate-400 truncate">
+                          {[u.email, u.mobileNumber].filter(Boolean).join(' · ') || u.id}
+                        </div>
+                        {here.length > 0 && (
+                          <div className="text-[10px] text-amber-300/80 mt-0.5">
+                            Here as: {here.map((r) => ROLE_LABEL[r]).join(', ')}
+                          </div>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
         </Field>
-        <Field label="Name (only for new coach/specialist)">
-          <TextInput value={name} onChange={(e) => setName(e.target.value)} placeholder="Optional" />
-        </Field>
+      ) : (
+        // Manual fallback for users who haven't signed in yet. Backend
+        // still rejects this path for OPERATOR / ADMIN (those need an
+        // existing User row), but COACH / SIDEARM_SPECIALIST get
+        // minted on the fly.
+        <div className="grid sm:grid-cols-2 gap-3">
+          <Field
+            label="Email or mobile"
+            required
+            help="ADMIN/OPERATOR must already have signed in. COACH/SIDEARM_SPECIALIST will be created if not found."
+          >
+            <TextInput
+              required
+              value={manualIdentifier}
+              onChange={(e) => setManualIdentifier(e.target.value)}
+              placeholder="user@example.com / 9876543210"
+            />
+          </Field>
+          <Field label="Name (only for new coach/specialist)">
+            <TextInput
+              value={manualName}
+              onChange={(e) => setManualName(e.target.value)}
+              placeholder="Optional"
+            />
+          </Field>
+        </div>
+      )}
+
+      <div className="flex items-center justify-between">
+        <button
+          type="button"
+          onClick={() => {
+            setManualMode((v) => !v);
+            setErr(null);
+            setSelected(null);
+            setQuery('');
+            setResults([]);
+          }}
+          className="text-[11px] text-accent hover:underline cursor-pointer"
+        >
+          {manualMode ? '← Back to user search' : 'Add new user instead →'}
+        </button>
       </div>
 
       {err && <Banner kind="error">{err}</Banner>}
