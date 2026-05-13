@@ -541,6 +541,11 @@ async function executeResourceBookingCore(
       // Drives the per-slot ball-type upgrade charge: a MACHINE-only
       // package booking a LEATHER slot pays `ballTypeUpgrade` per slot.
       ballType: string | null;
+      // Wicket-type the package covers (ASTRO / CEMENT / NATURAL /
+      // BOTH). Drives the per-slot wicket-upgrade charge: a package
+      // pinned to ASTRO booking on CEMENT pays the
+      // `wicketTypeUpgrades.ASTRO_TO_CEMENT` fee per slot.
+      wicketType: string | null;
       extraChargeRules: unknown;
     };
   } | null = null;
@@ -566,11 +571,15 @@ async function executeResourceBookingCore(
             // discriminate (the admin form sets it to BOTH for any
             // Toplay package that covers either ball type).
             ballType: true,
+            // `wicketType` drives the pitch upgrade charge (Astro →
+            // Cement → Natural). Null when the package covers any
+            // pitch ("Any wicket" in the admin form).
+            wicketType: true,
             // `extraChargeRules` carries the per-package upgrade
-            // pricing (timingUpgrade, ballTypeUpgrade, etc.). Needed
-            // here so the per-slot extra charge math below sees the
-            // same numbers the user saw when they selected the
-            // package on the slot grid.
+            // pricing (timingUpgrade, ballTypeUpgrade,
+            // wicketTypeUpgrades, etc.). Needed here so the per-slot
+            // extra charge math below sees the same numbers the user
+            // saw when they selected the package on the slot grid.
             extraChargeRules: true,
             isActive: true,
           },
@@ -631,6 +640,7 @@ async function executeResourceBookingCore(
         machineRowId: found.package.machineRowId,
         timingType: found.package.timingType,
         ballType: found.package.ballType,
+        wicketType: found.package.wicketType,
         extraChargeRules: found.package.extraChargeRules,
       },
     };
@@ -736,34 +746,55 @@ async function executeResourceBookingCore(
               // Per-slot package extra charge — mirrors ABCA's
               // `validatePackageBooking` flow but inlined so we don't
               // round-trip to /api/packages/validate-booking from
-              // inside the transaction. Two axes apply to Toplay
-              // packages today:
+              // inside the transaction. Three axes apply to Toplay
+              // packages:
               //   - timing: DAY package booking an evening slot
               //   - ballType: machine-ball package booking leather
-              // ABCA-shape packages fall through with their full
-              // breakdown via the validate-booking endpoint; here
-              // we recompute the same two axes inline since the body
-              // already carries the booking's ball type.
+              //   - wicketType: pitch upgrade (Astro → Cement → Natural)
+              // ABCA-shape packages fall through with the same set via
+              // the validate-booking endpoint; this inline math mirrors
+              // it 1:1 so the user sees the same total at booking
+              // commit as they did in the validation panel.
               let packageExtra = 0;
               if (isPackageRedemption && userPackage) {
                 const slab = getTimeSlab(plan.startTime, timeSlabConfig);
                 const rules = (userPackage.package.extraChargeRules || {}) as {
                   timingUpgrade?: number;
                   ballTypeUpgrade?: number;
+                  wicketTypeUpgrades?: Record<string, number>;
                 };
                 // DAY package, evening slot → upgrade charge.
                 if (userPackage.package.timingType === 'DAY' && slab === 'evening') {
                   packageExtra += Math.max(0, Math.floor(rules.timingUpgrade ?? 0));
                 }
                 // Machine-ball package, leather-ball booking → upgrade.
-                // Pulled off `userPackage.package.ballType` (now exposed
-                // by the admin form) against the request's `ballType`.
                 if (
                   plan.category === 'MACHINE'
                   && userPackage.package.ballType === 'MACHINE'
                   && body.ballType === 'LEATHER'
                 ) {
                   packageExtra += Math.max(0, Math.floor(rules.ballTypeUpgrade ?? 0));
+                }
+                // Wicket-type upgrade — per-path map from the admin
+                // form. ASTRO < CEMENT < NATURAL. A package pinned to
+                // ASTRO booking on NATURAL would pay the
+                // `ASTRO_TO_NATURAL` fee; same shape ABCA writes.
+                const wicketUsing =
+                  plan.category === 'MACHINE'
+                  || plan.category === 'SIDEARM'
+                  || plan.category === 'NET';
+                if (
+                  wicketUsing
+                  && userPackage.package.wicketType
+                  && userPackage.package.wicketType !== 'BOTH'
+                  && body.pitchType
+                  && userPackage.package.wicketType !== body.pitchType
+                ) {
+                  const pathKey = `${userPackage.package.wicketType}_TO_${body.pitchType}`;
+                  const pathFee = rules.wicketTypeUpgrades?.[pathKey];
+                  if (typeof pathFee === 'number' && pathFee > 0) {
+                    packageExtra += Math.floor(pathFee);
+                  }
                 }
               }
 

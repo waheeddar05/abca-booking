@@ -48,6 +48,7 @@ interface PackageRow {
   category: string | null;
   machineRowId: string | null;
   ballType: string | null;
+  wicketType: string | null;
   timingType: string;
   totalSessions: number;
   validityDays: number;
@@ -55,17 +56,29 @@ interface PackageRow {
   isActive: boolean;
   createdAt: string;
   // Extra-charge rules JSON. Toplay populates `timingUpgrade` (DAY →
-  // evening) and `ballTypeUpgrade` (MACHINE ball package → leather
-  // booking); the column carries the full ABCA-shape blob.
+  // evening), `ballTypeUpgrade` (MACHINE ball package → leather
+  // booking), and `wicketTypeUpgrades` (per-path pitch upgrade fees).
+  // The column carries the full ABCA-shape blob.
   extraChargeRules?: {
     timingUpgrade?: number;
     ballTypeUpgrade?: number;
+    wicketTypeUpgrades?: Record<string, number>;
   } | null;
   _count?: { userPackages: number };
 }
 
 const inputClass =
   'w-full bg-white/[0.04] border border-white/[0.1] text-white placeholder:text-slate-500 rounded-lg px-3 py-2 text-sm outline-none focus:border-accent';
+
+// Wicket-upgrade paths the admin can price independently. Same set as
+// ABCA's `ALL_WICKET_UPGRADE_PATHS` at /admin/packages — keeps the
+// JSON shape on `extraChargeRules.wicketTypeUpgrades` identical so
+// the server can use the existing helper.
+const WICKET_UPGRADE_PATHS: Array<{ from: string; to: string; label: string }> = [
+  { from: 'ASTRO',  to: 'CEMENT',  label: 'Astro Turf → Cement' },
+  { from: 'ASTRO',  to: 'NATURAL', label: 'Astro Turf → Natural Turf' },
+  { from: 'CEMENT', to: 'NATURAL', label: 'Cement → Natural Turf' },
+];
 
 const emptyForm = {
   name: '',
@@ -80,6 +93,11 @@ const emptyForm = {
   // BOTH = either. Mirrors ABCA's `Package.ballType`. Only meaningful
   // when category=MACHINE; ignored for SIDEARM/COACHING/etc.
   ballType: 'BOTH' as string,
+  // Wicket type the package covers. ASTRO/CEMENT/NATURAL pin to a
+  // specific pitch; BOTH = any. Only meaningful when category uses
+  // a pitch (MACHINE / SIDEARM / NET). Mirrors ABCA's
+  // `Package.wicketType`.
+  wicketType: 'BOTH' as string,
   // Per-slot extra charge when a DAY package is redeemed against an
   // evening slot. Mirrors ABCA's `extraChargeRules.timingUpgrade`.
   // Default 0 = no upgrade fee (DAY packages can't cover evening).
@@ -90,6 +108,10 @@ const emptyForm = {
   // `extraChargeRules.ballTypeUpgrade` (default 100). Only meaningful
   // when ballType=MACHINE.
   ballTypeUpgrade: 0,
+  // Per-path wicket upgrade fees, keyed by `${from}_TO_${to}`. Same
+  // shape ABCA writes to `extraChargeRules.wicketTypeUpgrades`. Only
+  // meaningful when wicketType is a specific pitch (not BOTH).
+  wicketTypeUpgrades: {} as Record<string, number>,
 };
 
 export function ResourcePackageManagement() {
@@ -152,15 +174,24 @@ export function ResourcePackageManagement() {
       // column). For resource-based packages we always send 'LEATHER'
       // as a placeholder — the new `category` field is the real
       // discriminator and the old field is unused at redemption time.
+      // Categories that involve a pitch (and therefore a wicket type).
+      // ABCA's wicket-upgrade concept only applies when there's an
+      // actual pitch to upgrade between.
+      const wicketRelevantCategories = new Set(['MACHINE', 'SIDEARM', 'NET']);
+
       // Assemble `extraChargeRules`:
       //   - timingUpgrade: applies only when timingType=DAY
       //   - ballTypeUpgrade: applies only when category=MACHINE AND
-      //     ballType=MACHINE (i.e. the user bought a machine-ball
-      //     package and might want to upgrade to leather balls)
+      //     ballType=MACHINE
+      //   - wicketTypeUpgrades: per-path map (ASTRO_TO_CEMENT etc.)
+      //     applies only when wicketType is a specific pitch
       // Anything else stays out of the JSON blob so the server-side
-      // validator doesn't accidentally fire on an axis the package
-      // already covers.
-      const rules: { timingUpgrade?: number; ballTypeUpgrade?: number } = {};
+      // validator doesn't fire on an axis the package already covers.
+      const rules: {
+        timingUpgrade?: number;
+        ballTypeUpgrade?: number;
+        wicketTypeUpgrades?: Record<string, number>;
+      } = {};
       if (form.timingType === 'DAY' && form.timingUpgrade > 0) {
         rules.timingUpgrade = form.timingUpgrade;
       }
@@ -171,12 +202,31 @@ export function ResourcePackageManagement() {
       ) {
         rules.ballTypeUpgrade = form.ballTypeUpgrade;
       }
+      if (
+        wicketRelevantCategories.has(form.category)
+        && form.wicketType !== 'BOTH'
+      ) {
+        // Keep only paths that *start* at the package's wicketType
+        // (upgrading FROM that pitch to a higher tier). Drops stale
+        // entries left over from changing wicketType in the form.
+        const filtered: Record<string, number> = {};
+        for (const [key, val] of Object.entries(form.wicketTypeUpgrades)) {
+          if (val > 0 && key.startsWith(`${form.wicketType}_TO_`)) {
+            filtered[key] = val;
+          }
+        }
+        if (Object.keys(filtered).length > 0) {
+          rules.wicketTypeUpgrades = filtered;
+        }
+      }
       const extraChargeRules = Object.keys(rules).length > 0 ? rules : null;
 
-      // ballType is meaningful only for MACHINE category; the other
-      // categories (SIDEARM/COACHING/etc.) don't use a bowling
-      // machine, so we send null to keep the column unset.
+      // ballType + wicketType are only meaningful for the relevant
+      // categories. Sending null elsewhere keeps the columns clean.
       const ballType = form.category === 'MACHINE' ? form.ballType : null;
+      const wicketType = wicketRelevantCategories.has(form.category)
+        ? form.wicketType
+        : null;
 
       const body = {
         name: form.name,
@@ -184,6 +234,7 @@ export function ResourcePackageManagement() {
         machineRowId: form.machineRowId || null,
         machineType: 'LEATHER',
         ballType,
+        wicketType,
         timingType: form.timingType,
         totalSessions: form.totalSessions,
         validityDays: form.validityDays,
@@ -226,12 +277,14 @@ export function ResourcePackageManagement() {
       category: (p.category ?? 'MACHINE') as string,
       machineRowId: p.machineRowId ?? '',
       ballType: (p.ballType ?? 'BOTH') as string,
+      wicketType: (p.wicketType ?? 'BOTH') as string,
       timingType: p.timingType,
       totalSessions: p.totalSessions,
       validityDays: p.validityDays,
       price: p.price,
       timingUpgrade: rules?.timingUpgrade ?? 0,
       ballTypeUpgrade: rules?.ballTypeUpgrade ?? 0,
+      wicketTypeUpgrades: rules?.wicketTypeUpgrades ?? {},
     });
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
@@ -398,6 +451,81 @@ export function ResourcePackageManagement() {
             <p className="mt-1 text-[10px] text-slate-500">
               Charged per slot when a user with this machine-ball package books a leather-ball
               session. Set to 0 to disallow leather-ball redemption entirely.
+            </p>
+          </div>
+        )}
+
+        {/* Wicket / pitch type — only meaningful for categories that
+            involve a pitch (MACHINE / SIDEARM / NET). Determines which
+            pitch this package covers; users booking on a higher tier
+            (Astro → Cement → Natural) pay the path-specific upgrade
+            fee below. Mirrors ABCA's `Package.wicketType`. */}
+        {(form.category === 'MACHINE' || form.category === 'SIDEARM' || form.category === 'NET') && (
+          <div className="mt-3">
+            <label className="block text-[11px] font-medium text-slate-400 mb-1">Wicket type</label>
+            <select
+              value={form.wicketType}
+              onChange={(e) => setForm({ ...form, wicketType: e.target.value })}
+              className={inputClass}
+            >
+              <option value="BOTH"    className="bg-[#1a2a40]">Any wicket</option>
+              <option value="ASTRO"   className="bg-[#1a2a40]">Astro Turf only</option>
+              <option value="CEMENT"  className="bg-[#1a2a40]">Cement only</option>
+              <option value="NATURAL" className="bg-[#1a2a40]">Natural Turf only</option>
+            </select>
+          </div>
+        )}
+
+        {/* Wicket upgrade paths — only when the package pins a specific
+            pitch (not "Any wicket"). Renders only the paths that start
+            at the chosen pitch, since downgrade paths don't apply. Same
+            shape ABCA writes to `extraChargeRules.wicketTypeUpgrades`. */}
+        {(form.category === 'MACHINE' || form.category === 'SIDEARM' || form.category === 'NET')
+          && form.wicketType !== 'BOTH'
+          && WICKET_UPGRADE_PATHS.some((p) => p.from === form.wicketType) && (
+          <div className="mt-3">
+            <label className="block text-[11px] font-medium text-slate-400 mb-1">
+              Wicket upgrade paths (₹ per slot)
+            </label>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              {WICKET_UPGRADE_PATHS
+                .filter((path) => path.from === form.wicketType)
+                .map((path) => {
+                  const key = `${path.from}_TO_${path.to}`;
+                  return (
+                    <div
+                      key={key}
+                      className="bg-white/[0.02] rounded-lg p-2.5 border border-white/[0.06]"
+                    >
+                      <label className="block text-[10px] text-accent/80 font-medium mb-1">
+                        {path.label}
+                      </label>
+                      <div className="flex items-center gap-2">
+                        <span className="text-[10px] text-slate-500">₹</span>
+                        <input
+                          type="number"
+                          min={0}
+                          value={form.wicketTypeUpgrades?.[key] || 0}
+                          onChange={(e) =>
+                            setForm({
+                              ...form,
+                              wicketTypeUpgrades: {
+                                ...form.wicketTypeUpgrades,
+                                [key]: parseInt(e.target.value, 10) || 0,
+                              },
+                            })
+                          }
+                          placeholder="0"
+                          className={inputClass}
+                        />
+                      </div>
+                    </div>
+                  );
+                })}
+            </div>
+            <p className="mt-1 text-[10px] text-slate-500">
+              Charged per slot when a user with this {form.wicketType.toLowerCase()} package books
+              a higher-tier pitch. Set 0 on a path to disallow that upgrade entirely.
             </p>
           </div>
         )}

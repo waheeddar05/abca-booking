@@ -296,8 +296,19 @@ export async function validatePackageBooking(
       userPackage.package.category === 'MACHINE'
         ? getBallTypeExtraCharge(userPackage.package.ballType, bookingBallType, rules)
         : 0;
-    totalExtra = timingExtra + ballTypeExtra;
-    breakdown = { ballTypeExtra, wicketTypeExtra: 0, timingExtra, machineExtra: 0 };
+    // Wicket-type upgrade — applies to categories that use a pitch
+    // (MACHINE / SIDEARM / NET). Uses the same per-path helper ABCA
+    // uses, so the `extraChargeRules.wicketTypeUpgrades` JSON is
+    // identical in shape.
+    const usesPitch =
+      userPackage.package.category === 'MACHINE'
+      || userPackage.package.category === 'SIDEARM'
+      || userPackage.package.category === 'NET';
+    const wicketTypeExtra = usesPitch
+      ? getWicketTypeExtraCharge(userPackage.package.wicketType, bookingPitchType, rules)
+      : 0;
+    totalExtra = timingExtra + ballTypeExtra + wicketTypeExtra;
+    breakdown = { ballTypeExtra, wicketTypeExtra, timingExtra, machineExtra: 0 };
   } else {
     // Machine type check — ABCA-only; resource packages skip this.
     if (!isMachineTypeCompatible(userPackage.package.machineType, bookingBallType)) {
