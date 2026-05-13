@@ -1,0 +1,26 @@
+src/app/api/payments/verify/route.ts
+  s_e0175fb4b4f942::t_06b1fb0939aeb2 492-513
+src/app/api/slots/book/route.ts
+  s_e0175fb4b4f942::t_381965066755c7 871-874
+  s_e0175fb4b4f942::t_1a679938f0cd7d 995
+  s_e0175fb4b4f942::t_7209a035627bad 963,966-968
+src/lib/whatsapp.ts
+  s_e0175fb4b4f942::t_bfdea0f7d2b49d 20-49
+  s_e0175fb4b4f942::t_253f98aa5b35b1 163,231,280,388
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.4",
+  "base_commit_sha": "01be0c35b8aada193eac36c0391bdc886f875faa",
+  "prompts": {},
+  "sessions": {
+    "s_e0175fb4b4f942": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "f3864c65-ac36-4572-a64e-c1d488c0cbdf",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Waheed <waheeddar8@gmail.com>"
+    }
+  }
+}
