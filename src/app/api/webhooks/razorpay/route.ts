@@ -6,6 +6,7 @@ import {
   ResourceBookingBodySchema,
 } from '@/app/api/slots/book-resource/route';
 import { getCenterRazorpayCredentials, verifyWebhookSignatureWithSecret } from '@/lib/razorpay';
+import { completePackagePurchase } from '@/lib/package-purchase';
 
 /**
  * POST /api/webhooks/razorpay
@@ -234,11 +235,44 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // For PACKAGE_PURCHASE, the verify route handles it. If webhook fires and
-    // it's still unprocessed, log it for manual admin review.
-    if (payment.paymentType === 'PACKAGE_PURCHASE' && !payment.userPackageId) {
-      console.warn(`[RazorpayWebhook] Unprocessed package purchase ${payment.id} — needs manual review`);
-      return NextResponse.json({ status: 'package_needs_review' });
+    // PACKAGE_PURCHASE completion. Previously this branch just logged
+    // "needs_review" and bailed — but the webhook had already won the
+    // atomic-claim race upstream, so the user-driven verify call kept
+    // polling for 15s, never saw a `userPackageId` appear, and surfaced
+    // "Payment captured but booking is still being processed" to the
+    // user. The webhook owns the claim, so it owns the completion.
+    if (payment.paymentType === 'PACKAGE_PURCHASE') {
+      if (payment.userPackageId) {
+        console.log(
+          `[RazorpayWebhook] Package ${payment.id} already completed (userPackageId=${payment.userPackageId})`,
+        );
+        return NextResponse.json({ status: 'already_completed' });
+      }
+      try {
+        const result = await completePackagePurchase(
+          {
+            id: payment.id,
+            amount: payment.amount,
+            metadata: payment.metadata,
+            centerId: payment.centerId,
+          },
+          payment.userId,
+        );
+        console.log(
+          `[RazorpayWebhook] Package purchase completed via webhook: payment=${payment.id} userPackage=${result.userPackage.id}`,
+        );
+        return NextResponse.json({
+          status: 'package_completed',
+          userPackageId: result.userPackage.id,
+        });
+      } catch (pkgErr) {
+        const errMsg = pkgErr instanceof Error ? pkgErr.message : 'Package completion failed';
+        console.error(
+          `[RazorpayWebhook] Package purchase completion failed for ${payment.id}:`,
+          pkgErr,
+        );
+        return NextResponse.json({ status: 'package_failed', error: errMsg });
+      }
     }
 
     return NextResponse.json({ status: 'ok' });

@@ -2,8 +2,6 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { getAuthenticatedUser } from '@/lib/auth';
 import { verifyPaymentSignatureForCenter } from '@/lib/razorpay';
-import { notifyPaymentSuccess } from '@/lib/notifications';
-import { debitWallet, isWalletEnabled } from '@/lib/wallet';
 import { executeSlotBooking, BookingServiceError } from '@/app/api/slots/book/route';
 import {
   executeResourceBooking,
@@ -11,6 +9,7 @@ import {
   ResourceBookingServiceError,
 } from '@/app/api/slots/book-resource/route';
 import { BookingResourceError } from '@/lib/resource-booking';
+import { completePackagePurchase } from '@/lib/package-purchase';
 import { log } from '@/lib/logger';
 
 // POST /api/payments/verify - Verify payment and complete booking/purchase
@@ -250,7 +249,7 @@ export async function POST(req: NextRequest) {
     let result: Record<string, unknown> = {};
 
     if (payment.paymentType === 'PACKAGE_PURCHASE') {
-      result = await completePackagePurchase(payment, user.id);
+      result = { ...(await completePackagePurchase(payment, user.id)) };
     }
 
     if (payment.paymentType === 'SLOT_BOOKING') {
@@ -402,117 +401,6 @@ export async function POST(req: NextRequest) {
     const message = error instanceof Error ? error.message : 'Payment verification failed';
     return NextResponse.json({ error: message }, { status: 500 });
   }
-}
-
-/**
- * Complete a package purchase after successful payment
- */
-async function completePackagePurchase(
-  payment: { id: string; amount: number; metadata: unknown; centerId: string },
-  userId: string,
-) {
-  const meta = payment.metadata as Record<string, unknown> | null;
-  const packageId = meta?.packageId as string | undefined;
-  const walletDeduction = (meta?.walletDeduction as number) || 0;
-
-  if (!packageId) {
-    throw new Error('Package ID missing from payment metadata');
-  }
-
-  const pkg = await prisma.package.findUnique({ where: { id: packageId } });
-  if (!pkg) throw new Error('Package not found');
-
-  // Check for existing active package with remaining sessions
-  const activePackages = await prisma.userPackage.findMany({
-    where: {
-      userId,
-      packageId: pkg.id,
-      status: 'ACTIVE',
-      expiryDate: { gte: new Date() },
-    },
-  });
-
-  const packageWithSessions = activePackages.find(
-    (up) => up.usedSessions < up.totalSessions,
-  );
-
-  if (packageWithSessions) {
-    throw new Error(
-      `Already have an active "${pkg.name}" package with remaining sessions`,
-    );
-  }
-
-  // Total paid = Razorpay amount + wallet deduction
-  const totalAmountPaid = payment.amount + walletDeduction;
-
-  const activation = new Date();
-  const expiry = new Date(activation);
-  expiry.setDate(expiry.getDate() + pkg.validityDays);
-
-  const userPackage = await prisma.userPackage.create({
-    data: {
-      userId,
-      packageId: pkg.id,
-      totalSessions: pkg.totalSessions,
-      usedSessions: 0,
-      activationDate: activation,
-      expiryDate: expiry,
-      status: 'ACTIVE',
-      amountPaid: totalAmountPaid,
-    },
-    include: { package: true },
-  });
-
-  // Link payment to the user package
-  await prisma.payment.update({
-    where: { id: payment.id },
-    data: { userPackageId: userPackage.id },
-  });
-
-  // Debit wallet if wallet deduction was specified
-  if (walletDeduction > 0) {
-    try {
-      const walletEnabled = await isWalletEnabled(payment.centerId);
-      if (walletEnabled) {
-        await debitWallet(
-          userId,
-          payment.centerId,
-          walletDeduction,
-          'DEBIT_BOOKING',
-          `Package purchase: ${pkg.name}`,
-          userPackage.id,
-        );
-      }
-    } catch (walletErr) {
-      console.error('Wallet debit for package purchase failed:', walletErr);
-      // Don't fail the purchase since Razorpay payment already succeeded
-    }
-  }
-
-  // Notifications run fire-and-forget so a slow Twilio / Meta WhatsApp
-  // API can't stall the verify response. The user has already paid and
-  // the UserPackage row is persisted — there's nothing for the request
-  // path to wait on. The BSP fetch also has a 5s timeout in
-  // `src/lib/whatsapp.ts` for defence in depth.
-  //
-  // The IIFE below explicitly captures the userId so a stale ref can't
-  // leak; the catch logs but does not propagate.
-  void (async () => {
-    try {
-      const notifUser = await prisma.user.findUnique({
-        where: { id: userId },
-        select: { mobileNumber: true, mobileVerified: true },
-      });
-      await notifyPaymentSuccess(userId, {
-        message: `Your "${pkg.name}" package (${pkg.totalSessions} sessions) is now active. Valid until ${expiry.toLocaleDateString('en-IN')}.`,
-        mobileNumber: notifUser?.mobileVerified ? notifUser.mobileNumber : null,
-      });
-    } catch (notifErr) {
-      console.error('Failed to send package purchase notification:', notifErr);
-    }
-  })();
-
-  return { userPackage };
 }
 
 /**
