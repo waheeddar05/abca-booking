@@ -1,0 +1,26 @@
+src/app/api/admin/packages/reports/csv/route.ts
+  s_e0175fb4b4f942::t_44be5d3f708aa1 93-115
+  s_e0175fb4b4f942::t_188c6b290228ee 118-122,125-128,130,132
+  s_e0175fb4b4f942::t_e88262c45b78f5 74-92
+  s_e0175fb4b4f942::t_8e2df5ec0d723e 116-117,123-124,129,131,133-134,146-150,158-178
+src/app/api/admin/bookings/export/route.ts
+  s_e0175fb4b4f942::t_3eda4719b310db 212-220
+  s_e0175fb4b4f942::t_c853b3d3db61ad 272-278
+  s_e0175fb4b4f942::t_9a7f0a241442e5 304-307
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.4",
+  "base_commit_sha": "dd1671fe6f2f821d48bca9ff5cf0b5cf867ee486",
+  "prompts": {},
+  "sessions": {
+    "s_e0175fb4b4f942": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "f3864c65-ac36-4572-a64e-c1d488c0cbdf",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Waheed <waheeddar8@gmail.com>"
+    }
+  }
+}
