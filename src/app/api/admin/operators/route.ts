@@ -17,12 +17,20 @@ const VALID_LEGACY_MACHINES: readonly string[] = [
 
 function buildOperatorQuery(centerId: string | null) {
   return {
-    // Show every OPERATOR user, but only memberships at this center.
-    // (Operators may exist as users without a membership at this center;
-    // they show up with zero assignments here.)
+    // Source of truth for "is this user an operator at this center" is
+    // `CenterMembership(role=OPERATOR, isActive=true)`. Using User.role
+    // here missed two cases:
+    //   - A user added via the Members tab whose existing User.role
+    //     (e.g. ADMIN) outranked OPERATOR in the rank-bump ladder, so
+    //     the role-promotion logic correctly left User.role alone.
+    //   - The cross-center scenario where someone is an OPERATOR at
+    //     center A and ADMIN at center B — only their membership rows
+    //     can tell the two apart.
+    // For the no-center fallback (super admin without a center selected),
+    // match any active OPERATOR membership anywhere.
     where: centerId
-      ? { role: 'OPERATOR' as const, centerMemberships: { some: { centerId, isActive: true } } }
-      : { role: 'OPERATOR' as const },
+      ? { centerMemberships: { some: { centerId, role: 'OPERATOR' as const, isActive: true } } }
+      : { centerMemberships: { some: { role: 'OPERATOR' as const, isActive: true } } },
     select: {
       id: true,
       name: true,

@@ -34,14 +34,6 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<Params> }) 
     return NextResponse.json({ error: 'Membership not found' }, { status: 404 });
   }
 
-  // Center admins cannot reactivate or modify another ADMIN's membership.
-  if (!ctxAuth.isSuperAdmin && m.role === 'ADMIN') {
-    return NextResponse.json(
-      { error: 'Only super admin can modify ADMIN memberships.' },
-      { status: 403 },
-    );
-  }
-
   let body: unknown;
   try { body = await req.json(); } catch {
     return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 });
@@ -49,6 +41,21 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<Params> }) 
   const parsed = PatchSchema.safeParse(body);
   if (!parsed.success) {
     return NextResponse.json({ error: 'Validation failed', issues: parsed.error.issues }, { status: 400 });
+  }
+
+  // Membership-level changes (isActive / metadata) on an ADMIN row stay
+  // super-admin-only — a center admin shouldn't be able to demote or
+  // reactivate a peer admin. Profile edits (the `user:` block) are fine
+  // either way, since name / email / phone aren't authorization data.
+  // The "edit name" affordance on the Members tab failed before this
+  // because the old guard rejected ANY PATCH on an ADMIN membership.
+  const isMembershipLevelChange =
+    parsed.data.isActive !== undefined || parsed.data.metadata !== undefined;
+  if (!ctxAuth.isSuperAdmin && m.role === 'ADMIN' && isMembershipLevelChange) {
+    return NextResponse.json(
+      { error: 'Only super admin can modify ADMIN memberships.' },
+      { status: 403 },
+    );
   }
 
   // Pull the underlying user once if a user-patch was supplied. The

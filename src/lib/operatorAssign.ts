@@ -225,7 +225,21 @@ export async function autoAssignOperator(
   if (machineId) {
     const assignments = await db.operatorAssignment.findMany({
       where: centerId ? { machineId, centerId } : { machineId },
-      include: { user: { select: { ...OPERATOR_SELECT, role: true } } },
+      include: {
+        user: {
+          select: {
+            ...OPERATOR_SELECT,
+            role: true,
+            // Source of truth for "is this user an OPERATOR at this
+            // center" is CenterMembership, not User.role — same
+            // reasoning as `/api/admin/operators`. Pull the per-center
+            // membership rows so we can filter on them instead.
+            centerMemberships: centerId
+              ? { where: { centerId, role: 'OPERATOR' as const, isActive: true }, select: { id: true } }
+              : { where: { role: 'OPERATOR' as const, isActive: true }, select: { id: true } },
+          },
+        },
+      },
     });
     operators = assignments
       .filter(a => {
@@ -233,7 +247,16 @@ export async function autoAssignOperator(
         const daysFilter = a.days;
         return daysFilter.length === 0 || daysFilter.includes(dayOfWeek);
       })
-      .filter(a => a.user.role === 'OPERATOR')
+      .filter(a =>
+        // Either:
+        //   - legacy: User.role === 'OPERATOR' (works for ABCA where
+        //     the bumping ladder always set User.role correctly), OR
+        //   - new: any active OPERATOR CenterMembership at this center
+        //     (catches users whose User.role was outranked by an ADMIN
+        //     membership elsewhere, or who were added via the Members
+        //     tab on a RESOURCE_BASED center).
+        a.user.role === 'OPERATOR' || (a.user.centerMemberships?.length ?? 0) > 0,
+      )
       .map(a => ({ id: a.user.id, operatorPriority: a.user.operatorPriority, operatorMorningPriority: a.user.operatorMorningPriority, operatorEveningPriority: a.user.operatorEveningPriority, operatorDayPriorities: a.user.operatorDayPriorities as DayPriorities | null }));
   }
 
