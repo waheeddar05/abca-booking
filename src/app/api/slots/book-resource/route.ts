@@ -680,7 +680,9 @@ async function executeResourceBookingCore(
   // The client sends `kitRental: true` when the user ticked the box.
   // The `kitRentalCharge` they send is informational — we re-read the
   // center policy on the server so a tampered client can't underpay.
-  // Mirrors ABCA's flow at /api/slots/book.
+  // RESOURCE_BASED centers store per-Machine-row config in
+  // `KIT_RENTAL_CONFIG.machineRowConfigs`; we use the row override
+  // when present, fall back to the global price otherwise.
   const kitRentalRequested = !!body.kitRental;
   let kitRental = false;
   let kitRentalChargePerSlot = 0;
@@ -689,13 +691,25 @@ async function executeResourceBookingCore(
     const kitConfig = kitRentalRaw
       ? (() => { try { return JSON.parse(kitRentalRaw); } catch { return null; } })()
       : null;
-    // We only honour kit rental when the center policy says it's
-    // enabled. We deliberately don't enforce the machineId-allowlist
-    // server-side for Toplay (the client gates by ballType, which is
-    // a stricter check anyway — see ResourceSlotsPage.isLeatherMachine).
     if (kitConfig?.enabled) {
-      kitRental = true;
-      kitRentalChargePerSlot = Math.max(0, Math.floor(kitConfig?.price ?? 200));
+      // Resolve per-machine override → row config price → global price.
+      // The booking's machine is `body.machineId` (the user's pick).
+      // When the row has an explicit override AND it's disabled, the
+      // server rejects kit rental for this booking — the client should
+      // have hidden the checkbox; this is just belt-and-braces.
+      const rowConfig = body.machineId
+        ? (kitConfig.machineRowConfigs ?? {})[body.machineId] as
+            | { enabled?: boolean; price?: number }
+            | undefined
+        : undefined;
+      // Disabled-by-row → don't charge.
+      if (rowConfig && rowConfig.enabled === false) {
+        kitRental = false;
+      } else {
+        kitRental = true;
+        const price = rowConfig?.price ?? kitConfig?.price ?? 200;
+        kitRentalChargePerSlot = Math.max(0, Math.floor(price));
+      }
     }
   }
 

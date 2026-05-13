@@ -4,11 +4,18 @@ import { useState, useEffect, useCallback } from 'react';
 
 interface KitRentalConfig {
   enabled: boolean;
+  /** Default per-slot price. Used as a fallback for resource-based
+   *  centers that haven't overridden a specific Machine row. */
   price: number;
   title: string;
   description: string;
   note: string;
+  /** ABCA enum allowlist (GRAVITY/YANTRA/...). Toplay et al. ignore
+   *  this and use `machineRowConfigs` instead. */
   machines: string[];
+  /** RESOURCE_BASED centers only. Per-machine-row toggle + price so
+   *  each Machine has its own kit rental config. Keyed by Machine.id. */
+  machineRowConfigs?: Record<string, { enabled: boolean; price: number }>;
 }
 
 interface PaymentConfig {

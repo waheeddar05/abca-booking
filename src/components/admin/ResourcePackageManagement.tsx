@@ -317,12 +317,31 @@ export function ResourcePackageManagement() {
   return (
     <div className="space-y-5">
       {/* Add / edit form */}
-      <div className="bg-white/[0.03] border border-white/[0.07] rounded-xl p-4">
-        <div className="flex items-center gap-2 mb-3">
-          <Package className="w-4 h-4 text-accent" />
-          <h3 className="text-xs font-bold text-white uppercase tracking-wider">
-            {editingId ? 'Edit Package' : 'Create Package'}
-          </h3>
+      <div className={`bg-white/[0.03] border rounded-xl p-4 ${
+        editingId ? 'border-accent/40 ring-1 ring-accent/20' : 'border-white/[0.07]'
+      }`}>
+        <div className="flex items-center justify-between gap-2 mb-3">
+          <div className="flex items-center gap-2">
+            <Package className="w-4 h-4 text-accent" />
+            <h3 className="text-xs font-bold text-white uppercase tracking-wider">
+              {editingId ? 'Edit Package' : 'Create Package'}
+            </h3>
+            {editingId && (
+              <span className="text-[10px] px-2 py-0.5 rounded-full bg-accent/15 text-accent font-semibold uppercase tracking-wider">
+                Editing
+              </span>
+            )}
+          </div>
+          {editingId && (
+            <button
+              type="button"
+              onClick={reset}
+              className="text-[11px] text-slate-400 hover:text-white underline cursor-pointer"
+              title="Discard changes and start fresh"
+            >
+              Cancel edit
+            </button>
+          )}
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -654,10 +673,11 @@ export function ResourcePackageManagement() {
                     </button>
                     <button
                       onClick={() => startEdit(p)}
-                      className="p-1.5 text-slate-500 hover:text-white hover:bg-white/[0.06] rounded-lg transition-colors cursor-pointer"
-                      title="Edit"
+                      className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold text-accent bg-accent/10 hover:bg-accent/20 border border-accent/30 rounded-lg transition-colors cursor-pointer"
+                      title="Edit this package"
                     >
                       <Pencil className="w-3.5 h-3.5" />
+                      Edit
                     </button>
                     <button
                       onClick={() => setConfirmDeleteId(p.id)}

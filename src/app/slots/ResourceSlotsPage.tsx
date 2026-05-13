@@ -899,18 +899,36 @@ export default function ResourceSlotsPage() {
     && selectedPackage.remainingSessions >= selectedSlots.length;
 
   // ─── Kit rental availability + total ─────────────────────────────
-  // Mirrors ABCA's `isKitRentalAvailable`. Toplay shows the kit rental
-  // checkbox for any leather-ball machine (Yantra et al.) on the
-  // MACHINE category when the center has kit rental enabled.
+  // RESOURCE_BASED centers (Toplay) store per-Machine-row config in
+  // `kitRentalConfig.machineRowConfigs` — each machine has its own
+  // enabled toggle + price. Falls back to the legacy global
+  // enabled/price for any machine without an explicit override.
   const kitRentalCfg = paymentConfig?.kitRentalConfig;
-  const kitRentalCharge = kitRentalCfg?.price ?? 200;
-  const kitRentalEnabled = kitRentalCfg?.enabled ?? false;
   const selectedMachineForKit = machineId
     ? filteredMachines.find((m) => m.id === machineId)
     : null;
+  // Lookup the picked machine's row-specific kit config; null when no
+  // override exists.
+  const machineRowKitCfg = machineId
+    ? kitRentalCfg?.machineRowConfigs?.[machineId] ?? null
+    : null;
+  // Effective per-slot price: row override → global default.
+  const kitRentalCharge = machineRowKitCfg?.price ?? kitRentalCfg?.price ?? 200;
+  // Kit rental is available only when:
+  //   - the overall center-level toggle is on, AND
+  //   - the picked machine has either (a) an explicit override with
+  //     `enabled: true`, or (b) no override AND it's a leather-ball
+  //     machine (the legacy default for which kits make sense).
+  const kitRentalGlobalEnabled = kitRentalCfg?.enabled ?? false;
   const isLeatherMachine = selectedMachineForKit?.machineType?.ballType === 'LEATHER';
+  const machineKitEnabled = machineRowKitCfg
+    ? machineRowKitCfg.enabled
+    : isLeatherMachine; // no explicit override → leather default
   const isKitRentalAvailable =
-    kitRentalEnabled && category === 'MACHINE' && !!machineId && isLeatherMachine;
+    kitRentalGlobalEnabled
+    && category === 'MACHINE'
+    && !!machineId
+    && machineKitEnabled;
   const kitRentalTotal =
     kitRental && isKitRentalAvailable ? kitRentalCharge * selectedSlots.length : 0;
 

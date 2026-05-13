@@ -204,15 +204,38 @@ export default function ConfigurationPage() {
   const [savingPayment, setSavingPayment] = useState(false);
   const [paymentMessage, setPaymentMessage] = useState({ text: '', type: '' });
 
-  // Kit Rental Config state
-  const [kitRentalConfig, setKitRentalConfig] = useState({
+  // Kit Rental Config state. `machineRowConfigs` is a Toplay (and
+  // future RESOURCE_BASED center) extension: instead of one global
+  // price + an ABCA enum allowlist, each Machine row at the center
+  // gets its own enabled + price config. The global `price` /
+  // `machines` fields remain for back-compat with ABCA-style centers.
+  const [kitRentalConfig, setKitRentalConfig] = useState<{
+    enabled: boolean;
+    price: number;
+    title: string;
+    description: string;
+    note: string;
+    machines: string[];
+    machineRowConfigs?: Record<string, { enabled: boolean; price: number }>;
+  }>({
     enabled: false,
     price: 200,
     title: 'Cricket Kit & Bat Rental',
     description: 'Rent cricket kit and bat for your session',
     note: 'Any damages to the bat will be chargeable',
-    machines: ['GRAVITY', 'YANTRA'] as string[],
+    machines: ['GRAVITY', 'YANTRA'],
+    machineRowConfigs: {},
   });
+  // Live Machine rows at the current center — used by the per-machine
+  // kit rental editor (resource-based centers only). Fetched alongside
+  // the policies effect when the active center is resource-based.
+  const [centerMachines, setCenterMachines] = useState<Array<{
+    id: string;
+    name: string;
+    shortName: string | null;
+    isActive: boolean;
+    machineType: { code: string; name: string; ballType: string };
+  }>>([]);
   const [savingKitRental, setSavingKitRental] = useState(false);
   const [kitRentalMessage, setKitRentalMessage] = useState({ text: '', type: '' });
 
@@ -275,6 +298,20 @@ export default function ConfigurationPage() {
 
     fetchMachineConfig();
     fetchPaymentSettings();
+    // Fetch live machine list when the current center is resource-
+    // based — the kit rental editor needs it to render per-machine
+    // toggle + price rows. ABCA centers use the legacy enum allowlist
+    // and don't need this fetch.
+    if (currentCenter?.bookingModel === 'RESOURCE_BASED') {
+      fetch(`/api/centers/${currentCenter.id}/machines`)
+        .then((r) => (r.ok ? r.json() : []))
+        .then((data) => {
+          if (Array.isArray(data)) setCenterMachines(data);
+        })
+        .catch(() => setCenterMachines([]));
+    } else {
+      setCenterMachines([]);
+    }
     // Re-fetch on center / scope change so values match the active
     // edit target (CenterPolicy(currentCenter) vs the global Policy).
   }, [currentCenter?.id, scope]);
@@ -526,43 +563,139 @@ export default function ConfigurationPage() {
                 />
               </div>
 
-              {/* Applicable Machines */}
-              <div>
-                <label className="block text-[10px] font-medium text-slate-400 mb-2 uppercase tracking-wider">Applicable Machines</label>
-                <div className="grid grid-cols-2 gap-2">
-                  {ALL_MACHINE_IDS.map(mid => {
-                    const isSelected = kitRentalConfig.machines.includes(mid);
-                    return (
-                      <button
-                        key={mid}
-                        type="button"
-                        onClick={() => {
-                          setKitRentalConfig(prev => ({
-                            ...prev,
-                            machines: isSelected
-                              ? prev.machines.filter(m => m !== mid)
-                              : [...prev.machines, mid],
-                          }));
-                        }}
-                        className={`flex items-center gap-2 p-2.5 rounded-xl text-left transition-all cursor-pointer ${
-                          isSelected
-                            ? 'bg-accent/10 ring-1 ring-accent/30'
-                            : 'bg-white/[0.03] border border-white/[0.06] hover:border-white/[0.12]'
-                        }`}
-                      >
-                        <span className={`w-4 h-4 rounded border flex items-center justify-center flex-shrink-0 ${
-                          isSelected ? 'bg-accent border-accent' : 'border-slate-600'
-                        }`}>
-                          {isSelected && <Check className="w-2.5 h-2.5 text-primary" />}
-                        </span>
-                        <span className={`text-xs font-medium ${isSelected ? 'text-accent' : 'text-slate-400'}`}>
-                          {MACHINE_LABELS[mid].name}
-                        </span>
-                      </button>
-                    );
-                  })}
+              {/* Per-center machine config. Two surfaces:
+                  - ABCA (MACHINE_PITCH): the legacy multi-select of
+                    the 4 enum machines (GRAVITY/YANTRA/LEVERAGE_*).
+                    One global price field above governs all of them.
+                  - Toplay (RESOURCE_BASED): one row per live Machine
+                    at the center, each with its own enabled toggle
+                    + price input. The global `price` field above
+                    acts as the default for any newly-added machine. */}
+              {currentCenter?.bookingModel === 'RESOURCE_BASED' ? (
+                <div>
+                  <label className="block text-[10px] font-medium text-slate-400 mb-2 uppercase tracking-wider">
+                    Per-machine kit rental
+                  </label>
+                  {centerMachines.length === 0 ? (
+                    <p className="text-[11px] text-slate-500 italic">
+                      No machines configured at this center yet.
+                    </p>
+                  ) : (
+                    <div className="space-y-2">
+                      {centerMachines
+                        .filter((m) => m.isActive)
+                        .map((m) => {
+                          const cfg = kitRentalConfig.machineRowConfigs?.[m.id];
+                          const enabled = cfg?.enabled ?? false;
+                          const price = cfg?.price ?? kitRentalConfig.price;
+                          const label = m.shortName || m.name;
+                          return (
+                            <div
+                              key={m.id}
+                              className="flex items-center gap-3 p-3 rounded-xl bg-white/[0.03] border border-white/[0.06]"
+                            >
+                              {/* Toggle */}
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setKitRentalConfig((prev) => ({
+                                    ...prev,
+                                    machineRowConfigs: {
+                                      ...(prev.machineRowConfigs ?? {}),
+                                      [m.id]: {
+                                        enabled: !enabled,
+                                        price: cfg?.price ?? prev.price,
+                                      },
+                                    },
+                                  }));
+                                }}
+                                className={`w-4 h-4 rounded border flex items-center justify-center flex-shrink-0 ${
+                                  enabled ? 'bg-accent border-accent' : 'border-slate-600'
+                                }`}
+                              >
+                                {enabled && <Check className="w-2.5 h-2.5 text-primary" />}
+                              </button>
+                              {/* Machine name */}
+                              <div className="flex-1 min-w-0">
+                                <div className={`text-xs font-semibold truncate ${enabled ? 'text-white' : 'text-slate-400'}`}>
+                                  {label}
+                                </div>
+                                <div className="text-[10px] text-slate-500">
+                                  {m.machineType.name} · {m.machineType.ballType.toLowerCase()}
+                                </div>
+                              </div>
+                              {/* Per-machine price */}
+                              <div className="relative w-24">
+                                <IndianRupee className="absolute left-2 top-1/2 -translate-y-1/2 w-3 h-3 text-slate-500" />
+                                <input
+                                  type="number"
+                                  min="0"
+                                  value={price}
+                                  disabled={!enabled}
+                                  onChange={(e) =>
+                                    setKitRentalConfig((prev) => ({
+                                      ...prev,
+                                      machineRowConfigs: {
+                                        ...(prev.machineRowConfigs ?? {}),
+                                        [m.id]: {
+                                          enabled: true,
+                                          price: Math.max(0, Number(e.target.value)),
+                                        },
+                                      },
+                                    }))
+                                  }
+                                  placeholder="0"
+                                  className="w-full bg-white/[0.04] border border-white/[0.1] text-white rounded-md pl-6 pr-2 py-1.5 text-xs outline-none focus:border-accent disabled:opacity-50"
+                                />
+                              </div>
+                            </div>
+                          );
+                        })}
+                    </div>
+                  )}
+                  <p className="mt-2 text-[10px] text-slate-500">
+                    Toggle a machine to enable kit rental for that machine, and set its per-slot price.
+                    The default price above is used for any newly-added machine until you override it.
+                  </p>
                 </div>
-              </div>
+              ) : (
+                <div>
+                  <label className="block text-[10px] font-medium text-slate-400 mb-2 uppercase tracking-wider">Applicable Machines</label>
+                  <div className="grid grid-cols-2 gap-2">
+                    {ALL_MACHINE_IDS.map((mid) => {
+                      const isSelected = kitRentalConfig.machines.includes(mid);
+                      return (
+                        <button
+                          key={mid}
+                          type="button"
+                          onClick={() => {
+                            setKitRentalConfig((prev) => ({
+                              ...prev,
+                              machines: isSelected
+                                ? prev.machines.filter((m) => m !== mid)
+                                : [...prev.machines, mid],
+                            }));
+                          }}
+                          className={`flex items-center gap-2 p-2.5 rounded-xl text-left transition-all cursor-pointer ${
+                            isSelected
+                              ? 'bg-accent/10 ring-1 ring-accent/30'
+                              : 'bg-white/[0.03] border border-white/[0.06] hover:border-white/[0.12]'
+                          }`}
+                        >
+                          <span className={`w-4 h-4 rounded border flex items-center justify-center flex-shrink-0 ${
+                            isSelected ? 'bg-accent border-accent' : 'border-slate-600'
+                          }`}>
+                            {isSelected && <Check className="w-2.5 h-2.5 text-primary" />}
+                          </span>
+                          <span className={`text-xs font-medium ${isSelected ? 'text-accent' : 'text-slate-400'}`}>
+                            {MACHINE_LABELS[mid].name}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
 
               {/* Save Button */}
               <button
