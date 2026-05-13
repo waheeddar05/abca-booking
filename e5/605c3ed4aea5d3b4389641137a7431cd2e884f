@@ -1,0 +1,77 @@
+src/app/api/admin/centers/[id]/resources/route.ts
+  s_e0175fb4b4f942::t_f824174bbbac2b 28-29
+  s_e0175fb4b4f942::t_2e3d1b5576da54 40-42
+  s_e0175fb4b4f942::t_1ca3179526b031 3
+src/app/api/admin/centers/[id]/members/[membershipId]/route.ts
+  s_e0175fb4b4f942::t_571896091cfd69 3
+  s_e0175fb4b4f942::t_ad8a596de82519 15-16,23-28
+  s_e0175fb4b4f942::t_22ec9bc4db87f3 50-52,58-63
+src/app/admin/users/page.tsx
+  s_e0175fb4b4f942::t_3a19fb7813c322 298-303
+  s_e0175fb4b4f942::t_1ba8689873ad30 458-473
+  s_e0175fb4b4f942::t_23e582e413be71 691-692
+src/components/admin/centers/CenterMembersTab.tsx
+  s_e0175fb4b4f942::t_0b53dce4a8ce15 263-264,266
+  s_e0175fb4b4f942::t_70d79344e60d0c 4
+  s_e0175fb4b4f942::t_0a32b1ee26b533 45-46
+  s_e0175fb4b4f942::t_97c023fece2800 204,209
+  s_e0175fb4b4f942::t_9f682d2f138815 141
+src/components/admin/centers/CenterGeneralTab.tsx
+  s_e0175fb4b4f942::t_6c286efbdae251 120-122,124-137,140-150
+  s_e0175fb4b4f942::t_9b51e050a614f9 52-76,80
+  s_e0175fb4b4f942::t_3651c64d61142b 4
+  s_e0175fb4b4f942::t_007972f949b2f7 41-42
+src/app/api/admin/centers/[id]/machines/route.ts
+  s_e0175fb4b4f942::t_0024c84888b7ea 56-57
+  s_e0175fb4b4f942::t_066a8a062a5e33 41-42
+  s_e0175fb4b4f942::t_bb236bccff3b42 3
+src/app/admin/centers/[id]/page.tsx
+  s_e0175fb4b4f942::t_0672a9ce27adca 19-29,31
+  s_e0175fb4b4f942::t_2c848d824333a8 128-139,146-148
+  s_e0175fb4b4f942::t_b0ac2daa73dcae 48-52,58,60-63,71-77,87,89-93
+  s_e0175fb4b4f942::t_2a949124070f5c 160
+src/app/admin/layout.tsx
+  s_e0175fb4b4f942::t_240d3d5870687f 27-28,30-31
+  s_e0175fb4b4f942::t_71d41311a74d8a 29,33-39
+  s_e0175fb4b4f942::t_9b851a15c9bdcf 70-78
+src/app/api/admin/centers/[id]/policies/route.ts
+  s_e0175fb4b4f942::t_16f81a1e410898 28-29
+  s_e0175fb4b4f942::t_b3a5c8c0a84a92 3
+  s_e0175fb4b4f942::t_0e480ac6df2eed 52-54
+  s_e0175fb4b4f942::t_b0b9300639f9b9 80-81
+src/app/api/admin/centers/[id]/route.ts
+  s_e0175fb4b4f942::t_070394c3d3b345 61-64
+  s_e0175fb4b4f942::t_92c722d1c2a270 3,6-15
+  s_e0175fb4b4f942::t_056ea9e2f19c05 92-94,110-121
+src/app/api/admin/centers/[id]/members/route.ts
+  s_e0175fb4b4f942::t_51e515c188c3c1 95-104
+  s_e0175fb4b4f942::t_592726e0826e11 3
+  s_e0175fb4b4f942::t_c3ee4ecd32253b 75-77
+  s_e0175fb4b4f942::t_1c33255c822b50 45-46
+src/app/api/admin/centers/[id]/resources/[resourceId]/route.ts
+  s_e0175fb4b4f942::t_94e729d7c15a38 3
+  s_e0175fb4b4f942::t_3804bfe79aeac1 48-49
+  s_e0175fb4b4f942::t_ae533e89cf0146 20-21
+src/lib/adminAuth.ts
+  s_e0175fb4b4f942::t_f7a009cd278a16 95-118
+src/app/api/admin/centers/[id]/machines/[machineId]/route.ts
+  s_e0175fb4b4f942::t_7d1146e4692261 76-77
+  s_e0175fb4b4f942::t_f0ae5ec9b78adc 3
+  s_e0175fb4b4f942::t_5b065603353897 31-32
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.4",
+  "base_commit_sha": "e5605c3ed4aea5d3b4389641137a7431cd2e884f",
+  "prompts": {},
+  "sessions": {
+    "s_e0175fb4b4f942": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "f3864c65-ac36-4572-a64e-c1d488c0cbdf",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Waheed <waheeddar8@gmail.com>"
+    }
+  }
+}
