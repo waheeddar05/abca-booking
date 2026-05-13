@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useSession } from 'next-auth/react';
-import { Plus, Loader2, Trash2, X, UserPlus, Mail, Phone, CalendarClock, Save } from 'lucide-react';
+import { Plus, Loader2, Trash2, X, UserPlus, Mail, Phone, CalendarClock, Save, Pencil } from 'lucide-react';
 import { Field, TextInput, SelectInput, PrimaryButton, SecondaryButton, Banner } from './centerForms';
 
 type MembershipRole = 'ADMIN' | 'OPERATOR' | 'COACH' | 'SIDEARM_SPECIALIST';
@@ -159,6 +159,7 @@ export function CenterMembersTab({ centerId }: { centerId: string }) {
               group={group}
               onRemoveRole={remove}
               onRemoveUser={removeUserEntirely}
+              onUserUpdated={refresh}
             />
           ))}
         </div>
@@ -341,16 +342,19 @@ function UserMembershipsRow({
   group,
   onRemoveRole,
   onRemoveUser,
+  onUserUpdated,
 }: {
   centerId: string;
   group: { userId: string; user: MembershipRow['user']; memberships: MembershipRow[] };
   onRemoveRole: (membershipId: string) => void;
   onRemoveUser: (userId: string) => void;
+  onUserUpdated: () => void;
 }) {
   // The schedule editor is per-membership (so a user who's both a
   // Coach and a Specialist can keep different schedules per role).
   // Track which membership's editor is currently open.
   const [expandedMembershipId, setExpandedMembershipId] = useState<string | null>(null);
+  const [editing, setEditing] = useState(false);
 
   return (
     <div className="rounded-xl bg-white/[0.02] border border-white/[0.06]">
@@ -360,13 +364,26 @@ function UserMembershipsRow({
             {group.user.name || '(no name)'}
           </div>
         </div>
-        <button
-          onClick={() => onRemoveUser(group.userId)}
-          className="shrink-0 inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-medium text-red-300/80 hover:text-red-300 bg-red-500/5 hover:bg-red-500/10 border border-red-500/15 cursor-pointer"
-          title="Remove this user from the center (revokes all their roles)"
-        >
-          <Trash2 className="w-3 h-3" /> Remove user
-        </button>
+        <div className="flex items-center gap-1.5 shrink-0">
+          <button
+            onClick={() => setEditing((v) => !v)}
+            className={`inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-medium border cursor-pointer ${
+              editing
+                ? 'text-accent bg-accent/10 border-accent/30'
+                : 'text-slate-300 bg-white/[0.04] border-white/[0.1] hover:bg-white/[0.08]'
+            }`}
+            title="Edit name / email / phone"
+          >
+            <Pencil className="w-3 h-3" /> Edit
+          </button>
+          <button
+            onClick={() => onRemoveUser(group.userId)}
+            className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-medium text-red-300/80 hover:text-red-300 bg-red-500/5 hover:bg-red-500/10 border border-red-500/15 cursor-pointer"
+            title="Remove this user from the center (revokes all their roles)"
+          >
+            <Trash2 className="w-3 h-3" /> Remove user
+          </button>
+        </div>
       </div>
       <div className="px-3 pb-3 -mt-2">
         <div className="min-w-0">
@@ -386,7 +403,23 @@ function UserMembershipsRow({
               Each chip carries its own schedule + delete affordances
               so the admin can manage roles independently. */}
           <div className="flex items-center gap-1.5 mt-2 flex-wrap">
-            {group.memberships.map((m) => {
+            {editing && group.memberships[0] && (
+            <UserProfileEditor
+              centerId={centerId}
+              membershipId={group.memberships[0].id}
+              initial={{
+                name: group.user.name ?? '',
+                email: group.user.email ?? '',
+                mobileNumber: group.user.mobileNumber ?? '',
+              }}
+              onCancel={() => setEditing(false)}
+              onSaved={() => {
+                setEditing(false);
+                onUserUpdated();
+              }}
+            />
+          )}
+          {group.memberships.map((m) => {
               const supportsSchedule = m.role === 'COACH' || m.role === 'SIDEARM_SPECIALIST';
               const expanded = expandedMembershipId === m.id;
               return (
@@ -594,5 +627,118 @@ function AvailabilityEditor({
         </div>
       </div>
     </div>
+  );
+}
+
+/**
+ * Inline editor for a member's basic profile fields — name, email,
+ * mobile. Used from the Members tab when the admin clicks "Edit" on
+ * a user row. PATCHes the membership endpoint with a `user:` block,
+ * which writes through to the underlying User row.
+ *
+ * Targets one membership id (any of the user's roles will do — the
+ * endpoint resolves the User from the membership and uniqueness-checks
+ * email / mobile against the rest of the user base).
+ */
+function UserProfileEditor({
+  centerId,
+  membershipId,
+  initial,
+  onCancel,
+  onSaved,
+}: {
+  centerId: string;
+  membershipId: string;
+  initial: { name: string; email: string; mobileNumber: string };
+  onCancel: () => void;
+  onSaved: () => void;
+}) {
+  const [name, setName] = useState(initial.name);
+  const [email, setEmail] = useState(initial.email);
+  const [mobileNumber, setMobileNumber] = useState(initial.mobileNumber);
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setErr(null);
+    setSaving(true);
+    try {
+      const res = await fetch(`/api/admin/centers/${centerId}/members/${membershipId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          user: {
+            name: name.trim() || null,
+            email: email.trim() || null,
+            mobileNumber: mobileNumber.trim() || null,
+          },
+        }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        setErr(data?.error || `Save failed (HTTP ${res.status})`);
+        return;
+      }
+      onSaved();
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <form
+      onSubmit={submit}
+      className="mt-2 mb-1 p-3 rounded-lg bg-white/[0.02] border border-white/[0.06] space-y-2"
+    >
+      <div className="grid sm:grid-cols-3 gap-2">
+        <label className="block">
+          <span className="text-[10px] text-slate-500 uppercase tracking-wide">Name</span>
+          <input
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            className="mt-1 w-full bg-white/[0.04] border border-white/[0.1] rounded-md px-2 py-1.5 text-xs text-white outline-none focus:border-accent"
+            placeholder="Full name"
+          />
+        </label>
+        <label className="block">
+          <span className="text-[10px] text-slate-500 uppercase tracking-wide">Email</span>
+          <input
+            type="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            className="mt-1 w-full bg-white/[0.04] border border-white/[0.1] rounded-md px-2 py-1.5 text-xs text-white outline-none focus:border-accent"
+            placeholder="user@example.com"
+          />
+        </label>
+        <label className="block">
+          <span className="text-[10px] text-slate-500 uppercase tracking-wide">Mobile</span>
+          <input
+            value={mobileNumber}
+            onChange={(e) => setMobileNumber(e.target.value)}
+            className="mt-1 w-full bg-white/[0.04] border border-white/[0.1] rounded-md px-2 py-1.5 text-xs text-white outline-none focus:border-accent"
+            placeholder="98xxxxxxxx"
+          />
+        </label>
+      </div>
+      {err && <div className="text-[11px] text-red-400">{err}</div>}
+      <div className="flex justify-end gap-2">
+        <button
+          type="button"
+          onClick={onCancel}
+          className="px-2.5 py-1 rounded-md text-xs text-slate-300 bg-white/[0.04] hover:bg-white/[0.08] cursor-pointer"
+        >
+          Cancel
+        </button>
+        <button
+          type="submit"
+          disabled={saving}
+          className="flex items-center gap-1 px-3 py-1 rounded-md bg-accent text-black text-xs font-semibold hover:bg-accent/90 disabled:opacity-60 cursor-pointer"
+        >
+          {saving ? <Loader2 className="w-3 h-3 animate-spin" /> : <Save className="w-3 h-3" />}
+          Save
+        </button>
+      </div>
+    </form>
   );
 }
