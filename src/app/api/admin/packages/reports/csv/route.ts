@@ -71,6 +71,67 @@ export async function GET(req: NextRequest) {
       refundByPackage.set(txn.referenceId, (refundByPackage.get(txn.referenceId) || 0) + txn.amount);
     }
 
+    // Fetch captured payments per UserPackage so we can split wallet vs
+    // online for each row. Payment.userPackageId points at the package
+    // directly; metadata.walletDeduction (if present) is the wallet
+    // portion of a mixed-fund purchase, and Payment.amount is what
+    // Razorpay actually captured.
+    const payments = userPackageIds.length > 0
+      ? await prisma.payment.findMany({
+          where: {
+            status: 'CAPTURED',
+            userPackageId: { in: userPackageIds },
+          },
+          select: { userPackageId: true, amount: true, metadata: true },
+        })
+      : [];
+    const paymentByUserPackage = new Map<string, typeof payments[number]>();
+    for (const p of payments) {
+      if (p.userPackageId) paymentByUserPackage.set(p.userPackageId, p);
+    }
+
+    // Wallet-only purchases skip the Payment table entirely (see
+    // /api/packages/purchase WALLET branch) — the only record of the
+    // debit is a WalletTransaction with referenceId=userPackage.id.
+    // Capture those debits so wallet-only rows still show a non-zero
+    // Wallet Amount column.
+    const walletDebits = userPackageIds.length > 0
+      ? await prisma.walletTransaction.findMany({
+          where: {
+            type: 'DEBIT_BOOKING',
+            referenceId: { in: userPackageIds },
+          },
+          select: { referenceId: true, amount: true },
+        })
+      : [];
+    const walletDebitByPackage = new Map<string, number>();
+    for (const txn of walletDebits) {
+      if (!txn.referenceId) continue;
+      walletDebitByPackage.set(
+        txn.referenceId,
+        (walletDebitByPackage.get(txn.referenceId) || 0) + txn.amount,
+      );
+    }
+
+    // Compute the wallet/online split for a UserPackage row. Mirrors
+    // the bookings CSV logic so the two reports tell a consistent
+    // story when a finance reviewer reconciles them.
+    //   - Online portion → Payment.amount (the Razorpay-captured side)
+    //   - Wallet portion → max(Payment.metadata.walletDeduction,
+    //     WalletTransaction debit for this UserPackage). Either source
+    //     can be missing depending on the purchase path.
+    const splitForPackage = (up: typeof userPackages[number]): { wallet: number; online: number } => {
+      const payment = paymentByUserPackage.get(up.id);
+      const walletDebit = walletDebitByPackage.get(up.id) || 0;
+      const onlinePortion = payment?.amount ?? 0;
+      let walletPortion = walletDebit;
+      if (payment && walletPortion === 0) {
+        const meta = (payment.metadata as Record<string, unknown> | null) ?? null;
+        if (typeof meta?.walletDeduction === 'number') walletPortion = meta.walletDeduction;
+      }
+      return { wallet: walletPortion, online: onlinePortion };
+    };
+
     // Build CSV
     const headers = [
       'User Name',
@@ -82,6 +143,11 @@ export async function GET(req: NextRequest) {
       'Used Sessions',
       'Remaining Sessions',
       'Amount Paid',
+      // Split of Amount Paid across funding sources — handy when a
+      // finance reviewer needs to reconcile wallet drawdowns vs.
+      // Razorpay settlements.
+      'Wallet Amount',
+      'Online Amount',
       'Refunded Amount',
       'Package Price',
       'Status',
@@ -89,22 +155,27 @@ export async function GET(req: NextRequest) {
       'Expiry Date',
     ];
 
-    const rows = userPackages.map(up => [
-      up.user?.name || '',
-      up.user?.email || '',
-      up.user?.mobileNumber || '',
-      up.package?.name || '',
-      up.package?.machineType || '',
-      up.totalSessions,
-      up.usedSessions,
-      up.totalSessions - up.usedSessions,
-      up.amountPaid,
-      refundByPackage.get(up.id) || 0,
-      up.package?.price || '',
-      up.status,
-      new Date(up.activationDate).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata' }),
-      new Date(up.expiryDate).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata' }),
-    ]);
+    const rows = userPackages.map(up => {
+      const split = splitForPackage(up);
+      return [
+        up.user?.name || '',
+        up.user?.email || '',
+        up.user?.mobileNumber || '',
+        up.package?.name || '',
+        up.package?.machineType || '',
+        up.totalSessions,
+        up.usedSessions,
+        up.totalSessions - up.usedSessions,
+        up.amountPaid,
+        split.wallet,
+        split.online,
+        refundByPackage.get(up.id) || 0,
+        up.package?.price || '',
+        up.status,
+        new Date(up.activationDate).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata' }),
+        new Date(up.expiryDate).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata' }),
+      ];
+    });
 
     const csvContent = [
       headers.join(','),

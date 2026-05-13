@@ -209,6 +209,15 @@ export async function GET(req: NextRequest) {
       'Operation Mode',
       'Status',
       'Amount',
+      // Split of the booking amount across the two funding sources.
+      // For a mixed payment (some wallet + some Razorpay), the wallet
+      // portion comes from Payment.metadata.walletDeduction and the
+      // online portion is Payment.amount; both are pro-rated to this
+      // booking's share when the order covered multiple slots.
+      // Pure WALLET bookings → full amount under Wallet, 0 Online.
+      // CASH/PACKAGE bookings → 0 / 0.
+      'Wallet Amount',
+      'Online Amount',
       ...(hasPackageBookings ? ['Extra Amount'] : []),
       'Created By',
       'Cancelled By',
@@ -260,6 +269,13 @@ export async function GET(req: NextRequest) {
         || b.assignedMachine?.shortName
         || b.assignedMachine?.name
         || '';
+
+      // Wallet / online split for this booking. computeSplit() returns
+      // {0, 0} for package + cash rows; for mixed wallet+Razorpay
+      // payments it pro-rates the funding across all bookings in the
+      // same order so the per-row numbers always sum back to the
+      // captured payment.
+      const split = computeSplit(b);
       return [
         b.id,
         formatIST(b.date, 'yyyy-MM-dd'),
@@ -285,6 +301,10 @@ export async function GET(req: NextRequest) {
         b.operationMode || '',
         b.status,
         pkg ? ((b.packageBooking?.extraCharge || 0) + (b.kitRentalCharge || 0)).toString() : (b.price?.toString() || ''),
+        // Wallet / online amounts paired with the same row as the
+        // total so a quick sum check is obvious in Excel.
+        split.wallet.toString(),
+        split.online.toString(),
         ...(hasPackageBookings ? [pkg ? (b.packageBooking?.extraCharge ? b.packageBooking.extraCharge.toString() : '0') : '0'] : []),
         `"${(b.createdBy || '').replace(/"/g, '""')}"`,
         `"${(b.cancelledBy || '').replace(/"/g, '""')}"`,
