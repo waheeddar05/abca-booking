@@ -277,6 +277,8 @@ export default function ResourceSlotsPage() {
     packageName: string;
     category: string | null;
     machineRowId: string | null;
+    /** Display name of the pinned machine row, if any. */
+    machineRowName: string | null;
     totalSessions: number;
     usedSessions: number;
     remainingSessions: number;
@@ -330,23 +332,50 @@ export default function ResourceSlotsPage() {
     }
   }, [machineId, selectedPackageId, myPackages]);
 
-  /** Active packages compatible with the current category + machine
-   *  selection. Mirrors the server-side gates in
-   *  `/api/slots/book-resource` (category match, machineRowId match if
-   *  pinned, status ACTIVE, sessions remaining). */
-  const eligiblePackages = useMemo(() => {
-    return myPackages.filter((p) => {
-      if (p.status !== 'ACTIVE') return false;
-      if (p.remainingSessions <= 0) return false;
-      // ABCA-shape packages have category=null and redeem against any
-      // category (legacy back-compat). Resource-shape packages must
-      // match the active category exactly.
-      if (p.category && p.category !== category) return false;
-      // If pinned to a machine row, the user must have picked that one.
-      if (p.machineRowId && p.machineRowId !== machineId) return false;
-      return true;
-    });
+  /** Packages we surface in the picker — eligible ones are tappable;
+   *  packages that match the current category but not the current
+   *  machine pin come back with `reason` set so the chip can explain
+   *  *why* it's disabled. Hiding them entirely (the previous behaviour)
+   *  meant a user who had pinned their package to "Yantra 1" but landed
+   *  on "Leverage Tennis" saw nothing at all and assumed the package
+   *  was broken. */
+  interface PickerPackage extends MyPackageLite {
+    eligible: boolean;
+    /** Human-readable reason when `eligible === false`. */
+    reason?: string;
+  }
+
+  const pickerPackages = useMemo<PickerPackage[]>(() => {
+    return myPackages
+      .filter((p) => {
+        if (p.status !== 'ACTIVE') return false;
+        if (p.remainingSessions <= 0) return false;
+        // Category must match (or be null on legacy ABCA-shape packages).
+        if (p.category && p.category !== category) return false;
+        return true;
+      })
+      .map((p) => {
+        // Machine pin only matters for MACHINE category. If the package
+        // is pinned and the user hasn't picked the same machine, mark
+        // it ineligible but keep it visible with a hint.
+        if (p.machineRowId && p.machineRowId !== machineId) {
+          const target = p.machineRowName || 'a specific machine';
+          return {
+            ...p,
+            eligible: false,
+            reason: machineId
+              ? `Switch to ${target} to redeem this package`
+              : `Pick ${target} above to redeem this package`,
+          };
+        }
+        return { ...p, eligible: true };
+      });
   }, [myPackages, category, machineId]);
+
+  const eligiblePackages = useMemo(
+    () => pickerPackages.filter((p) => p.eligible),
+    [pickerPackages],
+  );
 
   const selectedPackage = useMemo(
     () => eligiblePackages.find((p) => p.id === selectedPackageId) ?? null,
@@ -1150,34 +1179,60 @@ export default function ResourceSlotsPage() {
             Mirrors ABCA's package redemption: tapping the chip routes
             the booking through `userPackageId`, zeros the bill, and
             consumes one session per slot on commit. */}
-        {eligiblePackages.length > 0 && (
+        {pickerPackages.length > 0 && (
           <div className="mb-4">
             <p className="text-xs font-medium text-slate-400 mb-2 uppercase tracking-wider">
               Redeem from package
             </p>
             <div className="flex flex-wrap gap-2">
-              {eligiblePackages.map((p) => {
+              {pickerPackages.map((p) => {
                 const isSelected = selectedPackageId === p.id;
                 const tooFewSessions = p.remainingSessions < selectedSlots.length;
+                const disabled = !p.eligible;
                 return (
                   <button
                     key={p.id}
-                    onClick={() => setSelectedPackageId(isSelected ? null : p.id)}
+                    onClick={() => !disabled && setSelectedPackageId(isSelected ? null : p.id)}
+                    disabled={disabled}
                     className={`flex items-center gap-2 px-3 py-2 rounded-lg text-left transition-all border ${
-                      isSelected
-                        ? 'bg-purple-500/15 border-purple-400/50 text-purple-200'
-                        : 'bg-white/[0.04] border-white/[0.08] text-slate-300 hover:border-purple-400/30'
+                      disabled
+                        ? 'bg-white/[0.02] border-white/[0.05] text-slate-500 cursor-not-allowed'
+                        : isSelected
+                          ? 'bg-purple-500/15 border-purple-400/50 text-purple-200'
+                          : 'bg-white/[0.04] border-white/[0.08] text-slate-300 hover:border-purple-400/30 cursor-pointer'
                     }`}
-                    title={tooFewSessions && isSelected
-                      ? `Not enough sessions left (${p.remainingSessions}) to cover ${selectedSlots.length}`
-                      : `${p.remainingSessions} session(s) remaining`}
+                    title={
+                      disabled
+                        ? (p.reason ?? 'This package can\'t be redeemed for the current selection')
+                        : tooFewSessions && isSelected
+                          ? `Not enough sessions left (${p.remainingSessions}) to cover ${selectedSlots.length}`
+                          : `${p.remainingSessions} session(s) remaining`
+                    }
                   >
-                    <PackageIcon className={`w-3.5 h-3.5 ${isSelected ? 'text-purple-300' : 'text-slate-500'}`} />
+                    <PackageIcon className={`w-3.5 h-3.5 ${
+                      disabled ? 'text-slate-600' : isSelected ? 'text-purple-300' : 'text-slate-500'
+                    }`} />
                     <div className="min-w-0">
-                      <div className="text-[11px] font-semibold leading-tight">{p.packageName}</div>
+                      <div className="text-[11px] font-semibold leading-tight flex items-center gap-1.5">
+                        <span>{p.packageName}</span>
+                        {p.machineRowName && (
+                          <span className={`text-[9px] font-medium px-1.5 py-0.5 rounded ${
+                            disabled
+                              ? 'bg-white/[0.04] text-slate-500'
+                              : 'bg-purple-500/10 text-purple-300'
+                          }`}>
+                            {p.machineRowName}
+                          </span>
+                        )}
+                      </div>
                       <div className="text-[9px] opacity-70">
                         {p.remainingSessions}/{p.totalSessions} sessions left
                       </div>
+                      {disabled && p.reason && (
+                        <div className="text-[9px] text-amber-400/80 mt-0.5">
+                          {p.reason}
+                        </div>
+                      )}
                     </div>
                   </button>
                 );

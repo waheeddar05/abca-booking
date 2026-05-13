@@ -190,7 +190,17 @@ export async function getUserActivePackages(userId: string) {
       ],
     },
     include: {
-      package: true,
+      // Pull the pinned machine row when present (resource-based
+      // packages) so the user-side picker can label them clearly
+      // ("Yantra 1 only") instead of silently hiding when the user
+      // hasn't picked that machine yet.
+      package: {
+        include: {
+          machineRow: {
+            select: { id: true, name: true, shortName: true },
+          },
+        },
+      },
       packageBookings: {
         include: {
           booking: true,

@@ -43,7 +43,16 @@ export async function GET(req: NextRequest) {
           ...(centerFilter ? { package: centerFilter } : {}),
         },
         include: {
-          package: true,
+          package: {
+            include: {
+              // Pinned machine row (resource-based packages only). Used
+              // by the user UI to show "for Yantra 1" when the package
+              // is pinned to a specific machine.
+              machineRow: {
+                select: { id: true, name: true, shortName: true },
+              },
+            },
+          },
           packageBookings: {
             include: { booking: true },
             orderBy: { createdAt: 'desc' },
@@ -99,6 +108,12 @@ function formatUserPackage(up: any) {
     // Resource-based axes (Toplay). Null on ABCA-style packages.
     category: up.package.category ?? null,
     machineRowId: up.package.machineRowId ?? null,
+    // Pinned machine's display name — null when the package isn't
+    // machine-pinned. Used by the slot grid's package picker to label
+    // the redeem chip with the specific machine the package is for.
+    machineRowName: up.package.machineRow
+      ? (up.package.machineRow.shortName || up.package.machineRow.name)
+      : null,
     timingType: up.package.timingType,
     totalSessions: up.totalSessions,
     usedSessions: up.usedSessions,
