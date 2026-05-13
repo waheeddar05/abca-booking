@@ -734,12 +734,16 @@ async function executeResourceBookingCore(
             for (let i = 0; i < plans.length; i++) {
               const plan = plans[i];
               const isConsecutive = planIsConsecutive[i];
-              // Re-plan inside the transaction so we're using the latest
-              // occupancy. (planBooking uses prisma directly — for the
-              // strict-consistency story we'd want an isolated `tx`-aware
-              // version; on the small UAT fleet we expect, the outer
-              // serializable + retry loop is sufficient.)
-              const assignment = await planBooking(plan, { audience });
+              // Re-plan inside the transaction. CRITICAL: pass `tx` so
+              // the occupancy SELECT participates in this transaction's
+              // read set. Without it, two concurrent submits both see
+              // the machine as free at the same instant, both pass
+              // planBooking, and both insert a Booking — producing the
+              // duplicate rows reported by users (4 bookings for 2
+              // intended slots). With `tx`, the SELECT triggers
+              // serialization conflict detection and the loser gets
+              // retried by the outer P2034 handler.
+              const assignment = await planBooking(plan, { audience, tx });
 
               const isPackageRedemption = !!userPackage;
 

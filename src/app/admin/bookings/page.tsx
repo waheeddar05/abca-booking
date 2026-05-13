@@ -949,9 +949,37 @@ function AdminBookingsContent() {
                           )}
                         </td>
                         <td className="px-5 py-3.5">
-                          <div className="flex items-center gap-1.5">
+                          <div className="flex items-center gap-1.5 flex-wrap">
                             <span className={`w-2 h-2 rounded-full ${ballTypeConfig[booking.ballType] || 'bg-gray-400'}`}></span>
                             <span className="text-sm text-slate-300">{booking.ballType}</span>
+                            {/* Machine name pill — shows the specific
+                                machine the booking landed on. For ABCA
+                                bookings this comes from the legacy
+                                `machineId` enum (GRAVITY/YANTRA/...);
+                                for Toplay (resource-based) it comes
+                                from `assignedMachine.shortName ??
+                                assignedMachine.name`. Previously the
+                                TYPE column only showed the ball type
+                                + Op/Self pills, so admins couldn't tell
+                                Yantra-vs-Leverage at a glance. */}
+                            {(() => {
+                              const machineLabel = booking.machineId
+                                ? (booking.machineId === 'GRAVITY' ? 'Gravity'
+                                  : booking.machineId === 'YANTRA' ? 'Yantra'
+                                  : booking.machineId === 'LEVERAGE_INDOOR' ? 'Tennis In'
+                                  : booking.machineId === 'LEVERAGE_OUTDOOR' ? 'Tennis Out'
+                                  : booking.machineId)
+                                : booking.assignedMachine
+                                  ? (booking.assignedMachine.shortName || booking.assignedMachine.name)
+                                  : null;
+                              return machineLabel
+                                ? (
+                                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-white/[0.06] text-slate-300 font-medium">
+                                    {machineLabel}
+                                  </span>
+                                )
+                                : null;
+                            })()}
                             {booking.operationMode && (
                               <span className={`text-[10px] px-1.5 py-0.5 rounded ${booking.operationMode === 'SELF_OPERATE' ? 'bg-orange-500/10 text-orange-400' : 'bg-blue-500/10 text-blue-400'}`}>
                                 {booking.operationMode === 'SELF_OPERATE' ? 'Self' : 'Op'}

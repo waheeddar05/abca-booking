@@ -245,10 +245,20 @@ interface OccupancySnapshot {
 export async function getOccupancyForSlot(
   centerId: string,
   slot: BookableSlotWindow,
+  // Optional tx client. When inside a Serializable transaction, the
+  // caller MUST pass tx so the SELECT participates in the tx's read
+  // set — otherwise PostgreSQL can't detect serialization conflicts
+  // between two concurrent submits, both reads see an empty
+  // `busyMachineIds`, and both end up inserting a Booking for the
+  // same machine/time (the bug that caused 4 rows where the user
+  // expected 2). The legacy 2-arg signature still works for read-only
+  // callers (availability endpoint).
+  tx?: { booking: { findMany: typeof prisma.booking.findMany } },
 ): Promise<OccupancySnapshot> {
+  const client = tx ?? prisma;
   // We pull only the columns we need. Prisma's date filter is exact-day
   // (Booking.date is @db.Date), and startTime/endTime are full timestamps.
-  const bookings = await prisma.booking.findMany({
+  const bookings = await client.booking.findMany({
     where: {
       centerId,
       date: slot.date,
@@ -673,7 +683,17 @@ export class BookingResourceError extends Error {
 
 export async function planBooking(
   plan: BookingPlan,
-  context: { audience?: 'ALL' | 'SPECIAL' | 'NON_SPECIAL' } = {},
+  context: {
+    audience?: 'ALL' | 'SPECIAL' | 'NON_SPECIAL';
+    // Optional tx client. When passed, the per-slot occupancy read
+    // uses the tx connection so PostgreSQL Serializable can detect
+    // conflicts between two concurrent booking transactions. Without
+    // this, a double-click on the Confirm button (or two parallel
+    // POSTs) could both pass the busyMachineIds check and both
+    // insert a Booking for the same machine + time, producing the
+    // observed "expected 2, got 4" duplicate rows.
+    tx?: { booking: { findMany: typeof prisma.booking.findMany } };
+  } = {},
 ): Promise<PlannedAssignment> {
   const slot: BookableSlotWindow = {
     date: plan.date,
@@ -684,7 +704,7 @@ export async function planBooking(
     getCenterResources(plan.centerId),
     getCenterCoaches(plan.centerId),
     getCenterStaff(plan.centerId),
-    getOccupancyForSlot(plan.centerId, slot),
+    getOccupancyForSlot(plan.centerId, slot, context.tx),
     getCorporateBatchNetsForSlot(plan.centerId, slot),
     getActiveBlocksForSlot(plan.centerId, slot),
   ]);
