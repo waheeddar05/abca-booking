@@ -1,0 +1,26 @@
+src/components/admin/centers/CenterMembersTab.tsx
+  s_e0175fb4b4f942::t_258bf7af54ea46 162
+  s_e0175fb4b4f942::t_b2751e714bf296 345,351,357,367-386
+  s_e0175fb4b4f942::t_178a59c2fddf1e 5
+  s_e0175fb4b4f942::t_1b6f07bf6fccac 406-422
+  s_e0175fb4b4f942::t_e5dbf1b03ece7a 632-744
+src/app/api/admin/centers/[id]/members/[membershipId]/route.ts
+  s_e0175fb4b4f942::t_576fbac7c47dd0 54-124
+  s_e0175fb4b4f942::t_14e4aba95027a3 2,7-14,18-22
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.4",
+  "base_commit_sha": "258fe982a70e3735194c408a8a400548a21f132c",
+  "prompts": {},
+  "sessions": {
+    "s_e0175fb4b4f942": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "f3864c65-ac36-4572-a64e-c1d488c0cbdf",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Waheed <waheeddar8@gmail.com>"
+    }
+  }
+}
