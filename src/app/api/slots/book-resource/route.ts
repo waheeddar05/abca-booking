@@ -25,6 +25,7 @@ import { creditWallet, debitWallet, getWalletBalance, isWalletEnabled } from '@/
 import { log } from '@/lib/logger';
 import { autoAssignOperator, getOperatorCount } from '@/lib/operatorAssign';
 import { getTimeSlab, getTimeSlabConfig } from '@/lib/pricing';
+import { getPolicyValue } from '@/lib/policy';
 import {
   getCenterRecurringDiscountRules,
   recurringRuleMatches,
@@ -94,6 +95,13 @@ export const ResourceBookingBodySchema = z.object({
    *  one session per booked slot, charging price = 0. Same model as
    *  the legacy MACHINE_PITCH path. */
   userPackageId: z.string().optional(),
+  /** Whether the user opted into the per-slot cricket kit rental.
+   *  The client-side `kitRentalCharge` is informational only — the
+   *  server re-reads `KIT_RENTAL_CONFIG` from the center policy and
+   *  uses *that* value to compute the charge, so a tampered client
+   *  can't underpay. Mirrors ABCA's /api/slots/book flow. */
+  kitRental: z.boolean().optional(),
+  kitRentalCharge: z.number().nonnegative().optional(),
 });
 
 export type ResourceBookingBody = z.infer<typeof ResourceBookingBodySchema>;
@@ -648,6 +656,29 @@ async function executeResourceBookingCore(
   // morning/evening operator schedule semantics.
   const timeSlabConfig = await getTimeSlabConfig(center.id, true);
 
+  // ─── Kit rental ──────────────────────────────────────────────────
+  // The client sends `kitRental: true` when the user ticked the box.
+  // The `kitRentalCharge` they send is informational — we re-read the
+  // center policy on the server so a tampered client can't underpay.
+  // Mirrors ABCA's flow at /api/slots/book.
+  const kitRentalRequested = !!body.kitRental;
+  let kitRental = false;
+  let kitRentalChargePerSlot = 0;
+  if (kitRentalRequested) {
+    const kitRentalRaw = await getPolicyValue('KIT_RENTAL_CONFIG', center.id, null);
+    const kitConfig = kitRentalRaw
+      ? (() => { try { return JSON.parse(kitRentalRaw); } catch { return null; } })()
+      : null;
+    // We only honour kit rental when the center policy says it's
+    // enabled. We deliberately don't enforce the machineId-allowlist
+    // server-side for Toplay (the client gates by ballType, which is
+    // a stricter check anyway — see ResourceSlotsPage.isLeatherMachine).
+    if (kitConfig?.enabled) {
+      kitRental = true;
+      kitRentalChargePerSlot = Math.max(0, Math.floor(kitConfig?.price ?? 200));
+    }
+  }
+
   // Recurring slot discounts for this center. Fetched once and matched
   // per-slot inside the tx — same shape ABCA uses, but matched on the
   // resource axes (categories + machineRowIds).
@@ -812,6 +843,15 @@ async function executeResourceBookingCore(
                 }
               }
 
+              // ── Kit rental ─────────────────────────────────────────────
+              // Kit rental sits on top of the (possibly discounted) price.
+              // It's never discounted itself — matches ABCA's
+              // `slotKitCharge` treatment in /api/slots/book.
+              const slotKitCharge = kitRental ? kitRentalChargePerSlot : 0;
+              if (slotKitCharge > 0) {
+                finalPrice += slotKitCharge;
+              }
+
               // ─── Operator auto-assignment (MACHINE category only) ───
               // Mirrors ABCA's WITH_OPERATOR booking flow:
               //   - Read center's operator count (per day/slab).
@@ -935,6 +975,11 @@ async function executeResourceBookingCore(
                   price: finalPrice,
                   originalPrice: basePrice,
                   discountAmount: discountAmount > 0 ? discountAmount : null,
+                  // Kit rental — persist on every booking so the row's
+                  // `price` (which includes the kit charge) can be
+                  // decomposed for refunds, exports, and admin views.
+                  kitRental: kitRental,
+                  kitRentalCharge: kitRental ? kitRentalChargePerSlot : null,
                   // discountType uses the same enum as the offer (PERCENTAGE/
                   // FIXED) so reports can render either, mirroring the
                   // legacy MACHINE_PITCH booking flow. Recurring-only

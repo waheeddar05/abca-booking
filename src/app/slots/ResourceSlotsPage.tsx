@@ -265,6 +265,13 @@ export default function ResourceSlotsPage() {
   // "Pay at Center", and exposes a wallet toggle when the center has
   // wallet enabled and the user has a positive balance.
   const [paymentMethod, setPaymentMethod] = useState<'ONLINE' | 'CASH'>('ONLINE');
+
+  // Kit rental — mirrors ABCA's flow. The checkbox card appears when
+  // the center has kit rental enabled in its KIT_RENTAL_CONFIG policy
+  // AND the user is on the MACHINE category AND has picked a leather-
+  // ball machine. Per-slot charge gets added to the total and sent
+  // to /api/slots/book-resource as `kitRental: true, kitRentalCharge`.
+  const [kitRental, setKitRental] = useState(false);
   const [useWallet, setUseWallet] = useState(false);
   const [walletBalance, setWalletBalance] = useState<number>(0);
 
@@ -891,6 +898,31 @@ export default function ResourceSlotsPage() {
     && selectedSlots.length > 0
     && selectedPackage.remainingSessions >= selectedSlots.length;
 
+  // ─── Kit rental availability + total ─────────────────────────────
+  // Mirrors ABCA's `isKitRentalAvailable`. Toplay shows the kit rental
+  // checkbox for any leather-ball machine (Yantra et al.) on the
+  // MACHINE category when the center has kit rental enabled.
+  const kitRentalCfg = paymentConfig?.kitRentalConfig;
+  const kitRentalCharge = kitRentalCfg?.price ?? 200;
+  const kitRentalEnabled = kitRentalCfg?.enabled ?? false;
+  const selectedMachineForKit = machineId
+    ? filteredMachines.find((m) => m.id === machineId)
+    : null;
+  const isLeatherMachine = selectedMachineForKit?.machineType?.ballType === 'LEATHER';
+  const isKitRentalAvailable =
+    kitRentalEnabled && category === 'MACHINE' && !!machineId && isLeatherMachine;
+  const kitRentalTotal =
+    kitRental && isKitRentalAvailable ? kitRentalCharge * selectedSlots.length : 0;
+
+  // Drop the kit-rental toggle whenever the user lands somewhere it no
+  // longer applies (changed category, picked a tennis machine, etc.)
+  // so the total can't drift out of sync with the visible checkbox.
+  useEffect(() => {
+    if (!isKitRentalAvailable && kitRental) {
+      setKitRental(false);
+    }
+  }, [isKitRentalAvailable, kitRental]);
+
   const totalPrice = useMemo(() => {
     // Package covers the booking → user only pays the timing /
     // upgrade extra (₹0 when the package matches the slot's slab).
@@ -990,10 +1022,14 @@ export default function ResourceSlotsPage() {
       //   - else → Razorpay flow (with optional partial wallet debit
       //     applied server-side after capture)
       const isCashPayment = paymentMethod === 'CASH';
+      // Kit rental sits on top of the slot total; the wallet can be
+      // used against the combined amount, and the Razorpay capture
+      // (when needed) covers whatever the wallet doesn't.
+      const grandTotal = totalPrice + kitRentalTotal;
       const walletDeduction = useWallet && walletBalance > 0
-        ? Math.min(walletBalance, totalPrice)
+        ? Math.min(walletBalance, grandTotal)
         : 0;
-      const amountAfterWallet = Math.max(0, totalPrice - walletDeduction);
+      const amountAfterWallet = Math.max(0, grandTotal - walletDeduction);
       const walletCoversAll =
         !isFreeBooking && walletDeduction > 0 && amountAfterWallet === 0;
 
@@ -1015,6 +1051,12 @@ export default function ResourceSlotsPage() {
         // matches the booking's category + pinned machine row.
         ...(packageCoversBooking && selectedPackageId
           ? { userPackageId: selectedPackageId }
+          : {}),
+        // Kit rental — only sent when both available and toggled on
+        // for this booking. Server reads the same KIT_RENTAL_CONFIG
+        // policy and persists per-slot.
+        ...(kitRental && isKitRentalAvailable
+          ? { kitRental: true, kitRentalCharge }
           : {}),
         ...(walletCoversAll
           ? { paymentMethod: 'WALLET' as const, walletDeduction }
@@ -1586,10 +1628,48 @@ export default function ResourceSlotsPage() {
         )}
       </div>
 
+      {/* Kit rental option (mirrors ABCA). Surfaces a checkbox card
+          when the center has KIT_RENTAL_CONFIG enabled, the user is on
+          the MACHINE category, and they've picked a leather-ball
+          machine (the only kind kits make sense for). The charge gets
+          added to the total and the booking row stores `kitRental` +
+          `kitRentalCharge`. */}
+      {isKitRentalAvailable && selectedSlots.length > 0 && (
+        <div className="mb-4">
+          <label className="flex items-start gap-3 p-3.5 bg-white/[0.04] border border-white/[0.08] rounded-xl cursor-pointer hover:bg-white/[0.06] transition-colors">
+            <input
+              type="checkbox"
+              checked={kitRental}
+              onChange={(e) => setKitRental(e.target.checked)}
+              className="mt-0.5 w-4 h-4 accent-accent rounded"
+            />
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-semibold text-white">
+                {kitRentalCfg?.title || 'Cricket Kit & Bat Rental'}
+              </p>
+              <p className="text-[11px] text-slate-400 mt-0.5">
+                {kitRentalCfg?.description || 'Rent cricket kit and bat for your session'} at{' '}
+                <span className="text-accent font-semibold">&#8377;{kitRentalCharge}/session</span>
+              </p>
+              {kitRentalCfg?.note && (
+                <p className="text-[10px] text-amber-400/80 mt-1">Note: {kitRentalCfg.note}</p>
+              )}
+              {kitRental && selectedSlots.length > 0 && (
+                <p className="text-[11px] text-accent font-medium mt-1">
+                  +&#8377;{kitRentalTotal} ({selectedSlots.length} session{selectedSlots.length > 1 ? 's' : ''})
+                </p>
+              )}
+            </div>
+          </label>
+        </div>
+      )}
+
       {/* Payment method (online / cash / wallet). Same component ABCA uses
           so wallet behaviour is identical across centers. Rendered
-          whenever any payment surface is on AND the user has selected
-          slots AND it's not a free booking. */}
+          whenever any payment surface is on AND there's actually
+          something to pay (slot price or kit rental on top of a
+          package). A package that fully covers the booking with no
+          kit rental skips this. */}
       {selectedSlots.length > 0
         && (
           (paymentConfig?.paymentEnabled && paymentConfig?.slotPaymentRequired)
@@ -1597,7 +1677,7 @@ export default function ResourceSlotsPage() {
           || paymentConfig?.walletEnabled
         )
         && !isFreeBooking
-        && !packageCoversBooking
+        && totalPrice + kitRentalTotal > 0
         && (
           <div className="mb-4">
             <p className="text-xs font-medium text-slate-400 mb-2 uppercase tracking-wider">Payment</p>
@@ -1608,7 +1688,7 @@ export default function ResourceSlotsPage() {
               showOnline={!!(paymentConfig?.paymentEnabled && paymentConfig?.slotPaymentRequired)}
               showCash={paymentConfig?.cashPaymentEnabled}
               showWallet={paymentConfig?.walletEnabled}
-              totalAmount={totalPrice}
+              totalAmount={totalPrice + kitRentalTotal}
               useWallet={useWallet}
               onUseWalletChange={setUseWallet}
               onWalletBalanceLoaded={setWalletBalance}
@@ -1620,10 +1700,13 @@ export default function ResourceSlotsPage() {
 
       {(() => {
         const isCashPayment = paymentMethod === 'CASH';
+        // Use grandTotal here too so the confirm dialog and the
+        // submit path agree on what the user is paying.
+        const dialogGrand = totalPrice + kitRentalTotal;
         const walletDeduction = useWallet && walletBalance > 0
-          ? Math.min(walletBalance, totalPrice)
+          ? Math.min(walletBalance, dialogGrand)
           : 0;
-        const amountAfterWallet = Math.max(0, totalPrice - walletDeduction);
+        const amountAfterWallet = Math.max(0, dialogGrand - walletDeduction);
         const walletCoversAll =
           !isFreeBooking && walletDeduction > 0 && amountAfterWallet === 0;
         const requiresOnline =
@@ -1638,18 +1721,21 @@ export default function ResourceSlotsPage() {
           `${CATEGORIES.find((c) => c.key === category)?.label} on ${format(selectedDate, 'EEE, dd MMM yyyy')}`,
           `Slots: ${selectedSlots.map((s) => formatTimeRangeIST(s.startTime, s.endTime)).join(', ')}`,
         ];
+        if (kitRental && isKitRentalAvailable && kitRentalTotal > 0) {
+          lines.push(`+ Kit rental: ₹${kitRentalTotal} (${selectedSlots.length} × ₹${kitRentalCharge})`);
+        }
         if (isFreeBooking) {
           lines.push('Total: FREE');
         } else if (walletCoversAll) {
-          lines.push(`Total: ₹${totalPrice} (Wallet — ₹${walletDeduction} deducted)`);
+          lines.push(`Total: ₹${dialogGrand} (Wallet — ₹${walletDeduction} deducted)`);
         } else if (walletDeduction > 0 && isCashPayment) {
           lines.push(`₹${walletDeduction} from wallet · ₹${amountAfterWallet} at center`);
         } else if (walletDeduction > 0) {
           lines.push(`₹${walletDeduction} from wallet · ₹${amountAfterWallet} online`);
         } else if (isCashPayment) {
-          lines.push(`Total: ₹${totalPrice} (Pay at center)`);
+          lines.push(`Total: ₹${dialogGrand} (Pay at center)`);
         } else {
-          lines.push(`Total: ₹${totalPrice}`);
+          lines.push(`Total: ₹${dialogGrand}`);
         }
 
         const confirmLabel = requiresOnline
@@ -1760,7 +1846,24 @@ export default function ResourceSlotsPage() {
                         ({discountBreakdown.promoLabel || 'Promo'}: -₹{discountBreakdown.promo})
                       </span>
                     )}
+                    {/* Kit rental inline indicator — matches ABCA's
+                        BookingBar "(incl. Kit: +₹X)" treatment so the
+                        user can see the kit charge is folded into the
+                        total they're about to pay. */}
+                    {kitRentalTotal > 0 && (
+                      <span className="text-[10px] text-amber-400 ml-1">
+                        (incl. Kit: +₹{kitRentalTotal})
+                      </span>
+                    )}
                   </>
+                )}
+                {/* When a package fully covers the slots but the user
+                    also opted into kit rental, show the kit line so
+                    they know there's still a payable amount. */}
+                {packageCoversBooking && kitRentalTotal > 0 && (
+                  <span className="text-[10px] text-amber-400 ml-1">
+                    + Kit: ₹{kitRentalTotal}
+                  </span>
                 )}
               </div>
             </div>
