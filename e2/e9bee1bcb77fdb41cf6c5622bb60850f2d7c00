@@ -1,0 +1,19 @@
+src/components/admin/AdminMobileNav.tsx
+  s_e0175fb4b4f942::t_127206a54cd2fe 5-6,11-12,16,19-28,41-48
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.4",
+  "base_commit_sha": "e2e9bee1bcb77fdb41cf6c5622bb60850f2d7c00",
+  "prompts": {},
+  "sessions": {
+    "s_e0175fb4b4f942": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "f3864c65-ac36-4572-a64e-c1d488c0cbdf",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Waheed <waheeddar8@gmail.com>"
+    }
+  }
+}
