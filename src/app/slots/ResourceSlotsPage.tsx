@@ -18,13 +18,14 @@
  * are greyed out, and the disabled reason is surfaced on hover/long-press.
  */
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import Image from 'next/image';
 import { format, parseISO } from 'date-fns';
 import {
   AlertTriangle,
   Calendar,
   Check,
+  ChevronDown,
   IndianRupee,
   Loader2,
   Settings2,
@@ -287,6 +288,15 @@ export default function ResourceSlotsPage() {
   }
   const [myPackages, setMyPackages] = useState<MyPackageLite[]>([]);
   const [selectedPackageId, setSelectedPackageId] = useState<string | null>(null);
+  // Tracks whether the user explicitly picked "Don't use a package"
+  // — once they do, auto-select stops nagging them. Mirrors ABCA's
+  // `usePackages.userDeclinedPackage` flag.
+  const [userDeclinedPackage, setUserDeclinedPackage] = useState(false);
+  // Auto-select-machine effect should fire at most once per page load —
+  // otherwise switching machines manually would yank you back to the
+  // package's pinned machine. Ref so the effect can self-arm without
+  // becoming a state-tracked dependency.
+  const hasAutoSelectedMachineRef = useRef(false);
 
   // Payment gateway integration (mirrors ABCA's /slots flow). When
   // SLOT_PAYMENT_REQUIRED is on for the center, we route the booking
@@ -320,6 +330,9 @@ export default function ResourceSlotsPage() {
     // category gate on the server will reject it anyway. We'll let the
     // user re-pick if a different package still applies.
     setSelectedPackageId(null);
+    // Reset the "user declined" gate too so the next category can
+    // auto-select fresh. Mirrors ABCA's pkg.reset() on machine switch.
+    setUserDeclinedPackage(false);
   }, [category]);
 
   // Drop the package selection when the user switches machines if the
@@ -332,55 +345,114 @@ export default function ResourceSlotsPage() {
     }
   }, [machineId, selectedPackageId, myPackages]);
 
-  /** Packages we surface in the picker — eligible ones are tappable;
-   *  packages that match the current category but not the current
-   *  machine pin come back with `reason` set so the chip can explain
-   *  *why* it's disabled. Hiding them entirely (the previous behaviour)
-   *  meant a user who had pinned their package to "Yantra 1" but landed
-   *  on "Leverage Tennis" saw nothing at all and assumed the package
-   *  was broken. */
-  interface PickerPackage extends MyPackageLite {
-    eligible: boolean;
-    /** Human-readable reason when `eligible === false`. */
-    reason?: string;
-  }
-
-  const pickerPackages = useMemo<PickerPackage[]>(() => {
-    return myPackages
-      .filter((p) => {
-        if (p.status !== 'ACTIVE') return false;
-        if (p.remainingSessions <= 0) return false;
-        // Category must match (or be null on legacy ABCA-shape packages).
-        if (p.category && p.category !== category) return false;
-        return true;
-      })
-      .map((p) => {
-        // Machine pin only matters for MACHINE category. If the package
-        // is pinned and the user hasn't picked the same machine, mark
-        // it ineligible but keep it visible with a hint.
-        if (p.machineRowId && p.machineRowId !== machineId) {
-          const target = p.machineRowName || 'a specific machine';
-          return {
-            ...p,
-            eligible: false,
-            reason: machineId
-              ? `Switch to ${target} to redeem this package`
-              : `Pick ${target} above to redeem this package`,
-          };
-        }
-        return { ...p, eligible: true };
-      });
+  /** Active packages compatible with the current category + machine
+   *  selection. Mirrors the server-side gates in
+   *  `/api/slots/book-resource` (category match, machineRowId match if
+   *  pinned, status ACTIVE, sessions remaining). */
+  const eligiblePackages = useMemo(() => {
+    return myPackages.filter((p) => {
+      if (p.status !== 'ACTIVE') return false;
+      if (p.remainingSessions <= 0) return false;
+      // Category must match (or be null on legacy ABCA-shape packages).
+      if (p.category && p.category !== category) return false;
+      // If pinned to a machine row, the user must have picked that one.
+      if (p.machineRowId && p.machineRowId !== machineId) return false;
+      return true;
+    });
   }, [myPackages, category, machineId]);
-
-  const eligiblePackages = useMemo(
-    () => pickerPackages.filter((p) => p.eligible),
-    [pickerPackages],
-  );
 
   const selectedPackage = useMemo(
     () => eligiblePackages.find((p) => p.id === selectedPackageId) ?? null,
     [eligiblePackages, selectedPackageId],
   );
+
+  // ─── Auto-select first compatible package on initial load ─────────
+  // Mirrors ABCA's effect at src/app/slots/page.tsx:180. Picks the
+  // first ACTIVE package with sessions remaining once the user's
+  // packages have loaded, so they don't have to manually pick one.
+  // Bails if the user has explicitly declined or already chose.
+  useEffect(() => {
+    if (userDeclinedPackage) return;
+    if (myPackages.length === 0 || selectedPackageId) return;
+
+    const firstActive = myPackages.find(
+      (p) => p.status === 'ACTIVE' && p.remainingSessions > 0,
+    );
+    if (firstActive) {
+      // Only auto-select if it's actually usable RIGHT NOW (matches the
+      // current category and machine pin). Otherwise wait for the slot-
+      // change effect below to pick a more specific match.
+      const usable =
+        (!firstActive.category || firstActive.category === category) &&
+        (!firstActive.machineRowId || firstActive.machineRowId === machineId);
+      if (usable) {
+        setSelectedPackageId(firstActive.id);
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [myPackages]);
+
+  // ─── Auto-select compatible package once slots are chosen ─────────
+  // Mirrors ABCA's effect at src/app/slots/page.tsx:194. Prefers a
+  // machine-pinned package over a category-only package, and only
+  // picks one with enough remaining sessions for the cart.
+  useEffect(() => {
+    if (userDeclinedPackage) return;
+    if (myPackages.length === 0 || selectedSlots.length === 0 || selectedPackageId) return;
+
+    // Prefer exact machine match: package pinned to the same machine
+    // row the user picked.
+    const exactMatch = eligiblePackages.find(
+      (p) =>
+        p.machineRowId && p.machineRowId === machineId &&
+        p.remainingSessions >= selectedSlots.length,
+    );
+
+    // Otherwise fall back to a category-match package (no machine pin)
+    // with enough remaining sessions.
+    const categoryMatch = !exactMatch
+      ? eligiblePackages.find(
+          (p) => !p.machineRowId && p.remainingSessions >= selectedSlots.length,
+        )
+      : null;
+
+    const compatible = exactMatch || categoryMatch;
+    if (compatible) setSelectedPackageId(compatible.id);
+  }, [myPackages, eligiblePackages, selectedSlots, selectedPackageId, machineId, userDeclinedPackage]);
+
+  // ─── Auto-select machine based on user's package ─────────────────
+  // Mirrors ABCA's effect at src/app/slots/page.tsx:251. If the user
+  // has a machine-pinned package and lands on the MACHINE category,
+  // switch the machine picker to that pinned machine so the package
+  // becomes immediately usable. Fires at most once per page load —
+  // the ref short-circuits subsequent re-runs so the user can still
+  // manually switch machines without being yanked back.
+  useEffect(() => {
+    if (hasAutoSelectedMachineRef.current) return;
+    if (category !== 'MACHINE') return;
+    if (myPackages.length === 0) return;
+
+    const pinned = myPackages.find(
+      (p) =>
+        p.status === 'ACTIVE' &&
+        p.remainingSessions > 0 &&
+        p.machineRowId &&
+        (!p.category || p.category === 'MACHINE'),
+    );
+    if (pinned?.machineRowId && pinned.machineRowId !== machineId) {
+      // Confirm the pinned machine still exists at this center
+      // (might have been deactivated since the user bought the
+      // package). `machines` is the raw active list for the center;
+      // we use it instead of `filteredMachines` to avoid the
+      // top-level TDZ from declaring `filteredMachines` further
+      // down.
+      const exists = machines.find((m) => m.id === pinned.machineRowId);
+      if (exists) {
+        setMachineId(pinned.machineRowId);
+        hasAutoSelectedMachineRef.current = true;
+      }
+    }
+  }, [category, myPackages, machines, machineId]);
 
   // Picking a different machine wipes pitch/ball — they're per-machine
   // — but only because the *next* effect will repopulate them with the
@@ -1179,71 +1251,65 @@ export default function ResourceSlotsPage() {
             Mirrors ABCA's package redemption: tapping the chip routes
             the booking through `userPackageId`, zeros the bill, and
             consumes one session per slot on commit. */}
-        {pickerPackages.length > 0 && (
+        {/* Package picker — mirrors ABCA's `PackageSelector`:
+            a single dropdown with "Don't use a package (Direct Payment)"
+            at the top, then each active package as an option. Picking
+            an option routes the booking through `userPackageId`,
+            zeros the bill (or surfaces the extra charge), and consumes
+            one session per slot on commit. Auto-select is handled by
+            the two effects above; choosing "Direct Payment" sets the
+            `userDeclinedPackage` flag so we don't auto-select again. */}
+        {eligiblePackages.length > 0 && (
           <div className="mb-4">
-            <p className="text-xs font-medium text-slate-400 mb-2 uppercase tracking-wider">
-              Redeem from package
-            </p>
-            <div className="flex flex-wrap gap-2">
-              {pickerPackages.map((p) => {
-                const isSelected = selectedPackageId === p.id;
-                const tooFewSessions = p.remainingSessions < selectedSlots.length;
-                const disabled = !p.eligible;
-                return (
-                  <button
-                    key={p.id}
-                    onClick={() => !disabled && setSelectedPackageId(isSelected ? null : p.id)}
-                    disabled={disabled}
-                    className={`flex items-center gap-2 px-3 py-2 rounded-lg text-left transition-all border ${
-                      disabled
-                        ? 'bg-white/[0.02] border-white/[0.05] text-slate-500 cursor-not-allowed'
-                        : isSelected
-                          ? 'bg-purple-500/15 border-purple-400/50 text-purple-200'
-                          : 'bg-white/[0.04] border-white/[0.08] text-slate-300 hover:border-purple-400/30 cursor-pointer'
-                    }`}
-                    title={
-                      disabled
-                        ? (p.reason ?? 'This package can\'t be redeemed for the current selection')
-                        : tooFewSessions && isSelected
-                          ? `Not enough sessions left (${p.remainingSessions}) to cover ${selectedSlots.length}`
-                          : `${p.remainingSessions} session(s) remaining`
-                    }
-                  >
-                    <PackageIcon className={`w-3.5 h-3.5 ${
-                      disabled ? 'text-slate-600' : isSelected ? 'text-purple-300' : 'text-slate-500'
-                    }`} />
-                    <div className="min-w-0">
-                      <div className="text-[11px] font-semibold leading-tight flex items-center gap-1.5">
-                        <span>{p.packageName}</span>
-                        {p.machineRowName && (
-                          <span className={`text-[9px] font-medium px-1.5 py-0.5 rounded ${
-                            disabled
-                              ? 'bg-white/[0.04] text-slate-500'
-                              : 'bg-purple-500/10 text-purple-300'
-                          }`}>
-                            {p.machineRowName}
-                          </span>
-                        )}
-                      </div>
-                      <div className="text-[9px] opacity-70">
-                        {p.remainingSessions}/{p.totalSessions} sessions left
-                      </div>
-                      {disabled && p.reason && (
-                        <div className="text-[9px] text-amber-400/80 mt-0.5">
-                          {p.reason}
-                        </div>
-                      )}
-                    </div>
-                  </button>
-                );
-              })}
+            <label className="block text-[10px] font-medium text-accent mb-2 uppercase tracking-wider">
+              Use a Package
+            </label>
+            <div className="relative">
+              <select
+                value={selectedPackageId ?? ''}
+                onChange={(e) => {
+                  const next = e.target.value;
+                  setSelectedPackageId(next === '' ? null : next);
+                  setUserDeclinedPackage(next === '');
+                }}
+                className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl px-3 py-3 text-xs text-white outline-none focus:border-accent appearance-none transition-all truncate"
+              >
+                <option value="" className="bg-[#0f1d2f]">
+                  Don&apos;t use a package (Direct Payment)
+                </option>
+                {eligiblePackages.map((p) => (
+                  <option key={p.id} value={p.id} className="bg-[#0f1d2f]">
+                    {p.packageName}{p.machineRowName ? ` (${p.machineRowName})` : ''} — {p.remainingSessions} session{p.remainingSessions === 1 ? '' : 's'} left
+                  </option>
+                ))}
+              </select>
+              <div className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400">
+                <ChevronDown className="w-4 h-4" />
+              </div>
             </div>
-            {selectedPackage && selectedSlots.length > 0 && (
-              <p className={`mt-2 text-[10px] ${packageCoversBooking ? 'text-emerald-400' : 'text-amber-400'}`}>
-                {packageCoversBooking
-                  ? `Will redeem ${selectedSlots.length} session${selectedSlots.length === 1 ? '' : 's'} from "${selectedPackage.packageName}" · No charge`
-                  : `Not enough sessions in "${selectedPackage.packageName}" (${selectedPackage.remainingSessions} left, ${selectedSlots.length} selected)`}
-              </p>
+
+            {selectedPackage && (
+              <div className="mt-3 p-3 rounded-xl bg-accent/5 border border-accent/20">
+                <div className="flex items-center gap-2 mb-1">
+                  <PackageIcon className="w-4 h-4 text-accent" />
+                  <span className="text-xs font-bold text-accent">Package Selected</span>
+                </div>
+                {selectedSlots.length === 0 ? (
+                  <p className="text-[11px] text-slate-400">
+                    {selectedPackage.remainingSessions} session{selectedPackage.remainingSessions === 1 ? '' : 's'} remaining. Pick slots below to redeem.
+                  </p>
+                ) : packageCoversBooking ? (
+                  <p className="text-[11px] text-green-400 flex items-center gap-1">
+                    <Check className="w-3 h-3" />
+                    Valid for this booking. {selectedSlots.length} session{selectedSlots.length === 1 ? '' : 's'} will be deducted.
+                  </p>
+                ) : (
+                  <p className="text-[11px] text-red-400 flex items-center gap-1">
+                    <AlertTriangle className="w-3 h-3" />
+                    Not enough sessions ({selectedPackage.remainingSessions} left, {selectedSlots.length} selected).
+                  </p>
+                )}
+              </div>
             )}
           </div>
         )}
