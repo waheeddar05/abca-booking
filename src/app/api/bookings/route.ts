@@ -72,6 +72,38 @@ export async function GET(req: NextRequest) {
             operator: {
               select: { name: true, mobileNumber: true },
             },
+            // Resource-based fields surface the machine / coach / staff
+            // names. For ABCA (MACHINE_PITCH) bookings these are all
+            // null and the card falls back to the legacy machineId
+            // label.
+            assignedMachine: {
+              select: {
+                id: true,
+                name: true,
+                shortName: true,
+                machineType: { select: { code: true, name: true } },
+              },
+            },
+            assignedCoach: { select: { id: true, name: true, mobileNumber: true } },
+            assignedStaff: { select: { id: true, name: true, mobileNumber: true } },
+            // Center context — shown on every booking card so users
+            // know which center, where, and how to reach it without
+            // having to leave the page.
+            center: {
+              select: {
+                id: true,
+                name: true,
+                shortName: true,
+                addressLine1: true,
+                addressLine2: true,
+                city: true,
+                state: true,
+                pincode: true,
+                contactPhone: true,
+                contactEmail: true,
+                mapUrl: true,
+              },
+            },
             packageBooking: {
               select: {
                 userPackage: {
@@ -181,6 +213,33 @@ export async function GET(req: NextRequest) {
       packageName: b.packageBooking?.userPackage?.package?.name || null,
       operatorName: b.operator?.name || null,
       operatorMobile: b.operator?.mobileNumber || null,
+      // Resource-based booking details (Toplay et al.). null on ABCA
+      // rows; the BookingCard reads these to render the right chips.
+      category: b.category ?? null,
+      assignedMachineName: b.assignedMachine
+        ? (b.assignedMachine.shortName || b.assignedMachine.name)
+        : null,
+      assignedMachineFullName: b.assignedMachine?.name ?? null,
+      assignedCoachName: b.assignedCoach?.name ?? null,
+      assignedStaffName: b.assignedStaff?.name ?? null,
+      // Center snapshot for the booking card / receipt — name + address
+      // + contact + map link. Falls back to null for legacy rows that
+      // somehow predate center linking.
+      center: b.center
+        ? {
+            id: b.center.id,
+            name: b.center.name,
+            shortName: b.center.shortName ?? null,
+            addressLine1: b.center.addressLine1 ?? null,
+            addressLine2: b.center.addressLine2 ?? null,
+            city: b.center.city ?? null,
+            state: b.center.state ?? null,
+            pincode: b.center.pincode ?? null,
+            contactPhone: b.center.contactPhone ?? null,
+            contactEmail: b.center.contactEmail ?? null,
+            mapUrl: b.center.mapUrl ?? null,
+          }
+        : null,
     }));
 
     return NextResponse.json({

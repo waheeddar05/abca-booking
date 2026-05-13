@@ -75,7 +75,11 @@ export default function AdminUsers() {
     setHistoryUser(user);
     setHistoryLoading(true);
     try {
-      const res = await fetch(`/api/admin/bookings?userId=${user.id}&limit=100&sortOrder=desc`);
+      // `userInvolvement=any` includes bookings where this user was the
+      // customer, operator, coach, OR sidearm specialist — so an admin
+      // reviewing an operator/coach/staff member can see their full
+      // schedule, not just sessions they personally booked.
+      const res = await fetch(`/api/admin/bookings?userId=${user.id}&userInvolvement=any&limit=100&sortOrder=desc`);
       if (res.ok) {
         const data = await res.json();
         setHistoryBookings(data.bookings || []);
@@ -786,6 +790,50 @@ export default function AdminUsers() {
                     const isDone = booking.status === 'DONE';
                     const hasPackage = !!booking.packageBooking;
 
+                    // Decide which role this user played in the booking
+                    // — drives the small role pill at the top so an admin
+                    // can tell at a glance whether they were the customer,
+                    // operator, coach, or sidearm specialist.
+                    const involvedUserId = historyUser?.id;
+                    let involvementRole: 'customer' | 'operator' | 'coach' | 'staff' | null = null;
+                    if (involvedUserId) {
+                      if (booking.userId === involvedUserId) involvementRole = 'customer';
+                      else if (booking.operatorId === involvedUserId) involvementRole = 'operator';
+                      else if (booking.assignedCoachId === involvedUserId) involvementRole = 'coach';
+                      else if (booking.assignedStaffId === involvedUserId) involvementRole = 'staff';
+                    }
+                    const involvementLabel =
+                      involvementRole === 'operator' ? 'As Operator'
+                      : involvementRole === 'coach' ? 'As Coach'
+                      : involvementRole === 'staff' ? 'As Sidearm'
+                      : involvementRole === 'customer' ? 'As Customer'
+                      : null;
+                    const involvementColor =
+                      involvementRole === 'operator' ? 'bg-purple-500/15 text-purple-300'
+                      : involvementRole === 'coach' ? 'bg-amber-500/15 text-amber-300'
+                      : involvementRole === 'staff' ? 'bg-cyan-500/15 text-cyan-300'
+                      : 'bg-white/[0.06] text-slate-300';
+
+                    // Resource-based machine label falls back to short
+                    // name then full name; ABCA rows keep their legacy
+                    // enum label.
+                    const machineLabel = booking.assignedMachine
+                      ? (booking.assignedMachine.shortName || booking.assignedMachine.name)
+                      : booking.machineId
+                        ? (booking.machineId === 'GRAVITY' ? 'Gravity'
+                          : booking.machineId === 'YANTRA' ? 'Yantra'
+                          : booking.machineId === 'LEVERAGE_INDOOR' ? 'Tennis Indoor'
+                          : booking.machineId === 'LEVERAGE_OUTDOOR' ? 'Tennis Outdoor'
+                          : booking.machineId)
+                        : null;
+
+                    // Center label — short name if available, else full
+                    // name. Hidden on single-center setups where the
+                    // admin already knows the context.
+                    const centerLabel = booking.center
+                      ? (booking.center.shortName || booking.center.name)
+                      : null;
+
                     return (
                       <div
                         key={booking.id}
@@ -796,7 +844,7 @@ export default function AdminUsers() {
                       >
                         <div className="flex items-start justify-between gap-2">
                           <div className="min-w-0 flex-1">
-                            <div className="flex items-center gap-2 mb-1">
+                            <div className="flex items-center gap-2 mb-1 flex-wrap">
                               <span className="text-xs font-semibold text-white">
                                 {new Date(booking.date).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', day: '2-digit', month: 'short', year: 'numeric' })}
                               </span>
@@ -809,15 +857,31 @@ export default function AdminUsers() {
                                 }`}>
                                 {booking.status}
                               </span>
+                              {involvementLabel && (
+                                <span className={`text-[9px] px-1.5 py-0.5 rounded-full font-semibold ${involvementColor}`}>
+                                  {involvementLabel}
+                                </span>
+                              )}
                             </div>
                             <div className="flex flex-wrap items-center gap-2 text-[10px] text-slate-400">
-                              {booking.machineId && (
+                              {centerLabel && (
+                                <span className="bg-indigo-500/10 text-indigo-300 px-1.5 py-0.5 rounded font-medium">
+                                  {centerLabel}
+                                </span>
+                              )}
+                              {machineLabel && (
                                 <span className="bg-white/[0.06] px-1.5 py-0.5 rounded">
-                                  {booking.machineId === 'GRAVITY' ? 'Gravity' :
-                                    booking.machineId === 'YANTRA' ? 'Yantra' :
-                                      booking.machineId === 'LEVERAGE_INDOOR' ? 'Tennis Indoor' :
-                                        booking.machineId === 'LEVERAGE_OUTDOOR' ? 'Tennis Outdoor' :
-                                          booking.machineId}
+                                  {machineLabel}
+                                </span>
+                              )}
+                              {booking.category && booking.category !== 'MACHINE' && (
+                                <span className="bg-indigo-500/10 text-indigo-300 px-1.5 py-0.5 rounded font-medium">
+                                  {booking.category === 'SIDEARM' ? 'Sidearm'
+                                    : booking.category === 'COACHING' ? 'Coaching'
+                                    : booking.category === 'FULL_COURT' ? 'Full Court'
+                                    : booking.category === 'CORPORATE_BATCH' ? 'Corporate'
+                                    : booking.category === 'NET' ? 'Net only'
+                                    : booking.category}
                                 </span>
                               )}
                               {booking.ballType && (

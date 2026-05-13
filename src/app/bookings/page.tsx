@@ -22,6 +22,20 @@ interface BookingRefund {
   refunds?: RefundEntry[];
 }
 
+interface BookingCenter {
+  id: string;
+  name: string;
+  shortName: string | null;
+  addressLine1: string | null;
+  addressLine2: string | null;
+  city: string | null;
+  state: string | null;
+  pincode: string | null;
+  contactPhone: string | null;
+  contactEmail: string | null;
+  mapUrl: string | null;
+}
+
 interface Booking {
   id: string;
   date: string;
@@ -48,6 +62,13 @@ interface Booking {
   refund: BookingRefund | null;
   operatorName: string | null;
   operatorMobile: string | null;
+  // Resource-based booking fields. null on ABCA rows.
+  category: string | null;
+  assignedMachineName: string | null;
+  assignedMachineFullName: string | null;
+  assignedCoachName: string | null;
+  assignedStaffName: string | null;
+  center: BookingCenter | null;
 }
 
 type BookingTab = 'all' | 'upcoming' | 'inProgress' | 'completed' | 'cancelled';

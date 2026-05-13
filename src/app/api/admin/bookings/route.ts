@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import type { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 import { requireCenterAdmin } from '@/lib/adminAuth';
 import { getAuthenticatedUser } from '@/lib/auth';
@@ -166,7 +167,35 @@ export async function GET(req: NextRequest) {
     }
 
     if (userId) {
-      where.userId = userId;
+      // `userInvolvement` controls how the userId param is matched:
+      //   - 'customer' (default): only bookings where this user is the
+      //     paying customer. Preserves prior behavior for any existing
+      //     caller.
+      //   - 'any':              every booking the user was involved in
+      //     in any role — customer, operator, coach (resource-based
+      //     COACHING bookings), or sidearm specialist (SIDEARM bookings).
+      // Use 'any' on /admin/users so a center admin can audit an
+      // operator/coach/sidearm's full schedule from one place.
+      const involvement = (searchParams.get('userInvolvement') || 'customer').toLowerCase();
+      if (involvement === 'any') {
+        const userClauses: Prisma.BookingWhereInput[] = [
+          { userId },
+          { operatorId: userId },
+          { assignedCoachId: userId },
+          { assignedStaffId: userId },
+        ];
+        // Compose with whatever OR / AND was already built up by the
+        // customer / status filters above so we don't accidentally drop
+        // those constraints.
+        if (where.OR) {
+          where.AND = [...(where.AND || []), { OR: where.OR }, { OR: userClauses }];
+          delete where.OR;
+        } else {
+          where.AND = [...(where.AND || []), { OR: userClauses }];
+        }
+      } else {
+        where.userId = userId;
+      }
     }
 
     if (machineId) {
@@ -192,6 +221,42 @@ export async function GET(req: NextRequest) {
           where,
           include: {
             user: { select: { name: true, email: true, mobileNumber: true } },
+            // Operator + resource-based staff joins. Surfaces the names
+            // on every row so the BookingCard renders machine/coach/
+            // staff chips, plus lets admins audit an operator/coach's
+            // schedule via /admin/users → History.
+            operator: { select: { id: true, name: true, mobileNumber: true } },
+            assignedMachine: {
+              select: {
+                id: true,
+                name: true,
+                shortName: true,
+                machineType: { select: { code: true, name: true } },
+              },
+            },
+            assignedCoach: { select: { id: true, name: true } },
+            assignedStaff: { select: { id: true, name: true } },
+            resourceAssignments: {
+              select: {
+                resource: { select: { id: true, name: true, type: true, category: true } },
+              },
+            },
+            // Center info so the user booking history (and any admin
+            // surface showing a multi-center list) can render name,
+            // address, contact, map link.
+            center: {
+              select: {
+                id: true,
+                name: true,
+                shortName: true,
+                addressLine1: true,
+                addressLine2: true,
+                city: true,
+                contactPhone: true,
+                contactEmail: true,
+                mapUrl: true,
+              },
+            },
             packageBooking: {
               select: {
                 userPackage: {

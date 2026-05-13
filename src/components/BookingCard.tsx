@@ -1,7 +1,7 @@
 'use client';
 
 import { format } from 'date-fns';
-import { IndianRupee, Calendar, Clock, User, Phone, Headset } from 'lucide-react';
+import { IndianRupee, Calendar, Clock, User, Phone, Headset, MapPin } from 'lucide-react';
 import { getDisplayStatus } from '@/lib/booking-utils';
 
 // ─── Types ───────────────────────────────────────────────
@@ -147,6 +147,46 @@ export function BookingCard({ booking, role, renderActions, renderPrice, renderO
           )
         )}
       </div>
+
+      {/* Center info — name + city + map + phone. Hidden when the
+          booking doesn't carry a center snapshot (legacy rows or admin
+          views that don't include the join). The map link opens in a
+          new tab; the phone is a tel: link. */}
+      {booking.center && (
+        <div className="mb-2 bg-white/[0.02] rounded-lg px-2.5 py-1.5 border border-white/[0.04]">
+          <div className="flex items-center gap-1.5 min-w-0">
+            <MapPin className="w-3 h-3 text-accent/70 flex-shrink-0" />
+            <div className="min-w-0 flex-1">
+              <div className="text-[11px] font-semibold text-white truncate">
+                {booking.center.shortName || booking.center.name}
+              </div>
+              {(booking.center.addressLine1 || booking.center.city) && (
+                <div className="text-[10px] text-slate-400 truncate">
+                  {[booking.center.addressLine1, booking.center.city].filter(Boolean).join(', ')}
+                </div>
+              )}
+            </div>
+            {booking.center.mapUrl && (
+              <a
+                href={booking.center.mapUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="text-[10px] font-medium text-accent hover:text-accent-light flex items-center gap-0.5 flex-shrink-0"
+              >
+                Map
+              </a>
+            )}
+            {booking.center.contactPhone && (
+              <a
+                href={`tel:${booking.center.contactPhone}`}
+                className="text-[10px] font-medium text-accent hover:text-accent-light flex items-center gap-0.5 flex-shrink-0"
+              >
+                <Phone className="w-2.5 h-2.5" /> Call
+              </a>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Row 3: Tags */}
       <div className="flex flex-wrap items-center gap-1 mb-2">
