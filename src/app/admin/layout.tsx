@@ -59,11 +59,15 @@ export default function AdminLayout({
     // /admin/policies removed — its raw key/value editor was confusing
     // and overlapped the structured forms here on Settings. Per-center
     // overrides for advanced keys still live under Centers → Policies.
+    // User Mgmt is now visible to every admin (super OR center). The
+    // API scopes the data to the current center for non-super admins
+    // and gates destructive actions to super admins; center admins
+    // primarily use it to view balances + credit/debit wallets.
+    { href: '/admin/user-management', label: 'User Mgmt', icon: UserCog },
     ...(isSuperAdmin
       ? [
           { href: '/admin/centers', label: 'Centers', icon: Building2 },
           { href: '/admin/payments/orphans', label: 'Orphan Payments', icon: AlertTriangle },
-          { href: '/admin/user-management', label: 'User Mgmt', icon: UserCog },
           { href: '/admin/maintenance', label: 'Maintenance', icon: Wrench },
           { href: '/admin/db-cleanup', label: 'DB Cleanup', icon: DatabaseZap },
         ]

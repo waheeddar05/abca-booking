@@ -5,12 +5,30 @@ import { resolveCurrentCenter } from '@/lib/centers';
 
 const SUPER_ADMIN_EMAIL = process.env.SUPER_ADMIN_EMAIL || process.env.INITIAL_ADMIN_EMAIL || 'waheeddar8@gmail.com';
 
-async function requireSuperAdmin(req: NextRequest) {
+/** Any admin (super or center). Used for read access + wallet ops.
+ *  Destructive actions get an extra `actor.isSuperAdmin` check in
+ *  the handler. */
+async function requireAnyAdmin(req: NextRequest) {
   const user = await getAuthenticatedUser(req);
-  if (!user || user.role !== 'ADMIN') return null;
-  if (!user.email || user.email !== SUPER_ADMIN_EMAIL) return null;
+  if (!user) return null;
+  if (!user.isSuperAdmin && user.role !== 'ADMIN') return null;
   return user;
 }
+
+/** Set of destructive actions that stay super-admin-only. Wallet
+ *  ADD/SUBTRACT/SET are intentionally NOT in this set so center admins
+ *  can credit/debit their customers — those mutations are already
+ *  center-scoped via `walletCenterId`. */
+const SUPER_ADMIN_ONLY_ACTIONS = new Set([
+  'DELETE_ALL_BOOKINGS',
+  'DELETE_CANCELLED_BOOKINGS',
+  'DELETE_BOOKED_BOOKINGS',
+  'DELETE_DONE_BOOKINGS',
+  'DELETE_PAYMENTS',
+  'DELETE_NOTIFICATIONS',
+  'CLEAN_WALLET',
+  'FULL_CLEANUP',
+]);
 
 /**
  * GET /api/admin/user-cleanup?userId=xxx
@@ -18,9 +36,9 @@ async function requireSuperAdmin(req: NextRequest) {
  */
 export async function GET(req: NextRequest) {
   try {
-    const admin = await requireSuperAdmin(req);
-    if (!admin) {
-      return NextResponse.json({ error: 'Only super admin can access this' }, { status: 403 });
+    const actor = await requireAnyAdmin(req);
+    if (!actor) {
+      return NextResponse.json({ error: 'Admin access required' }, { status: 403 });
     }
 
     const { searchParams } = new URL(req.url);
@@ -44,7 +62,27 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: 'User not found' }, { status: 404 });
     }
 
-    // Gather counts for the preview
+    // Center admins see only the data tied to their current center;
+    // super admins see the cross-center aggregate. This keeps a Toplay
+    // admin from accidentally browsing an ABCA customer's wallet.
+    let centerFilter: { centerId: string } | null = null;
+    if (!actor.isSuperAdmin) {
+      const resolved = await resolveCurrentCenter(req, actor);
+      if (!resolved) {
+        return NextResponse.json(
+          { error: 'No center selected. Pick a center before opening User Mgmt.' },
+          { status: 400 },
+        );
+      }
+      centerFilter = { centerId: resolved.id };
+    }
+
+    const bookingWhere = (extra: Record<string, unknown> = {}) => ({
+      userId,
+      ...(centerFilter ?? {}),
+      ...extra,
+    });
+
     const [
       allBookings,
       cancelledBookings,
@@ -57,33 +95,39 @@ export async function GET(req: NextRequest) {
       operatedBookings,
       notifications,
     ] = await Promise.all([
-      prisma.booking.count({ where: { userId } }),
-      prisma.booking.count({ where: { userId, status: 'CANCELLED' } }),
-      prisma.booking.count({ where: { userId, status: 'BOOKED' } }),
-      prisma.booking.count({ where: { userId, status: 'DONE' } }),
-      prisma.payment.count({ where: { userId } }),
+      prisma.booking.count({ where: bookingWhere() }),
+      prisma.booking.count({ where: bookingWhere({ status: 'CANCELLED' }) }),
+      prisma.booking.count({ where: bookingWhere({ status: 'BOOKED' }) }),
+      prisma.booking.count({ where: bookingWhere({ status: 'DONE' }) }),
+      prisma.payment.count({ where: { userId, ...(centerFilter ?? {}) } }),
       prisma.refund.count({
-        where: { booking: { userId } },
+        where: { booking: { userId, ...(centerFilter ?? {}) } },
       }),
       prisma.packageBooking.count({
-        where: { userPackage: { userId } },
+        where: { userPackage: { userId, ...(centerFilter ? { package: { centerId: centerFilter.centerId } } : {}) } },
       }),
-      // Wallets are center-scoped — sum across every center the user has one at.
+      // Wallets are center-scoped. For center admins we only return the
+      // wallet at their current center; super admins see every wallet.
       prisma.wallet.findMany({
-        where: { userId },
+        where: { userId, ...(centerFilter ?? {}) },
         select: { centerId: true, balance: true, _count: { select: { transactions: true } } },
       }),
-      prisma.booking.count({ where: { operatorId: userId } }),
+      prisma.booking.count({ where: { operatorId: userId, ...(centerFilter ?? {}) } }),
+      // Notifications are not center-scoped in the schema, so center
+      // admins get the unfiltered count too. Acceptable — notifications
+      // are user-facing, not center-confidential.
       prisma.notification.count({ where: { userId } }),
     ]);
 
-    // `wallet` is now an array (one entry per center). Aggregate.
     const wallets = wallet as Array<{ centerId: string; balance: number; _count: { transactions: number } }>;
     const walletBalance = wallets.reduce((sum, w) => sum + w.balance, 0);
     const walletTransactions = wallets.reduce((sum, w) => sum + w._count.transactions, 0);
 
     return NextResponse.json({
       user,
+      // Echo back the scope so the client can label the wallet panel
+      // correctly ("Toplay wallet" vs. "All centers").
+      scope: centerFilter ? { centerId: centerFilter.centerId } : { allCenters: true },
       summary: {
         allBookings,
         cancelledBookings,
@@ -124,9 +168,9 @@ export async function GET(req: NextRequest) {
  */
 export async function POST(req: NextRequest) {
   try {
-    const admin = await requireSuperAdmin(req);
-    if (!admin) {
-      return NextResponse.json({ error: 'Only super admin can perform cleanup' }, { status: 403 });
+    const actor = await requireAnyAdmin(req);
+    if (!actor) {
+      return NextResponse.json({ error: 'Admin access required' }, { status: 403 });
     }
 
     const { userId, action, walletAmount, walletDescription, centerId: bodyCenterId } = await req.json();
@@ -135,19 +179,27 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'userId and action are required' }, { status: 400 });
     }
 
+    // Destructive cleanup stays super-admin-only. Center admins can
+    // credit/debit wallets at their own center (ADD/SUBTRACT/SET) but
+    // can't wipe bookings, payments, or do cross-center purges.
+    if (SUPER_ADMIN_ONLY_ACTIONS.has(action) && !actor.isSuperAdmin) {
+      return NextResponse.json(
+        { error: 'Only super admin can perform this destructive action.' },
+        { status: 403 },
+      );
+    }
+
     // Wallet mutations are center-scoped. Resolution order:
-    //   1. `centerId` in the request body (explicit pick)
-    //   2. The admin's currently-selected center cookie
-    // The old fallback to a hardcoded `ctr_abca` was a footgun — a Toplay
-    // admin clearing a wallet without realising they had to pass the
-    // center would silently mutate the ABCA wallet instead. We now refuse
-    // when neither source resolves a center.
-    let walletCenterId: string | null = typeof bodyCenterId === 'string' && bodyCenterId.length > 0
-      ? bodyCenterId
-      : null;
-    if (!walletCenterId) {
-      const actor = await getAuthenticatedUser(req);
-      const resolved = actor ? await resolveCurrentCenter(req, actor) : null;
+    //   - Super admin → may target any center via bodyCenterId; falls
+    //     back to the cookie-resolved center.
+    //   - Center admin → always uses their cookie-resolved center; we
+    //     ignore bodyCenterId so a Toplay admin can't reach into an
+    //     ABCA wallet by hand-crafting a request body.
+    let walletCenterId: string | null = null;
+    if (actor.isSuperAdmin && typeof bodyCenterId === 'string' && bodyCenterId.length > 0) {
+      walletCenterId = bodyCenterId;
+    } else {
+      const resolved = await resolveCurrentCenter(req, actor);
       walletCenterId = resolved?.id ?? null;
     }
     if (!walletCenterId) {

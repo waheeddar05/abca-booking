@@ -123,11 +123,13 @@ export async function GET(req: NextRequest) {
     //   - they've ever booked there (customer).
     // Super admins with allCenters=true skip this filter; everyone else
     // is scoped to the resolved center.
+    let scopedCenterId: string | null = null;
     if (!allCenters) {
       const center = await resolveCurrentCenter(req, actor);
       if (!center) {
         return NextResponse.json({ error: 'No center selected' }, { status: 400 });
       }
+      scopedCenterId = center.id;
       const centerFilter: Prisma.UserWhereInput = {
         OR: [
           { centerMemberships: { some: { centerId: center.id } } },
@@ -172,6 +174,13 @@ export async function GET(req: NextRequest) {
             center: { select: { id: true, name: true, slug: true } },
           },
         },
+        // Wallet balance(s) so the User Management list can surface
+        // funds upfront without a per-row API call. Center admins see
+        // only their current center's wallet; super admins see every
+        // wallet for the user. Pruned to the relevant scope below.
+        wallets: {
+          select: { centerId: true, balance: true },
+        },
         _count: {
           select: { bookings: true },
         },
@@ -179,7 +188,22 @@ export async function GET(req: NextRequest) {
       orderBy: { createdAt: 'desc' },
     });
 
-    return NextResponse.json(users);
+    // Compute a single `walletBalance` per user for the UI. For center
+    // admins this is the balance at the resolved center; for the super
+    // admin allCenters view we sum across every wallet they hold.
+    const enriched = users.map((u) => {
+      const relevantWallets = scopedCenterId
+        ? u.wallets.filter((w) => w.centerId === scopedCenterId)
+        : u.wallets;
+      const walletBalance = relevantWallets.reduce((sum, w) => sum + w.balance, 0);
+      // Drop the raw wallets array from the response — the UI only
+      // needs the rolled-up total. Keep the shape lean.
+      const { wallets: _ignored, ...rest } = u;
+      void _ignored;
+      return { ...rest, walletBalance };
+    });
+
+    return NextResponse.json(enriched);
   } catch (error) {
     console.error('Admin users fetch error:', error);
     return NextResponse.json({ error: 'Failed to load users. Please try again.' }, { status: 500 });
