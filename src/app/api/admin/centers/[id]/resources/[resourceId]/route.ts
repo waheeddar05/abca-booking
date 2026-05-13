@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { requireSuperAdmin } from '@/lib/adminAuth';
+import { requireCenterAdminForCenter } from '@/lib/adminAuth';
 import { z } from 'zod';
 
 const ResourcePatchSchema = z.object({
@@ -16,10 +16,9 @@ const ResourcePatchSchema = z.object({
 type Params = { id: string; resourceId: string };
 
 export async function PATCH(req: NextRequest, ctx: { params: Promise<Params> }) {
-  const session = await requireSuperAdmin(req);
-  if (!session) return NextResponse.json({ error: 'Super admin required' }, { status: 403 });
-
   const { id: centerId, resourceId } = await ctx.params;
+  const ctxAuth = await requireCenterAdminForCenter(req, centerId);
+  if (!ctxAuth) return NextResponse.json({ error: 'Admin required' }, { status: 403 });
 
   const resource = await prisma.resource.findUnique({ where: { id: resourceId } });
   if (!resource || resource.centerId !== centerId) {
@@ -45,10 +44,9 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<Params> }) 
 }
 
 export async function DELETE(req: NextRequest, ctx: { params: Promise<Params> }) {
-  const session = await requireSuperAdmin(req);
-  if (!session) return NextResponse.json({ error: 'Super admin required' }, { status: 403 });
-
   const { id: centerId, resourceId } = await ctx.params;
+  const ctxAuth = await requireCenterAdminForCenter(req, centerId);
+  if (!ctxAuth) return NextResponse.json({ error: 'Admin required' }, { status: 403 });
   const resource = await prisma.resource.findUnique({ where: { id: resourceId } });
   if (!resource || resource.centerId !== centerId) {
     return NextResponse.json({ error: 'Resource not found at this center' }, { status: 404 });

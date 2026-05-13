@@ -1,7 +1,18 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { requireSuperAdmin } from '@/lib/adminAuth';
+import { requireSuperAdmin, requireCenterAdminForCenter } from '@/lib/adminAuth';
 import { z } from 'zod';
+
+// Fields a center admin is NOT allowed to change on their own center.
+// Razorpay keys + activation state stay super-admin-only so a compromised
+// center admin can't reroute payouts or deactivate the center.
+const SUPER_ONLY_PATCH_FIELDS = new Set<string>([
+  'razorpayKeyId',
+  'razorpayKeySecret',
+  'razorpayWebhookSecret',
+  'isActive',
+  'bookingModel',
+]);
 
 /**
  * GET    /api/admin/centers/[id]   Fetch one center (full detail).
@@ -46,10 +57,11 @@ const CenterPatchSchema = z.object({
 type Params = { id: string };
 
 export async function GET(req: NextRequest, ctx: { params: Promise<Params> }) {
-  const session = await requireSuperAdmin(req);
-  if (!session) return NextResponse.json({ error: 'Super admin required' }, { status: 403 });
-
   const { id } = await ctx.params;
+  // Center admins can read THEIR center; super admins can read any.
+  const ctxAuth = await requireCenterAdminForCenter(req, id);
+  if (!ctxAuth) return NextResponse.json({ error: 'Admin required' }, { status: 403 });
+
   const center = await prisma.center.findUnique({
     where: { id },
     include: {
@@ -76,10 +88,10 @@ export async function GET(req: NextRequest, ctx: { params: Promise<Params> }) {
 }
 
 export async function PATCH(req: NextRequest, ctx: { params: Promise<Params> }) {
-  const session = await requireSuperAdmin(req);
-  if (!session) return NextResponse.json({ error: 'Super admin required' }, { status: 403 });
-
   const { id } = await ctx.params;
+  const ctxAuth = await requireCenterAdminForCenter(req, id);
+  if (!ctxAuth) return NextResponse.json({ error: 'Admin required' }, { status: 403 });
+
   let body: unknown;
   try {
     body = await req.json();
@@ -93,6 +105,20 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<Params> }) 
       { error: 'Validation failed', issues: parsed.error.issues },
       { status: 400 },
     );
+  }
+
+  // Lock super-admin-only fields away from center admins. Razorpay
+  // credentials, isActive, and bookingModel can rewire payouts or break
+  // the center entirely — keep them gated to super admins.
+  if (!ctxAuth.isSuperAdmin) {
+    for (const key of Object.keys(parsed.data)) {
+      if (SUPER_ONLY_PATCH_FIELDS.has(key)) {
+        return NextResponse.json(
+          { error: `Only super admin can change "${key}"` },
+          { status: 403 },
+        );
+      }
+    }
   }
 
   // Normalize empty strings → null for the nullable fields.

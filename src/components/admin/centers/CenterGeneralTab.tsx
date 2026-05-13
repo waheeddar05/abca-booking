@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { useSession } from 'next-auth/react';
 import { Save, Loader2 } from 'lucide-react';
 import { Field, TextInput, TextArea, NumberInput, SelectInput, PrimaryButton, Banner } from './centerForms';
 
@@ -37,6 +38,8 @@ export function CenterGeneralTab({
   const [form, setForm] = useState<CenterDetail>(center);
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState<{ kind: 'error' | 'success'; text: string } | null>(null);
+  const { data: session } = useSession();
+  const isSuperAdmin = (session?.user as { isSuperAdmin?: boolean })?.isSuperAdmin === true;
 
   const set = <K extends keyof CenterDetail>(k: K, v: CenterDetail[K]) =>
     setForm((f) => ({ ...f, [k]: v }));
@@ -46,29 +49,35 @@ export function CenterGeneralTab({
     setMsg(null);
     setSaving(true);
     try {
+      // `bookingModel` and `isActive` are super-admin-only on the API.
+      // Strip them when the caller isn't a super admin so the save
+      // doesn't 403 on those fields.
+      const payload: Record<string, unknown> = {
+        name: form.name,
+        shortName: form.shortName || null,
+        description: form.description || null,
+        displayOrder: form.displayOrder,
+        addressLine1: form.addressLine1 || null,
+        addressLine2: form.addressLine2 || null,
+        city: form.city || null,
+        state: form.state || null,
+        pincode: form.pincode || null,
+        latitude: form.latitude,
+        longitude: form.longitude,
+        contactPhone: form.contactPhone || null,
+        contactEmail: form.contactEmail || null,
+        mapUrl: form.mapUrl || null,
+        logoUrl: form.logoUrl || null,
+        themeColor: form.themeColor || null,
+      };
+      if (isSuperAdmin) {
+        payload.bookingModel = form.bookingModel;
+        payload.isActive = form.isActive;
+      }
       const res = await fetch(`/api/admin/centers/${center.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name: form.name,
-          shortName: form.shortName || null,
-          description: form.description || null,
-          bookingModel: form.bookingModel,
-          isActive: form.isActive,
-          displayOrder: form.displayOrder,
-          addressLine1: form.addressLine1 || null,
-          addressLine2: form.addressLine2 || null,
-          city: form.city || null,
-          state: form.state || null,
-          pincode: form.pincode || null,
-          latitude: form.latitude,
-          longitude: form.longitude,
-          contactPhone: form.contactPhone || null,
-          contactEmail: form.contactEmail || null,
-          mapUrl: form.mapUrl || null,
-          logoUrl: form.logoUrl || null,
-          themeColor: form.themeColor || null,
-        }),
+        body: JSON.stringify(payload),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -108,23 +117,37 @@ export function CenterGeneralTab({
               onChange={(e) => set('displayOrder', Number(e.target.value))}
             />
           </Field>
+          {/* Booking model + Active stay super-admin-only: flipping
+              either of them breaks every running booking flow. Center
+              admins see them as read-only summaries instead. */}
           <Field label="Booking model" help="Affects how availability is computed.">
-            <SelectInput
-              value={form.bookingModel}
-              onChange={(e) => set('bookingModel', e.target.value as 'MACHINE_PITCH' | 'RESOURCE_BASED')}
-            >
-              <option value="MACHINE_PITCH">Machine / Pitch (legacy)</option>
-              <option value="RESOURCE_BASED">Resource-based (nets + staff)</option>
-            </SelectInput>
+            {isSuperAdmin ? (
+              <SelectInput
+                value={form.bookingModel}
+                onChange={(e) => set('bookingModel', e.target.value as 'MACHINE_PITCH' | 'RESOURCE_BASED')}
+              >
+                <option value="MACHINE_PITCH">Machine / Pitch (legacy)</option>
+                <option value="RESOURCE_BASED">Resource-based (nets + staff)</option>
+              </SelectInput>
+            ) : (
+              <TextInput
+                disabled
+                value={form.bookingModel === 'RESOURCE_BASED' ? 'Resource-based (nets + staff)' : 'Machine / Pitch (legacy)'}
+              />
+            )}
           </Field>
           <Field label="Active">
-            <SelectInput
-              value={form.isActive ? 'true' : 'false'}
-              onChange={(e) => set('isActive', e.target.value === 'true')}
-            >
-              <option value="true">Active — visible to users</option>
-              <option value="false">Inactive — hidden</option>
-            </SelectInput>
+            {isSuperAdmin ? (
+              <SelectInput
+                value={form.isActive ? 'true' : 'false'}
+                onChange={(e) => set('isActive', e.target.value === 'true')}
+              >
+                <option value="true">Active — visible to users</option>
+                <option value="false">Inactive — hidden</option>
+              </SelectInput>
+            ) : (
+              <TextInput disabled value={form.isActive ? 'Active — visible to users' : 'Inactive — hidden'} />
+            )}
           </Field>
         </div>
         <Field label="Description">

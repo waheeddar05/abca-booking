@@ -92,6 +92,30 @@ export async function requireSuperAdmin(req: NextRequest) {
   return session;
 }
 
+/**
+ * Allow super admins OR center admins of the given centerId. Use for
+ * endpoints that manage a SPECIFIC center's own data (its members,
+ * resources, machines, policies, profile) — the things a center admin
+ * should be able to run independently.
+ *
+ * Returns `{ user, isSuperAdmin }` on success or `null` on failure.
+ * Callers should turn null into a 403.
+ *
+ * This is intentionally different from `requireCenterAdmin`, which
+ * resolves the "current" center from cookie/membership. Here the
+ * centerId is explicit (from the URL), which is what we want for
+ * `/api/admin/centers/[id]/*` routes.
+ */
+export async function requireCenterAdminForCenter(req: NextRequest, centerId: string) {
+  const user = await getAuthenticatedUser(req);
+  if (!user) return null;
+  if (user.isSuperAdmin) return { user, isSuperAdmin: true as const };
+  // Global ADMIN gate first, then check membership at THIS center.
+  if (user.role !== 'ADMIN') return null;
+  if (!hasMembershipRole(user, centerId, 'ADMIN')) return null;
+  return { user, isSuperAdmin: false as const };
+}
+
 export async function requireOperatorOrAdmin(req: NextRequest) {
   const session = await getAdminSession(req);
   if (!session?.role || !['ADMIN', 'OPERATOR'].includes(session.role)) return null;

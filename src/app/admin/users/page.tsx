@@ -295,7 +295,12 @@ export default function AdminUsers() {
 
   const handleChangeRole = (user: UserData, newRole: string) => {
     if (newRole === user.role) return;
-    const roleLabel = newRole === 'ADMIN' ? 'Admin' : newRole === 'OPERATOR' ? 'Operator' : 'User';
+    const roleLabel =
+      newRole === 'ADMIN' ? 'Admin'
+      : newRole === 'OPERATOR' ? 'Operator'
+      : newRole === 'COACH' ? 'Coach'
+      : newRole === 'SIDEARM_SPECIALIST' ? 'Sidearm Specialist'
+      : 'User';
     setPendingConfirm({
       title: `Change Role to ${roleLabel}`,
       message: `Are you sure you want to change ${user.name || user.email}'s role to ${roleLabel}?`,
@@ -450,20 +455,22 @@ export default function AdminUsers() {
               </div>
             </div>
             <div className="flex items-center gap-3">
-              {isSuperAdmin && (
-                <div>
-                  <label className="block text-[11px] font-medium text-slate-400 mb-1">Role</label>
-                  <select
-                    value={addRole}
-                    onChange={(e) => setAddRole(e.target.value)}
-                    className="bg-white/[0.04] border border-white/[0.1] rounded-lg px-3 py-2.5 text-sm text-white outline-none focus:border-accent focus:ring-1 focus:ring-accent/20 cursor-pointer"
-                  >
-                    <option value="USER">User</option>
-                    <option value="OPERATOR">Operator</option>
-                    <option value="ADMIN">Admin</option>
-                  </select>
-                </div>
-              )}
+              {/* Role picker. ADMIN remains super-admin-only; center
+                  admins can grant the other staff roles at THEIR center. */}
+              <div>
+                <label className="block text-[11px] font-medium text-slate-400 mb-1">Role</label>
+                <select
+                  value={addRole}
+                  onChange={(e) => setAddRole(e.target.value)}
+                  className="bg-white/[0.04] border border-white/[0.1] rounded-lg px-3 py-2.5 text-sm text-white outline-none focus:border-accent focus:ring-1 focus:ring-accent/20 cursor-pointer"
+                >
+                  <option value="USER">User</option>
+                  <option value="OPERATOR">Operator</option>
+                  <option value="COACH">Coach</option>
+                  <option value="SIDEARM_SPECIALIST">Sidearm Specialist</option>
+                  {isSuperAdmin && <option value="ADMIN">Admin</option>}
+                </select>
+              </div>
               <div className="flex-1 flex justify-end items-end">
                 <button
                   type="submit"
@@ -681,6 +688,8 @@ export default function AdminUsers() {
                             >
                               <option value="USER">User</option>
                               <option value="OPERATOR">Operator</option>
+                              <option value="COACH">Coach</option>
+                              <option value="SIDEARM_SPECIALIST">Sidearm Specialist</option>
                               {isSuperAdmin && <option value="ADMIN">Admin</option>}
                             </select>
                           </div>

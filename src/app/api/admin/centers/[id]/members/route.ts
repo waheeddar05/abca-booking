@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { requireSuperAdmin } from '@/lib/adminAuth';
+import { requireCenterAdminForCenter } from '@/lib/adminAuth';
 import { z } from 'zod';
 
 /**
@@ -41,10 +41,9 @@ const MembershipCreateSchema = z.object({
 type Params = { id: string };
 
 export async function GET(req: NextRequest, ctx: { params: Promise<Params> }) {
-  const session = await requireSuperAdmin(req);
-  if (!session) return NextResponse.json({ error: 'Super admin required' }, { status: 403 });
-
   const { id: centerId } = await ctx.params;
+  const ctxAuth = await requireCenterAdminForCenter(req, centerId);
+  if (!ctxAuth) return NextResponse.json({ error: 'Admin required' }, { status: 403 });
   const { searchParams } = new URL(req.url);
   const role = searchParams.get('role');
   const q = searchParams.get('q');
@@ -72,10 +71,10 @@ export async function GET(req: NextRequest, ctx: { params: Promise<Params> }) {
 }
 
 export async function POST(req: NextRequest, ctx: { params: Promise<Params> }) {
-  const session = await requireSuperAdmin(req);
-  if (!session) return NextResponse.json({ error: 'Super admin required' }, { status: 403 });
-
   const { id: centerId } = await ctx.params;
+  const ctxAuth = await requireCenterAdminForCenter(req, centerId);
+  if (!ctxAuth) return NextResponse.json({ error: 'Admin required' }, { status: 403 });
+
   const center = await prisma.center.findUnique({ where: { id: centerId } });
   if (!center) return NextResponse.json({ error: 'Center not found' }, { status: 404 });
 
@@ -92,6 +91,16 @@ export async function POST(req: NextRequest, ctx: { params: Promise<Params> }) {
   const rolesToAssign = Array.from(
     new Set(parsed.data.roles && parsed.data.roles.length > 0 ? parsed.data.roles : [parsed.data.role!]),
   );
+
+  // Center admins can grant OPERATOR / COACH / SIDEARM_SPECIALIST. ADMIN
+  // remains super-admin-only so a center admin can't promote someone to
+  // peer them.
+  if (!ctxAuth.isSuperAdmin && rolesToAssign.includes('ADMIN')) {
+    return NextResponse.json(
+      { error: 'Only super admin can grant the ADMIN role.' },
+      { status: 403 },
+    );
+  }
 
   // Find or create the user. We prefer to match an existing user by id,
   // email, or mobile number; only mint a new one if none of those match.

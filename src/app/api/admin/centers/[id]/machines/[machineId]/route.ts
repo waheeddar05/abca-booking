@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { requireSuperAdmin } from '@/lib/adminAuth';
+import { requireCenterAdminForCenter } from '@/lib/adminAuth';
 import { z } from 'zod';
 
 // Three surfaces only (Astro Turf, Cement, Natural Turf). 'TURF' is
@@ -27,10 +27,9 @@ const MachinePatchSchema = z.object({
 type Params = { id: string; machineId: string };
 
 export async function PATCH(req: NextRequest, ctx: { params: Promise<Params> }) {
-  const session = await requireSuperAdmin(req);
-  if (!session) return NextResponse.json({ error: 'Super admin required' }, { status: 403 });
-
   const { id: centerId, machineId } = await ctx.params;
+  const ctxAuth = await requireCenterAdminForCenter(req, centerId);
+  if (!ctxAuth) return NextResponse.json({ error: 'Admin required' }, { status: 403 });
 
   let body: unknown;
   try {
@@ -73,10 +72,9 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<Params> }) 
 }
 
 export async function DELETE(req: NextRequest, ctx: { params: Promise<Params> }) {
-  const session = await requireSuperAdmin(req);
-  if (!session) return NextResponse.json({ error: 'Super admin required' }, { status: 403 });
-
   const { id: centerId, machineId } = await ctx.params;
+  const ctxAuth = await requireCenterAdminForCenter(req, centerId);
+  if (!ctxAuth) return NextResponse.json({ error: 'Admin required' }, { status: 403 });
   const machine = await prisma.machine.findUnique({ where: { id: machineId } });
   if (!machine || machine.centerId !== centerId) {
     return NextResponse.json({ error: 'Machine not found at this center' }, { status: 404 });

@@ -16,9 +16,19 @@ import { CenterPoliciesTab } from '@/components/admin/centers/CenterPoliciesTab'
 
 type TabKey = 'general' | 'payment' | 'machines' | 'resources' | 'members' | 'policies';
 
-const TABS: Array<{ key: TabKey; label: string; icon: React.ComponentType<{ className?: string }> }> = [
+type TabDef = {
+  key: TabKey;
+  label: string;
+  icon: React.ComponentType<{ className?: string }>;
+  superOnly?: boolean;
+};
+
+// `Payment` tab edits Razorpay credentials — sensitive enough that only
+// super admins should see/edit it. Center admins still see everything
+// else specific to their center.
+const TABS: Array<TabDef> = [
   { key: 'general', label: 'General', icon: MapPin },
-  { key: 'payment', label: 'Payment', icon: CreditCard },
+  { key: 'payment', label: 'Payment', icon: CreditCard, superOnly: true },
   { key: 'machines', label: 'Machines', icon: Settings2 },
   { key: 'resources', label: 'Resources', icon: Building2 },
   { key: 'members', label: 'Members', icon: Users },
@@ -35,27 +45,36 @@ type DetailWithCounts = CenterDetail & {
 export default function CenterEditPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
   const router = useRouter();
-  const { data: session, status } = useSession();
-  const isSuperAdmin = (session?.user as { isSuperAdmin?: boolean })?.isSuperAdmin === true;
+  const { data: session } = useSession();
+  const sessionUser = session?.user as
+    | { isSuperAdmin?: boolean; role?: string; centerMemberships?: Array<{ centerId: string; role: string }> }
+    | undefined;
+  const isSuperAdmin = sessionUser?.isSuperAdmin === true;
 
   const [center, setCenter] = useState<DetailWithCounts | null>(null);
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState<TabKey>('general');
   const [error, setError] = useState<string | null>(null);
+  const [authError, setAuthError] = useState(false);
 
+  // Page-level gate is now "super admin OR loaded the center". The API
+  // returns 403 when the user isn't an admin at THIS center; we detect
+  // that and redirect away. This way center admins land on their own
+  // center directly without us needing a separate "my center" route.
   useEffect(() => {
-    if (status === 'authenticated' && !isSuperAdmin) router.replace('/admin');
-  }, [status, isSuperAdmin, router]);
-
-  useEffect(() => {
-    if (!isSuperAdmin) return;
     let active = true;
     (async () => {
       setLoading(true);
       try {
         const res = await fetch(`/api/admin/centers/${id}`);
         if (!res.ok) {
-          if (active) setError(res.status === 404 ? 'Center not found' : 'Failed to load center');
+          if (!active) return;
+          if (res.status === 403) {
+            setAuthError(true);
+            router.replace('/admin');
+            return;
+          }
+          setError(res.status === 404 ? 'Center not found' : 'Failed to load center');
           return;
         }
         const data = await res.json();
@@ -65,10 +84,13 @@ export default function CenterEditPage({ params }: { params: Promise<{ id: strin
       }
     })();
     return () => { active = false; };
-  }, [id, isSuperAdmin]);
+  }, [id, router]);
 
-  if (!isSuperAdmin) {
-    return <div className="p-6 text-slate-400">Super admin access required.</div>;
+  // Tabs the current user is allowed to see. Payment stays super-only.
+  const visibleTabs = TABS.filter((t) => !t.superOnly || isSuperAdmin);
+
+  if (authError) {
+    return <div className="p-6 text-slate-400">You don&apos;t have access to this center.</div>;
   }
 
   if (loading) {
@@ -103,21 +125,27 @@ export default function CenterEditPage({ params }: { params: Promise<{ id: strin
 
   return (
     <div>
-      <div className="mb-3">
-        <Link
-          href="/admin/centers"
-          className="inline-flex items-center gap-1 text-xs text-slate-400 hover:text-slate-200"
-        >
-          <ArrowLeft className="w-3 h-3" /> All centers
-        </Link>
-      </div>
+      {/* "All centers" only makes sense for super admins; the list page
+          is super-only too. Center admins just see their own center. */}
+      {isSuperAdmin && (
+        <div className="mb-3">
+          <Link
+            href="/admin/centers"
+            className="inline-flex items-center gap-1 text-xs text-slate-400 hover:text-slate-200"
+          >
+            <ArrowLeft className="w-3 h-3" /> All centers
+          </Link>
+        </div>
+      )}
 
       <AdminPageHeader
         icon={Building2}
         title={center.name}
         description={`Slug: ${center.slug} · ${center.bookingModel === 'RESOURCE_BASED' ? 'Resource-based' : 'Machine/Pitch'} · ${center._count.memberships} member(s) · ${center._count.machines} machine(s) · ${center._count.resources} resource(s)`}
       >
-        {center.isActive && (
+        {/* Deactivate hits DELETE /api/admin/centers/[id] which is still
+            super-admin-only. */}
+        {isSuperAdmin && center.isActive && (
           <button
             onClick={deactivate}
             className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs text-red-300 bg-red-500/10 hover:bg-red-500/20 border border-red-500/20 cursor-pointer"
@@ -129,7 +157,7 @@ export default function CenterEditPage({ params }: { params: Promise<{ id: strin
 
       {/* Tabs */}
       <div className="flex gap-1 overflow-x-auto -mx-1 px-1 pb-2 mb-4 border-b border-white/[0.06] no-scrollbar">
-        {TABS.map(({ key, label, icon: Icon }) => {
+        {visibleTabs.map(({ key, label, icon: Icon }) => {
           const active = tab === key;
           return (
             <button

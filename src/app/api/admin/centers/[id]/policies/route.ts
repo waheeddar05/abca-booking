@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { requireSuperAdmin } from '@/lib/adminAuth';
+import { requireCenterAdminForCenter } from '@/lib/adminAuth';
 import { invalidatePolicy } from '@/lib/policy';
 import { z } from 'zod';
 
@@ -24,10 +24,9 @@ const UpsertSchema = z.object({
 type Params = { id: string };
 
 export async function GET(req: NextRequest, ctx: { params: Promise<Params> }) {
-  const session = await requireSuperAdmin(req);
-  if (!session) return NextResponse.json({ error: 'Super admin required' }, { status: 403 });
-
   const { id: centerId } = await ctx.params;
+  const ctxAuth = await requireCenterAdminForCenter(req, centerId);
+  if (!ctxAuth) return NextResponse.json({ error: 'Admin required' }, { status: 403 });
   const overrides = await prisma.centerPolicy.findMany({
     where: { centerId },
     orderBy: { key: 'asc' },
@@ -49,10 +48,10 @@ export async function GET(req: NextRequest, ctx: { params: Promise<Params> }) {
 }
 
 export async function PUT(req: NextRequest, ctx: { params: Promise<Params> }) {
-  const session = await requireSuperAdmin(req);
-  if (!session) return NextResponse.json({ error: 'Super admin required' }, { status: 403 });
-
   const { id: centerId } = await ctx.params;
+  const ctxAuth = await requireCenterAdminForCenter(req, centerId);
+  if (!ctxAuth) return NextResponse.json({ error: 'Admin required' }, { status: 403 });
+
   const center = await prisma.center.findUnique({ where: { id: centerId } });
   if (!center) return NextResponse.json({ error: 'Center not found' }, { status: 404 });
 
@@ -77,10 +76,9 @@ export async function PUT(req: NextRequest, ctx: { params: Promise<Params> }) {
 }
 
 export async function DELETE(req: NextRequest, ctx: { params: Promise<Params> }) {
-  const session = await requireSuperAdmin(req);
-  if (!session) return NextResponse.json({ error: 'Super admin required' }, { status: 403 });
-
   const { id: centerId } = await ctx.params;
+  const ctxAuth = await requireCenterAdminForCenter(req, centerId);
+  if (!ctxAuth) return NextResponse.json({ error: 'Admin required' }, { status: 403 });
   const { searchParams } = new URL(req.url);
   const key = searchParams.get('key');
   if (!key) return NextResponse.json({ error: 'key query param required' }, { status: 400 });

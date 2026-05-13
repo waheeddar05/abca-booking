@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { useSession } from 'next-auth/react';
 import { Plus, Loader2, Trash2, X, UserPlus, Mail, Phone, CalendarClock, Save } from 'lucide-react';
 import { Field, TextInput, SelectInput, PrimaryButton, SecondaryButton, Banner } from './centerForms';
 
@@ -41,6 +42,8 @@ export function CenterMembersTab({ centerId }: { centerId: string }) {
   const [loading, setLoading] = useState(true);
   const [showNew, setShowNew] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
+  const { data: session } = useSession();
+  const isSuperAdmin = (session?.user as { isSuperAdmin?: boolean })?.isSuperAdmin === true;
 
   const refresh = async () => {
     setLoading(true);
@@ -135,6 +138,7 @@ export function CenterMembersTab({ centerId }: { centerId: string }) {
       {showNew && (
         <NewMembershipForm
           centerId={centerId}
+          isSuperAdmin={isSuperAdmin}
           onCancel={() => setShowNew(false)}
           onSaved={() => { setShowNew(false); refresh(); }}
         />
@@ -197,10 +201,12 @@ function groupByUser(members: MembershipRow[]): Array<{
 
 function NewMembershipForm({
   centerId,
+  isSuperAdmin,
   onCancel,
   onSaved,
 }: {
   centerId: string;
+  isSuperAdmin: boolean;
   onCancel: () => void;
   onSaved: () => void;
 }) {
@@ -254,8 +260,10 @@ function NewMembershipForm({
     }
   };
 
+  // Center admins can grant every staff role EXCEPT ADMIN — the API
+  // mirrors this restriction.
   const ROLES_AVAILABLE: Array<{ id: MembershipRole; label: string }> = [
-    { id: 'ADMIN',              label: 'Admin' },
+    ...(isSuperAdmin ? [{ id: 'ADMIN' as const, label: 'Admin' }] : []),
     { id: 'OPERATOR',           label: 'Operator' },
     { id: 'COACH',              label: 'Coach' },
     { id: 'SIDEARM_SPECIALIST', label: 'Sidearm Specialist' },

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { requireSuperAdmin } from '@/lib/adminAuth';
+import { requireCenterAdminForCenter } from '@/lib/adminAuth';
 import { z } from 'zod';
 
 const PatchSchema = z.object({
@@ -11,14 +11,21 @@ const PatchSchema = z.object({
 type Params = { id: string; membershipId: string };
 
 export async function PATCH(req: NextRequest, ctx: { params: Promise<Params> }) {
-  const session = await requireSuperAdmin(req);
-  if (!session) return NextResponse.json({ error: 'Super admin required' }, { status: 403 });
-
   const { id: centerId, membershipId } = await ctx.params;
+  const ctxAuth = await requireCenterAdminForCenter(req, centerId);
+  if (!ctxAuth) return NextResponse.json({ error: 'Admin required' }, { status: 403 });
 
   const m = await prisma.centerMembership.findUnique({ where: { id: membershipId } });
   if (!m || m.centerId !== centerId) {
     return NextResponse.json({ error: 'Membership not found' }, { status: 404 });
+  }
+
+  // Center admins cannot reactivate or modify another ADMIN's membership.
+  if (!ctxAuth.isSuperAdmin && m.role === 'ADMIN') {
+    return NextResponse.json(
+      { error: 'Only super admin can modify ADMIN memberships.' },
+      { status: 403 },
+    );
   }
 
   let body: unknown;
@@ -39,13 +46,21 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<Params> }) 
 }
 
 export async function DELETE(req: NextRequest, ctx: { params: Promise<Params> }) {
-  const session = await requireSuperAdmin(req);
-  if (!session) return NextResponse.json({ error: 'Super admin required' }, { status: 403 });
-
   const { id: centerId, membershipId } = await ctx.params;
+  const ctxAuth = await requireCenterAdminForCenter(req, centerId);
+  if (!ctxAuth) return NextResponse.json({ error: 'Admin required' }, { status: 403 });
+
   const m = await prisma.centerMembership.findUnique({ where: { id: membershipId } });
   if (!m || m.centerId !== centerId) {
     return NextResponse.json({ error: 'Membership not found' }, { status: 404 });
+  }
+
+  // Center admins cannot revoke another ADMIN — only super admin can.
+  if (!ctxAuth.isSuperAdmin && m.role === 'ADMIN') {
+    return NextResponse.json(
+      { error: 'Only super admin can revoke ADMIN memberships.' },
+      { status: 403 },
+    );
   }
 
   // Soft-deactivate. Hard delete would lose audit trail of who-was-where.

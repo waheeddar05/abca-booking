@@ -24,8 +24,19 @@ export default function AdminLayout({
   // Source of truth for super admin is now the DB column, exposed on the
   // session as `user.isSuperAdmin`. Email match kept as a defensive fallback
   // so a stale token doesn't lock the project owner out of admin pages.
-  const sessionUser = session?.user as { email?: string | null; isSuperAdmin?: boolean } | undefined;
+  const sessionUser = session?.user as {
+    email?: string | null;
+    role?: string;
+    isSuperAdmin?: boolean;
+  } | undefined;
   const isSuperAdmin = sessionUser?.isSuperAdmin === true || sessionUser?.email === SUPER_ADMIN_EMAIL;
+  // Anyone past the middleware /admin/* gate has User.role = 'ADMIN' —
+  // either as a super admin OR as a center-admin with a CenterMembership
+  // somewhere. Non-super admins get a "My Center" deep link that points
+  // at their currently-selected center's edit page. The API enforces
+  // they actually have ADMIN membership there; if not, the page bounces
+  // them back to /admin.
+  const isCenterAdmin = !isSuperAdmin && sessionUser?.role === 'ADMIN' && !!currentCenter;
 
   // Until we rebuild Slots/Operators/Offers/Packages for RESOURCE_BASED
   // centers (Toplay-style), the legacy forms hardcode the ABCA machine
@@ -56,7 +67,15 @@ export default function AdminLayout({
           { href: '/admin/maintenance', label: 'Maintenance', icon: Wrench },
           { href: '/admin/db-cleanup', label: 'DB Cleanup', icon: DatabaseZap },
         ]
-      : []),
+      : isCenterAdmin && currentCenter
+        ? [
+            // Center admins get a deep link to their center's edit page —
+            // members, machines, resources, policies, general info. The
+            // API gates each tab; ADMIN role assignment + payment keys +
+            // deactivation stay super-admin-only.
+            { href: `/admin/centers/${currentCenter.id}`, label: 'My Center', icon: Building2 },
+          ]
+        : []),
   ];
 
   // Filter by booking model. While the center is still loading
