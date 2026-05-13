@@ -721,6 +721,17 @@ export async function planBooking(
   const resolved = await (async (): Promise<PlannedAssignment> => {
   switch (plan.category) {
     case 'MACHINE': {
+      // Machine occupancy gate. Without this, two bookings for the
+      // same Machine row at overlapping times could both succeed —
+      // the UI hides the busy machine but a direct POST or a race
+      // between two carts would slip past. We already prefetched
+      // `occupancy.busyMachineIds` from the day's bookings; reuse it.
+      if (plan.machineId && occupancy.busyMachineIds.has(plan.machineId)) {
+        throw new BookingResourceError(
+          'This machine is already booked at this slot',
+          409,
+        );
+      }
       const net = await pickNetFor({
         plan,
         availability,
