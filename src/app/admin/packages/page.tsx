@@ -5,7 +5,7 @@ import { Package, Plus, Pencil, ToggleLeft, ToggleRight, Loader2, Users, BarChar
 import { NumberInputDialog } from '@/components/ui/NumberInputDialog';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { AdminPageHeader } from '@/components/admin/AdminPageHeader';
-import { ResourcePackageManagement } from '@/components/admin/ResourcePackageManagement';
+import { ResourcePackagesPage } from '@/components/admin/ResourcePackagesPage';
 import { useCenter } from '@/lib/center-context';
 
 interface PackageData {
@@ -1477,7 +1477,11 @@ export default function AdminPackagesPage() {
     );
   }
   if (currentCenter.bookingModel === 'RESOURCE_BASED') {
-    return <ResourcePackageManagement />;
+    // RESOURCE_BASED gets the same 4-tab UX as ABCA (Packages / User
+    // Packages / Assign / Reports). The wrapper handles tabs + each
+    // tab's specific UI; the catalog tab itself defers to the
+    // existing ResourcePackageManagement component.
+    return <ResourcePackagesPage />;
   }
   return <AdminPackagesLegacy />;
 }
