@@ -78,6 +78,30 @@ export function CenterMembersTab({ centerId }: { centerId: string }) {
     }
   };
 
+  // Grant an additional role to a user who is already a member of this
+  // center. Used by the inline "+ Add role" chip on each row so the
+  // admin doesn't have to go back to "Assign user" → search → pick the
+  // same person again just to give them one more role. Returns null on
+  // success or an error string on failure (so the row can show it
+  // locally instead of stealing focus with the top-level banner).
+  const addRole = async (userId: string, role: MembershipRole): Promise<string | null> => {
+    try {
+      const res = await fetch(`/api/admin/centers/${centerId}/members`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId, roles: [role] }),
+      });
+      if (res.ok) {
+        await refresh();
+        return null;
+      }
+      const data = await res.json().catch(() => ({}));
+      return data?.error || `Add failed (HTTP ${res.status})`;
+    } catch (e) {
+      return e instanceof Error ? e.message : 'Add failed';
+    }
+  };
+
   // Remove every active membership a user holds at this center in one shot.
   // The per-role X above only deactivates a single role chip, which is
   // confusing when the admin's intent is "this person no longer works here".
@@ -157,8 +181,10 @@ export function CenterMembersTab({ centerId }: { centerId: string }) {
               key={group.userId}
               centerId={centerId}
               group={group}
+              isSuperAdmin={isSuperAdmin}
               onRemoveRole={remove}
               onRemoveUser={removeUserEntirely}
+              onAddRole={addRole}
               onUserUpdated={refresh}
             />
           ))}
@@ -525,14 +551,18 @@ const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
 function UserMembershipsRow({
   centerId,
   group,
+  isSuperAdmin,
   onRemoveRole,
   onRemoveUser,
+  onAddRole,
   onUserUpdated,
 }: {
   centerId: string;
   group: { userId: string; user: MembershipRow['user']; memberships: MembershipRow[] };
+  isSuperAdmin: boolean;
   onRemoveRole: (membershipId: string) => void;
   onRemoveUser: (userId: string) => void;
+  onAddRole: (userId: string, role: MembershipRole) => Promise<string | null>;
   onUserUpdated: () => void;
 }) {
   // The schedule editor is per-membership (so a user who's both a
@@ -540,6 +570,33 @@ function UserMembershipsRow({
   // Track which membership's editor is currently open.
   const [expandedMembershipId, setExpandedMembershipId] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
+  // Inline "+ Add role" picker — closed by default; opens on click so
+  // the row stays compact when the admin isn't actively editing it.
+  const [addingRole, setAddingRole] = useState(false);
+  const [savingRole, setSavingRole] = useState<MembershipRole | null>(null);
+  const [addError, setAddError] = useState<string | null>(null);
+
+  // Roles the user already holds at this center — already rendered as
+  // chips, so we exclude them from the picker to avoid the "add a role
+  // they already have" no-op. ADMIN is also hidden for non-super-admin
+  // callers because the API rejects it (matches NewMembershipForm).
+  const currentRoles = new Set<MembershipRole>(group.memberships.map((m) => m.role));
+  const ALL_ROLES: MembershipRole[] = ['ADMIN', 'OPERATOR', 'COACH', 'SIDEARM_SPECIALIST'];
+  const assignableRoles = ALL_ROLES.filter(
+    (r) => !currentRoles.has(r) && (isSuperAdmin || r !== 'ADMIN'),
+  );
+
+  const handleAddRole = async (role: MembershipRole) => {
+    setSavingRole(role);
+    setAddError(null);
+    const err = await onAddRole(group.userId, role);
+    setSavingRole(null);
+    if (err) {
+      setAddError(err);
+      return;
+    }
+    setAddingRole(false);
+  };
 
   return (
     <div className="rounded-xl bg-white/[0.02] border border-white/[0.06]">
@@ -634,7 +691,56 @@ function UserMembershipsRow({
                 </span>
               );
             })}
+            {/* Inline "+ Add role" affordance. Hidden once the user
+                already holds every assignable role at this center.
+                Clicking expands a small chip picker; clicking a chip
+                POSTs to the same /members endpoint that the "Assign
+                user" form uses, scoped to this user. */}
+            {assignableRoles.length > 0 && !addingRole && (
+              <button
+                type="button"
+                onClick={() => { setAddingRole(true); setAddError(null); }}
+                className="inline-flex items-center gap-1 pl-1.5 pr-2 py-0.5 rounded-full border border-dashed border-white/[0.15] text-[10px] uppercase tracking-wide text-slate-400 hover:text-white hover:border-white/[0.3] hover:bg-white/[0.04] cursor-pointer"
+                title="Grant this user another role at this center"
+              >
+                <Plus className="w-3 h-3" /> Add role
+              </button>
+            )}
+            {addingRole && (
+              <span className="inline-flex items-center gap-1 flex-wrap">
+                {assignableRoles.map((r) => {
+                  const saving = savingRole === r;
+                  return (
+                    <button
+                      key={r}
+                      type="button"
+                      disabled={savingRole !== null}
+                      onClick={() => handleAddRole(r)}
+                      className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-[10px] uppercase tracking-wide cursor-pointer transition-opacity ${ROLE_COLOR[r]} ${
+                        savingRole !== null && !saving ? 'opacity-40' : 'hover:brightness-125'
+                      } disabled:cursor-not-allowed`}
+                      title={`Grant ${ROLE_LABEL[r]} role`}
+                    >
+                      {saving ? <Loader2 className="w-3 h-3 animate-spin" /> : <Plus className="w-3 h-3" />}
+                      {ROLE_LABEL[r]}
+                    </button>
+                  );
+                })}
+                <button
+                  type="button"
+                  disabled={savingRole !== null}
+                  onClick={() => { setAddingRole(false); setAddError(null); }}
+                  className="p-0.5 rounded-full text-slate-400 hover:bg-white/[0.08] hover:text-white cursor-pointer disabled:cursor-not-allowed"
+                  title="Cancel"
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              </span>
+            )}
           </div>
+          {addError && (
+            <div className="mt-1.5 text-[11px] text-red-400">{addError}</div>
+          )}
         </div>
       </div>
       {expandedMembershipId && (
