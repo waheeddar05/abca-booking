@@ -1837,8 +1837,15 @@ export default function ResourceSlotsPage() {
                 ) : (
                   <>
                     <IndianRupee className="w-3 h-3 text-accent" />
+                    {/* Main payable amount — kit rental folds into the
+                        bottom-bar total so the displayed number always
+                        matches what /api/slots/book-resource will charge.
+                        Before this, the bar showed slots-only with a
+                        "(incl. Kit: +X)" annotation, leaving users
+                        wondering why the payment step charged more than
+                        the bar indicated. */}
                     <span className="text-sm font-bold text-accent">
-                      {totalPrice.toLocaleString()}
+                      {(totalPrice + kitRentalTotal).toLocaleString()}
                     </span>
                     {/* Discount breakdown — mirrors ABCA's BookingBar.
                         Original total struck through + "Save ₹X" pill,
@@ -1864,10 +1871,10 @@ export default function ResourceSlotsPage() {
                         ({discountBreakdown.promoLabel || 'Promo'}: -₹{discountBreakdown.promo})
                       </span>
                     )}
-                    {/* Kit rental inline indicator — matches ABCA's
-                        BookingBar "(incl. Kit: +₹X)" treatment so the
-                        user can see the kit charge is folded into the
-                        total they're about to pay. */}
+                    {/* Kit rental annotation — the bottom-bar number
+                        already includes the kit (see above). This line
+                        breaks the total down so the user can see WHY
+                        the number jumped when they toggled the kit. */}
                     {kitRentalTotal > 0 && (
                       <span className="text-[10px] text-amber-400 ml-1">
                         (incl. Kit: +₹{kitRentalTotal})
