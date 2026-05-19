@@ -1,0 +1,21 @@
+src/app/api/packages/route.ts
+  s_6e0bc014652981::t_e54802b42fdb77 5,8-14,23-51,54-56,58-62
+src/app/packages/page.tsx
+  s_6e0bc014652981::t_dcbf362eed5c29 5-21,23,30-36,40-46,61,75,80,82,87-89,97,103-118,121-129,136,141-147,170-184,324,327-328,331-348,351-352,355,358,360,425-427,438,442,454-457,459-495,499-501,503-516,519-520,526,542,577-585,622-625,638-669,768-778,780,785-790,792-794,796-797,799-831,834-1071
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.4",
+  "base_commit_sha": "2a13ad7d94cf392c0b551225f49edfb82ecaacf9",
+  "prompts": {},
+  "sessions": {
+    "s_6e0bc014652981": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "45340075-50bc-4580-814c-d4efb70ccc5a",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Waheed <waheeddar8@gmail.com>"
+    }
+  }
+}
