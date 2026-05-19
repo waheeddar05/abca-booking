@@ -1,0 +1,37 @@
+src/app/api/admin/packages/reports/csv/route.ts
+  s_6e0bc014652981::t_73b35f035886c1 6-10
+  s_6e0bc014652981::t_ccb5cd7d60bef2 57-72
+  s_6e0bc014652981::t_ace710c62cdf34 155-166,172,174,193-196,202,204
+src/components/admin/ResourcePackagesPage.tsx
+  s_6e0bc014652981::t_156281a86e02ca 31
+  s_6e0bc014652981::t_57d952e856f592 51-52,54
+  s_6e0bc014652981::t_e2d4acf383c2f4 292-296,304-307
+  s_6e0bc014652981::t_a254b7b5da8fb8 578-613,619-623
+  s_6e0bc014652981::t_647f58161d7376 148-172
+src/components/admin/ResourcePackageManagement.tsx
+  s_6e0bc014652981::t_e0882f3254f2e9 451-456
+  s_6e0bc014652981::t_e28191dc26967e 33-36,38
+  s_6e0bc014652981::t_f9959ef43dcfca 82-84,86-88
+  s_6e0bc014652981::t_68ed5a886f974f 23
+  s_6e0bc014652981::t_ed797c29eaed64 501-502,504-506
+src/lib/package-admin-labels.ts
+  s_6e0bc014652981::t_95c64e2b2c81f7 1-90
+src/app/admin/packages/page.tsx
+  s_6e0bc014652981::t_b600bcb4f85770 4-23,29-37,50,54,58-71,73-75,77-80,89,93-94,101,108-109,111,114-116,124,126,143-147,159,162,166,177-229,271-282,415-417,443,463-471,474-479,488-498,506-517,521-527,529-535,537-538,540-542,553-554,557-563,567,571,576,584-613,619-620,641-651,674-677,680-686,688-700,778-807,809-873,877-879,925,967,971-974,979-982,986,994-995,1004,1010-1011,1022-1023,1189-1569
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.4",
+  "base_commit_sha": "bec74352df3a781775f2bac8d52036a0727d4645",
+  "prompts": {},
+  "sessions": {
+    "s_6e0bc014652981": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "45340075-50bc-4580-814c-d4efb70ccc5a",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Waheed <waheeddar8@gmail.com>"
+    }
+  }
+}
