@@ -53,6 +53,11 @@ export default function AdminLayout({
     { href: '/admin/slots', label: 'Slots', icon: Clock },
     { href: '/admin/users', label: 'Users', icon: Users },
     { href: '/admin/operators', label: 'Operators', icon: UserCog },
+    // Sidearm tab — manages SIDEARM_SPECIALIST memberships and their
+    // availability (recurring + date-range) plus priority order for
+    // auto-assignment. Resource-based centers only; ABCA never had a
+    // sidearm role wired into bookings.
+    { href: '/admin/sidearm', label: 'Sidearm', icon: Users, models: ['RESOURCE_BASED'] },
     { href: '/admin/offers', label: 'Offers', icon: Tag },
     { href: '/admin/packages', label: 'Packages', icon: Package },
     { href: '/admin/configuration', label: 'Settings', icon: SlidersHorizontal },

@@ -15,6 +15,11 @@ const SUPER_ADMIN_EMAIL = process.env.SUPER_ADMIN_EMAIL || 'waheeddar8@gmail.com
 const PatchSchema = z.object({
   isActive: z.boolean().optional(),
   metadata: z.record(z.string(), z.unknown()).optional().nullable(),
+  // Tie-breaker when multiple memberships are equally eligible at a
+  // slot. Lower wins. Used by the Sidearm admin tab to re-rank
+  // specialists; also accessible from the Members tab. Validated as
+  // a non-negative integer to keep the ordering stable.
+  priority: z.number().int().min(0).max(10_000).optional(),
   user: z.object({
     name:         z.string().max(120).optional().nullable().or(z.literal('')),
     email:        z.string().email().max(200).optional().nullable().or(z.literal('')),
@@ -86,6 +91,12 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<Params> }) 
       if (parsed.data.isActive !== undefined) membershipData.isActive = parsed.data.isActive;
       if (parsed.data.metadata !== undefined) {
         membershipData.metadata = (parsed.data.metadata as never) ?? Prisma.JsonNull;
+      }
+      if (parsed.data.priority !== undefined) {
+        // Used by Sidearm + Coach pick-priority logic. Lower number =
+        // first pick. Out-of-range values are rejected by the schema
+        // (0..10_000) so we trust the value here.
+        membershipData.priority = parsed.data.priority;
       }
       if (Object.keys(membershipData).length > 0) {
         await tx.centerMembership.update({

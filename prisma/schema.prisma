@@ -101,12 +101,21 @@ model CenterMembership {
   // weekly schedule, operator-priority overrides). Free-form to avoid
   // schema churn while the resource-based engine evolves.
   metadata  Json?
+  // Tie-breaker when multiple memberships are equally eligible at the
+  // same slot — lower priority wins (1 = first pick, 100 = last). Used
+  // by the resource-based engine's `pickStaffFor` and `autoAssignCoach`
+  // when the user doesn't pin a specific person. Default 100 keeps
+  // existing rows out of the front of any ordering until an admin
+  // explicitly ranks them. Applies primarily to SIDEARM_SPECIALIST +
+  // COACH; OPERATOR has its own per-machine assignment table.
+  priority  Int            @default(100)
   createdAt DateTime       @default(now())
   updatedAt DateTime       @updatedAt
 
-  user         User                     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  center       Center                   @relation(fields: [centerId], references: [id], onDelete: Cascade)
-  availability MembershipAvailability[]
+  user             User                          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  center           Center                        @relation(fields: [centerId], references: [id], onDelete: Cascade)
+  availability     MembershipAvailability[]
+  dateAvailability MembershipDateAvailability[]
 
   @@unique([userId, centerId, role])
   @@index([centerId, role])
@@ -142,6 +151,42 @@ model MembershipAvailability {
   membership CenterMembership @relation(fields: [membershipId], references: [id], onDelete: Cascade)
 
   @@index([membershipId, dayOfWeek])
+}
+
+// Date-range availability for a coach or sidearm specialist —
+// distinct from MembershipAvailability above, which is a weekly DOW
+// pattern. Use this when a specialist is only available for a
+// specific window of days (e.g. June 10–20, 17:00–21:00), or for
+// one-off blocks like a tournament weekend.
+//
+// Resolution rule (mirrors slotMatchesAvailability in
+// resource-booking.ts): if a membership has ANY dateAvailability rows,
+// at least one must cover the booking's date AND time window for the
+// specialist to be considered available — date-range entries are
+// ADDITIVE on top of recurring entries (a specialist with both gets
+// matched if the slot fits EITHER table). When the membership has no
+// availability rows at all, they're treated as always-available.
+model MembershipDateAvailability {
+  id           String   @id @default(cuid())
+  membershipId String
+  // Inclusive date range in IST. fromDate / toDate are stored as
+  // @db.Date so timezone math doesn't shift them across midnight.
+  fromDate     DateTime @db.Date
+  toDate       DateTime @db.Date
+  // Optional time window inside each day in the range. Null on either
+  // bound means "all day". HH:MM IST strings (e.g. "17:00").
+  startTime    String?
+  endTime      String?
+  isActive     Boolean  @default(true)
+  // Free-form note ("Tournament block", "Camp dates"). Not used by
+  // the engine — just shown in the admin editor.
+  label        String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  membership CenterMembership @relation(fields: [membershipId], references: [id], onDelete: Cascade)
+
+  @@index([membershipId, fromDate, toDate])
 }
 
 // A physical, bookable thing at a center: a net, a turf wicket, a court.
