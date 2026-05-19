@@ -20,6 +20,7 @@ import { Package, Plus, Pencil, Loader2, Trash2, ToggleLeft, ToggleRight } from 
 import { useToast } from '@/components/ui/Toast';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { useCenter } from '@/lib/center-context';
+import { PACKAGE_WICKET_LABEL } from '@/lib/package-admin-labels';
 
 const CATEGORY_OPTIONS = [
   { id: 'MACHINE', label: 'Bowling Machine' },
@@ -29,8 +30,12 @@ const CATEGORY_OPTIONS = [
   { id: 'FULL_COURT', label: 'Full Indoor Court' },
 ];
 
+// Standardized timing labels — plain "Day" / "Evening" with "Any time"
+// retained as the BOTH option for resource-based packages that aren't
+// timing-restricted. Matches the labels used everywhere else in the
+// admin packages UI (see src/lib/package-admin-labels.ts).
 const TIMING_OPTIONS = [
-  { id: 'DAY', label: 'Day (morning slabs)' },
+  { id: 'DAY', label: 'Day' },
   { id: 'EVENING', label: 'Evening' },
   { id: 'BOTH', label: 'Any time' },
 ];
@@ -74,10 +79,13 @@ const inputClass =
 // ABCA's `ALL_WICKET_UPGRADE_PATHS` at /admin/packages — keeps the
 // JSON shape on `extraChargeRules.wicketTypeUpgrades` identical so
 // the server can use the existing helper.
+// Labels use the standardized PACKAGE_WICKET_LABEL ("Astroturf",
+// "Cement", "Natural Turf") so the upgrade-path captions match the
+// rest of the admin packages UI.
 const WICKET_UPGRADE_PATHS: Array<{ from: string; to: string; label: string }> = [
-  { from: 'ASTRO',  to: 'CEMENT',  label: 'Astro Turf → Cement' },
-  { from: 'ASTRO',  to: 'NATURAL', label: 'Astro Turf → Natural Turf' },
-  { from: 'CEMENT', to: 'NATURAL', label: 'Cement → Natural Turf' },
+  { from: 'ASTRO',  to: 'CEMENT',  label: `${PACKAGE_WICKET_LABEL.ASTRO} → ${PACKAGE_WICKET_LABEL.CEMENT}` },
+  { from: 'ASTRO',  to: 'NATURAL', label: `${PACKAGE_WICKET_LABEL.ASTRO} → ${PACKAGE_WICKET_LABEL.NATURAL}` },
+  { from: 'CEMENT', to: 'NATURAL', label: `${PACKAGE_WICKET_LABEL.CEMENT} → ${PACKAGE_WICKET_LABEL.NATURAL}` },
 ];
 
 const emptyForm = {
@@ -440,9 +448,12 @@ export function ResourcePackageManagement() {
               onChange={(e) => setForm({ ...form, ballType: e.target.value })}
               className={inputClass}
             >
-              <option value="BOTH" className="bg-[#1a2a40]">Both (machine + leather)</option>
-              <option value="MACHINE" className="bg-[#1a2a40]">Machine balls only</option>
-              <option value="LEATHER" className="bg-[#1a2a40]">Leather balls only</option>
+              {/* Standardized ball-type labels — no "Only" suffix; the
+                  Bowling Machine category implies the axis. BOTH stays
+                  available so a package can cover either ball. */}
+              <option value="BOTH" className="bg-[#1a2a40]">Leather + Machine</option>
+              <option value="MACHINE" className="bg-[#1a2a40]">Machine</option>
+              <option value="LEATHER" className="bg-[#1a2a40]">Leather</option>
             </select>
           </div>
         )}
@@ -487,10 +498,12 @@ export function ResourcePackageManagement() {
               onChange={(e) => setForm({ ...form, wicketType: e.target.value })}
               className={inputClass}
             >
+              {/* Standardized wicket labels — "Astroturf / Cement /
+                  Natural Turf". `BOTH` = any wicket. */}
               <option value="BOTH"    className="bg-[#1a2a40]">Any wicket</option>
-              <option value="ASTRO"   className="bg-[#1a2a40]">Astro Turf only</option>
-              <option value="CEMENT"  className="bg-[#1a2a40]">Cement only</option>
-              <option value="NATURAL" className="bg-[#1a2a40]">Natural Turf only</option>
+              <option value="ASTRO"   className="bg-[#1a2a40]">{PACKAGE_WICKET_LABEL.ASTRO}</option>
+              <option value="CEMENT"  className="bg-[#1a2a40]">{PACKAGE_WICKET_LABEL.CEMENT}</option>
+              <option value="NATURAL" className="bg-[#1a2a40]">{PACKAGE_WICKET_LABEL.NATURAL}</option>
             </select>
           </div>
         )}

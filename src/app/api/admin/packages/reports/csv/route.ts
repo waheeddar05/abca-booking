@@ -3,6 +3,11 @@ import { prisma } from '@/lib/prisma';
 import { requireAdmin } from '@/lib/adminAuth';
 import { getAuthenticatedUser } from '@/lib/auth';
 import { resolveCurrentCenter } from '@/lib/centers';
+import {
+  packageCategoryLabel,
+  categoryUsesBallType,
+  PACKAGE_BALL_LABEL,
+} from '@/lib/package-admin-labels';
 
 // GET /api/admin/packages/reports/csv - Download user packages as CSV (current center)
 export async function GET(req: NextRequest) {
@@ -49,7 +54,22 @@ export async function GET(req: NextRequest) {
       where,
       include: {
         user: { select: { name: true, email: true, mobileNumber: true } },
-        package: { select: { name: true, machineType: true, totalSessions: true, price: true } },
+        package: {
+          select: {
+            name: true,
+            machineType: true,
+            totalSessions: true,
+            price: true,
+            // `category` discriminates Bowling Machine / Cricket Nets /
+            // Sidearm / Personal Coaching / Full Indoor Court. Legacy
+            // ABCA rows have null here — `packageCategoryLabel` falls
+            // back to "Bowling Machine" for those.
+            category: true,
+            // `ballType` is only meaningful for Bowling Machine
+            // packages; the CSV prints "Not Applicable" otherwise.
+            ballType: true,
+          },
+        },
       },
       orderBy: { activationDate: 'desc' },
     });
@@ -132,13 +152,26 @@ export async function GET(req: NextRequest) {
       return { wallet: walletPortion, online: onlinePortion };
     };
 
-    // Build CSV
+    // Build CSV.
+    //
+    // `Booking Category` is the resource-based discriminator (Bowling
+    // Machine / Cricket Nets / Sidearm / Personal Coaching / Full
+    // Indoor Court). For legacy ABCA packages (null `category` column)
+    // we surface "Bowling Machine" to keep the column populated.
+    //
+    // `Ball Type` only applies to Bowling Machine packages — for every
+    // other category we write "Not Applicable" so reviewers can tell
+    // an unset cell from a category that genuinely doesn't have one.
+    // Same convention as the bookings CSV (see
+    // /api/admin/bookings/export).
     const headers = [
       'User Name',
       'Email',
       'Mobile',
       'Package Name',
+      'Booking Category',
       'Machine Type',
+      'Ball Type',
       'Total Sessions',
       'Used Sessions',
       'Remaining Sessions',
@@ -157,12 +190,18 @@ export async function GET(req: NextRequest) {
 
     const rows = userPackages.map(up => {
       const split = splitForPackage(up);
+      const category = up.package?.category ?? null;
+      const ballTypeCell = categoryUsesBallType(category)
+        ? (up.package?.ballType ? (PACKAGE_BALL_LABEL[up.package.ballType] || up.package.ballType) : '')
+        : 'Not Applicable';
       return [
         up.user?.name || '',
         up.user?.email || '',
         up.user?.mobileNumber || '',
         up.package?.name || '',
+        packageCategoryLabel(category),
         up.package?.machineType || '',
+        ballTypeCell,
         up.totalSessions,
         up.usedSessions,
         up.totalSessions - up.usedSessions,

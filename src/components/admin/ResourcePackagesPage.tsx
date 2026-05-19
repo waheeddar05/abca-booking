@@ -28,6 +28,7 @@ import {
   Loader2,
   Search,
   Check,
+  Download,
 } from 'lucide-react';
 import { useToast } from '@/components/ui/Toast';
 import { AdminPageHeader } from '@/components/admin/AdminPageHeader';
@@ -47,8 +48,10 @@ const ASSIGN_CATEGORY_OPTIONS = [
   { id: 'NET', label: 'Cricket Nets' },
 ];
 
+// Standardized labels — plain "Day" / "Evening" / "Any time" to
+// match the rest of the admin packages UI.
 const TIMING_OPTIONS = [
-  { id: 'DAY', label: 'Day (mornings)' },
+  { id: 'DAY', label: 'Day' },
   { id: 'EVENING', label: 'Evening' },
   { id: 'BOTH', label: 'Any time' },
 ];
@@ -142,6 +145,31 @@ export function ResourcePackagesPage() {
   // ─── Reports tab ─────────────────────────────────────────────────
   const [reports, setReports] = useState<ReportData | null>(null);
   const [reportsLoading, setReportsLoading] = useState(false);
+  // CSV export — shared backend with ABCA's admin packages page. The
+  // route is center-scoped via `resolveCurrentCenter`, so simply
+  // calling it from a RESOURCE_BASED context downloads that center's
+  // user-package rows.
+  const [downloadingCsv, setDownloadingCsv] = useState(false);
+  const downloadCsv = async () => {
+    setDownloadingCsv(true);
+    try {
+      const res = await fetch('/api/admin/packages/reports/csv');
+      if (!res.ok) throw new Error('Failed to download');
+      const blob = await res.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `packages-report-${new Date().toISOString().slice(0, 10)}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      window.URL.revokeObjectURL(url);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'CSV download failed');
+    } finally {
+      setDownloadingCsv(false);
+    }
+  };
 
   useEffect(() => {
     if (tab !== 'reports') return;
@@ -261,8 +289,11 @@ export function ResourcePackagesPage() {
         description="Manage package catalog, view who owns what, assign custom packages, and review sales."
       />
 
-      {/* Tab nav */}
-      <div className="flex gap-1.5 p-1 mb-4 rounded-xl bg-white/[0.03] border border-white/[0.07] flex-wrap">
+      {/* Tab nav — matches the visual treatment of /admin/centers/[id]
+          (border-bottom strip with active border accent). Same pattern
+          as AdminPackagesLegacy so both surfaces feel like one
+          consistent admin app. */}
+      <div className="flex gap-1 overflow-x-auto -mx-1 px-1 pb-2 mb-4 border-b border-white/[0.06] no-scrollbar">
         {TABS.map((t) => {
           const Icon = t.icon;
           const on = tab === t.id;
@@ -270,8 +301,10 @@ export function ResourcePackagesPage() {
             <button
               key={t.id}
               onClick={() => setTab(t.id)}
-              className={`flex-1 min-w-[110px] flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold transition-colors cursor-pointer ${
-                on ? 'bg-accent text-black' : 'text-slate-300 hover:bg-white/[0.06]'
+              className={`flex items-center gap-1.5 px-3 py-2 rounded-t-lg text-xs font-medium whitespace-nowrap transition-colors cursor-pointer ${
+                on
+                  ? 'bg-accent/10 text-accent border-b-2 border-accent'
+                  : 'text-slate-400 hover:text-slate-200 hover:bg-white/[0.04]'
               }`}
             >
               <Icon className="w-3.5 h-3.5" />
@@ -542,26 +575,52 @@ export function ResourcePackagesPage() {
             <Loader2 className="w-5 h-5 animate-spin" /> Loading reports…
           </div>
         ) : reports ? (
-          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-            {[
-              { label: 'Active packages',     value: reports.activePackages },
-              { label: 'Expired packages',    value: reports.expiredPackages },
-              { label: 'Cancelled packages',  value: reports.cancelledPackages ?? 0 },
-              { label: 'Sessions sold',       value: reports.totalSessionsSold },
-              { label: 'Sessions consumed',   value: reports.totalSessionsConsumed },
-              { label: 'Extra charges',       value: `₹${reports.extraChargesCollected ?? 0}` },
-              { label: 'Total revenue',       value: `₹${reports.totalRevenue ?? 0}` },
-            ].map((stat) => (
-              <div key={stat.label} className="bg-white/[0.03] border border-white/[0.07] rounded-2xl p-4">
-                <p className="text-[11px] text-slate-400 mb-1">{stat.label}</p>
-                <p className="text-lg font-bold text-white">{stat.value}</p>
-              </div>
-            ))}
+          <div className="space-y-4">
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+              {[
+                { label: 'Active packages',     value: reports.activePackages },
+                { label: 'Expired packages',    value: reports.expiredPackages },
+                { label: 'Cancelled packages',  value: reports.cancelledPackages ?? 0 },
+                { label: 'Sessions sold',       value: reports.totalSessionsSold },
+                { label: 'Sessions consumed',   value: reports.totalSessionsConsumed },
+                { label: 'Extra charges',       value: `₹${reports.extraChargesCollected ?? 0}` },
+                { label: 'Total revenue',       value: `₹${reports.totalRevenue ?? 0}` },
+              ].map((stat) => (
+                <div key={stat.label} className="bg-white/[0.03] border border-white/[0.07] rounded-2xl p-4">
+                  <p className="text-[11px] text-slate-400 mb-1">{stat.label}</p>
+                  <p className="text-lg font-bold text-white">{stat.value}</p>
+                </div>
+              ))}
+            </div>
+
+            {/* Download CSV — shared route with the legacy ABCA admin
+                page. The handler is already center-scoped and emits
+                the new Booking Category column + "Not Applicable"
+                ball-type cells for non-machine packages. */}
+            <div className="bg-white/[0.03] border border-white/[0.07] rounded-2xl p-4">
+              <h3 className="text-sm font-bold text-white mb-3 flex items-center gap-2">
+                <Download className="w-4 h-4 text-accent" />
+                Export Packages Report
+              </h3>
+              <button
+                onClick={downloadCsv}
+                disabled={downloadingCsv}
+                className="inline-flex items-center gap-2 bg-accent hover:bg-accent-light text-primary px-4 py-2 rounded-xl text-sm font-semibold transition-all cursor-pointer disabled:opacity-50"
+              >
+                {downloadingCsv ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
+                Download CSV
+              </button>
+            </div>
           </div>
         ) : (
           <p className="text-xs text-slate-500 italic py-16 text-center">No report data available.</p>
         )
       )}
+
+      <style jsx>{`
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+      `}</style>
     </div>
   );
 }
