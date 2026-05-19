@@ -1,0 +1,24 @@
+src/app/slots/ResourceSlotsPage.tsx
+  s_6e0bc014652981::t_13a409c93eedaa 782-783
+src/app/admin/users/page.tsx
+  s_6e0bc014652981::t_97a3730d8e31a6 651-659
+  s_6e0bc014652981::t_2f3323888d9949 6
+src/lib/resource-booking.ts
+  s_6e0bc014652981::t_0cff9e6945a4e9 1227,1233
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.4",
+  "base_commit_sha": "0ba59702b19409e829329f8ae5aeae8ab2dd72c3",
+  "prompts": {},
+  "sessions": {
+    "s_6e0bc014652981": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "45340075-50bc-4580-814c-d4efb70ccc5a",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Waheed <waheeddar8@gmail.com>"
+    }
+  }
+}
