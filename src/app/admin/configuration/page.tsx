@@ -348,17 +348,42 @@ export default function ConfigurationPage() {
       });
       if (!res.ok) {
         // Surface the server's error so a 403 (wrong center) or 400
-        // (validation) is visible instead of silently swallowed. The
-        // previous version threw on !res.ok and rendered a flat
-        // 'Failed to save' — admins reported toggles that didn't
-        // stick after refresh, which turned out to be a save that
-        // failed with no useful UI signal.
+        // (validation) is visible instead of silently swallowed.
         const errBody = await res.json().catch(() => ({} as { error?: string }));
         throw new Error(errBody?.error || `HTTP ${res.status}`);
       }
-      setPaymentSettings(prev => ({ ...prev, [key]: value }));
+
+      // Re-fetch policies after save instead of trusting the optimistic
+      // update. If the POST returned 200 but the upsert didn't actually
+      // land (Prisma error swallowed, wrong center resolved, etc.) the
+      // round-trip would catch it: the GET response would still show
+      // the old value, and we'd update local state accordingly. This
+      // is what stops the "I toggled it ON but refresh shows OFF"
+      // class of bug — the GET-after-POST happens in the same tab so
+      // a subsequent F5 will read the same value.
+      const verifyRes = await fetch(`/api/admin/policies?scope=${scope}`);
+      if (verifyRes.ok) {
+        const data = await verifyRes.json();
+        const arr: { key: string; value: string }[] =
+          Array.isArray(data) ? data : (data.policies || []);
+        const found = arr.find((p) => p.key === key);
+        // Boolean policies arrive as 'true'/'false' strings. Coerce
+        // back to boolean so the toggle reads it the same way the
+        // GET handler in the page initial-load does.
+        const persisted = found ? found.value === 'true' : value;
+        setPaymentSettings(prev => ({ ...prev, [key]: persisted }));
+        if (persisted !== value) {
+          throw new Error(
+            `Server kept it ${persisted ? 'ON' : 'OFF'} after the save — refresh and try again.`,
+          );
+        }
+      } else {
+        // Verify-fetch failed; trust the optimistic update for now.
+        setPaymentSettings(prev => ({ ...prev, [key]: value }));
+      }
+
       setPaymentMessage({ text: 'Saved', type: 'success' });
-      setTimeout(() => setPaymentMessage({ text: '', type: '' }), 2000);
+      setTimeout(() => setPaymentMessage({ text: '', type: '' }), 2500);
     } catch (err) {
       setPaymentMessage({
         text: err instanceof Error ? `Failed to save: ${err.message}` : 'Failed to save',
