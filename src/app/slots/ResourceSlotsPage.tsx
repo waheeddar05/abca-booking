@@ -569,6 +569,13 @@ export default function ResourceSlotsPage() {
   // wants — covers MACHINE (per-machine effective lists), SIDEARM
   // (per-center policy), NET (per-center policy), and any future
   // category that exposes pitch/ball chips.
+  //
+  // Capacity-aware pick: prefer pitches that actually have at least
+  // one slot with free capacity in the loaded day. If none do, fall
+  // back to the first option (slot grid will show 'full' but the
+  // chip still highlights the user's natural starting point). Re-runs
+  // when `data` arrives because per-slot freeByPitch is what tells
+  // us which pitches have any availability today.
   useEffect(() => {
     let pitchOptions: PitchTypeId[] = [];
     let ballOptions: BallTypeId[] = [];
@@ -583,21 +590,42 @@ export default function ResourceSlotsPage() {
     } else if (category === 'NET') {
       pitchOptions = data?.netPitchTypes ?? [];
     }
-    // Pitch — default to first option whenever current value isn't
-    // valid for the new option set.
-    if (pitchOptions.length > 0 && (!pitchType || !pitchOptions.includes(pitchType))) {
-      setPitchType(pitchOptions[0]);
+
+    // Helper: does this pitch have at least one slot with free
+    // capacity in the loaded day? Mirrors the server's per-pitch pool.
+    // Returns true when freeByPitch isn't on the response (legacy
+    // shape) so the auto-pick still falls back to the first option.
+    const pitchHasAnyFreeSlot = (p: PitchTypeId): boolean => {
+      const slots = data?.slots ?? [];
+      if (slots.length === 0) return true;
+      const key = p === 'CEMENT' || p === 'NATURAL' || p === 'ASTRO' ? p : null;
+      if (!key) return true;
+      return slots.some((slot) => {
+        const fb = slot.freeByPitch;
+        return fb ? (fb[key].length > 0) : (slot.freeIndoorNets.length > 0);
+      });
+    };
+
+    // Pitch — re-evaluate when the option set changes OR when the
+    // current pick now has zero availability across the day.
+    if (pitchOptions.length > 0) {
+      const currentIsValid = pitchType && pitchOptions.includes(pitchType);
+      const currentHasCapacity = currentIsValid && pitchHasAnyFreeSlot(pitchType!);
+      if (!currentIsValid || !currentHasCapacity) {
+        const withCapacity = pitchOptions.find((p) => pitchHasAnyFreeSlot(p));
+        setPitchType(withCapacity ?? pitchOptions[0]);
+      }
     } else if (pitchOptions.length === 0 && pitchType !== null) {
       setPitchType(null);
     }
-    // Ball — same story (only relevant for MACHINE).
+    // Ball — same default-first story (only relevant for MACHINE).
     if (ballOptions.length > 0 && (!ballType || !ballOptions.includes(ballType))) {
       setBallType(ballOptions[0]);
     } else if (ballOptions.length === 0 && ballType !== null) {
       setBallType(null);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [category, machineId, machines, data?.sidearmPitchTypes, data?.netPitchTypes]);
+  }, [category, machineId, machines, data?.sidearmPitchTypes, data?.netPitchTypes, data?.slots]);
 
   // Default-select the first coach / sidearm staff for those tabs.
   // Auto-assign happens server-side too, but the UI shows the first
@@ -712,19 +740,21 @@ export default function ResourceSlotsPage() {
       return { ok: false, reason: 'This machine is blocked for this slot' };
     }
 
-    // Helper: does the slot have ANY pitch with free capacity?
-    //   - Used to keep the slot "Open" when the user's currently picked
-    //     pitch is full but another pitch (e.g. natural turf) still has
-    //     capacity. The pitch picker then guides them to switch.
-    //   - Falls back to the legacy freeIndoorNets check when the
-    //     server hasn't returned freeByPitch yet (old response shape).
-    const hasAnyPitchFree = (): boolean => {
-      if (!s.freeByPitch) return s.freeIndoorNets.length > 0;
-      return (
-        s.freeByPitch.ASTRO.length > 0
-        || s.freeByPitch.CEMENT.length > 0
-        || s.freeByPitch.NATURAL.length > 0
-      );
+    // Helper: free pool for the user's currently-picked pitch. Slot
+    // availability mirrors the picked pitch so the grid says exactly
+    // what the booking endpoint will accept. Auto-switch effect lower
+    // down moves the pitch chip itself to a pool with capacity, so the
+    // user doesn't get stranded on a full pitch.
+    const poolForPicked = (): { pool: ResourceLite[] | NetLite[]; usedFallback: boolean } => {
+      if (pitchType && s.freeByPitch) {
+        return { pool: s.freeByPitch[pitchType as 'ASTRO' | 'CEMENT' | 'NATURAL'] ?? [], usedFallback: false };
+      }
+      return { pool: s.freeIndoorNets, usedFallback: true };
+    };
+    const reasonForEmptyPool = (): string => {
+      if (pitchType === 'NATURAL') return 'No natural-turf wickets free';
+      if (pitchType === 'CEMENT') return 'No cement wickets free';
+      return 'All nets are taken at this slot';
     };
 
     if (cat === 'MACHINE') {
@@ -736,16 +766,17 @@ export default function ResourceSlotsPage() {
       if (machineId && (s.busyMachineIds ?? []).includes(machineId)) {
         return { ok: false, reason: 'This machine is already booked at this slot' };
       }
-      // Slot is bookable as long as ANY enabled pitch has free capacity
-      // at this slot. The pitch picker disambiguates which pool the
-      // booking will consume — server's pickNetFor matches the user's
-      // pitch choice exactly, so picking a pitch with no capacity surfaces
-      // a clean 409 at submit (rare, since the picker is in their face).
-      // Before this relaxation, the slot greyed out the moment the
-      // auto-selected pitch's pool ran dry — even when natural turf still
-      // had room — confusing admins running multi-surface centers.
-      if (!hasAnyPitchFree()) {
-        return { ok: false, reason: 'All nets are taken at this slot' };
+      // Slot availability mirrors the *picked* pitch's pool. ASTRO eats
+      // indoor net capacity, CEMENT eats cement-wicket capacity,
+      // NATURAL eats outdoor turf-wicket capacity — each pool is
+      // independent. If the user has picked ASTRO and indoor is full,
+      // the slot greys out even when natural turf still has capacity;
+      // the auto-switch effect further down moves the chip selection
+      // to the next available pitch when it can, so the picker doesn't
+      // strand the user.
+      const { pool } = poolForPicked();
+      if (!pool || pool.length === 0) {
+        return { ok: false, reason: reasonForEmptyPool() };
       }
       // Operator gating — only for non-tennis (leather) machines. Tennis
       // machines can self-operate, so a busy operator pool doesn't block
@@ -764,15 +795,14 @@ export default function ResourceSlotsPage() {
     }
     if (cat === 'SIDEARM') {
       if (s.freeSidearmStaff.length === 0) return { ok: false, reason: 'No sidearm specialist free' };
-      // Same union-of-pitches gate as MACHINE. Lets the user see the
-      // slot as open when astro is full but natural turf still has
-      // capacity — they pick the pitch via the chip row above.
-      if (!hasAnyPitchFree()) return { ok: false, reason: 'No nets free' };
+      const { pool } = poolForPicked();
+      if (!pool || pool.length === 0) return { ok: false, reason: reasonForEmptyPool() };
       return { ok: true };
     }
     if (cat === 'COACHING') {
       if (s.freeCoaches.length === 0) return { ok: false, reason: 'No coaches free' };
-      if (!hasAnyPitchFree()) return { ok: false, reason: 'No nets free' };
+      const { pool } = poolForPicked();
+      if (!pool || pool.length === 0) return { ok: false, reason: reasonForEmptyPool() };
       return { ok: true };
     }
     if (cat === 'FULL_COURT') {
@@ -785,12 +815,12 @@ export default function ResourceSlotsPage() {
       return { ok: true };
     }
     if (cat === 'NET') {
-      // Cricket nets is the canonical case where this matters: even
-      // when indoor net astro capacity is exhausted, a natural-turf
-      // wicket with free capacity should keep the slot openable. The
-      // pitch chip row gates the actual booking surface; server's
-      // pickNetFor enforces the per-pitch pool at commit time.
-      if (!hasAnyPitchFree()) return { ok: false, reason: 'No nets free' };
+      // Picked-pitch availability. Auto-switch effect ensures the
+      // chip lands on a pitch with capacity at the visible slots,
+      // so the slot grid stays accurate to whatever the user actually
+      // intends to book.
+      const { pool } = poolForPicked();
+      if (!pool || pool.length === 0) return { ok: false, reason: reasonForEmptyPool() };
       return { ok: true };
     }
     if (cat === 'CORPORATE_BATCH') {
