@@ -83,6 +83,9 @@ export async function GET(req: NextRequest, ctx: { params: Promise<Params> }) {
     include: {
       _count: {
         select: {
+          // Counts CenterMembership ROWS (not users) — a person with
+          // multiple roles is over-counted. Overwritten below with a
+          // distinct-user count so the admin header reads correctly.
           memberships: { where: { isActive: true } },
           machines: { where: { isActive: true } },
           resources: { where: { isActive: true } },
@@ -93,9 +96,22 @@ export async function GET(req: NextRequest, ctx: { params: Promise<Params> }) {
   });
   if (!center) return NextResponse.json({ error: 'Not found' }, { status: 404 });
 
+  // Distinct active members at this center. groupBy with two `by`
+  // keys returns one row per (centerId, userId) pair; length =
+  // distinct user count.
+  const distinctMembershipGroups = await prisma.centerMembership.groupBy({
+    by: ['userId'],
+    where: { centerId: id, isActive: true },
+  });
+  const distinctMembers = distinctMembershipGroups.length;
+
   // Mask secrets in GET responses too.
   return NextResponse.json({
     ...center,
+    _count: {
+      ...center._count,
+      memberships: distinctMembers,
+    },
     razorpayKeySecret: center.razorpayKeySecret ? '••••' + center.razorpayKeySecret.slice(-4) : null,
     razorpayWebhookSecret: center.razorpayWebhookSecret
       ? '••••' + center.razorpayWebhookSecret.slice(-4)

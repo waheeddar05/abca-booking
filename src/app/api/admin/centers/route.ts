@@ -52,6 +52,11 @@ export async function GET(req: NextRequest) {
     include: {
       _count: {
         select: {
+          // `memberships` here counts CenterMembership ROWS, not distinct
+          // users — a person with COACH + SIDEARM_SPECIALIST + OPERATOR
+          // at one center counts as 3, which is wrong for the admin
+          // "X members" stat. We overwrite this with a distinct-user
+          // count below.
           memberships: { where: { isActive: true } },
           machines: { where: { isActive: true } },
           resources: { where: { isActive: true } },
@@ -61,10 +66,26 @@ export async function GET(req: NextRequest) {
     },
   });
 
+  // Distinct-user count per center. One groupBy across every active
+  // membership row is cheaper than N per-center queries when the admin
+  // has many centers.
+  const groups = await prisma.centerMembership.groupBy({
+    by: ['centerId', 'userId'],
+    where: { isActive: true, centerId: { in: centers.map((c) => c.id) } },
+  });
+  const distinctUsersByCenter = new Map<string, number>();
+  for (const g of groups) {
+    distinctUsersByCenter.set(g.centerId, (distinctUsersByCenter.get(g.centerId) ?? 0) + 1);
+  }
+
   // Mask Razorpay secrets — only return the last 4 chars to confirm presence.
   return NextResponse.json(
     centers.map((c) => ({
       ...c,
+      _count: {
+        ...c._count,
+        memberships: distinctUsersByCenter.get(c.id) ?? 0,
+      },
       razorpayKeySecret: c.razorpayKeySecret ? '••••' + c.razorpayKeySecret.slice(-4) : null,
       razorpayWebhookSecret: c.razorpayWebhookSecret ? '••••' + c.razorpayWebhookSecret.slice(-4) : null,
     })),
