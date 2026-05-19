@@ -166,20 +166,26 @@ export function BookingCard({ booking, role, renderActions, renderPrice, renderO
                 </div>
               )}
             </div>
+            {/* Map + Call action buttons. Previously they were two
+                anchor tags side-by-side with only the parent flex
+                container's `gap-1.5` between them — too tight, users
+                reported accidental taps. Each is now its own padded
+                pill with explicit ml-1 between them and a larger tap
+                target. */}
             {booking.center.mapUrl && (
               <a
                 href={booking.center.mapUrl}
                 target="_blank"
                 rel="noreferrer"
-                className="text-[10px] font-medium text-accent hover:text-accent-light flex items-center gap-0.5 flex-shrink-0"
+                className="ml-1 inline-flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-medium text-accent bg-accent/10 hover:bg-accent/20 active:scale-95 flex-shrink-0"
               >
-                Map
+                <MapPin className="w-2.5 h-2.5" /> Map
               </a>
             )}
             {booking.center.contactPhone && (
               <a
                 href={`tel:${booking.center.contactPhone}`}
-                className="text-[10px] font-medium text-accent hover:text-accent-light flex items-center gap-0.5 flex-shrink-0"
+                className="ml-1.5 inline-flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-medium text-accent bg-accent/10 hover:bg-accent/20 active:scale-95 flex-shrink-0"
               >
                 <Phone className="w-2.5 h-2.5" /> Call
               </a>

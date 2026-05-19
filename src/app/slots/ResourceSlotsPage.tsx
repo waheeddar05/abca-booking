@@ -32,8 +32,25 @@ import {
   Users,
   UserCog,
   LayoutGrid,
+  Target,
+  Goal,
+  Hand,
+  GraduationCap,
   Package as PackageIcon,
 } from 'lucide-react';
+
+/**
+ * Center-agnostic display of a MachineType. Toplay rebranded the
+ * Leverage tennis machine as "Master 200" (UI-only); ball type is
+ * surfaced inline so users see "<Machine> (Leather|Tennis)" everywhere
+ * the machine is named.
+ */
+function formatMachineDisplayName(name: string, ballType: string | null | undefined): string {
+  const displayName = /leverage/i.test(name) ? 'Master 200' : name;
+  const ball = (ballType || '').toUpperCase();
+  const ballLabel = ball === 'LEATHER' ? 'Leather' : ball === 'TENNIS' ? 'Tennis' : ball.toLowerCase();
+  return ballLabel ? `${displayName} (${ballLabel})` : displayName;
+}
 import { useRouter } from 'next/navigation';
 import { useSession } from 'next-auth/react';
 import { useToast } from '@/components/ui/Toast';
@@ -254,7 +271,7 @@ function describeResourceType(type: string | null | undefined): string {
 // stays NET for back-compat.
 const CATEGORIES: Array<{ key: Category; label: string; icon: typeof Settings2; sub: string }> = [
   { key: 'MACHINE',         label: 'Bowling Machine',     icon: Settings2,  sub: 'Yantra / Leverage' },
-  { key: 'NET',             label: 'Cricket Nets Booking', icon: LayoutGrid, sub: 'Bare net for self practice' },
+  { key: 'NET',             label: 'Cricket Nets',         icon: LayoutGrid, sub: 'Bare net for self practice' },
   { key: 'SIDEARM',         label: 'Sidearm',             icon: Users,      sub: 'Bowled by a specialist' },
   { key: 'COACHING',        label: 'Personal Coaching',   icon: UserCog,    sub: 'With a coach' },
   // CORPORATE_BATCH intentionally hidden — kept as a DB enum value
@@ -819,7 +836,7 @@ export default function ResourceSlotsPage() {
       if (!s.fullCourtAvailable) {
         return {
           ok: false,
-          reason: s.corporateBatchHolds > 0 ? 'Corporate batch holds the indoor pool' : 'Not all indoor nets are free',
+          reason: s.corporateBatchHolds > 0 ? 'Corporate batch holds the indoor pool' : 'Not Available',
         };
       }
       return { ok: true };
@@ -1347,6 +1364,12 @@ export default function ResourceSlotsPage() {
         <label className="block text-[10px] font-medium text-accent mb-1 uppercase tracking-wider">
           Session Type
         </label>
+        {/* Session category tiles. Icon + label are left-aligned so the
+            row reads like a list of options, not a row of centered
+            chips — admins specifically asked for the icon-left layout
+            so Bowling Machine / Cricket Nets / Full Indoor Court /
+            Sidearm have a visual anchor on the left, with the name
+            text aligned underneath each other. */}
         <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
           {CATEGORIES.filter(
             ({ key }) => !data?.enabledCategories || data.enabledCategories.includes(key),
@@ -1356,13 +1379,17 @@ export default function ResourceSlotsPage() {
               <button
                 key={key}
                 onClick={() => setCategory(key)}
-                className={`flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-xs font-semibold transition-all cursor-pointer min-w-0 ${
+                className={`flex items-center justify-start gap-2 px-3 py-2.5 rounded-lg text-xs font-semibold transition-all cursor-pointer min-w-0 text-left ${
                   active
                     ? 'bg-accent text-primary shadow-sm'
                     : 'bg-white/[0.04] text-slate-400 border border-white/[0.08] hover:border-accent/20'
                 }`}
               >
-                <Icon className="w-3.5 h-3.5 flex-shrink-0" />
+                <div className={`w-7 h-7 rounded-md flex items-center justify-center flex-shrink-0 ${
+                  active ? 'bg-primary/15' : 'bg-white/[0.04]'
+                }`}>
+                  <Icon className={`w-4 h-4 ${active ? 'text-primary' : 'text-accent'}`} />
+                </div>
                 <span className="truncate">{label}</span>
               </button>
             );
@@ -1384,20 +1411,28 @@ export default function ResourceSlotsPage() {
               No machines configured at this center yet.
             </span>
           ) : (
-            <div className="flex flex-wrap gap-2">
+            // Equal-width machine cards. The previous wrap-with-pills
+            // layout produced uneven widths because each pill sized to
+            // its content. A 2-column grid (single column on phone-
+            // narrow) gives every machine the same footprint and lines
+            // them up visually — admins specifically asked for this.
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
               {filteredMachines.map((m) => {
                 const active = machineId === m.id;
                 const imageUrl = m.machineType.imageUrl;
+                const ballLabel = m.machineType.ballType.charAt(0)
+                  + m.machineType.ballType.slice(1).toLowerCase(); // 'LEATHER' → 'Leather'
+                // Display name: prefer the machine row's own name
+                // (e.g. 'Master 200') over the machine type name
+                // (e.g. 'Leverage Tennis'). Falls back to the type
+                // name when the row has no specific name set.
+                const displayName = m.name || m.machineType.name;
                 const surface = describeResourceType(m.resource?.type);
-                const subParts = [
-                  m.machineType.ballType.toLowerCase(),
-                  m.resource ? `${surface}: ${m.resource.name}` : null,
-                ].filter(Boolean);
                 return (
                   <button
                     key={m.id}
                     onClick={() => setMachineId(active ? null : m.id)}
-                    className={`flex items-center gap-2 pl-1.5 pr-3 py-1 rounded-lg text-xs font-semibold border cursor-pointer transition-all max-w-[16rem] min-w-0 ${
+                    className={`flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-semibold border cursor-pointer transition-all min-w-0 text-left ${
                       active
                         ? 'bg-accent text-primary border-accent shadow-sm'
                         : 'bg-white/[0.04] text-slate-300 border-white/[0.08] hover:border-accent/30'
@@ -1406,21 +1441,25 @@ export default function ResourceSlotsPage() {
                     {imageUrl ? (
                       <Image
                         src={imageUrl}
-                        alt={m.machineType.name}
-                        width={28}
-                        height={28}
-                        className="w-7 h-7 rounded-md object-cover bg-white/5 flex-shrink-0"
+                        alt={displayName}
+                        width={32}
+                        height={32}
+                        className="w-8 h-8 rounded-md object-cover bg-white/5 flex-shrink-0"
                       />
                     ) : (
-                      <div className="w-7 h-7 rounded-md bg-white/5 flex items-center justify-center flex-shrink-0">
-                        <Settings2 className={`w-3.5 h-3.5 ${active ? 'text-primary/70' : 'text-slate-500'}`} />
+                      <div className="w-8 h-8 rounded-md bg-white/5 flex items-center justify-center flex-shrink-0">
+                        <Settings2 className={`w-4 h-4 ${active ? 'text-primary/70' : 'text-slate-500'}`} />
                       </div>
                     )}
-                    <span className="leading-tight text-left min-w-0">
-                      <span className="block truncate">{m.machineType.name}</span>
-                      <span className={`block text-[10px] font-medium truncate ${active ? 'text-primary/70' : 'text-slate-500'}`}>
-                        {subParts.join(' · ')}
+                    <span className="leading-tight text-left min-w-0 flex-1">
+                      <span className="block truncate">
+                        {displayName} ({ballLabel})
                       </span>
+                      {m.resource && (
+                        <span className={`block text-[10px] font-medium truncate ${active ? 'text-primary/70' : 'text-slate-500'}`}>
+                          {surface}: {m.resource.name}
+                        </span>
+                      )}
                     </span>
                   </button>
                 );
