@@ -98,9 +98,18 @@ export const DEFAULT_PRICING_CONFIG: PricingConfig = {
   },
 };
 
+// Continuous default — morning slab ends exactly where the evening
+// slab begins so the generated slot grid has no holes. The previous
+// default (evening start = 19:00) cut a 2-hour gap out of the daily
+// timetable, leaving 17:00–19:00 with no bookable slots on any
+// center that hadn't overridden TIME_SLAB_CONFIG. ABCA worked around
+// that by setting its global Policy at install time; resource-based
+// centers (Toplay) inherited the gap because they read CenterPolicy
+// only and there was nothing to override. Closing the default avoids
+// the per-center configuration step entirely.
 export const DEFAULT_TIME_SLABS: TimeSlabConfig = {
   morning: { start: '07:00', end: '17:00' },
-  evening: { start: '19:00', end: '22:30' },
+  evening: { start: '17:00', end: '22:30' },
 };
 
 /**

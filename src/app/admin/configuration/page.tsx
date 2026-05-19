@@ -87,9 +87,13 @@ const DEFAULT_PRICING: PricingConfig = {
   },
 };
 
+// Kept in sync with src/lib/pricing.ts → DEFAULT_TIME_SLABS so the
+// admin form pre-populates with the same continuous slabs the engine
+// uses when CenterPolicy isn't set. The previous 17:00–19:00 gap left
+// resource-based centers with no bookable slots in that window.
 const DEFAULT_TIME_SLABS: TimeSlabConfig = {
   morning: { start: '07:00', end: '17:00' },
-  evening: { start: '19:00', end: '22:30' },
+  evening: { start: '17:00', end: '22:30' },
 };
 
 const DEFAULT_MACHINE_PITCH_CONFIG: MachinePitchConfig = {

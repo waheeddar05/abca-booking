@@ -53,10 +53,13 @@ describe('getTimeSlab', () => {
     expect(getTimeSlab(eveningSlot, timeSlabs)).toBe('evening');
   });
 
-  it('returns morning for slots in the gap between morning end and evening start', () => {
-    // 17:30 IST = 12:00 UTC (in the gap)
-    const gapSlot = new Date('2026-01-15T12:00:00.000Z');
-    expect(getTimeSlab(gapSlot, timeSlabs)).toBe('morning');
+  it('returns evening for slots at the morning/evening boundary (no gap in default)', () => {
+    // 17:30 IST = 12:00 UTC. Default slabs are now continuous
+    // (morning 07:00–17:00 → evening 17:00–22:30), so 17:30 sits
+    // inside the evening slab. Older defaults left a 17:00–19:00
+    // gap which fell through to morning; that gap is gone.
+    const eveningSlot = new Date('2026-01-15T12:00:00.000Z');
+    expect(getTimeSlab(eveningSlot, timeSlabs)).toBe('evening');
   });
 
   it('accepts ISO string input', () => {
