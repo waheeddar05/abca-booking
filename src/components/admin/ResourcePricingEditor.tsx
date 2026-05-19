@@ -58,7 +58,22 @@ type SlabRatePair = { single: number; consecutive: number };
 type PairSlabRates = { morning: SlabRatePair; evening: SlabRatePair };
 
 interface ResourcePricingValue {
+  /**
+   * Category-level defaults. MACHINE/SIDEARM/NET/CORPORATE_BATCH keep
+   * the legacy flat {morning, evening} shape because admins configure
+   * those via more-specific per-pitch / per-machine matrices below.
+   * COACHING + FULL_COURT use pair-shaped {single, consecutive} so the
+   * 'Other categories' editor can offer 4 cells per category (matches
+   * the cricket-net / sidearm UX requested by admins).
+   */
   categoryRates: Record<CategoryKey, SlabRates>;
+  /** Pair-shaped overrides for the per-category 4-cell editor. When
+   *  present these win over `categoryRates` for that category. Engine's
+   *  `pickRate` already accepts both flat numbers and pair shapes, so
+   *  storing them as PairSlabRates is purely a UI / data convenience —
+   *  no engine change needed on top of the per-category fallback. */
+  coachingRate?: PairSlabRates;
+  fullCourtRate?: PairSlabRates;
   /** Coarse legacy override per machine type — used as fallback when
    *  `machinePricing` doesn't have an entry for a (pitch, ball) combo. */
   machineTypeOverrides?: Record<string, SlabRates>;
@@ -78,6 +93,12 @@ interface ResourcePricingValue {
    *  sidearmPricing — bare-net bookings can also be priced with a
    *  back-to-back discount. */
   netPricing?: Partial<Record<PitchKey, PairSlabRates>>;
+  /** coachingPricing[pitch] → pair rates. Per-pitch override for
+   *  Personal Coaching bookings, mirroring sidearm + net. Empty rows
+   *  fall through to `coachingRate` (category-level pair). The
+   *  engine consults this when category=COACHING and the booking
+   *  carries a pitchType. */
+  coachingPricing?: Partial<Record<PitchKey, PairSlabRates>>;
 }
 
 interface CenterMachineLite {
@@ -190,11 +211,24 @@ function normalize(raw: Partial<ResourcePricingValue> | null | undefined): Resou
   }
   return {
     categoryRates: filled,
+    // Per-category pair-shaped overrides. Coalesce from either the
+    // dedicated pair fields (coachingRate / fullCourtRate) or lift
+    // the legacy flat categoryRates entry so existing centers don't
+    // see the editor reset to 0 on first load.
+    coachingRate: safePairRates(
+      raw?.coachingRate
+      ?? (raw?.categoryRates as Record<string, unknown> | undefined)?.COACHING,
+    ),
+    fullCourtRate: safePairRates(
+      raw?.fullCourtRate
+      ?? (raw?.categoryRates as Record<string, unknown> | undefined)?.FULL_COURT,
+    ),
     machineTypeOverrides: overrides,
     machinePricing: (raw?.machinePricing ?? {}) as ResourcePricingValue['machinePricing'],
     machineRowPricing: (raw?.machineRowPricing ?? {}) as ResourcePricingValue['machineRowPricing'],
     sidearmPricing: normalisePerPitch(raw?.sidearmPricing),
     netPricing: normalisePerPitch(raw?.netPricing),
+    coachingPricing: normalisePerPitch(raw?.coachingPricing),
   };
 }
 
@@ -415,34 +449,76 @@ export function ResourcePricingEditor({
         }}
       />
 
+      {/* Personal Coaching per-pitch — pair-shaped, mirrors sidearm
+          + net. Empty rows fall back to the COACHING category rate
+          below. */}
+      <SimplePitchSection
+        title="Personal coaching — per pitch"
+        rates={(value.coachingPricing ?? {}) as Partial<Record<PitchKey, PairSlabRates>>}
+        onChange={(pitch, slab, kind, n) => {
+          setValue((prev) => {
+            const next = { ...(prev.coachingPricing ?? {}) } as Partial<Record<PitchKey, PairSlabRates>>;
+            const prevCell = next[pitch] ?? {
+              morning: { single: 0, consecutive: 0 },
+              evening: { single: 0, consecutive: 0 },
+            };
+            next[pitch] = {
+              ...prevCell,
+              [slab]: { ...prevCell[slab], [kind]: n },
+            };
+            return { ...prev, coachingPricing: next };
+          });
+        }}
+        onClear={(pitch) => {
+          setValue((prev) => {
+            const next = { ...(prev.coachingPricing ?? {}) } as Partial<Record<PitchKey, PairSlabRates>>;
+            delete next[pitch];
+            return { ...prev, coachingPricing: next };
+          });
+        }}
+      />
+
       {/* Other categories — Personal Coaching + Full Indoor Court.
-          These don't vary by machine or pitch the way MACHINE/SIDEARM/
-          NET do, so a single morning/evening price per category is
-          enough. CORPORATE_BATCH was dropped from the admin-editable
-          list — it stays in the DB enum for back-compat but the price
-          column is no longer surfaced. */}
+          Now 4-cell each (Morning Single/2 Cons. + Evening Single/2
+          Cons.) so admins can give consecutive-slot discounts the
+          same way cricket nets / sidearm allow. CORPORATE_BATCH was
+          dropped earlier; the DB enum stays for back-compat. */}
       <div className="space-y-2 pt-3 border-t border-white/[0.04]">
         <div className="text-[10px] uppercase tracking-wider text-slate-500 font-semibold">
-          Other categories
+          Category defaults
         </div>
-        <div className="grid grid-cols-[1fr_auto_auto] gap-2 sm:gap-3 items-center text-[10px] uppercase tracking-wider text-slate-500">
+        <p className="text-[10px] text-slate-500 leading-relaxed">
+          Used when no per-pitch rate is set above (Coaching) or for the
+          one-off Full Indoor Court category. 2 Cons. is the TOTAL for
+          a back-to-back pair; per-slot in a chain = total / 2.
+        </p>
+        <div className="grid grid-cols-[1fr_auto_auto_auto_auto] gap-1.5 sm:gap-2 items-center text-[10px] uppercase tracking-wider text-slate-500">
           <div>Category</div>
-          <div className="w-20 sm:w-28 text-center">Morning</div>
-          <div className="w-20 sm:w-28 text-center">Evening</div>
+          <div className="w-16 sm:w-20 text-center">M. Single</div>
+          <div className="w-16 sm:w-20 text-center">M. 2 Cons.</div>
+          <div className="w-16 sm:w-20 text-center">E. Single</div>
+          <div className="w-16 sm:w-20 text-center">E. 2 Cons.</div>
         </div>
-        {(['COACHING', 'FULL_COURT'] as const).map((cat) => (
-          <div key={cat} className="grid grid-cols-[1fr_auto_auto] gap-2 sm:gap-3 items-center">
-            <div className="text-xs sm:text-sm text-white truncate">{CATEGORY_LABELS[cat]}</div>
-            <PriceInput
-              value={value.categoryRates[cat].morning}
-              onChange={(n) => setRate(cat, 'morning', n)}
-            />
-            <PriceInput
-              value={value.categoryRates[cat].evening}
-              onChange={(n) => setRate(cat, 'evening', n)}
-            />
-          </div>
-        ))}
+        {(
+          [
+            { key: 'COACHING' as const,   read: () => value.coachingRate!,   write: (next: PairSlabRates) => setValue((prev) => ({ ...prev, coachingRate: next })) },
+            { key: 'FULL_COURT' as const, read: () => value.fullCourtRate!, write: (next: PairSlabRates) => setValue((prev) => ({ ...prev, fullCourtRate: next })) },
+          ]
+        ).map(({ key, read, write }) => {
+          const cell = read();
+          const update = (slab: 'morning' | 'evening', kind: 'single' | 'consecutive', n: number) => {
+            write({ ...cell, [slab]: { ...cell[slab], [kind]: n } });
+          };
+          return (
+            <div key={key} className="grid grid-cols-[1fr_auto_auto_auto_auto] gap-1.5 sm:gap-2 items-center">
+              <div className="text-xs sm:text-sm text-white truncate">{CATEGORY_LABELS[key]}</div>
+              <PriceInput value={cell.morning.single}      onChange={(n) => update('morning', 'single', n)} />
+              <PriceInput value={cell.morning.consecutive} onChange={(n) => update('morning', 'consecutive', n)} />
+              <PriceInput value={cell.evening.single}      onChange={(n) => update('evening', 'single', n)} />
+              <PriceInput value={cell.evening.consecutive} onChange={(n) => update('evening', 'consecutive', n)} />
+            </div>
+          );
+        })}
       </div>
 
       {/* Save bar */}
@@ -739,52 +815,75 @@ function SimplePitchSection({
   ) => void;
   onClear: (pitch: PitchKey) => void;
 }) {
+  // Responsive layout. On wide screens (sm+) we keep the dense 1-row
+  // grid (pitch · 4 prices · clear). On mobile we stack each pitch as
+  // a card with a 2×2 grid of labeled inputs so the four prices stay
+  // readable without horizontal scroll. Admins reported the dense
+  // grid was cramped on phone-sized screens.
   return (
     <div className="space-y-2 pt-3 border-t border-white/[0.04]">
       <div className="text-[10px] uppercase tracking-wider text-slate-500 font-semibold">
         {title}
       </div>
-      {/* Column header — two columns per slab (single | consecutive total)
-          so admins can price back-to-back pairs at a discount. */}
-      <div className="grid grid-cols-[1fr_auto_auto_auto_auto_auto] gap-1.5 sm:gap-2 items-center text-[10px] uppercase tracking-wider text-slate-500">
+
+      {/* Desktop header row — hidden on mobile (we use card titles instead). */}
+      <div className="hidden sm:grid grid-cols-[1fr_repeat(4,minmax(0,_5rem))_auto] gap-2 items-center text-[10px] uppercase tracking-wider text-slate-500">
         <div>Pitch</div>
-        <div className="w-16 sm:w-20 text-center">M. Single</div>
-        <div className="w-16 sm:w-20 text-center">M. 2 Cons.</div>
-        <div className="w-16 sm:w-20 text-center">E. Single</div>
-        <div className="w-16 sm:w-20 text-center">E. 2 Cons.</div>
+        <div className="text-center">M. Single</div>
+        <div className="text-center">M. 2 Cons.</div>
+        <div className="text-center">E. Single</div>
+        <div className="text-center">E. 2 Cons.</div>
         <div className="w-7" />
       </div>
+
       {PITCH_KEYS.map((pitch) => {
         const cell = rates[pitch];
         const has = cell != null;
         return (
-          <div key={pitch} className="grid grid-cols-[1fr_auto_auto_auto_auto_auto] gap-1.5 sm:gap-2 items-center">
-            <div className="text-xs sm:text-sm text-white truncate">{PITCH_LABELS[pitch]}</div>
-            <PriceInput
-              value={cell?.morning?.single ?? 0}
-              onChange={(n) => onChange(pitch, 'morning', 'single', n)}
-            />
-            <PriceInput
-              value={cell?.morning?.consecutive ?? 0}
-              onChange={(n) => onChange(pitch, 'morning', 'consecutive', n)}
-            />
-            <PriceInput
-              value={cell?.evening?.single ?? 0}
-              onChange={(n) => onChange(pitch, 'evening', 'single', n)}
-            />
-            <PriceInput
-              value={cell?.evening?.consecutive ?? 0}
-              onChange={(n) => onChange(pitch, 'evening', 'consecutive', n)}
-            />
-            <button
-              type="button"
-              onClick={() => onClear(pitch)}
-              disabled={!has}
-              className="p-1.5 rounded-lg text-red-400/70 hover:bg-red-500/10 hover:text-red-400 cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
-              title="Clear (fall back to category default)"
-            >
-              <Trash2 className="w-3.5 h-3.5" />
-            </button>
+          <div
+            key={pitch}
+            className="rounded-lg sm:rounded-none sm:bg-transparent sm:border-0 sm:p-0 bg-white/[0.02] border border-white/[0.05] p-3"
+          >
+            {/* Desktop: single row. Mobile: header line + 2x2 input grid below. */}
+            <div className="hidden sm:grid grid-cols-[1fr_repeat(4,minmax(0,_5rem))_auto] gap-2 items-center">
+              <div className="text-sm text-white truncate">{PITCH_LABELS[pitch]}</div>
+              <PriceInput value={cell?.morning?.single ?? 0}      onChange={(n) => onChange(pitch, 'morning', 'single', n)} />
+              <PriceInput value={cell?.morning?.consecutive ?? 0} onChange={(n) => onChange(pitch, 'morning', 'consecutive', n)} />
+              <PriceInput value={cell?.evening?.single ?? 0}      onChange={(n) => onChange(pitch, 'evening', 'single', n)} />
+              <PriceInput value={cell?.evening?.consecutive ?? 0} onChange={(n) => onChange(pitch, 'evening', 'consecutive', n)} />
+              <button
+                type="button"
+                onClick={() => onClear(pitch)}
+                disabled={!has}
+                className="p-1.5 rounded-lg text-red-400/70 hover:bg-red-500/10 hover:text-red-400 cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
+                title="Clear (fall back to category default)"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+              </button>
+            </div>
+
+            {/* Mobile: stacked card layout. Pitch name + clear on top,
+                then 2×2 grid of labeled inputs. */}
+            <div className="sm:hidden">
+              <div className="flex items-center justify-between mb-2">
+                <div className="text-sm font-semibold text-white">{PITCH_LABELS[pitch]}</div>
+                <button
+                  type="button"
+                  onClick={() => onClear(pitch)}
+                  disabled={!has}
+                  className="p-1.5 rounded-lg text-red-400/70 hover:bg-red-500/10 hover:text-red-400 cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
+                  title="Clear (fall back to category default)"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                </button>
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <LabeledPriceInput label="M. Single"   value={cell?.morning?.single ?? 0}      onChange={(n) => onChange(pitch, 'morning', 'single', n)} />
+                <LabeledPriceInput label="M. 2 Cons."  value={cell?.morning?.consecutive ?? 0} onChange={(n) => onChange(pitch, 'morning', 'consecutive', n)} />
+                <LabeledPriceInput label="E. Single"   value={cell?.evening?.single ?? 0}      onChange={(n) => onChange(pitch, 'evening', 'single', n)} />
+                <LabeledPriceInput label="E. 2 Cons."  value={cell?.evening?.consecutive ?? 0} onChange={(n) => onChange(pitch, 'evening', 'consecutive', n)} />
+              </div>
+            </div>
           </div>
         );
       })}

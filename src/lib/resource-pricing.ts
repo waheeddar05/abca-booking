@@ -77,6 +77,18 @@ export interface ResourcePricingConfig {
   sidearmPricing?: Record<string, PerSlabRates>;
   /** Per-pitch override for NET (cricket nets) bookings. Falls back to categoryRates.NET. */
   netPricing?: Record<string, PerSlabRates>;
+  /** Per-pitch override for COACHING bookings. Falls back to coachingRate
+   *  (pair-shaped category default) then categoryRates.COACHING. Mirrors
+   *  the sidearm / net per-pitch shape the admin sees in the editor. */
+  coachingPricing?: Record<string, PerSlabRates>;
+  /** Category-level COACHING rate as a pair-shaped {single, consecutive}.
+   *  Distinct from categoryRates.COACHING (which is the flat-number
+   *  legacy default) so the 4-cell editor can write a real pair without
+   *  having to widen every category rate. */
+  coachingRate?: PerSlabRates;
+  /** Same pattern for Full Indoor Court. Lets admins price the
+   *  back-to-back court rental at a discount. */
+  fullCourtRate?: PerSlabRates;
   /** Free-form notes the admin can leave for themselves. Not rendered. */
   notes?: string;
 }
@@ -239,6 +251,22 @@ export async function getResourceSlotPrice(args: PriceLookup): Promise<number> {
   if (args.category === 'NET' && args.pitchType) {
     const v = pricing.netPricing?.[args.pitchType];
     const r = pickRate(v?.[slab], cons);
+    if (r != null) return r;
+  }
+  // Coaching cascade: per-pitch override → pair-shaped category default
+  // (coachingRate) → legacy categoryRates.COACHING fallback below.
+  if (args.category === 'COACHING') {
+    if (args.pitchType) {
+      const v = pricing.coachingPricing?.[args.pitchType];
+      const r = pickRate(v?.[slab], cons);
+      if (r != null) return r;
+    }
+    const r = pickRate(pricing.coachingRate?.[slab], cons);
+    if (r != null) return r;
+  }
+  // Full court pair-shaped category override → legacy fallback below.
+  if (args.category === 'FULL_COURT') {
+    const r = pickRate(pricing.fullCourtRate?.[slab], cons);
     if (r != null) return r;
   }
 
