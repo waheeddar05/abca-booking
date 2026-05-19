@@ -710,7 +710,12 @@ export default function ResourceSlotsPage() {
       if (machineId && (s.busyMachineIds ?? []).includes(machineId)) {
         return { ok: false, reason: 'This machine is already booked at this slot' };
       }
-      if (s.freeIndoorNets.length === 0 && s.freeOutdoorResources.length === 0) {
+      // pickNetFor (server) only picks from the indoor pool. Saying
+      // "Open" when only outdoor resources remain would 409 at submit.
+      // The N concurrent bookings cap == N indoor nets — every
+      // category (MACHINE / SIDEARM / COACHING / NET) draws from the
+      // same indoor pool.
+      if (s.freeIndoorNets.length === 0) {
         return { ok: false, reason: 'All nets are taken at this slot' };
       }
       // Operator gating — only for non-tennis (leather) machines. Tennis
@@ -748,7 +753,10 @@ export default function ResourceSlotsPage() {
       return { ok: true };
     }
     if (cat === 'NET') {
-      if (s.freeIndoorNets.length === 0 && s.freeOutdoorResources.length === 0) {
+      // Same indoor-only constraint as MACHINE — pickNetFor doesn't
+      // consider outdoor resources. The N-concurrent-bookings rule
+      // (N = number of active indoor nets) is enforced here.
+      if (s.freeIndoorNets.length === 0) {
         return { ok: false, reason: 'No nets free' };
       }
       return { ok: true };

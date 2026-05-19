@@ -758,20 +758,33 @@ function AdminBookingsContent() {
                       )}
                     </div>
 
-                    {/* Row 3: Tags */}
+                    {/* Row 3: Tags
+                        Same MACHINE-only gating as BookingCard — ballType
+                        and operationMode are placeholder values on
+                        NET / SIDEARM / COACHING / FULL_COURT /
+                        CORPORATE_BATCH bookings; showing them as chips
+                        was confusing admins ("Sidearm Tennis Operator"
+                        on a sidearm session, etc.). */}
                     <div className="flex flex-wrap items-center gap-1 mb-2">
-                      <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${booking.ballType === 'LEATHER' ? 'bg-red-500/10 text-red-400' :
-                        booking.ballType === 'TENNIS' ? 'bg-green-500/10 text-green-400' :
-                          'bg-blue-500/10 text-blue-400'
-                        }`}>
-                        {booking.ballType}
-                      </span>
-                      {booking.machineId && (
+                      {(!booking.category || booking.category === 'MACHINE') && (
+                        <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${booking.ballType === 'LEATHER' ? 'bg-red-500/10 text-red-400' :
+                          booking.ballType === 'TENNIS' ? 'bg-green-500/10 text-green-400' :
+                            'bg-blue-500/10 text-blue-400'
+                          }`}>
+                          {booking.ballType}
+                        </span>
+                      )}
+                      {booking.machineId && (!booking.category || booking.category === 'MACHINE') && (
                         <span className="text-[10px] px-1.5 py-0.5 rounded bg-white/[0.04] text-slate-400 font-medium">
                           {booking.machineId === 'GRAVITY' ? 'Gravity' : booking.machineId === 'YANTRA' ? 'Yantra' : booking.machineId === 'LEVERAGE_INDOOR' ? 'Tennis In' : 'Tennis Out'}
                         </span>
                       )}
                       {booking.pitchType && (
+                        !booking.category
+                        || booking.category === 'MACHINE'
+                        || booking.category === 'SIDEARM'
+                        || booking.category === 'NET'
+                      ) && (
                         <span className="text-[10px] px-1.5 py-0.5 rounded bg-white/[0.04] text-slate-400 font-medium">
                           {booking.pitchType === 'ASTRO' ? 'Astro' : booking.pitchType === 'CEMENT' ? 'Cement' : 'Natural'}
                         </span>
@@ -816,7 +829,7 @@ function AdminBookingsContent() {
                             : `${booking.resourceAssignments.length} nets`}
                         </span>
                       )}
-                      {booking.operationMode && (
+                      {booking.operationMode && (!booking.category || booking.category === 'MACHINE') && (
                         <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${booking.operationMode === 'SELF_OPERATE' ? 'bg-orange-500/10 text-orange-400' : 'bg-blue-500/10 text-blue-400'}`}>
                           {booking.operationMode === 'SELF_OPERATE' ? 'Self' : 'Operator'}
                         </span>
@@ -833,8 +846,13 @@ function AdminBookingsContent() {
                       )}
                     </div>
 
-                    {/* Operator Assignment */}
-                    {booking.operationMode === 'WITH_OPERATOR' && (
+                    {/* Operator Assignment — MACHINE only. NET / SIDEARM /
+                        COACHING / FULL_COURT / CORPORATE_BATCH have
+                        their staff (coach / specialist) shown above as
+                        chips; surfacing an operator selector on those
+                        rows was misleading. */}
+                    {booking.operationMode === 'WITH_OPERATOR'
+                      && (!booking.category || booking.category === 'MACHINE') && (
                       <div className="flex items-center gap-2 mb-2.5">
                         <span className="text-[10px] text-slate-500">Operator:</span>
                         <select
