@@ -96,7 +96,15 @@ export function pickRate(r: SlabRate | undefined | null, isConsecutive: boolean)
   if (typeof r === 'number') return r;
   if (typeof r === 'object') {
     if (isConsecutive) {
-      return typeof r.consecutive === 'number' ? r.consecutive / 2 : null;
+      // Use the consecutive pair total when it's been set (>0). Treating
+      // 0 / missing as "admin didn't configure a consecutive discount"
+      // lets the editor accept partial input (single only) without
+      // accidentally making back-to-back bookings free. Falls back to
+      // the per-slot single price when no consecutive total is present.
+      if (typeof r.consecutive === 'number' && r.consecutive > 0) {
+        return r.consecutive / 2;
+      }
+      return typeof r.single === 'number' && r.single > 0 ? r.single : null;
     }
     return typeof r.single === 'number' ? r.single : null;
   }

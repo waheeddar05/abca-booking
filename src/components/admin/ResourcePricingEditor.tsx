@@ -69,10 +69,15 @@ interface ResourcePricingValue {
    *  price each one separately. Pair-shaped so ABCA's
    *  single/consecutive convention works here too. */
   machineRowPricing?: Record<string, Partial<Record<PitchKey, Partial<Record<BallKey, PairSlabRates>>>>>;
-  /** sidearmPricing[pitch] → rates. */
-  sidearmPricing?: Partial<Record<PitchKey, SlabRates>>;
-  /** netPricing[pitch] → rates. */
-  netPricing?: Partial<Record<PitchKey, SlabRates>>;
+  /** sidearmPricing[pitch] → pair rates. Pair-shaped so admins can set
+   *  a separate per-slot vs consecutive price for both morning and
+   *  evening — same shape ABCA uses for bowling-machine pricing. The
+   *  engine accepts either flat numbers (legacy) or pairs (current). */
+  sidearmPricing?: Partial<Record<PitchKey, PairSlabRates>>;
+  /** netPricing[pitch] → pair rates. Same single/consecutive shape as
+   *  sidearmPricing — bare-net bookings can also be priced with a
+   *  back-to-back discount. */
+  netPricing?: Partial<Record<PitchKey, PairSlabRates>>;
 }
 
 interface CenterMachineLite {
@@ -125,6 +130,50 @@ function safeRate(v: SlabRates | undefined | null): SlabRates {
   };
 }
 
+/**
+ * Coerce a slab cell into pair shape `{ single, consecutive }`.
+ * Existing policy data was written as flat numbers (legacy editor
+ * shape); on load we lift those to `{ single: <number>, consecutive: 0 }`
+ * so the new 4-cell UI can render them. The engine already accepts
+ * both shapes via `pickRate`, so writing the pair shape back doesn't
+ * break anything reading the same JSON.
+ */
+function toPair(v: unknown): { single: number; consecutive: number } {
+  if (typeof v === 'number') return { single: v, consecutive: 0 };
+  if (v && typeof v === 'object') {
+    const obj = v as { single?: unknown; consecutive?: unknown };
+    return {
+      single: typeof obj.single === 'number' ? obj.single : 0,
+      consecutive: typeof obj.consecutive === 'number' ? obj.consecutive : 0,
+    };
+  }
+  return { single: 0, consecutive: 0 };
+}
+
+function safePairRates(v: unknown): PairSlabRates {
+  const obj = (v ?? {}) as { morning?: unknown; evening?: unknown };
+  return {
+    morning: toPair(obj.morning),
+    evening: toPair(obj.evening),
+  };
+}
+
+/** Normalise a per-pitch map of rates into pair-shaped form. Drops
+ *  unknown pitch keys; leaves missing keys absent (fall-through to
+ *  category default). */
+function normalisePerPitch(
+  raw: unknown,
+): Partial<Record<PitchKey, PairSlabRates>> {
+  if (!raw || typeof raw !== 'object') return {};
+  const out: Partial<Record<PitchKey, PairSlabRates>> = {};
+  for (const key of PITCH_KEYS) {
+    const cell = (raw as Record<string, unknown>)[key];
+    if (cell == null) continue;
+    out[key] = safePairRates(cell);
+  }
+  return out;
+}
+
 function normalize(raw: Partial<ResourcePricingValue> | null | undefined): ResourcePricingValue {
   const base = raw?.categoryRates ?? {};
   const filled: Record<CategoryKey, SlabRates> = {
@@ -144,8 +193,8 @@ function normalize(raw: Partial<ResourcePricingValue> | null | undefined): Resou
     machineTypeOverrides: overrides,
     machinePricing: (raw?.machinePricing ?? {}) as ResourcePricingValue['machinePricing'],
     machineRowPricing: (raw?.machineRowPricing ?? {}) as ResourcePricingValue['machineRowPricing'],
-    sidearmPricing: (raw?.sidearmPricing ?? {}) as ResourcePricingValue['sidearmPricing'],
-    netPricing: (raw?.netPricing ?? {}) as ResourcePricingValue['netPricing'],
+    sidearmPricing: normalisePerPitch(raw?.sidearmPricing),
+    netPricing: normalisePerPitch(raw?.netPricing),
   };
 }
 
@@ -309,42 +358,57 @@ export function ResourcePricingEditor({
         </div>
       )}
 
-      {/* Sidearm per-pitch overrides — only relevant for centers that
-          run sidearm sessions. Empty cells fall back to the SIDEARM
-          category default. */}
+      {/* Sidearm per-pitch overrides — pair-shaped (single/consecutive)
+          so the admin can give back-to-back pairs a discount, same as
+          the ABCA bowling-machine matrix. Empty cells fall back to the
+          SIDEARM category default. */}
       <SimplePitchSection
         title="Sidearm — per pitch"
-        rates={value.sidearmPricing ?? {}}
-        onChange={(pitch, slab, n) => {
+        rates={(value.sidearmPricing ?? {}) as Partial<Record<PitchKey, PairSlabRates>>}
+        onChange={(pitch, slab, kind, n) => {
           setValue((prev) => {
-            const next = { ...(prev.sidearmPricing ?? {}) };
-            next[pitch] = { ...(next[pitch] ?? { morning: 0, evening: 0 }), [slab]: n };
+            const next = { ...(prev.sidearmPricing ?? {}) } as Partial<Record<PitchKey, PairSlabRates>>;
+            const prevCell = next[pitch] ?? {
+              morning: { single: 0, consecutive: 0 },
+              evening: { single: 0, consecutive: 0 },
+            };
+            next[pitch] = {
+              ...prevCell,
+              [slab]: { ...prevCell[slab], [kind]: n },
+            };
             return { ...prev, sidearmPricing: next };
           });
         }}
         onClear={(pitch) => {
           setValue((prev) => {
-            const next = { ...(prev.sidearmPricing ?? {}) };
+            const next = { ...(prev.sidearmPricing ?? {}) } as Partial<Record<PitchKey, PairSlabRates>>;
             delete next[pitch];
             return { ...prev, sidearmPricing: next };
           });
         }}
       />
 
-      {/* Net per-pitch overrides — bare-net booking pricing. */}
+      {/* Net per-pitch overrides — same single/consecutive pair shape. */}
       <SimplePitchSection
         title="Cricket nets booking — per pitch"
-        rates={value.netPricing ?? {}}
-        onChange={(pitch, slab, n) => {
+        rates={(value.netPricing ?? {}) as Partial<Record<PitchKey, PairSlabRates>>}
+        onChange={(pitch, slab, kind, n) => {
           setValue((prev) => {
-            const next = { ...(prev.netPricing ?? {}) };
-            next[pitch] = { ...(next[pitch] ?? { morning: 0, evening: 0 }), [slab]: n };
+            const next = { ...(prev.netPricing ?? {}) } as Partial<Record<PitchKey, PairSlabRates>>;
+            const prevCell = next[pitch] ?? {
+              morning: { single: 0, consecutive: 0 },
+              evening: { single: 0, consecutive: 0 },
+            };
+            next[pitch] = {
+              ...prevCell,
+              [slab]: { ...prevCell[slab], [kind]: n },
+            };
             return { ...prev, netPricing: next };
           });
         }}
         onClear={(pitch) => {
           setValue((prev) => {
-            const next = { ...(prev.netPricing ?? {}) };
+            const next = { ...(prev.netPricing ?? {}) } as Partial<Record<PitchKey, PairSlabRates>>;
             delete next[pitch];
             return { ...prev, netPricing: next };
           });
@@ -646,8 +710,18 @@ function LabeledPriceInput({
 }
 
 /**
- * Compact pitch × slab editor used by SIDEARM and NET (which don't
- * vary by ball type). Three pitch rows × morning/evening + clear.
+ * Compact pitch × slab × consecutive editor used by SIDEARM and NET.
+ * Mirrors the ABCA pricing matrix shape — each pitch row exposes four
+ * cells: Morning Single, Morning Consecutive (per pair), Evening
+ * Single, Evening Consecutive (per pair).
+ *
+ * Convention (consistent with `pickRate` in resource-pricing.ts and
+ * the machine matrix here): `consecutive` is the TOTAL for a 2-slot
+ * pair, so the per-slot price within a consecutive chain is
+ * `consecutive / 2`. `single` is already per-slot. The engine accepts
+ * either flat numbers or `{single, consecutive}` pairs, so leaving
+ * `consecutive` at 0 effectively falls back to category default for
+ * back-to-back chains.
  */
 function SimplePitchSection({
   title,
@@ -656,8 +730,13 @@ function SimplePitchSection({
   onClear,
 }: {
   title: string;
-  rates: Partial<Record<PitchKey, SlabRates>>;
-  onChange: (pitch: PitchKey, slab: 'morning' | 'evening', n: number) => void;
+  rates: Partial<Record<PitchKey, PairSlabRates>>;
+  onChange: (
+    pitch: PitchKey,
+    slab: 'morning' | 'evening',
+    kind: 'single' | 'consecutive',
+    n: number,
+  ) => void;
   onClear: (pitch: PitchKey) => void;
 }) {
   return (
@@ -665,25 +744,37 @@ function SimplePitchSection({
       <div className="text-[10px] uppercase tracking-wider text-slate-500 font-semibold">
         {title}
       </div>
-      <div className="grid grid-cols-[1fr_auto_auto_auto] gap-2 items-center text-[10px] uppercase tracking-wider text-slate-500">
+      {/* Column header — two columns per slab (single | consecutive total)
+          so admins can price back-to-back pairs at a discount. */}
+      <div className="grid grid-cols-[1fr_auto_auto_auto_auto_auto] gap-1.5 sm:gap-2 items-center text-[10px] uppercase tracking-wider text-slate-500">
         <div>Pitch</div>
-        <div className="w-20 sm:w-28 text-center">Morning</div>
-        <div className="w-20 sm:w-28 text-center">Evening</div>
+        <div className="w-16 sm:w-20 text-center">M. Single</div>
+        <div className="w-16 sm:w-20 text-center">M. 2 Cons.</div>
+        <div className="w-16 sm:w-20 text-center">E. Single</div>
+        <div className="w-16 sm:w-20 text-center">E. 2 Cons.</div>
         <div className="w-7" />
       </div>
       {PITCH_KEYS.map((pitch) => {
         const cell = rates[pitch];
         const has = cell != null;
         return (
-          <div key={pitch} className="grid grid-cols-[1fr_auto_auto_auto] gap-2 items-center">
+          <div key={pitch} className="grid grid-cols-[1fr_auto_auto_auto_auto_auto] gap-1.5 sm:gap-2 items-center">
             <div className="text-xs sm:text-sm text-white truncate">{PITCH_LABELS[pitch]}</div>
             <PriceInput
-              value={cell?.morning ?? 0}
-              onChange={(n) => onChange(pitch, 'morning', n)}
+              value={cell?.morning?.single ?? 0}
+              onChange={(n) => onChange(pitch, 'morning', 'single', n)}
             />
             <PriceInput
-              value={cell?.evening ?? 0}
-              onChange={(n) => onChange(pitch, 'evening', n)}
+              value={cell?.morning?.consecutive ?? 0}
+              onChange={(n) => onChange(pitch, 'morning', 'consecutive', n)}
+            />
+            <PriceInput
+              value={cell?.evening?.single ?? 0}
+              onChange={(n) => onChange(pitch, 'evening', 'single', n)}
+            />
+            <PriceInput
+              value={cell?.evening?.consecutive ?? 0}
+              onChange={(n) => onChange(pitch, 'evening', 'consecutive', n)}
             />
             <button
               type="button"
