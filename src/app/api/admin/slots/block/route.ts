@@ -5,7 +5,11 @@ import { dateStringToUTC, formatIST } from '@/lib/time';
 import { isValidMachineId, LEATHER_MACHINES, MACHINES } from '@/lib/constants';
 import { notifyBookingCancelled } from '@/lib/notifications';
 import { resolveCurrentCenter } from '@/lib/centers';
-import type { MachineId } from '@prisma/client';
+import {
+  adjustSiblingPricesForCancellation,
+  processCancellationRefund,
+} from '@/lib/booking-cancellation';
+import type { Booking, MachineId, BookingCategory } from '@prisma/client';
 
 // GET /api/admin/slots/block - List blocked slots at the admin's current center
 export async function GET(req: NextRequest) {
@@ -85,6 +89,7 @@ export async function POST(req: NextRequest) {
       machineRowIds, // Machine.id FKs
       resourceIds,   // Resource.id FKs (block specific nets/wickets)
       categories,    // BookingCategory[] (block all SIDEARM, etc.)
+      netCount,      // Partial cricket-net cap (positive int or null)
     } = body;
 
     if (!startDate || !endDate) {
@@ -158,6 +163,19 @@ export async function POST(req: NextRequest) {
       ? categories.filter((c) => typeof c === 'string' && validBookingCategories.includes(c))
       : [];
 
+    // Validate the partial cricket-net cap. Coerce non-numeric / non-
+    // positive values to null so legacy clients that send `0` or `""`
+    // get the "block all nets" behaviour. Positive integers are clamped
+    // to the indoor-net pool size to keep the engine's bookkeeping
+    // consistent.
+    let validatedNetCount: number | null = null;
+    if (typeof netCount === 'number' && Number.isFinite(netCount) && netCount > 0) {
+      const indoorTotal = await prisma.resource.count({
+        where: { centerId: center.id, type: 'NET', category: 'INDOOR', isActive: true },
+      });
+      validatedNetCount = Math.min(Math.floor(netCount), Math.max(1, indoorTotal));
+    }
+
     // 1. Create a single BlockedSlot record
     const blockedSlot = await prisma.blockedSlot.create({
       data: {
@@ -177,20 +195,26 @@ export async function POST(req: NextRequest) {
         machineRowIds: validatedMachineRowIds,
         resourceIds: validatedResourceIds,
         categories: validatedCategories as any,
+        netCount: validatedNetCount,
       },
     });
 
-    // 2. Find and cancel conflicting bookings
-    const where: any = {
-      date: {
-        gte: start,
-        lte: end,
-      },
+    // 2. Find conflicting bookings. The query is scoped to the block's
+    // center so we never accidentally cancel bookings from a sibling
+    // center the admin doesn't own. Targeting follows two paths in
+    // parallel:
+    //   - Legacy (ABCA / MACHINE_PITCH): machineType / machineId /
+    //     pitchType axes on the Booking row.
+    //   - Resource-based (Toplay): category / assignedMachineId /
+    //     resource assignments. FULL_COURT blocks cascade to every
+    //     indoor-pool category (NET / SIDEARM / MACHINE / FULL_COURT).
+    const where: Record<string, unknown> = {
+      centerId: center.id,
+      date: { gte: start, lte: end },
       status: 'BOOKED',
     };
 
     if (validatedMachineIds.length > 0) {
-      // Multiple specific machines
       where.machineId = { in: validatedMachineIds };
     } else if (validatedMachineId) {
       where.machineId = validatedMachineId;
@@ -209,9 +233,53 @@ export async function POST(req: NextRequest) {
       where.pitchType = pitchType;
     }
 
-    const conflictingBookings = await prisma.booking.findMany({
-      where,
-    });
+    // Resource-based axes — only narrow when the block actually targets
+    // them. Categories include the FULL_COURT cascade (NET / SIDEARM /
+    // MACHINE all get cancelled by a Full-Court block) so the conflict
+    // set matches what the availability engine now refuses to book.
+    const hasResourceBasedTargeting =
+      validatedMachineRowIds.length > 0
+      || validatedResourceIds.length > 0
+      || validatedCategories.length > 0;
+
+    if (hasResourceBasedTargeting) {
+      const orClauses: Record<string, unknown>[] = [];
+
+      // Effective category set with FULL_COURT cascade applied. Mirrors
+      // applyBlocksToAvailability / evaluateBlockForBooking so any
+      // booking the user can't make is the same set we cancel here.
+      const effectiveCategories = new Set<string>(validatedCategories);
+      if (effectiveCategories.has('FULL_COURT') && validatedResourceIds.length === 0) {
+        effectiveCategories.add('NET');
+        effectiveCategories.add('SIDEARM');
+        effectiveCategories.add('MACHINE');
+      }
+      if (effectiveCategories.size > 0) {
+        orClauses.push({ category: { in: Array.from(effectiveCategories) as BookingCategory[] } });
+      }
+
+      if (validatedMachineRowIds.length > 0) {
+        orClauses.push({ assignedMachineId: { in: validatedMachineRowIds } });
+      }
+
+      if (validatedResourceIds.length > 0) {
+        orClauses.push({
+          resourceAssignments: { some: { resourceId: { in: validatedResourceIds } } },
+        });
+      }
+
+      if (orClauses.length > 0) {
+        // OR with any legacy axes already on `where` so a multi-model
+        // block still nets the union of conflicts.
+        if (where.OR) {
+          where.OR = [...(where.OR as Record<string, unknown>[]), ...orClauses];
+        } else {
+          where.OR = orClauses;
+        }
+      }
+    }
+
+    const conflictingBookings: Booking[] = await prisma.booking.findMany({ where });
 
     const bookingsToCancel = conflictingBookings.filter(booking => {
       // For recurring blocks, check if the booking date falls on a recurring day
@@ -235,75 +303,130 @@ export async function POST(req: NextRequest) {
       return bookingStartMin < blockEndMin && bookingEndMin > blockStartMin;
     });
 
-    if (bookingsToCancel.length > 0) {
-      const displayReason = `Cancelled by Admin - ${reason || 'Maintenance'}`;
-      const cancelledByName = `Admin (${admin.name || admin.id})`;
-
-      // Cancel bookings in a transaction
-      await prisma.$transaction(
-        bookingsToCancel.map(booking =>
-          prisma.booking.update({
-            where: { id: booking.id },
-            data: {
-              status: 'CANCELLED',
-              cancelledBy: cancelledByName,
-              cancellationReason: displayReason,
-            }
-          })
-        )
+    // Partial cricket-net block: only cancel the OLDEST `netCount`
+    // bookings that overlap. The newer ones stay — they'll fit into
+    // the remaining capacity. Without this gate, a "block 1 net at
+    // 9 AM" command would cancel every Cricket Net booking at 9 AM,
+    // which is the bug task 5 is fixing.
+    let bookingsToReallyCancel = bookingsToCancel;
+    if (
+      validatedNetCount != null
+      && validatedNetCount > 0
+      && validatedCategories.includes('NET')
+      && validatedResourceIds.length === 0
+    ) {
+      // Sort oldest-first so the deterministic pick is the historical one.
+      const sorted = [...bookingsToCancel].sort(
+        (a, b) => a.createdAt.getTime() - b.createdAt.getTime(),
       );
+      // Only NET bookings consume the partial-net cap.
+      const netBookings = sorted.filter((b) => b.category === 'NET');
+      const others = sorted.filter((b) => b.category !== 'NET');
+      bookingsToReallyCancel = [...netBookings.slice(0, validatedNetCount), ...others];
+    }
 
-      // Send notifications (outside transaction — non-blocking)
-      const notifBookings = bookingsToCancel.filter(b => b.userId);
-      if (notifBookings.length > 0) {
-        // Fetch mobile numbers for all affected users
-        const userIds = [...new Set(notifBookings.map(b => b.userId as string))];
-        const users = await prisma.user.findMany({
-          where: { id: { in: userIds } },
-          select: { id: true, mobileNumber: true, mobileVerified: true },
+    // 3. Cancel each conflicting booking via the shared refund helper.
+    // The helper handles every payment flavour:
+    //   - WALLET-paid → wallet credit
+    //   - ONLINE-paid → wallet credit or Razorpay refund per center policy
+    //   - Package redemption → no monetary refund (session restored below)
+    //   - FREE / CASH → no monetary refund
+    // We never block the API on a single refund failure — failures are
+    // captured and returned alongside the success summary.
+    const cancelledByName = `Admin (${admin.name || admin.id})`;
+    const cancellationReason = `Cancelled by Admin - ${reason || 'Block applied'}`;
+    const refundResults: Array<{
+      bookingId: string;
+      method?: 'WALLET' | 'RAZORPAY';
+      amount?: number;
+      error?: string;
+    }> = [];
+
+    for (const booking of bookingsToReallyCancel) {
+      try {
+        // Reprice consecutive siblings first so the cancelled booking's
+        // refundable amount reflects the lost discount on its siblings.
+        await adjustSiblingPricesForCancellation(booking).catch((e) => {
+          console.warn(`[block.cancel] sibling reprice failed for booking=${booking.id}:`, e);
+          return 0;
         });
-        const userMap = new Map(users.map(u => [u.id, u]));
 
-        await Promise.allSettled(
-          notifBookings.map(booking => {
-            const dateStr = formatIST(new Date(booking.date), 'EEE, dd MMM yyyy');
-            const timeStr = formatIST(new Date(booking.startTime), 'hh:mm a');
-            const endStr = formatIST(new Date(booking.endTime), 'hh:mm a');
-            const machineName = booking.machineId ? (MACHINES[booking.machineId]?.shortName || booking.machineId) : booking.ballType;
-            const lines = [
-              `${dateStr}`,
-              `${timeStr} – ${endStr}`,
-              `Machine: ${machineName}`,
-              `Cancelled by: ${cancelledByName}`,
-              `Reason: ${reason || 'Maintenance'}`,
-            ];
-            const u = userMap.get(booking.userId as string);
-            return notifyBookingCancelled(booking.userId as string, {
-              message: lines.join('\n'),
-              mobileNumber: u?.mobileVerified ? u.mobileNumber : null,
+        await prisma.booking.update({
+          where: { id: booking.id },
+          data: {
+            status: 'CANCELLED',
+            cancelledBy: cancelledByName,
+            cancellationReason,
+          },
+        });
+
+        if (booking.userId) {
+          const refund = await processCancellationRefund({
+            booking,
+            initiatedByUserId: admin.id,
+            initiatedByName: cancelledByName,
+          });
+          if (refund) {
+            refundResults.push({
+              bookingId: booking.id,
+              method: refund.method,
+              amount: refund.amount,
             });
-          })
-        );
-      }
+          } else {
+            refundResults.push({ bookingId: booking.id });
+          }
+        }
 
-      // Restore package sessions for cancelled bookings
-      for (const booking of bookingsToCancel) {
+        // Restore package sessions when the cancelled booking redeemed one.
         const pb = await prisma.packageBooking.findUnique({
-          where: { bookingId: booking.id }
+          where: { bookingId: booking.id },
         });
         if (pb) {
           await prisma.userPackage.update({
             where: { id: pb.userPackageId },
-            data: { usedSessions: { decrement: pb.sessionsUsed } }
+            data: { usedSessions: { decrement: pb.sessionsUsed } },
           });
         }
+
+        // Best-effort cancellation notification.
+        if (booking.userId) {
+          try {
+            const dateStr = formatIST(new Date(booking.date), 'EEE, dd MMM yyyy');
+            const timeStr = formatIST(new Date(booking.startTime), 'hh:mm a');
+            const endStr = formatIST(new Date(booking.endTime), 'hh:mm a');
+            const machineName = booking.machineId
+              ? (MACHINES[booking.machineId]?.shortName || booking.machineId)
+              : (booking.ballType ?? booking.category ?? 'Session');
+            const u = await prisma.user.findUnique({
+              where: { id: booking.userId },
+              select: { mobileNumber: true, mobileVerified: true },
+            });
+            await notifyBookingCancelled(booking.userId, {
+              message: [
+                `${dateStr}`,
+                `${timeStr} – ${endStr}`,
+                `Machine: ${machineName}`,
+                `Cancelled by: ${cancelledByName}`,
+                `Reason: ${reason || 'Block applied'}`,
+              ].join('\n'),
+              mobileNumber: u?.mobileVerified ? u.mobileNumber : null,
+            });
+          } catch (notifErr) {
+            console.warn(`[block.cancel] notify failed for booking=${booking.id}:`, notifErr);
+          }
+        }
+      } catch (cancelErr) {
+        const msg = cancelErr instanceof Error ? cancelErr.message : String(cancelErr);
+        console.error(`[block.cancel] failed to cancel booking=${booking.id}:`, cancelErr);
+        refundResults.push({ bookingId: booking.id, error: msg });
       }
     }
 
     return NextResponse.json({
       message: 'Slots blocked successfully',
       blockedSlot,
-      cancelledBookingsCount: bookingsToCancel.length
+      cancelledBookingsCount: bookingsToReallyCancel.length,
+      refundResults,
     });
 
   } catch (error) {
@@ -347,6 +470,7 @@ export async function PUT(req: NextRequest) {
       resourceIds,
       categories,
       recurringDays,
+      netCount,
     } = body;
 
     if (!id) {
@@ -434,6 +558,18 @@ export async function PUT(req: NextRequest) {
       updateData.categories = categories.filter(
         (c: unknown): c is string => typeof c === 'string' && validBookingCategories.includes(c),
       );
+    }
+
+    // Partial cricket-net cap: explicit null clears the override; a
+    // positive integer overwrites it. Anything else is left untouched
+    // so legacy PUT payloads without the field keep working.
+    if (netCount === null) {
+      updateData.netCount = null;
+    } else if (typeof netCount === 'number' && Number.isFinite(netCount) && netCount > 0) {
+      const indoorTotal = await prisma.resource.count({
+        where: { centerId: existing.centerId, type: 'NET', category: 'INDOOR', isActive: true },
+      });
+      updateData.netCount = Math.min(Math.floor(netCount), Math.max(1, indoorTotal));
     }
 
     const updated = await prisma.blockedSlot.update({

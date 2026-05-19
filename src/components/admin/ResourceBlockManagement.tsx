@@ -80,12 +80,37 @@ interface BlockedSlotRow {
   machineRowIds: string[];
   resourceIds: string[];
   categories: string[];
+  /**
+   * Partial cricket-net blocking. Null = block all indoor nets at this
+   * window (legacy behaviour); positive integer = block that many out
+   * of the pool. Surfaced in the UI as the "Number of Nets to Block"
+   * input under the Cricket Nets category.
+   */
+  netCount: number | null;
   // Legacy fields kept on the row for super-admin debugging — not
   // editable from this UI.
   machineId: string | null;
   machineIds: string[];
   machineType: string | null;
   pitchType: string | null;
+}
+
+/**
+ * User-facing label for each Resource.type. Mirrors CenterResourcesTab
+ * so admins see the same surface name everywhere (the booking screen,
+ * the resource manager, and this block-slot UI). Avoids drift between
+ * "Indoor Net" / "Outdoor Net" admin labels and "Indoor Astro Turf /
+ * Natural Turf / Cement Wicket" user labels.
+ */
+const RESOURCE_TYPE_LABELS: Record<string, string> = {
+  NET: 'Indoor Astro Turf',
+  TURF_WICKET: 'Natural Turf',
+  CEMENT_WICKET: 'Cement Wicket',
+  COURT: 'Full Court',
+};
+
+function resourceTypeLabel(type: string): string {
+  return RESOURCE_TYPE_LABELS[type] ?? type;
 }
 
 interface EditForm {
@@ -100,6 +125,8 @@ interface EditForm {
   pickedResourceIds: string[];
   reason: string;
   appliesTo: 'ALL' | 'SPECIAL' | 'NON_SPECIAL';
+  /** Empty string = "all nets" (legacy); a number = block that many. */
+  netCount: string;
 }
 
 // Convert a stored TIME column (`1970-01-01THH:MM:00Z` UTC, stored at IST
@@ -142,6 +169,11 @@ export function ResourceBlockManagement() {
   const [pickedCategories, setPickedCategories] = useState<string[]>([]);
   const [reason, setReason] = useState('');
   const [appliesTo, setAppliesTo] = useState<'ALL' | 'SPECIAL' | 'NON_SPECIAL'>('ALL');
+  // Partial cricket-net cap. Only meaningful when NET is in the picked
+  // categories AND no specific resources are pinned — admin tells the
+  // engine "reserve N nets, leave the rest bookable". Empty string =
+  // "all nets" (the legacy / default behaviour).
+  const [netCount, setNetCount] = useState<string>('');
 
   // Edit-modal state
   const [editingBlock, setEditingBlock] = useState<BlockedSlotRow | null>(null);
@@ -157,6 +189,7 @@ export function ResourceBlockManagement() {
     pickedResourceIds: [],
     reason: '',
     appliesTo: 'ALL',
+    netCount: '',
   });
   const [editLoading, setEditLoading] = useState(false);
 
@@ -201,6 +234,7 @@ export function ResourceBlockManagement() {
     setPickedCategories([]);
     setReason('');
     setAppliesTo('ALL');
+    setNetCount('');
   };
 
   const submit = async () => {
@@ -225,6 +259,17 @@ export function ResourceBlockManagement() {
     }
     setCreating(true);
     try {
+      // netCount only matters when NET is among the chosen categories
+      // and the admin hasn't pinned specific resources. Empty string =
+      // "block all nets" (engine treats null as the legacy all-nets
+      // behaviour). Non-positive integers also fall back to "all".
+      const netCountParsed =
+        pickedCategories.includes('NET')
+        && pickedResourceIds.length === 0
+        && netCount.trim().length > 0
+          ? Math.max(1, Math.floor(Number(netCount)))
+          : null;
+
       const res = await fetch('/api/admin/slots/block', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -239,6 +284,7 @@ export function ResourceBlockManagement() {
           categories: pickedCategories,
           reason: reason || null,
           appliesTo,
+          netCount: netCountParsed,
         }),
       });
       if (!res.ok) {
@@ -289,6 +335,7 @@ export function ResourceBlockManagement() {
       pickedResourceIds: block.resourceIds || [],
       reason: block.reason || '',
       appliesTo: (block.appliesTo as 'ALL' | 'SPECIAL' | 'NON_SPECIAL') || 'ALL',
+      netCount: block.netCount != null ? String(block.netCount) : '',
     });
   };
 
@@ -315,6 +362,13 @@ export function ResourceBlockManagement() {
     }
     setEditLoading(true);
     try {
+      const editNetCount =
+        editForm.pickedCategories.includes('NET')
+        && editForm.pickedResourceIds.length === 0
+        && editForm.netCount.trim().length > 0
+          ? Math.max(1, Math.floor(Number(editForm.netCount)))
+          : null;
+
       const res = await fetch('/api/admin/slots/block', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
@@ -330,6 +384,7 @@ export function ResourceBlockManagement() {
           categories: editForm.pickedCategories,
           reason: editForm.reason || null,
           appliesTo: editForm.appliesTo,
+          netCount: editNetCount,
         }),
       });
       if (!res.ok) {
@@ -544,31 +599,77 @@ export function ResourceBlockManagement() {
             </div>
           )}
 
-          {/* Resources */}
+          {/* Resources — grouped by type so admins see the standardized
+              "Indoor Astro Turf / Natural Turf / Cement Wicket" labels
+              instead of just the raw resource name. Scopes a machine
+              block to a specific surface (the "Yantra at Outdoor Net"
+              case from task 6). */}
           {resources.length > 0 && (
-            <div className="mb-4">
-              <label className="block text-[10px] font-medium text-slate-400 mb-1.5 uppercase tracking-wider">
+            <div className="mb-4 space-y-2">
+              <label className="block text-[10px] font-medium text-slate-400 mb-0.5 uppercase tracking-wider">
                 Resources (optional)
               </label>
-              <div className="flex flex-wrap gap-1.5">
-                {resources.map((r) => {
-                  const selected = pickedResourceIds.includes(r.id);
-                  return (
-                    <button
-                      key={r.id}
-                      type="button"
-                      onClick={() => setPickedResourceIds((prev) => toggleInArray(prev, r.id))}
-                      className={`px-2.5 py-1.5 rounded-lg text-[11px] font-medium transition-all cursor-pointer ${
-                        selected
-                          ? 'bg-accent/20 text-accent ring-1 ring-accent/30'
-                          : 'bg-white/[0.04] text-slate-400 hover:bg-white/[0.06]'
-                      }`}
-                    >
-                      {r.name}
-                    </button>
-                  );
-                })}
-              </div>
+              <p className="text-[10px] text-slate-500">
+                Pin specific nets/wickets to scope this block. A machine
+                block without a resource pin will apply to every pitch
+                the machine could land on.
+              </p>
+              {Object.entries(
+                resources.reduce<Record<string, CenterResource[]>>((acc, r) => {
+                  const key = r.type;
+                  if (!acc[key]) acc[key] = [];
+                  acc[key].push(r);
+                  return acc;
+                }, {}),
+              ).map(([type, list]) => (
+                <div key={type}>
+                  <p className="text-[10px] font-semibold text-slate-500 mb-1">{resourceTypeLabel(type)}</p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {list.map((r) => {
+                      const selected = pickedResourceIds.includes(r.id);
+                      return (
+                        <button
+                          key={r.id}
+                          type="button"
+                          onClick={() => setPickedResourceIds((prev) => toggleInArray(prev, r.id))}
+                          className={`px-2.5 py-1.5 rounded-lg text-[11px] font-medium transition-all cursor-pointer ${
+                            selected
+                              ? 'bg-accent/20 text-accent ring-1 ring-accent/30'
+                              : 'bg-white/[0.04] text-slate-400 hover:bg-white/[0.06]'
+                          }`}
+                        >
+                          {r.name}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Partial Cricket-Net cap. Only meaningful when Cricket Nets
+              category is selected without a specific resource pin —
+              admin says "reserve N nets, leave the rest bookable". */}
+          {pickedCategories.includes('NET') && pickedResourceIds.length === 0 && (
+            <div className="mb-4">
+              <label className="block text-[10px] font-medium text-slate-400 mb-1 uppercase tracking-wider">
+                Number of Nets to Block (optional)
+              </label>
+              <input
+                type="number"
+                min={1}
+                placeholder="Leave empty to block all nets"
+                value={netCount}
+                onChange={(e) => setNetCount(e.target.value)}
+                className="w-full bg-white/[0.04] border border-white/[0.1] text-white rounded-lg px-2 py-2 text-xs outline-none focus:border-accent placeholder:text-slate-600"
+              />
+              <p className="text-[10px] text-slate-500 mt-1">
+                Empty = block every indoor net (legacy behaviour). Setting
+                a number reserves that many nets and leaves the rest
+                available for booking. Full Indoor Court is auto-unavailable
+                whenever any nets are blocked.
+              </p>
             </div>
           )}
 
@@ -694,7 +795,7 @@ export function ResourceBlockManagement() {
                         </span>
                       </div>
 
-                      {(b.categories.length > 0 || machineNames.length > 0 || resourceNames.length > 0) && (
+                      {(b.categories.length > 0 || machineNames.length > 0 || resourceNames.length > 0 || b.netCount != null) && (
                         <div className="flex flex-wrap items-center gap-1.5 mt-1">
                           {b.categories.map((c) => (
                             <span
@@ -704,6 +805,15 @@ export function ResourceBlockManagement() {
                               {CATEGORY_LABELS[c] ?? c}
                             </span>
                           ))}
+                          {/* Partial-cap badge — appears next to the
+                              Cricket Nets category chip when admin set
+                              a sub-pool count. Reads as "Cricket Nets
+                              × 2 nets" so the partial cap is obvious. */}
+                          {b.netCount != null && b.categories.includes('NET') && (
+                            <span className="text-[10px] text-yellow-300/90 px-2 py-0.5 rounded-md bg-yellow-500/10">
+                              {b.netCount} {b.netCount === 1 ? 'net' : 'nets'}
+                            </span>
+                          )}
                           {machineNames.map((n) => (
                             <span
                               key={`m-${n}`}
@@ -929,36 +1039,70 @@ export function ResourceBlockManagement() {
                 </div>
               )}
 
-              {/* Resources */}
+              {/* Resources — grouped by type, same shape as the create
+                  form so admins see consistent surface labels. */}
               {resources.length > 0 && (
-                <div>
-                  <label className="block text-[10px] font-medium text-slate-500 mb-1.5 uppercase tracking-wider">
+                <div className="space-y-2">
+                  <label className="block text-[10px] font-medium text-slate-500 mb-0.5 uppercase tracking-wider">
                     Resources (optional)
                   </label>
-                  <div className="flex flex-wrap gap-1.5">
-                    {resources.map((r) => {
-                      const selected = editForm.pickedResourceIds.includes(r.id);
-                      return (
-                        <button
-                          key={r.id}
-                          type="button"
-                          onClick={() =>
-                            setEditForm((f) => ({
-                              ...f,
-                              pickedResourceIds: toggleInArray(f.pickedResourceIds, r.id),
-                            }))
-                          }
-                          className={`px-2.5 py-1.5 rounded-lg text-[11px] font-medium transition-all cursor-pointer ${
-                            selected
-                              ? 'bg-accent/20 text-accent ring-1 ring-accent/30'
-                              : 'bg-white/[0.04] text-slate-400 hover:bg-white/[0.06]'
-                          }`}
-                        >
-                          {r.name}
-                        </button>
-                      );
-                    })}
-                  </div>
+                  {Object.entries(
+                    resources.reduce<Record<string, CenterResource[]>>((acc, r) => {
+                      const key = r.type;
+                      if (!acc[key]) acc[key] = [];
+                      acc[key].push(r);
+                      return acc;
+                    }, {}),
+                  ).map(([type, list]) => (
+                    <div key={type}>
+                      <p className="text-[10px] font-semibold text-slate-500 mb-1">{resourceTypeLabel(type)}</p>
+                      <div className="flex flex-wrap gap-1.5">
+                        {list.map((r) => {
+                          const selected = editForm.pickedResourceIds.includes(r.id);
+                          return (
+                            <button
+                              key={r.id}
+                              type="button"
+                              onClick={() =>
+                                setEditForm((f) => ({
+                                  ...f,
+                                  pickedResourceIds: toggleInArray(f.pickedResourceIds, r.id),
+                                }))
+                              }
+                              className={`px-2.5 py-1.5 rounded-lg text-[11px] font-medium transition-all cursor-pointer ${
+                                selected
+                                  ? 'bg-accent/20 text-accent ring-1 ring-accent/30'
+                                  : 'bg-white/[0.04] text-slate-400 hover:bg-white/[0.06]'
+                              }`}
+                            >
+                              {r.name}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Partial Cricket-Net cap in the edit dialog. */}
+              {editForm.pickedCategories.includes('NET') && editForm.pickedResourceIds.length === 0 && (
+                <div>
+                  <label className="block text-[10px] font-medium text-slate-500 mb-1 uppercase tracking-wider">
+                    Number of Nets to Block (optional)
+                  </label>
+                  <input
+                    type="number"
+                    min={1}
+                    placeholder="Leave empty to block all nets"
+                    value={editForm.netCount}
+                    onChange={(e) => setEditForm((f) => ({ ...f, netCount: e.target.value }))}
+                    className="w-full bg-white/[0.04] border border-white/[0.08] rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-accent/50 placeholder:text-slate-600"
+                  />
+                  <p className="text-[10px] text-slate-500 mt-1">
+                    Empty = block all nets. Otherwise N nets stay reserved
+                    and the rest remain bookable.
+                  </p>
                 </div>
               )}
 

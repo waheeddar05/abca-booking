@@ -532,6 +532,13 @@ model BlockedSlot {
   machineRowIds  String[]          @default([])
   resourceIds    String[]          @default([])
   categories     BookingCategory[] @default([])
+  // Partial cricket-net blocking. NULL = block all indoor nets at this
+  // window (legacy behaviour); a positive integer N = block N nets out
+  // of the indoor pool, leaving the rest bookable. Only consulted by
+  // the availability engine when this row targets the indoor net pool
+  // (no resourceIds pin, NET / CRICKET-NET / catchall semantics) —
+  // otherwise the engine still blocks every targeted resource.
+  netCount       Int?
 
   center Center @relation(fields: [centerId], references: [id], onDelete: Cascade)
 

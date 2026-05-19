@@ -653,6 +653,16 @@ export interface ActiveBlock {
   machineRowIds: string[];
   resourceIds: string[];
   categories: BookingCategory[];
+  /**
+   * Partial cricket-net cap. NULL = block every indoor net for this
+   * window (legacy behaviour); a positive integer = block that many
+   * indoor nets, leaving the rest of the pool bookable. Only consulted
+   * when the block targets the indoor net pool (NET category and/or no
+   * resourceIds pin). When the block already lists specific resourceIds
+   * those are blocked verbatim and netCount is ignored — the admin
+   * already told us which exact nets to block.
+   */
+  netCount: number | null;
   /** Surface enough legacy info that a future ABCA caller could use the
    *  same helper. RESOURCE_BASED callers ignore these. */
   legacyMachineId: string | null;
@@ -696,6 +706,7 @@ export async function getDayCandidateBlocks(centerId: string, date: Date) {
       machineRowIds: true,
       resourceIds: true,
       categories: true,
+      netCount: true,
       machineId: true,
       machineIds: true,
       machineType: true,
@@ -732,6 +743,7 @@ export function filterBlocksForSlotSync(
       machineRowIds: b.machineRowIds ?? [],
       resourceIds: b.resourceIds ?? [],
       categories: (b.categories ?? []) as BookingCategory[],
+      netCount: b.netCount ?? null,
       legacyMachineId: b.machineId ?? null,
       legacyMachineIds: b.machineIds ?? [],
       legacyMachineType: b.machineType ?? null,
@@ -760,6 +772,22 @@ export async function getActiveBlocksForSlot(
  * place — used by the slot-grid endpoint so blocked items are hidden
  * from the user picker. Categories are returned separately so the
  * caller can mark whole tabs as unavailable.
+ *
+ * Indoor-pool cascade rules (see task 4 + 5):
+ *   - A FULL_COURT-categorised block that doesn't pin specific
+ *     resourceIds/machineRowIds locks the entire indoor net pool for
+ *     the slot, so Cricket Net / Sidearm / Bowling Machine bookings
+ *     on Astro turf are auto-blocked alongside Full Court itself.
+ *   - A NET (Cricket Nets) block with `netCount = N` removes N indoor
+ *     nets from the free pool (the last N in displayOrder, so the
+ *     user-facing list keeps net 1, 2, … as preferred). When N is null
+ *     the whole pool is blocked (legacy behaviour). When the block
+ *     already pins specific resourceIds those are blocked verbatim and
+ *     netCount is ignored.
+ *   - Full-court remains "available" only when zero indoor nets are
+ *     consumed by any block at this slot. A single net blocked (even
+ *     a partial NET block with netCount=1) flips fullCourtAvailable
+ *     to false — full court needs every net free.
  */
 export function applyBlocksToAvailability(
   availability: SlotAvailability,
@@ -769,6 +797,20 @@ export function applyBlocksToAvailability(
   const blockedCategories = new Set<BookingCategory>();
   const blockedMachineRowIds = new Set<string>();
   const blockedResourceIds = new Set<string>();
+  // True when any block at this slot consumes indoor net capacity.
+  // Drives the Full Court "needs every net free" rule and the indoor-
+  // category cascade (NET / SIDEARM / MACHINE on Astro).
+  let indoorPoolFullyClaimed = false;
+  // Number of indoor nets consumed by NET / catchall blocks that use
+  // `netCount` for partial blocking. Subtracted from freeIndoorNets
+  // (and the ASTRO sub-pool) below.
+  let indoorNetsToHide = 0;
+
+  // True when the engine should also kill the indoor categories (NET /
+  // SIDEARM / MACHINE / FULL_COURT). Only triggered by FULL_COURT
+  // blocks (which intentionally cascade) and catchalls (which block
+  // everything anyway).
+  let cascadeIndoorCategories = false;
 
   for (const b of blocks) {
     if (!appliesToAudience(b.appliesTo, audience)) continue;
@@ -793,14 +835,93 @@ export function applyBlocksToAvailability(
       for (const c of ['MACHINE', 'SIDEARM', 'COACHING', 'NET', 'FULL_COURT', 'CORPORATE_BATCH'] as BookingCategory[]) {
         blockedCategories.add(c);
       }
+      // Catchall — claims the whole indoor pool too.
+      indoorPoolFullyClaimed = true;
+      cascadeIndoorCategories = true;
+      continue;
+    }
+
+    // FULL_COURT block (cascade to every indoor category + pool). Only
+    // when this block doesn't already pin specific resourceIds — a
+    // FULL_COURT-tagged row that explicitly lists, say, "outdoor turf
+    // 3" wouldn't be a sensible "full indoor court" reservation, so we
+    // leave it as a per-resource block.
+    if (b.categories.includes('FULL_COURT') && b.resourceIds.length === 0) {
+      indoorPoolFullyClaimed = true;
+      cascadeIndoorCategories = true;
+      // Auto-add every indoor category. Admin who tagged only
+      // FULL_COURT clearly intended the cascade (per the spec).
+      blockedCategories.add('NET');
+      blockedCategories.add('SIDEARM');
+      blockedCategories.add('MACHINE');
+      // FULL_COURT itself already added above via b.categories.
+    }
+
+    // Cricket Nets block with partial capacity. NET in categories AND
+    // no specific resourceIds pinned → consume `netCount` from the
+    // indoor pool (or all if null).
+    if (b.categories.includes('NET') && b.resourceIds.length === 0) {
+      if (b.netCount == null) {
+        indoorPoolFullyClaimed = true;
+      } else if (b.netCount > 0) {
+        indoorNetsToHide += b.netCount;
+      }
     }
   }
 
+  // Apply per-resource pins first.
+  let freeIndoor = availability.freeIndoorNets.filter((r) => !blockedResourceIds.has(r.id));
+  const freeOutdoor = availability.freeOutdoorResources.filter((r) => !blockedResourceIds.has(r.id));
+
+  // If any block fully claims the indoor pool, empty it out.
+  if (indoorPoolFullyClaimed) {
+    freeIndoor = [];
+  } else if (indoorNetsToHide > 0) {
+    // Hide the LAST `indoorNetsToHide` nets so the user-facing list
+    // still presents nets 1, 2, … as preferred. Mirrors the same
+    // strategy used by corporate-batch reservations.
+    const keep = Math.max(0, freeIndoor.length - indoorNetsToHide);
+    freeIndoor = freeIndoor.slice(0, keep);
+  }
+
+  // Per-pitch ASTRO list rides on the indoor pool — recompute it from
+  // the now-shrunk freeIndoor list so the user can't book Cricket Net /
+  // Bowling Machine / Sidearm on Astro past the cap. CEMENT and
+  // NATURAL are independent surfaces, only affected by their own
+  // resource pins.
+  const stillFreeIndoorIds = new Set(freeIndoor.map((r) => r.id));
+  const astroFiltered = availability.freeByPitch.ASTRO.filter((r) => stillFreeIndoorIds.has(r.id));
+
+  // Full Court availability now requires every indoor net to be free
+  // AND no block consuming indoor capacity (even partial). One blocked
+  // net is enough to flip this false — matches the spec for task 5.
+  const fullCourtBlocked = blockedCategories.has('FULL_COURT')
+    || indoorPoolFullyClaimed
+    || indoorNetsToHide > 0;
+
   const filteredAvailability: SlotAvailability = {
     ...availability,
-    freeIndoorNets: availability.freeIndoorNets.filter((r) => !blockedResourceIds.has(r.id)),
-    freeOutdoorResources: availability.freeOutdoorResources.filter((r) => !blockedResourceIds.has(r.id)),
+    freeIndoorNets: freeIndoor,
+    freeOutdoorResources: freeOutdoor,
+    freeByPitch: {
+      ASTRO: astroFiltered,
+      CEMENT: availability.freeByPitch.CEMENT.filter((r) => !blockedResourceIds.has(r.id)),
+      NATURAL: availability.freeByPitch.NATURAL.filter((r) => !blockedResourceIds.has(r.id)),
+    },
+    fullCourtAvailable: availability.fullCourtAvailable && !fullCourtBlocked,
   };
+
+  // Cascade: when a FULL_COURT or catchall block hits, suppress every
+  // indoor-pool dependent category in the picker. This keeps the
+  // user's tab grid honest even when the admin only ticked
+  // FULL_COURT.
+  if (cascadeIndoorCategories) {
+    blockedCategories.add('NET');
+    blockedCategories.add('SIDEARM');
+    blockedCategories.add('MACHINE');
+    blockedCategories.add('FULL_COURT');
+  }
+
   return { availability: filteredAvailability, blockedCategories, blockedMachineRowIds };
 }
 
@@ -819,6 +940,18 @@ function appliesToAudience(blockAppliesTo: string, audience: 'ALL' | 'SPECIAL' |
 /**
  * Decide whether a planned RESOURCE_BASED booking is blocked. Returns
  * the block reason (string) when blocked, or null when clear.
+ *
+ * The category-cascade rule from task 4: a block whose categories list
+ * contains FULL_COURT (and does NOT pin specific resourceIds) blocks
+ * every indoor-pool booking at the slot — NET / SIDEARM / MACHINE /
+ * FULL_COURT itself — because a "Full Indoor Court" reservation by
+ * definition claims every indoor net.
+ *
+ * The partial-NET rule from task 5: a NET block with `netCount=N` only
+ * fills the indoor pool partially. Whether a *new* NET / MACHINE /
+ * SIDEARM booking is blocked depends on remaining capacity — that's
+ * already checked by the resource-pool emptiness gate in `planBooking`,
+ * so we don't reject the booking from here on netCount alone.
  */
 export function evaluateBlockForBooking(
   blocks: ActiveBlock[],
@@ -829,8 +962,30 @@ export function evaluateBlockForBooking(
   },
   audience: 'ALL' | 'SPECIAL' | 'NON_SPECIAL' = 'ALL',
 ): string | null {
+  // Indoor-pool dependent categories. A FULL_COURT-cascade block hits
+  // every one of these even when the admin only ticked FULL_COURT.
+  const INDOOR_CASCADE: BookingCategory[] = ['NET', 'SIDEARM', 'MACHINE', 'FULL_COURT'];
+
   for (const b of blocks) {
     if (!appliesToAudience(b.appliesTo, audience)) continue;
+
+    // FULL_COURT cascade. A pool-wide Full Court block (no resourceIds
+    // pin) blocks every indoor-pool booking; otherwise the cascade
+    // wouldn't bite the Cricket Net / Sidearm / Bowling Machine
+    // booking the user is trying to make.
+    if (
+      b.categories.includes('FULL_COURT')
+      && b.resourceIds.length === 0
+      && INDOOR_CASCADE.includes(booking.category)
+    ) {
+      // Machine bookings can still escape the cascade if the machine
+      // doesn't consume an indoor net (outdoor cement/turf pitch).
+      // The pitch isn't surfaced here, so the safer default is to
+      // block — the user-facing UI greys the tab out before they get
+      // to submit. Only outdoor-only bookings would slip past, and
+      // those have their own resource pool gate downstream.
+      return formatBlockReason(b.reason, 'This slot is held for a full-court reservation');
+    }
 
     // Determine if this block matches this booking. A block matches if
     // EVERY non-empty axis it specifies matches the booking.
@@ -848,6 +1003,24 @@ export function evaluateBlockForBooking(
     if (b.resourceIds.length > 0) {
       axisCount++;
       if (booking.resourceIds.some((id) => b.resourceIds.includes(id))) axisMatched++;
+    }
+
+    // Partial NET block with capacity remaining: don't bounce the
+    // booking here — the resource pool emptiness check downstream
+    // already enforces that we can find a free net. A partial NET
+    // block leaves N nets reserved, so as long as we can pick one of
+    // the other nets we're fine. Skip the category-only match for
+    // NET when netCount is set (it's partial capacity, not a hard
+    // category-wide block).
+    if (
+      b.categories.includes('NET')
+      && b.netCount != null
+      && b.netCount > 0
+      && b.machineRowIds.length === 0
+      && b.resourceIds.length === 0
+      && axisCount === 1 // category was the only axis
+    ) {
+      continue;
     }
 
     if (axisCount === 0) {
