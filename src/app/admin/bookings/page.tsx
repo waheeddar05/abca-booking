@@ -47,7 +47,13 @@ function AdminBookingsContent() {
     from: '',
     to: '',
     machineId: '',
+    // Booking-category filter (Bowling Machine / Sidearm / Cricket
+    // Nets / Full Indoor Court / Personal Coaching). Replaces the
+    // legacy 'Machine' dropdown — options are sourced from the
+    // center's ENABLED_BOOKING_CATEGORIES policy below.
+    categoryFilter: '',
   });
+  const [bookableCategories, setBookableCategories] = useState<string[]>([]);
   const [showDateRange, setShowDateRange] = useState(false);
   const [showFilters, setShowFilters] = useState(false);
   const [editingPriceId, setEditingPriceId] = useState<string | null>(null);
@@ -85,6 +91,7 @@ function AdminBookingsContent() {
         params.set('to', filters.to);
       }
       if (filters.machineId) params.set('machineId', filters.machineId);
+      if (filters.categoryFilter) params.set('categoryFilter', filters.categoryFilter);
       params.set('page', String(pagination.page));
       params.set('limit', '50');
       params.set('sortBy', sortBy);
@@ -118,6 +125,29 @@ function AdminBookingsContent() {
         }
       })
       .catch(() => { });
+  }, []);
+
+  // Source the Category filter options from the center's
+  // ENABLED_BOOKING_CATEGORIES policy. Re-runs on mount and on
+  // center switch so flipping a category off in Admin → Settings
+  // immediately removes the option here. Falls back to the
+  // full default list if the policy isn't set.
+  useEffect(() => {
+    const DEFAULT_LIST = ['MACHINE', 'NET', 'SIDEARM', 'COACHING', 'FULL_COURT'];
+    fetch('/api/admin/policies?scope=center')
+      .then((r) => (r.ok ? r.json() : []))
+      .then((data) => {
+        const arr: { key: string; value: string }[] = Array.isArray(data) ? data : (data.policies ?? []);
+        const row = arr.find((p) => p.key === 'ENABLED_BOOKING_CATEGORIES');
+        if (!row) { setBookableCategories(DEFAULT_LIST); return; }
+        try {
+          const parsed = JSON.parse(row.value);
+          setBookableCategories(Array.isArray(parsed) && parsed.length > 0 ? parsed : DEFAULT_LIST);
+        } catch {
+          setBookableCategories(DEFAULT_LIST);
+        }
+      })
+      .catch(() => setBookableCategories(['MACHINE', 'NET', 'SIDEARM', 'COACHING', 'FULL_COURT']));
   }, []);
 
   useEffect(() => {
@@ -561,19 +591,35 @@ function AdminBookingsContent() {
               <option value="CANCELLED">Cancelled</option>
             </select>
           </div>
+          {/* Booking-category filter. Replaces the static four-machine
+              dropdown so the admin filters by session type (Bowling
+              Machine / Sidearm / Cricket Nets / Full Indoor Court /
+              Personal Coaching) instead. Options are sourced from
+              the center's ENABLED_BOOKING_CATEGORIES policy so adding
+              or disabling a category in Admin → Settings flows here
+              automatically. CORPORATE_BATCH is intentionally
+              filtered out — hidden everywhere else for now. */}
           <div>
-            <label className="block text-[11px] font-semibold text-slate-300 mb-1.5">Machine</label>
+            <label className="block text-[11px] font-semibold text-slate-300 mb-1.5">Category</label>
             <select
-              name="machineId"
-              value={filters.machineId}
+              name="categoryFilter"
+              value={filters.categoryFilter}
               onChange={handleFilterChange}
               className="w-full bg-white/[0.06] border border-white/[0.15] text-white rounded-lg px-3 py-2.5 text-sm outline-none focus:border-accent focus:ring-1 focus:ring-accent/20 cursor-pointer"
             >
-              <option value="">All Machines</option>
-              <option value="GRAVITY">Gravity</option>
-              <option value="YANTRA">Yantra</option>
-              <option value="LEVERAGE_INDOOR">Leverage Tennis (Indoor)</option>
-              <option value="LEVERAGE_OUTDOOR">Leverage Tennis (Outdoor)</option>
+              <option value="">All categories</option>
+              {bookableCategories
+                .filter((c) => c !== 'CORPORATE_BATCH')
+                .map((c) => (
+                  <option key={c} value={c}>
+                    {c === 'MACHINE' ? 'Bowling Machine'
+                      : c === 'NET' ? 'Cricket Nets'
+                      : c === 'SIDEARM' ? 'Sidearm'
+                      : c === 'COACHING' ? 'Personal Coaching'
+                      : c === 'FULL_COURT' ? 'Full Indoor Court'
+                      : c}
+                  </option>
+                ))}
             </select>
           </div>
           <div>

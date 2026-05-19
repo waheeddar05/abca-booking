@@ -15,7 +15,9 @@ type CategoryId =
   | 'NET'
   | 'SIDEARM'
   | 'COACHING'
-  | 'CORPORATE_BATCH'
+  // CORPORATE_BATCH stays in the DB enum but is intentionally
+  // omitted from the admin-editable list — it's been hidden from
+  // every user-facing surface.
   | 'FULL_COURT';
 
 const ALL_CATEGORIES: Array<{ id: CategoryId; label: string; sub: string }> = [
@@ -23,7 +25,6 @@ const ALL_CATEGORIES: Array<{ id: CategoryId; label: string; sub: string }> = [
   { id: 'NET',             label: 'Cricket Nets Booking', sub: 'Bare net for self practice' },
   { id: 'SIDEARM',         label: 'Sidearm',              sub: 'Bowled by staff' },
   { id: 'COACHING',        label: 'Personal Coaching',    sub: 'With a coach' },
-  { id: 'CORPORATE_BATCH', label: 'Corporate Batch',      sub: 'Group session, claims nets' },
   { id: 'FULL_COURT',      label: 'Full Indoor Court',    sub: 'All indoor nets' },
 ];
 

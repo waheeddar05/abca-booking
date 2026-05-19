@@ -89,7 +89,12 @@ export type BookableCategoryId =
   | 'NET'
   | 'SIDEARM'
   | 'COACHING'
-  | 'CORPORATE_BATCH'
+  // CORPORATE_BATCH is preserved as a DB enum value for back-compat
+  // with any historical bookings / policies, but is intentionally
+  // omitted from the user/admin-facing category lists. Adding it
+  // back would require restoring the editor row + the user-side tab
+  // and a category card; the engine still understands it if a
+  // CenterPolicy explicitly re-enables it via raw JSON.
   | 'FULL_COURT';
 
 export const ALL_BOOKABLE_CATEGORIES: BookableCategoryId[] = [
@@ -97,7 +102,6 @@ export const ALL_BOOKABLE_CATEGORIES: BookableCategoryId[] = [
   'NET',
   'SIDEARM',
   'COACHING',
-  'CORPORATE_BATCH',
   'FULL_COURT',
 ];
 

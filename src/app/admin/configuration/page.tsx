@@ -569,20 +569,29 @@ export default function ConfigurationPage() {
 
           {kitRentalConfig.enabled && (
             <div className="space-y-3 pt-2">
-              {/* Price */}
-              <div>
-                <label className="block text-[10px] font-medium text-slate-400 mb-1 uppercase tracking-wider">Rental Price (per session)</label>
-                <div className="relative max-w-xs">
-                  <IndianRupee className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3 h-3 text-slate-500" />
-                  <input
-                    type="number"
-                    min="0"
-                    value={kitRentalConfig.price}
-                    onChange={e => setKitRentalConfig(prev => ({ ...prev, price: Math.max(0, Number(e.target.value)) }))}
-                    className={inputClass + ' pl-7 max-w-xs'}
-                  />
+              {/* For RESOURCE_BASED centers the standalone 'Rental
+                  Price (per session)' field was removed — the price is
+                  set per machine row below. The stored JSON's `price`
+                  field stays as the default for any newly-added
+                  machine.
+                  For MACHINE_PITCH centers (ABCA), the legacy
+                  multi-select machine list doesn't carry per-machine
+                  prices, so the single price input still applies. */}
+              {currentCenter?.bookingModel !== 'RESOURCE_BASED' && (
+                <div>
+                  <label className="block text-[10px] font-medium text-slate-400 mb-1 uppercase tracking-wider">Rental Price (per session)</label>
+                  <div className="relative max-w-xs">
+                    <IndianRupee className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3 h-3 text-slate-500" />
+                    <input
+                      type="number"
+                      min="0"
+                      value={kitRentalConfig.price}
+                      onChange={e => setKitRentalConfig(prev => ({ ...prev, price: Math.max(0, Number(e.target.value)) }))}
+                      className={inputClass + ' pl-7 max-w-xs'}
+                    />
+                  </div>
                 </div>
-              </div>
+              )}
 
               {/* Title */}
               <div>

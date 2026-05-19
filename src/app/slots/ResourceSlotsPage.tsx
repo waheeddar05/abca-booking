@@ -254,7 +254,9 @@ const CATEGORIES: Array<{ key: Category; label: string; icon: typeof Settings2; 
   { key: 'NET',             label: 'Cricket Nets Booking', icon: LayoutGrid, sub: 'Bare net for self practice' },
   { key: 'SIDEARM',         label: 'Sidearm',             icon: Users,      sub: 'Bowled by a specialist' },
   { key: 'COACHING',        label: 'Personal Coaching',   icon: UserCog,    sub: 'With a coach' },
-  { key: 'CORPORATE_BATCH', label: 'Corporate Batch',     icon: Users,      sub: 'Group session' },
+  // CORPORATE_BATCH intentionally hidden — kept as a DB enum value
+  // so existing historical bookings stay valid, but the user-facing
+  // slot picker no longer exposes a tab for it.
   { key: 'FULL_COURT',      label: 'Full Indoor Court',   icon: LayoutGrid, sub: 'All indoor nets' },
 ];
 

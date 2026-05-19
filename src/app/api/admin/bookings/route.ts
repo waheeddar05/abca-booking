@@ -202,6 +202,27 @@ export async function GET(req: NextRequest) {
       where.machineId = machineId as MachineIdFilter;
     }
 
+    // Optional booking-category filter (Bowling Machine / Sidearm /
+    // Cricket Nets / Full Indoor Court / Personal Coaching). Replaces
+    // the legacy 'Machine' filter on the admin UI — both still work
+    // server-side for back-compat with any old bookmarks. Falls
+    // through unchanged when `categoryFilter` isn't supplied.
+    const categoryFilter = searchParams.get('categoryFilter');
+    if (categoryFilter) {
+      const validCategories = new Set(['MACHINE', 'SIDEARM', 'COACHING', 'NET', 'FULL_COURT', 'CORPORATE_BATCH']);
+      if (validCategories.has(categoryFilter)) {
+        // NULL Booking.category rows are ABCA's legacy MACHINE-only
+        // shape — treat them as MACHINE for filtering so admins on
+        // ABCA still see their bowling-machine bookings under that
+        // chip.
+        if (categoryFilter === 'MACHINE') {
+          where.OR = [...(where.OR ?? []), { category: 'MACHINE' }, { category: null }];
+        } else {
+          where.category = categoryFilter;
+        }
+      }
+    }
+
     const orderBy: any = [];
     if (sortBy === 'createdAt') {
       orderBy.push({ createdAt: sortOrder });

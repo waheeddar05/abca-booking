@@ -45,7 +45,10 @@ const CATEGORY_LABELS: Record<string, string> = {
   CORPORATE_BATCH: 'Corporate Batch',
 };
 
-const ALL_CATEGORIES = ['MACHINE', 'SIDEARM', 'COACHING', 'NET', 'FULL_COURT', 'CORPORATE_BATCH'] as const;
+// CORPORATE_BATCH intentionally omitted — the DB enum value stays
+// for back-compat with historical bookings but the admin block-slot
+// UI no longer offers it as a target category.
+const ALL_CATEGORIES = ['MACHINE', 'SIDEARM', 'COACHING', 'NET', 'FULL_COURT'] as const;
 
 type TabId = 'block' | 'active';
 

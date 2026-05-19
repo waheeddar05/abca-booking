@@ -415,12 +415,12 @@ export function ResourcePricingEditor({
         }}
       />
 
-      {/* Other categories — Personal Coaching, Full Indoor Court,
-          Corporate Batch. These don't vary by machine or pitch the way
-          MACHINE/SIDEARM/NET do, so a single morning/evening price
-          per category is enough. Replaces the old per-category rates
-          table (which exposed every category at once) with just the
-          three that aren't already configured above. */}
+      {/* Other categories — Personal Coaching + Full Indoor Court.
+          These don't vary by machine or pitch the way MACHINE/SIDEARM/
+          NET do, so a single morning/evening price per category is
+          enough. CORPORATE_BATCH was dropped from the admin-editable
+          list — it stays in the DB enum for back-compat but the price
+          column is no longer surfaced. */}
       <div className="space-y-2 pt-3 border-t border-white/[0.04]">
         <div className="text-[10px] uppercase tracking-wider text-slate-500 font-semibold">
           Other categories
@@ -430,7 +430,7 @@ export function ResourcePricingEditor({
           <div className="w-20 sm:w-28 text-center">Morning</div>
           <div className="w-20 sm:w-28 text-center">Evening</div>
         </div>
-        {(['COACHING', 'FULL_COURT', 'CORPORATE_BATCH'] as const).map((cat) => (
+        {(['COACHING', 'FULL_COURT'] as const).map((cat) => (
           <div key={cat} className="grid grid-cols-[1fr_auto_auto] gap-2 sm:gap-3 items-center">
             <div className="text-xs sm:text-sm text-white truncate">{CATEGORY_LABELS[cat]}</div>
             <PriceInput
