@@ -1306,15 +1306,22 @@ export default function ResourceSlotsPage() {
         </PickerRow>
       )}
 
-      {/* Pitch + ball — driven by per-machine effective lists. */}
+      {/* Pitch + ball — driven by per-machine effective lists. The
+          center-wide BALL_TYPE_SELECTION_ENABLED /
+          PITCH_TYPE_SELECTION_ENABLED policy toggles let admins
+          collapse the picker even when the machine supports >1 value;
+          the auto-select effect on machine change still picks the
+          first option so bookings carry a concrete value. */}
       {category === 'MACHINE' && machineId && (() => {
         const m = filteredMachines.find((x) => x.id === machineId);
         if (!m) return null;
         const pitchOptions = m.effectivePitchTypes ?? m.supportedPitchTypes ?? [];
         const ballOptions = m.effectiveBallTypes ?? m.supportedBallTypes ?? [];
+        const pitchPickerOn = paymentConfig?.pitchTypeSelectionEnabled !== false;
+        const ballPickerOn = paymentConfig?.ballTypeSelectionEnabled !== false;
         return (
           <>
-            {pitchOptions.length > 0 && (
+            {pitchPickerOn && pitchOptions.length > 0 && (
               <ChipSelector
                 label="Pitch Type"
                 required={pitchOptions.length > 1}
@@ -1323,7 +1330,7 @@ export default function ResourceSlotsPage() {
                 onChange={(v) => setPitchType(v as PitchTypeId | null)}
               />
             )}
-            {ballOptions.length > 0 && (
+            {ballPickerOn && ballOptions.length > 0 && (
               <ChipSelector
                 label="Ball Type"
                 required={ballOptions.length > 1}
@@ -1336,7 +1343,9 @@ export default function ResourceSlotsPage() {
         );
       })()}
 
-      {category === 'SIDEARM' && (data?.sidearmPitchTypes?.length ?? 0) > 0 && (
+      {category === 'SIDEARM'
+        && paymentConfig?.pitchTypeSelectionEnabled !== false
+        && (data?.sidearmPitchTypes?.length ?? 0) > 0 && (
         <ChipSelector
           label="Pitch Type"
           required={(data!.sidearmPitchTypes.length) > 1}
@@ -1346,7 +1355,9 @@ export default function ResourceSlotsPage() {
         />
       )}
 
-      {category === 'NET' && (data?.netPitchTypes?.length ?? 0) > 0 && (
+      {category === 'NET'
+        && paymentConfig?.pitchTypeSelectionEnabled !== false
+        && (data?.netPitchTypes?.length ?? 0) > 0 && (
         <ChipSelector
           label="Pitch Type"
           required={(data!.netPitchTypes.length) > 1}

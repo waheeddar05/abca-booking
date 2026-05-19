@@ -197,12 +197,18 @@ export default function ConfigurationPage() {
 
 
   // Payment settings state
+  // BALL_TYPE_SELECTION_ENABLED / PITCH_TYPE_SELECTION_ENABLED default
+  // to `true` — the chip rows are visible unless the admin opts out.
+  // The cascade in /api/admin/policies returns the stored string
+  // ("true" / "false") and we coerce below.
   const [paymentSettings, setPaymentSettings] = useState({
     PAYMENT_GATEWAY_ENABLED: false,
     SLOT_PAYMENT_REQUIRED: false,
     PACKAGE_PAYMENT_REQUIRED: false,
     CASH_PAYMENT_ENABLED: false,
     WALLET_ENABLED: false,
+    BALL_TYPE_SELECTION_ENABLED: true,
+    PITCH_TYPE_SELECTION_ENABLED: true,
   });
   const [paymentLoading, setPaymentLoading] = useState(true);
   const [savingPayment, setSavingPayment] = useState(false);
@@ -284,6 +290,16 @@ export default function ConfigurationPage() {
             PACKAGE_PAYMENT_REQUIRED: policies['PACKAGE_PAYMENT_REQUIRED'] === 'true',
             CASH_PAYMENT_ENABLED: policies['CASH_PAYMENT_ENABLED'] === 'true',
             WALLET_ENABLED: policies['WALLET_ENABLED'] === 'true',
+            // Selector toggles default to TRUE when unset — the chip
+            // rows show unless the admin has explicitly stored "false".
+            BALL_TYPE_SELECTION_ENABLED:
+              policies['BALL_TYPE_SELECTION_ENABLED'] === undefined
+                ? true
+                : policies['BALL_TYPE_SELECTION_ENABLED'] === 'true',
+            PITCH_TYPE_SELECTION_ENABLED:
+              policies['PITCH_TYPE_SELECTION_ENABLED'] === undefined
+                ? true
+                : policies['PITCH_TYPE_SELECTION_ENABLED'] === 'true',
           });
           // Load kit rental config
           if (policies['KIT_RENTAL_CONFIG']) {
@@ -1068,6 +1084,53 @@ export default function ConfigurationPage() {
             scope={scope}
             centerLabel={currentCenter.shortName ?? currentCenter.name}
           />
+        </AdminCard>
+      )}
+
+      {/* Slot picker — user-facing toggles for ball / pitch selectors.
+          On RESOURCE_BASED centers each Machine row already declares
+          its supportedBallTypes / supportedPitchTypes (see Center →
+          Machines). These two toggles act as a *center-wide* override
+          on top of those: when OFF, ResourceSlotsPage hides the chip
+          rows and auto-picks the first supported option per machine.
+          ON is the default — chips show whenever the machine supports
+          more than one value. Matches what ABCA exposes globally. */}
+      {currentCenter?.bookingModel === 'RESOURCE_BASED' && (
+        <AdminCard
+          title="Slot picker"
+          icon={<Zap className="w-4 h-4 text-accent" />}
+          collapsible
+          defaultOpen={false}
+        >
+          <div className="space-y-1">
+            <AdminToggle
+              enabled={paymentSettings['BALL_TYPE_SELECTION_ENABLED'] !== false}
+              onToggle={() => {
+                const next = paymentSettings['BALL_TYPE_SELECTION_ENABLED'] === false ? true : false;
+                handleSavePayment('BALL_TYPE_SELECTION_ENABLED', next);
+              }}
+              label="Ball type selection"
+              description="Show the ball-type chip row when a machine supports more than one. Turn off to auto-pick the first supported ball."
+              size="sm"
+              disabled={savingPayment}
+            />
+            <AdminToggle
+              enabled={paymentSettings['PITCH_TYPE_SELECTION_ENABLED'] !== false}
+              onToggle={() => {
+                const next = paymentSettings['PITCH_TYPE_SELECTION_ENABLED'] === false ? true : false;
+                handleSavePayment('PITCH_TYPE_SELECTION_ENABLED', next);
+              }}
+              label="Pitch type selection"
+              description="Show the pitch-type chip row for MACHINE / SIDEARM / NET when the relevant resource supports more than one. Turn off to auto-pick the first."
+              size="sm"
+              disabled={savingPayment}
+            />
+            {paymentMessage.text && (
+              <p className={`text-[11px] mt-2 ${paymentMessage.type === 'success' ? 'text-emerald-400' : 'text-red-400'}`}>
+                {paymentMessage.text}
+              </p>
+            )}
+          </div>
         </AdminCard>
       )}
 

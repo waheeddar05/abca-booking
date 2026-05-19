@@ -26,6 +26,12 @@ interface PaymentConfig {
   cashPaymentEnabled: boolean;
   walletEnabled: boolean;
   kitRentalConfig?: KitRentalConfig;
+  /** Center-wide toggles for the user-side ball / pitch chip rows.
+   *  Defaults to true (chips visible) when nothing is configured;
+   *  admins can flip to false on the configuration page to force-pick
+   *  the first supported value per machine and hide the picker. */
+  ballTypeSelectionEnabled?: boolean;
+  pitchTypeSelectionEnabled?: boolean;
 }
 
 interface RazorpayOrderResponse {
