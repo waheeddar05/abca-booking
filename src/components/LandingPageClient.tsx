@@ -325,7 +325,13 @@ export default function LandingPageClient() {
               Instagram handle, and the center's Google Maps link.
               Missing fields render no chip rather than a generic
               fallback. */}
-          <div className="flex flex-wrap items-start justify-center gap-3 md:gap-8 w-full">
+          {/* Single horizontal row. We let it scroll horizontally on
+              narrow screens (overflow-x-auto) rather than wrap so all
+              five entries — multiple phones + Instagram + Location —
+              stay in one line per the design requirement. The wrap
+              variant was rendering 2–3 rows on phone widths which
+              admins complained looked cluttered. */}
+          <div className="flex flex-nowrap items-start justify-center gap-3 md:gap-8 w-full overflow-x-auto -mx-2 px-2 snap-x">
             {phoneContacts.map((c, idx) => (
               <a
                 key={`${c.number}-${idx}`}

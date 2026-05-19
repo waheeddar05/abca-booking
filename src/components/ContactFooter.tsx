@@ -64,7 +64,10 @@ export function ContactFooter({
             : 'Reach out via phone or Social Media.'}
         </p>
 
-        <div className="flex flex-wrap items-start justify-center gap-3 md:gap-8 w-full">
+        {/* Same single-row layout as the landing page's 'Ready to
+            play?' section. Scrolls horizontally on narrow screens
+            rather than wrapping onto multiple rows. */}
+        <div className="flex flex-nowrap items-start justify-center gap-3 md:gap-8 w-full overflow-x-auto -mx-2 px-2 snap-x">
           {/* Per-center phone contacts. The first row gets the accent
               treatment so the center's primary number still stands out
               even when several rows exist. */}

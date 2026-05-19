@@ -1502,6 +1502,50 @@ export default function ResourceSlotsPage() {
                 onChange={(v) => setBallType(v as BallTypeId | null)}
               />
             )}
+            {/* Operation mode toggle — sits right after Pitch + Ball
+                so the booking flow reads top-to-bottom: machine →
+                pitch → ball → operation mode → slot grid. Tennis
+                machines only; leather forces WITH_OPERATOR server-
+                side. Previously rendered way down past the slot grid,
+                which made admins miss it and complain that 'self
+                operate isn't an option' — now it's visible before
+                they ever scroll. */}
+            {m.machineType?.ballType === 'TENNIS' && (
+              <div className="mb-4">
+                <label className="block text-[10px] font-medium text-accent mb-1.5 uppercase tracking-wider">
+                  Operation Mode
+                </label>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setOperationMode('WITH_OPERATOR')}
+                    className={`flex-1 px-3 py-2 rounded-lg text-xs font-semibold border transition-colors cursor-pointer ${
+                      operationMode === 'WITH_OPERATOR'
+                        ? 'bg-accent text-black border-accent'
+                        : 'bg-white/[0.04] text-slate-300 border-white/[0.08] hover:bg-white/[0.08]'
+                    }`}
+                  >
+                    With Operator
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setOperationMode('SELF_OPERATE')}
+                    className={`flex-1 px-3 py-2 rounded-lg text-xs font-semibold border transition-colors cursor-pointer ${
+                      operationMode === 'SELF_OPERATE'
+                        ? 'bg-amber-500 text-black border-amber-500'
+                        : 'bg-white/[0.04] text-slate-300 border-white/[0.08] hover:bg-white/[0.08]'
+                    }`}
+                  >
+                    Self Operate
+                  </button>
+                </div>
+                {operationMode === 'SELF_OPERATE' && (
+                  <p className="text-[11px] text-amber-400/80 mt-1.5 leading-relaxed">
+                    No machine operator will be assigned. You&apos;ll need to operate the machine yourself — please be familiar with it before booking.
+                  </p>
+                )}
+              </div>
+            )}
           </>
         );
       })()}
@@ -1769,12 +1813,12 @@ export default function ResourceSlotsPage() {
                   key={slot.startTime}
                   onClick={() => bookable.ok && toggleSlot(slot)}
                   disabled={isUnavailable || submitting}
-                  className={`relative p-3.5 rounded-xl transition-all text-left cursor-pointer ${bgClass}`}
+                  className={`relative px-2.5 py-2 rounded-lg transition-all text-left cursor-pointer ${bgClass}`}
                   title={bookable.reason ?? (isSelfOperate ? 'You will run this machine yourself' : undefined)}
                 >
                   {selected && (
-                    <div className="absolute top-2 right-2">
-                      <Check className="w-4 h-4" />
+                    <div className="absolute top-1.5 right-1.5">
+                      <Check className="w-3.5 h-3.5" />
                     </div>
                   )}
                   {/* Warning triangle on self-operate slots (only when
@@ -1782,26 +1826,29 @@ export default function ResourceSlotsPage() {
                       the slot is in the cart). Matches ABCA's SlotGrid
                       visual cue. */}
                   {isSelfOperate && !selected && (
-                    <div className="absolute top-2 right-2">
-                      <AlertTriangle className="w-3.5 h-3.5 text-amber-500" />
+                    <div className="absolute top-1.5 right-1.5">
+                      <AlertTriangle className="w-3 h-3 text-amber-500" />
                     </div>
                   )}
 
-                  <div className={`text-sm font-bold ${isUnavailable ? 'text-slate-600' : selected ? '' : 'text-white'}`}>
-                    {format(parseISO(slot.startTime), 'HH:mm')}
-                  </div>
-                  <div className={`text-[10px] mt-0.5 ${
-                    isUnavailable ? 'text-slate-600' : selected ? 'text-primary/70' : 'text-slate-400'
+                  {/* Slot timing on a single line: '15:00 – 15:30'.
+                      Previously the start and end times wrapped onto
+                      two lines, which read awkwardly especially in
+                      narrow grid columns. tabular-nums keeps the
+                      digits aligned across slots; whitespace-nowrap
+                      stops the en-dash + times from breaking. */}
+                  <div className={`text-xs font-bold tabular-nums whitespace-nowrap ${
+                    isUnavailable ? 'text-slate-600' : selected ? '' : 'text-white'
                   }`}>
-                    to {format(parseISO(slot.endTime), 'HH:mm')}
+                    {format(parseISO(slot.startTime), 'HH:mm')} – {format(parseISO(slot.endTime), 'HH:mm')}
                   </div>
 
-                  <div className="flex items-center justify-between mt-1.5">
-                    <span className={`text-[10px] font-semibold uppercase tracking-wider ${statusColor}`}>
+                  <div className="flex items-center justify-between mt-1">
+                    <span className={`text-[9px] font-semibold uppercase tracking-wider ${statusColor}`}>
                       {statusLabel}
                     </span>
                     {!isUnavailable && (
-                      <span className={`text-[10px] font-medium ${selected ? 'text-primary/70' : 'text-slate-400'}`}>
+                      <span className={`text-[9px] font-medium ${selected ? 'text-primary/70' : 'text-slate-400'}`}>
                         ₹{basePrice}
                       </span>
                     )}
@@ -1850,49 +1897,10 @@ export default function ResourceSlotsPage() {
         )}
       </div>
 
-      {/* Operation mode toggle — mirrors ABCA's OptionsPanel. Visible
-          only when the user has picked a tennis-ball machine and has
-          slots selected. Leather machines force WITH_OPERATOR server-
-          side, so we hide the toggle there to avoid promising a
-          choice we won't honour. */}
-      {category === 'MACHINE'
-        && selectedSlots.length > 0
-        && selectedMachineForKit?.machineType?.ballType === 'TENNIS' && (
-        <div className="mb-4">
-          <label className="block text-[10px] font-medium text-accent mb-1.5 uppercase tracking-wider">
-            Operation mode
-          </label>
-          <div className="flex gap-2">
-            <button
-              type="button"
-              onClick={() => setOperationMode('WITH_OPERATOR')}
-              className={`flex-1 px-3 py-2 rounded-lg text-xs font-semibold border transition-colors cursor-pointer ${
-                operationMode === 'WITH_OPERATOR'
-                  ? 'bg-accent text-black border-accent'
-                  : 'bg-white/[0.04] text-slate-300 border-white/[0.08] hover:bg-white/[0.08]'
-              }`}
-            >
-              With Operator
-            </button>
-            <button
-              type="button"
-              onClick={() => setOperationMode('SELF_OPERATE')}
-              className={`flex-1 px-3 py-2 rounded-lg text-xs font-semibold border transition-colors cursor-pointer ${
-                operationMode === 'SELF_OPERATE'
-                  ? 'bg-amber-500 text-black border-amber-500'
-                  : 'bg-white/[0.04] text-slate-300 border-white/[0.08] hover:bg-white/[0.08]'
-              }`}
-            >
-              Self Operate
-            </button>
-          </div>
-          {operationMode === 'SELF_OPERATE' && (
-            <p className="text-[11px] text-amber-400/80 mt-1.5 leading-relaxed">
-              No machine operator will be assigned. You&apos;ll need to operate the machine yourself — please be familiar with it before booking.
-            </p>
-          )}
-        </div>
-      )}
+      {/* Operation Mode used to render here, after the slot grid. It
+          was moved up to sit right below Pitch + Ball Type so the
+          booking flow reads top-to-bottom without surprises. See the
+          MACHINE picker block above. */}
 
       {/* Kit rental option (mirrors ABCA). Surfaces a checkbox card
           when the center has KIT_RENTAL_CONFIG enabled, the user is on
