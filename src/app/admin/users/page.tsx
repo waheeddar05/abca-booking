@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import Image from 'next/image';
 import { useSession } from 'next-auth/react';
-import { UserPlus, Trash2, Loader2, Search, Shield, Users, ChevronDown, ChevronUp, CalendarCheck, Mail, Phone, Clock, X, XCircle, Check, CalendarPlus, History } from 'lucide-react';
+import { UserPlus, Trash2, Loader2, Search, Users, ChevronDown, ChevronUp, CalendarCheck, Mail, Phone, Clock, X, XCircle, Check, CalendarPlus, History } from 'lucide-react';
 import Link from 'next/link';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { AdminPageHeader } from '@/components/admin/AdminPageHeader';
@@ -286,40 +286,6 @@ export default function AdminUsers() {
           const data = await res.json();
           if (res.ok) {
             toast.success(`${user.name || user.email} ${newStatus ? 'marked as special user' : 'removed from special users'}`);
-            fetchUsers();
-          } else {
-            toast.error(data.error || 'Failed to update user');
-          }
-        } catch {
-          toast.error('Internal server error');
-        }
-      },
-    });
-  };
-
-  const handleChangeRole = (user: UserData, newRole: string) => {
-    if (newRole === user.role) return;
-    const roleLabel =
-      newRole === 'ADMIN' ? 'Admin'
-      : newRole === 'OPERATOR' ? 'Operator'
-      : newRole === 'COACH' ? 'Coach'
-      : newRole === 'SIDEARM_SPECIALIST' ? 'Sidearm Specialist'
-      : 'User';
-    setPendingConfirm({
-      title: `Change Role to ${roleLabel}`,
-      message: `Are you sure you want to change ${user.name || user.email}'s role to ${roleLabel}?`,
-      variant: 'danger',
-      confirmLabel: `Set ${roleLabel}`,
-      onConfirm: async () => {
-        try {
-          const res = await fetch('/api/admin/users', {
-            method: 'PATCH',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ id: user.id, role: newRole }),
-          });
-          const data = await res.json();
-          if (res.ok) {
-            toast.success(`User role changed to ${roleLabel}`);
             fetchUsers();
           } else {
             toast.error(data.error || 'Failed to update user');
@@ -682,31 +648,15 @@ export default function AdminUsers() {
                             </>
                           )}
                         </button>
-                        <div className="grid grid-cols-2 gap-2">
-                          <div className="flex items-center gap-1.5">
-                            <Shield className="w-3.5 h-3.5 text-slate-400 flex-shrink-0" />
-                            <select
-                              value={user.role}
-                              onChange={(e) => handleChangeRole(user, e.target.value)}
-                              className="flex-1 bg-white/[0.04] border border-white/[0.1] text-slate-300 rounded-lg px-2 py-2 text-xs outline-none focus:border-accent focus:ring-1 focus:ring-accent/20 cursor-pointer"
-                            >
-                              <option value="USER">User</option>
-                              <option value="OPERATOR">Operator</option>
-                              <option value="COACH">Coach</option>
-                              <option value="SIDEARM_SPECIALIST">Sidearm Specialist</option>
-                              {isSuperAdmin && <option value="ADMIN">Admin</option>}
-                            </select>
-                          </div>
-                          {isSuperAdmin && (
-                            <button
-                              onClick={() => handleDeleteUser(user)}
-                              className="flex items-center justify-center gap-1 py-2 text-xs font-medium text-red-400 bg-red-500/10 rounded-lg hover:bg-red-500/20 transition-colors cursor-pointer"
-                            >
-                              <Trash2 className="w-3.5 h-3.5 flex-shrink-0" />
-                              <span className="truncate">Delete</span>
-                            </button>
-                          )}
-                        </div>
+                        {isSuperAdmin && (
+                          <button
+                            onClick={() => handleDeleteUser(user)}
+                            className="flex items-center justify-center gap-1 py-2 text-xs font-medium text-red-400 bg-red-500/10 rounded-lg hover:bg-red-500/20 transition-colors cursor-pointer"
+                          >
+                            <Trash2 className="w-3.5 h-3.5 flex-shrink-0" />
+                            <span className="truncate">Delete</span>
+                          </button>
+                        )}
                         <button
                           onClick={() => handleToggleSpecialUser(user)}
                           className={`flex items-center justify-center gap-1.5 py-2 text-xs font-medium rounded-lg transition-colors cursor-pointer ${user.isSpecialUser

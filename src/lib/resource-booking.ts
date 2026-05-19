@@ -1224,13 +1224,13 @@ async function pickNetFor({
   if (!candidate) {
     if (pitch === 'NATURAL') {
       throw new BookingResourceError(
-        'No natural turf available for this slot',
+        'All natural turf wickets are taken at this slot',
         409,
       );
     }
     if (pitch === 'CEMENT') {
       throw new BookingResourceError(
-        'No cement wickets available for this slot',
+        'All cement wickets are taken at this slot',
         409,
       );
     }
