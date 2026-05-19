@@ -528,6 +528,15 @@ export async function GET(req: NextRequest) {
           freeOutdoorResources: availability.freeOutdoorResources.map((r) => ({
             id: r.id, name: r.name, type: r.type,
           })),
+          // Per-pitch free pool. The client uses this when the user has
+          // picked a specific pitch to gate the slot: ASTRO eats indoor
+          // net capacity, NATURAL eats outdoor turf-wicket capacity,
+          // CEMENT eats cement-wicket capacity. Each pool is independent.
+          freeByPitch: {
+            ASTRO: availability.freeByPitch.ASTRO.map((r) => ({ id: r.id, name: r.name, type: r.type })),
+            CEMENT: availability.freeByPitch.CEMENT.map((r) => ({ id: r.id, name: r.name, type: r.type })),
+            NATURAL: availability.freeByPitch.NATURAL.map((r) => ({ id: r.id, name: r.name, type: r.type })),
+          },
           freeCoaches: availability.freeCoaches.map((c) => ({
             userId: c.userId, name: c.user.name,
           })),

@@ -671,6 +671,12 @@ async function executeResourceBookingCore(
       machineId: body.machineId ?? null,
       coachId: body.coachId ?? null,
       staffId: body.staffId ?? null,
+      // pickNetFor uses this to steer the booking onto the right
+      // pool (NET / CEMENT_WICKET / TURF_WICKET). Without it the
+      // engine falls back to the indoor-net default — which is what
+      // we want for category=COACHING/FULL_COURT where the user
+      // doesn't pick a pitch.
+      pitchType: body.pitchType ?? null,
     } satisfies BookingPlan;
   });
 

@@ -349,6 +349,22 @@ export interface SlotAvailability {
   freeIndoorNets: ResourceLite[];
   /** All outdoor turf/cement wickets currently free. */
   freeOutdoorResources: ResourceLite[];
+  /**
+   * Free resources grouped by the pitch a booking would request:
+   *   ASTRO   → INDOOR / NET resources (the synthetic-turf indoor pool)
+   *   CEMENT  → resources of type CEMENT_WICKET (any category)
+   *   NATURAL → resources of type TURF_WICKET (any category)
+   *
+   * Pools are independent — a booking with pitchType=NATURAL consumes
+   * outdoor turf-wicket capacity, NOT indoor-net capacity. Lets a center
+   * configure separate per-pitch capacities and have the engine honour
+   * them without the legacy lumping-everything-into-indoor behaviour.
+   */
+  freeByPitch: {
+    ASTRO: ResourceLite[];
+    CEMENT: ResourceLite[];
+    NATURAL: ResourceLite[];
+  };
   /** Coaches free at this slot. */
   freeCoaches: CenterMembershipUserRow[];
   /** Sidearm staff free at this slot. */
@@ -357,6 +373,29 @@ export interface SlotAvailability {
   fullCourtAvailable: boolean;
   /** How many indoor nets the corporate batch is holding right now. */
   corporateBatchNetsHeld: number;
+}
+
+/**
+ * Map a pitch type to the Resource types that satisfy it. Used by both
+ * the availability engine (group "free" resources by pitch) and
+ * pickNetFor (filter the pool by the booking's pitch).
+ *
+ * The conventions:
+ *   - ASTRO   → NET (synthetic turf — typical indoor net flooring)
+ *   - CEMENT  → CEMENT_WICKET (dedicated cement wicket rows)
+ *   - NATURAL → TURF_WICKET (natural-turf outdoor wickets)
+ *
+ * Unknown / null pitch falls back to NET so the legacy code path
+ * (no pitch picked) still works.
+ */
+function resourceMatchesPitch(r: ResourceLite, pitch: string | null | undefined): boolean {
+  if (!pitch) return r.type === 'NET';
+  switch (pitch) {
+    case 'ASTRO': return r.type === 'NET';
+    case 'CEMENT': return r.type === 'CEMENT_WICKET';
+    case 'NATURAL': return r.type === 'TURF_WICKET';
+    default: return r.type === 'NET';
+  }
 }
 
 /**
@@ -438,9 +477,24 @@ export function computeSlotAvailability(inputs: AvailabilityInputs): SlotAvailab
     freeIndoor.length === indoorNets.length &&
     heldByBatch === 0;
 
+  // Per-pitch free pools. Each pitch keeps its own list so a booking
+  // for NATURAL consumes outdoor turf capacity, not indoor net capacity.
+  // Astro uses the post-batch indoor pool so corporate-batch reservations
+  // also reduce astro capacity.
+  const freeByPitch = {
+    ASTRO: freeIndoorAfterBatch.filter((r) => resourceMatchesPitch(r, 'ASTRO')),
+    CEMENT: resources.filter(
+      (r) => resourceMatchesPitch(r, 'CEMENT') && !occupancy.claimedResourceIds.has(r.id),
+    ),
+    NATURAL: resources.filter(
+      (r) => resourceMatchesPitch(r, 'NATURAL') && !occupancy.claimedResourceIds.has(r.id),
+    ),
+  };
+
   return {
     freeIndoorNets: freeIndoorAfterBatch,
     freeOutdoorResources: freeOutdoor,
+    freeByPitch,
     freeCoaches,
     freeSidearmStaff: freeStaff,
     fullCourtAvailable,
@@ -715,6 +769,13 @@ export interface BookingPlan {
   machineId?: string | null;
   coachId?: string | null;
   staffId?: string | null;
+  /**
+   * Pitch the booking should sit on. Drives the resource-pool selection
+   * (ASTRO → indoor NET, CEMENT → CEMENT_WICKET, NATURAL → TURF_WICKET).
+   * Null/omitted falls back to the indoor net pool — matches the legacy
+   * 'no pitch picked' behaviour.
+   */
+  pitchType?: string | null;
   /** For CORPORATE_BATCH only: how many nets to take. Overrides the policy. */
   corporateNets?: number;
 }
@@ -968,20 +1029,42 @@ async function pickNetFor({
   occupancy,
   machineId,
 }: PickNetArgs): Promise<ResourceLite> {
-  // Caller-pinned resource wins.
+  // Pitch-driven pool selection. The user's pitch pick maps to a
+  // Resource type via resourceMatchesPitch:
+  //   ASTRO   → NET (synthetic turf indoor pool)
+  //   CEMENT  → CEMENT_WICKET (cement wickets, often outdoor)
+  //   NATURAL → TURF_WICKET (natural-turf outdoor wickets)
+  // Each pool is independent: a NATURAL booking can't eat into the
+  // indoor net capacity, and vice versa. When no pitch is supplied
+  // we default to the indoor NET pool, matching the legacy behaviour
+  // for callers that don't yet pass pitchType.
+  const pitch = plan.pitchType ?? null;
+
+  // Caller-pinned resource wins, but it still has to match the
+  // requested pitch — picking an outdoor turf wicket for an ASTRO
+  // booking would steer the user onto the wrong surface.
   if (plan.resourceIds && plan.resourceIds.length > 0) {
     const id = plan.resourceIds[0];
     const r = resources.find((x) => x.id === id);
-    if (!r || occupancy.claimedResourceIds.has(id)) {
+    if (!r) {
+      throw new BookingResourceError('Resource not found', 400);
+    }
+    if (occupancy.claimedResourceIds.has(id)) {
+      throw new BookingResourceError(`Resource "${r.name}" is already booked`, 409);
+    }
+    if (pitch && !resourceMatchesPitch(r, pitch)) {
       throw new BookingResourceError(
-        r ? `Resource "${r.name}" is already booked` : 'Resource not found',
-        r ? 409 : 400,
+        `Resource "${r.name}" doesn't support the ${pitch.toLowerCase()} pitch`,
+        400,
       );
     }
     return r;
   }
 
-  // Prefer the machine's home net if set + free.
+  // Prefer the machine's home net if set + free AND it matches the
+  // requested pitch. A leather machine pinned to an indoor net
+  // shouldn't try to take an outdoor turf wicket; fall through to the
+  // pool below when the home net doesn't match the pitch.
   if (machineId) {
     const machine = await prisma.machine.findUnique({
       where: { id: machineId },
@@ -992,15 +1075,37 @@ async function pickNetFor({
     }
     if (machine.resourceId) {
       const home = resources.find((r) => r.id === machine.resourceId);
-      if (home && !occupancy.claimedResourceIds.has(home.id)) {
+      if (
+        home
+        && !occupancy.claimedResourceIds.has(home.id)
+        && (!pitch || resourceMatchesPitch(home, pitch))
+      ) {
         return home;
       }
     }
   }
 
-  // Otherwise pick the first available indoor net.
-  const candidate = availability.freeIndoorNets[0];
+  // Pool selection: pull from the per-pitch free list when the user
+  // picked a pitch; fall back to indoor nets otherwise. Each pool is
+  // independent so a NATURAL booking only consumes outdoor turf
+  // capacity — it can't accidentally eat an indoor net slot.
+  const pool = pitch
+    ? availability.freeByPitch[pitch as 'ASTRO' | 'CEMENT' | 'NATURAL'] ?? []
+    : availability.freeIndoorNets;
+  const candidate = pool[0];
   if (!candidate) {
+    if (pitch === 'NATURAL') {
+      throw new BookingResourceError(
+        'No natural-turf wickets available for this slot',
+        409,
+      );
+    }
+    if (pitch === 'CEMENT') {
+      throw new BookingResourceError(
+        'No cement wickets available for this slot',
+        409,
+      );
+    }
     throw new BookingResourceError(
       availability.corporateBatchNetsHeld > 0
         ? 'No nets free — corporate batch is holding the indoor pool'

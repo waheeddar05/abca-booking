@@ -58,6 +58,17 @@ interface ResourceSlot {
   timeSlab: 'morning' | 'evening';
   freeIndoorNets: NetLite[];
   freeOutdoorResources: ResourceLite[];
+  /**
+   * Per-pitch free pool. When the user has picked a pitch, the slot
+   * card consults this entry instead of `freeIndoorNets` so a NATURAL
+   * booking doesn't read as "available" because indoor nets are free.
+   * Server-side `pickNetFor` mirrors the same mapping.
+   */
+  freeByPitch?: {
+    ASTRO: ResourceLite[];
+    CEMENT: ResourceLite[];
+    NATURAL: ResourceLite[];
+  };
   freeCoaches: PersonLite[];
   freeSidearmStaff: PersonLite[];
   fullCourtAvailable: boolean;
@@ -710,13 +721,23 @@ export default function ResourceSlotsPage() {
       if (machineId && (s.busyMachineIds ?? []).includes(machineId)) {
         return { ok: false, reason: 'This machine is already booked at this slot' };
       }
-      // pickNetFor (server) only picks from the indoor pool. Saying
-      // "Open" when only outdoor resources remain would 409 at submit.
-      // The N concurrent bookings cap == N indoor nets — every
-      // category (MACHINE / SIDEARM / COACHING / NET) draws from the
-      // same indoor pool.
-      if (s.freeIndoorNets.length === 0) {
-        return { ok: false, reason: 'All nets are taken at this slot' };
+      // Pitch-driven pool gate. ASTRO eats indoor net capacity,
+      // CEMENT eats cement-wicket capacity, NATURAL eats outdoor
+      // turf-wicket capacity. pickNetFor mirrors the same map so a
+      // slot the grid says is "Open" will be accepted server-side.
+      // No pitch picked → fall back to the indoor pool (legacy).
+      const pool = pitchType && s.freeByPitch
+        ? s.freeByPitch[pitchType as 'ASTRO' | 'CEMENT' | 'NATURAL']
+        : s.freeIndoorNets;
+      if (!pool || pool.length === 0) {
+        return {
+          ok: false,
+          reason: pitchType === 'NATURAL'
+            ? 'No natural-turf wickets free'
+            : pitchType === 'CEMENT'
+              ? 'No cement wickets free'
+              : 'All nets are taken at this slot',
+        };
       }
       // Operator gating — only for non-tennis (leather) machines. Tennis
       // machines can self-operate, so a busy operator pool doesn't block
@@ -735,12 +756,29 @@ export default function ResourceSlotsPage() {
     }
     if (cat === 'SIDEARM') {
       if (s.freeSidearmStaff.length === 0) return { ok: false, reason: 'No sidearm specialist free' };
-      if (s.freeIndoorNets.length === 0) return { ok: false, reason: 'No nets free' };
+      const pool = pitchType && s.freeByPitch
+        ? s.freeByPitch[pitchType as 'ASTRO' | 'CEMENT' | 'NATURAL']
+        : s.freeIndoorNets;
+      if (!pool || pool.length === 0) {
+        return {
+          ok: false,
+          reason: pitchType === 'NATURAL'
+            ? 'No natural-turf wickets free'
+            : pitchType === 'CEMENT'
+              ? 'No cement wickets free'
+              : 'No nets free',
+        };
+      }
       return { ok: true };
     }
     if (cat === 'COACHING') {
       if (s.freeCoaches.length === 0) return { ok: false, reason: 'No coaches free' };
-      if (s.freeIndoorNets.length === 0) return { ok: false, reason: 'No nets free' };
+      // Coaching can use any pitch; default to indoor pool when no
+      // pitch is selected. When a pitch is picked, respect that pool.
+      const pool = pitchType && s.freeByPitch
+        ? s.freeByPitch[pitchType as 'ASTRO' | 'CEMENT' | 'NATURAL']
+        : s.freeIndoorNets;
+      if (!pool || pool.length === 0) return { ok: false, reason: 'No nets free' };
       return { ok: true };
     }
     if (cat === 'FULL_COURT') {
@@ -753,11 +791,22 @@ export default function ResourceSlotsPage() {
       return { ok: true };
     }
     if (cat === 'NET') {
-      // Same indoor-only constraint as MACHINE — pickNetFor doesn't
-      // consider outdoor resources. The N-concurrent-bookings rule
-      // (N = number of active indoor nets) is enforced here.
-      if (s.freeIndoorNets.length === 0) {
-        return { ok: false, reason: 'No nets free' };
+      // Same pitch-driven pool gate as MACHINE/SIDEARM. With pitch
+      // picked, the gate uses the matching pool (ASTRO → indoor net,
+      // NATURAL → outdoor turf wicket, CEMENT → cement wicket) and
+      // honours that pool's independent capacity.
+      const pool = pitchType && s.freeByPitch
+        ? s.freeByPitch[pitchType as 'ASTRO' | 'CEMENT' | 'NATURAL']
+        : s.freeIndoorNets;
+      if (!pool || pool.length === 0) {
+        return {
+          ok: false,
+          reason: pitchType === 'NATURAL'
+            ? 'No natural-turf wickets free'
+            : pitchType === 'CEMENT'
+              ? 'No cement wickets free'
+              : 'No nets free',
+        };
       }
       return { ok: true };
     }
