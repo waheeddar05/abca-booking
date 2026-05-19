@@ -226,7 +226,20 @@ export async function getCenterStaff(centerId: string): Promise<CenterMembership
 // ─── Per-slot occupancy ──────────────────────────────────────────────
 
 interface OccupancySnapshot {
-  /** Resource IDs claimed by an active booking overlapping the slot. */
+  /**
+   * Number of active bookings consuming each resource at the slot.
+   * Keyed by Resource.id; value is the count of overlapping BookingResource
+   * Assignment rows. A resource is "full" when load >= resource.capacity
+   * (resources default to capacity 1, so any load makes them claimed).
+   *
+   * `claimedResourceIds` is kept as a derived view (resources at or above
+   * capacity) so the rest of the engine and the consumers of this
+   * snapshot don't need to thread capacity around. Producers MUST seed
+   * `claimedResourceIds` only after they've also seeded `resourceLoad`
+   * and have the resource list in hand to compare against capacity.
+   */
+  resourceLoad: Map<string, number>;
+  /** Resources at or above their capacity at this slot. */
   claimedResourceIds: Set<string>;
   /** User IDs of coaches busy at the slot. */
   busyCoachIds: Set<string>;
@@ -276,20 +289,57 @@ export async function getOccupancyForSlot(
     },
   });
 
-  const claimedResourceIds = new Set<string>();
+  // Resource load is computed against capacity inside
+  // computeSlotAvailability — here we only collect raw counts.
+  // claimedResourceIds is left empty; callers either re-derive it from
+  // (load, capacity) via the resource list they already have, or use
+  // the helper `withClaimedResourceIds` below when capacity isn't
+  // handy (legacy behaviour: 1 booking = claimed).
+  const resourceLoad = new Map<string, number>();
   const busyCoachIds = new Set<string>();
   const busyStaffIds = new Set<string>();
   const busyMachineIds = new Set<string>();
 
   for (const b of bookings) {
     if (!overlaps(b.startTime, b.endTime, slot.startTime, slot.endTime)) continue;
-    for (const ra of b.resourceAssignments) claimedResourceIds.add(ra.resourceId);
+    for (const ra of b.resourceAssignments) {
+      resourceLoad.set(ra.resourceId, (resourceLoad.get(ra.resourceId) ?? 0) + 1);
+    }
     if (b.assignedCoachId) busyCoachIds.add(b.assignedCoachId);
     if (b.assignedStaffId) busyStaffIds.add(b.assignedStaffId);
     if (b.assignedMachineId) busyMachineIds.add(b.assignedMachineId);
   }
 
-  return { claimedResourceIds, busyCoachIds, busyStaffIds, busyMachineIds };
+  // Default `claimedResourceIds` treats any load as claimed (capacity=1
+  // semantics). Callers with capacity knowledge overwrite this via
+  // `withCapacityDerivedClaims` when they assemble the SlotAvailability.
+  const claimedResourceIds = new Set<string>(resourceLoad.keys());
+
+  return { resourceLoad, claimedResourceIds, busyCoachIds, busyStaffIds, busyMachineIds };
+}
+
+/**
+ * Recompute `claimedResourceIds` against the resource list so each
+ * Resource's `capacity` is honoured. A resource is claimed only when
+ * its current load reaches or exceeds capacity. Mutates the snapshot
+ * in place (we own it) and returns it for chaining.
+ *
+ * Producers of the snapshot don't know capacity; consumers (the
+ * availability engine, pickNetFor) do. So we keep the producer code
+ * capacity-agnostic and recompute here.
+ */
+export function withCapacityDerivedClaims(
+  occupancy: OccupancySnapshot,
+  resources: ResourceLite[],
+): OccupancySnapshot {
+  const capacityById = new Map(resources.map((r) => [r.id, r.capacity ?? 1]));
+  const claimed = new Set<string>();
+  for (const [id, load] of occupancy.resourceLoad.entries()) {
+    const cap = capacityById.get(id) ?? 1;
+    if (load >= cap) claimed.add(id);
+  }
+  occupancy.claimedResourceIds = claimed;
+  return occupancy;
 }
 
 // ─── Availability summary ────────────────────────────────────────────
@@ -344,11 +394,21 @@ interface AvailabilityInputs {
 export function computeSlotAvailability(inputs: AvailabilityInputs): SlotAvailability {
   const { resources, coaches, staff, occupancy, batchNets, slot } = inputs;
 
+  // Re-derive `claimedResourceIds` honouring per-resource capacity.
+  // Producers (getOccupancyForSlot, the slot-grid loop) intentionally
+  // populate `claimedResourceIds` with the capacity=1 default so the
+  // capacity rules live in one place — here.
+  withCapacityDerivedClaims(occupancy, resources);
+
   const indoorNets = resources.filter(
     (r) => r.category === 'INDOOR' && r.type === 'NET',
   );
   const outdoor = resources.filter((r) => r.category === 'OUTDOOR');
 
+  // A resource with remaining capacity (load < capacity) is "free"
+  // — it can host another booking at this slot. With every Resource at
+  // capacity 1 this collapses back to the old "any booking = claimed"
+  // behaviour, so legacy data stays correct.
   const freeIndoor = indoorNets.filter((r) => !occupancy.claimedResourceIds.has(r.id));
   const freeOutdoor = outdoor.filter((r) => !occupancy.claimedResourceIds.has(r.id));
 

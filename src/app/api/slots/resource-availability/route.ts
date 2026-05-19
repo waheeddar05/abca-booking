@@ -194,18 +194,26 @@ export async function GET(req: NextRequest) {
     // in memory; intersect by overlap inside the loop.
     const result = await Promise.all(
       slots.map(async (slot) => {
-        // Build occupancy snapshot for this slot only.
-        const claimedResourceIds = new Set<string>();
+        // Build occupancy snapshot for this slot only. resourceLoad
+        // tracks bookings per resource so capacity > 1 can host more
+        // than one concurrent session; computeSlotAvailability rederives
+        // `claimedResourceIds` from (load, resource.capacity).
+        const resourceLoad = new Map<string, number>();
         const busyCoachIds = new Set<string>();
         const busyStaffIds = new Set<string>();
         const busyMachineIds = new Set<string>();
         for (const b of bookings) {
           if (slot.startTime >= b.endTime || b.startTime >= slot.endTime) continue;
-          for (const ra of b.resourceAssignments) claimedResourceIds.add(ra.resourceId);
+          for (const ra of b.resourceAssignments) {
+            resourceLoad.set(ra.resourceId, (resourceLoad.get(ra.resourceId) ?? 0) + 1);
+          }
           if (b.assignedCoachId) busyCoachIds.add(b.assignedCoachId);
           if (b.assignedStaffId) busyStaffIds.add(b.assignedStaffId);
           if (b.assignedMachineId) busyMachineIds.add(b.assignedMachineId);
         }
+        // Seed the legacy `claimedResourceIds` view; computeSlotAvailability
+        // overwrites it with a capacity-aware version below.
+        const claimedResourceIds = new Set<string>(resourceLoad.keys());
         const slotWindow = {
           date: dateUTC,
           startTime: slot.startTime,
@@ -230,6 +238,7 @@ export async function GET(req: NextRequest) {
           coaches,
           staff,
           occupancy: {
+            resourceLoad,
             claimedResourceIds,
             busyCoachIds,
             busyStaffIds,
