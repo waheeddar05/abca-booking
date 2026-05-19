@@ -275,6 +275,13 @@ export default function ResourceSlotsPage() {
   const [useWallet, setUseWallet] = useState(false);
   const [walletBalance, setWalletBalance] = useState<number>(0);
 
+  // Operation mode for MACHINE bookings (tennis only). Mirrors ABCA's
+  // OptionsPanel toggle — leather machines hard-require an operator
+  // server-side, so the toggle is hidden for them. WITH_OPERATOR is
+  // the default; user can flip to SELF_OPERATE on tennis machines and
+  // the booking goes through without an assigned operator.
+  const [operationMode, setOperationMode] = useState<'WITH_OPERATOR' | 'SELF_OPERATE'>('WITH_OPERATOR');
+
   // ─── Package redemption (Toplay parity with ABCA) ─────────────
   // /api/packages/my returns active (non-expired) UserPackages with the
   // resource-based axes (category, machineRowId) populated when present.
@@ -1076,6 +1083,12 @@ export default function ResourceSlotsPage() {
         ...(kitRental && isKitRentalAvailable
           ? { kitRental: true, kitRentalCharge }
           : {}),
+        // Operation mode — only meaningful for MACHINE bookings.
+        // Leather machines always WITH_OPERATOR (server enforces);
+        // tennis machines honour the user's pick.
+        ...(category === 'MACHINE'
+          ? { operationMode }
+          : {}),
         ...(walletCoversAll
           ? { paymentMethod: 'WALLET' as const, walletDeduction }
           : isCashPayment
@@ -1645,6 +1658,50 @@ export default function ResourceSlotsPage() {
           </div>
         )}
       </div>
+
+      {/* Operation mode toggle — mirrors ABCA's OptionsPanel. Visible
+          only when the user has picked a tennis-ball machine and has
+          slots selected. Leather machines force WITH_OPERATOR server-
+          side, so we hide the toggle there to avoid promising a
+          choice we won't honour. */}
+      {category === 'MACHINE'
+        && selectedSlots.length > 0
+        && selectedMachineForKit?.machineType?.ballType === 'TENNIS' && (
+        <div className="mb-4">
+          <label className="block text-[10px] font-medium text-accent mb-1.5 uppercase tracking-wider">
+            Operation mode
+          </label>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={() => setOperationMode('WITH_OPERATOR')}
+              className={`flex-1 px-3 py-2 rounded-lg text-xs font-semibold border transition-colors cursor-pointer ${
+                operationMode === 'WITH_OPERATOR'
+                  ? 'bg-accent text-black border-accent'
+                  : 'bg-white/[0.04] text-slate-300 border-white/[0.08] hover:bg-white/[0.08]'
+              }`}
+            >
+              With Operator
+            </button>
+            <button
+              type="button"
+              onClick={() => setOperationMode('SELF_OPERATE')}
+              className={`flex-1 px-3 py-2 rounded-lg text-xs font-semibold border transition-colors cursor-pointer ${
+                operationMode === 'SELF_OPERATE'
+                  ? 'bg-amber-500 text-black border-amber-500'
+                  : 'bg-white/[0.04] text-slate-300 border-white/[0.08] hover:bg-white/[0.08]'
+              }`}
+            >
+              Self Operate
+            </button>
+          </div>
+          {operationMode === 'SELF_OPERATE' && (
+            <p className="text-[11px] text-amber-400/80 mt-1.5 leading-relaxed">
+              No machine operator will be assigned. You&apos;ll need to operate the machine yourself — please be familiar with it before booking.
+            </p>
+          )}
+        </div>
+      )}
 
       {/* Kit rental option (mirrors ABCA). Surfaces a checkbox card
           when the center has KIT_RENTAL_CONFIG enabled, the user is on

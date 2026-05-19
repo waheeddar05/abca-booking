@@ -102,6 +102,14 @@ export const ResourceBookingBodySchema = z.object({
    *  can't underpay. Mirrors ABCA's /api/slots/book flow. */
   kitRental: z.boolean().optional(),
   kitRentalCharge: z.number().nonnegative().optional(),
+  /** User-requested operation mode for MACHINE bookings. Optional —
+   *  when omitted the server picks based on operator availability
+   *  (existing behaviour). When the user explicitly picks
+   *  SELF_OPERATE the server will skip operator assignment even if
+   *  one is free. Leather machines always force WITH_OPERATOR
+   *  regardless of the request (server enforces). Tennis machines
+   *  may legitimately self-operate. Mirrors ABCA's OptionsPanel. */
+  operationMode: z.enum(['WITH_OPERATOR', 'SELF_OPERATE']).optional(),
 });
 
 export type ResourceBookingBody = z.infer<typeof ResourceBookingBodySchema>;
@@ -951,6 +959,21 @@ async function executeResourceBookingCore(
                 // arbitrary codes.
                 const isTennisMachine = machineTypeBallType === 'TENNIS';
 
+                // User-picked SELF_OPERATE: honour it for tennis
+                // machines only — bypass operator lookup entirely and
+                // record the booking without an assigned operator.
+                // Leather machines ignore the request because the
+                // machine literally needs someone to load balls.
+                if (body.operationMode === 'SELF_OPERATE' && isTennisMachine) {
+                  operationMode = 'SELF_OPERATE';
+                  assignedOperatorId = null;
+                  // Skip the rest of the operator-assignment cascade
+                  // below by jumping straight to booking creation.
+                  // (Falling through would re-derive operationMode
+                  // from operator availability and clobber the
+                  // explicit pick.)
+                } else {
+
                 const operatorCount = await getOperatorCount(
                   plan.date,
                   plan.startTime,
@@ -1016,6 +1039,7 @@ async function executeResourceBookingCore(
                     }
                   }
                 }
+                } // end else (user did NOT pick SELF_OPERATE)
               }
 
               const booking = await tx.booking.create({
