@@ -1,0 +1,32 @@
+src/components/admin/ResourcePackageManagement.tsx
+  s_6e0bc014652981::t_f26c147a29bb29 318-346
+  s_6e0bc014652981::t_a6db880c64aefa 136
+  s_6e0bc014652981::t_6f2bf3e32b97a2 730
+  s_6e0bc014652981::t_ff0e3045cd7486 743-750,752-755
+src/app/api/admin/packages/[id]/route.ts
+  s_6e0bc014652981::t_6d2723e8bf16e2 1-60
+src/app/admin/packages/page.tsx
+  s_6e0bc014652981::t_5a7a48d4845824 143-147
+  s_6e0bc014652981::t_2dafafbc0dd7d3 420-455
+  s_6e0bc014652981::t_e4e91257e64e9b 23
+  s_6e0bc014652981::t_cce2b024c6acd8 727
+  s_6e0bc014652981::t_0b2ce573ed2b33 1232-1248
+  s_6e0bc014652981::t_2a47cbc1f5493a 1274,1281
+  s_6e0bc014652981::t_0e39828a85e385 1377-1384
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.4",
+  "base_commit_sha": "f6a32d6b8551ef38cf6502ff5564978617da7b46",
+  "prompts": {},
+  "sessions": {
+    "s_6e0bc014652981": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "45340075-50bc-4580-814c-d4efb70ccc5a",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Waheed <waheeddar8@gmail.com>"
+    }
+  }
+}
