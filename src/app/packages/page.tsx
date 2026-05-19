@@ -2,19 +2,48 @@
 
 import { useState, useEffect, useMemo } from 'react';
 import { useSession } from 'next-auth/react';
-import { Package, Loader2, ShoppingCart, Clock, X, ChevronRight, RotateCcw, Sun, Moon, Zap, Calendar, CreditCard } from 'lucide-react';
+import {
+  Package,
+  Loader2,
+  ShoppingCart,
+  Clock,
+  X,
+  RotateCcw,
+  Sun,
+  Moon,
+  Zap,
+  Calendar,
+  CreditCard,
+  Settings2,
+  LayoutGrid,
+  Users,
+  UserCog,
+} from 'lucide-react';
 import Link from 'next/link';
-import { differenceInDays, startOfDay } from 'date-fns';
+import { differenceInDays, startOfDay, format } from 'date-fns';
 import { useRazorpay, usePaymentConfig } from '@/lib/useRazorpay';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { LABEL_MAP } from '@/lib/client-constants';
 import { ContactFooter } from '@/components/ContactFooter';
 import { PackageFirstBookingBanner } from '@/components/ui/PackageFirstBookingBanner';
 import { useCenter } from '@/lib/center-context';
+import {
+  PACKAGE_CATEGORY_LABEL,
+  PACKAGE_TIMING_LABEL,
+  PACKAGE_WICKET_LABEL,
+  packageCategoryLabel,
+  categoryUsesBallType,
+} from '@/lib/package-admin-labels';
 
 import { Wallet } from 'lucide-react';
 
-type ResourceCategory = 'MACHINE' | 'SIDEARM' | 'COACHING' | 'NET' | 'FULL_COURT';
+/**
+ * BookingCategory ids supported by the user-side packages page. Mirrors
+ * the canonical list used in `pitch-config.ts` and the admin
+ * `EnabledCategoriesEditor`. Legacy ABCA packages without an explicit
+ * category are treated as `MACHINE` for filtering / display.
+ */
+type BookingCategory = 'MACHINE' | 'NET' | 'SIDEARM' | 'COACHING' | 'FULL_COURT';
 
 interface PackageInfo {
   id: string;
@@ -29,7 +58,7 @@ interface PackageInfo {
   price: number;
   // Resource-based (Toplay) axes. Null on legacy ABCA packages — those
   // continue to render via machineId / machineType.
-  category?: ResourceCategory | null;
+  category?: BookingCategory | null;
   machineRowId?: string | null;
   machineRow?: {
     id: string;
@@ -43,18 +72,21 @@ interface MyPackage {
   id: string;
   packageName: string;
   machineType: string;
+  machineId?: string | null;
   ballType: string;
   wicketType: string;
   pitchTypes?: string[];
   /** Resource-based (Toplay) targeting. Null on ABCA-style packages. */
-  category?: string | null;
+  category?: BookingCategory | string | null;
   machineRowId?: string | null;
+  machineRowName?: string | null;
   timingType: string;
   totalSessions: number;
   usedSessions: number;
   remainingSessions: number;
-  activationDate: string;
-  expiryDate: string;
+  activationDate: string | null;
+  expiryDate: string | null;
+  pendingActivation?: boolean;
   status: string;
   amountPaid: number;
   totalExtraPayments: number;
@@ -62,84 +94,58 @@ interface MyPackage {
     id: string;
     sessionsUsed: number;
     extraCharge: number;
-    booking: { date: string; startTime: string; endTime: string; status: string };
+    booking: { date: string; startTime: string; endTime: string; status: string } | null;
   }>;
 }
 
 const labelMap = LABEL_MAP;
 
-type MachineFilter = 'all' | 'GRAVITY' | 'YANTRA' | 'LEVERAGE_INDOOR' | 'LEVERAGE_OUTDOOR';
-
-const PACKAGE_MACHINE_CARDS: { id: MachineFilter; label: string; sub: string; category: string; image: string; dot: string }[] = [
-  { id: 'GRAVITY', label: 'Gravity', sub: 'Leather', category: 'LEATHER', image: '/images/leathermachine.jpeg', dot: 'bg-red-500' },
-  { id: 'YANTRA', label: 'Yantra', sub: 'Premium Leather', category: 'LEATHER', image: '/images/yantra-machine.jpeg', dot: 'bg-red-500' },
-  { id: 'LEVERAGE_INDOOR', label: 'Leverage Tennis', sub: 'Indoor', category: 'TENNIS', image: '/images/tennismachine.jpeg', dot: 'bg-green-500' },
-  { id: 'LEVERAGE_OUTDOOR', label: 'Leverage Tennis', sub: 'Outdoor', category: 'TENNIS', image: '/images/tennismachine.jpeg', dot: 'bg-green-500' },
+/** Canonical category cards. Rendered as the top-level browse filter on
+ *  the packages page. The actual list shown is the intersection with the
+ *  center's `ENABLED_BOOKING_CATEGORIES` policy, so a center that only
+ *  offers Bowling Machine + Cricket Nets shows just those two cards. */
+const CATEGORY_CARDS: Array<{
+  id: BookingCategory;
+  label: string;
+  sub: string;
+  icon: typeof Settings2;
+  dot: string;
+}> = [
+  { id: 'MACHINE',    label: 'Bowling Machine',  sub: 'Yantra / Leverage',          icon: Settings2,  dot: 'bg-red-500' },
+  { id: 'NET',        label: 'Cricket Nets',     sub: 'Bare net for self practice', icon: LayoutGrid, dot: 'bg-cyan-500' },
+  { id: 'SIDEARM',    label: 'Sidearm',          sub: 'Bowled by a specialist',     icon: Users,      dot: 'bg-emerald-500' },
+  { id: 'FULL_COURT', label: 'Full Indoor Court',sub: 'Entire indoor court',        icon: LayoutGrid, dot: 'bg-purple-500' },
+  { id: 'COACHING',   label: 'Personal Coaching',sub: 'With a coach',               icon: UserCog,    dot: 'bg-amber-500' },
 ];
 
-type ResourceCategoryFilter = 'all' | ResourceCategory;
-
-/** Category cards for RESOURCE_BASED centers (Toplay). Mirror the
- *  structure of `PACKAGE_MACHINE_CARDS` so the same JSX block can
- *  render either. `sub` carries a short tagline; `dot` is the accent
- *  colour reused on the section header. */
-const PACKAGE_CATEGORY_CARDS: { id: ResourceCategory; label: string; sub: string; dot: string }[] = [
-  { id: 'MACHINE', label: 'Bowling Machine', sub: 'Gravity / Yantra / Leverage', dot: 'bg-red-500' },
-  { id: 'SIDEARM', label: 'Sidearm', sub: 'Specialist throws', dot: 'bg-emerald-500' },
-  { id: 'COACHING', label: 'Coaching', sub: 'Personal session with coach', dot: 'bg-amber-500' },
-  { id: 'NET', label: 'Net Only', sub: 'Just the practice net', dot: 'bg-cyan-500' },
-  { id: 'FULL_COURT', label: 'Full Court', sub: 'Entire indoor court', dot: 'bg-purple-500' },
-];
-
-const CATEGORY_LABEL: Record<string, string> = {
-  MACHINE: 'Bowling Machine',
-  SIDEARM: 'Sidearm',
-  COACHING: 'Coaching',
-  NET: 'Net Only',
-  FULL_COURT: 'Full Court',
-  CORPORATE_BATCH: 'Corporate',
-};
-
-/** Minimal machine shape pulled from `/api/centers/[id]/machines` —
- *  enough to render a filter card (label + image) and match against
- *  `Package.machineRowId`. RESOURCE_BASED centers only. */
-interface CenterMachineRow {
-  id: string;
-  name: string;
-  shortName: string | null;
-  machineType: { code: string; name: string; ballType: string; imageUrl: string | null };
+/**
+ * Normalise a package row to a BookingCategory. Legacy ABCA packages
+ * predate the `category` column on Package — every such row is a
+ * bowling-machine package, so we treat null as `MACHINE`.
+ */
+function packageCategory(pkg: { category?: string | null }): BookingCategory {
+  const c = pkg.category;
+  if (c === 'NET' || c === 'SIDEARM' || c === 'COACHING' || c === 'FULL_COURT') return c;
+  return 'MACHINE';
 }
-
-/** Map MachineType.code → fallback image so a freshly-seeded machine
- *  still gets a card image. Mirrors the assets used by ABCA's
- *  PACKAGE_MACHINE_CARDS. */
-const MACHINE_TYPE_IMAGE: Record<string, string> = {
-  YANTRA: '/images/yantra-machine.jpeg',
-  GRAVITY: '/images/leathermachine.jpeg',
-  LEVERAGE: '/images/tennismachine.jpeg',
-};
 
 export default function PackagesPage() {
   const { data: session } = useSession();
   const [tab, setTab] = useState<'browse' | 'my'>('my');
   const [packages, setPackages] = useState<PackageInfo[]>([]);
+  const [enabledCategories, setEnabledCategories] = useState<BookingCategory[] | null>(null);
   const [myPackages, setMyPackages] = useState<MyPackage[]>([]);
   const [loading, setLoading] = useState(true);
   const [purchasing, setPurchasing] = useState<string | null>(null);
   const [message, setMessage] = useState({ text: '', type: '' });
-  const [machineFilter, setMachineFilter] = useState<MachineFilter>('all');
-  const [categoryFilter, setCategoryFilter] = useState<ResourceCategoryFilter>('all');
-  /** RESOURCE_BASED only — filter by specific Machine row (Yantra,
-   *  Leverage Tennis, …). `'all'` means "any machine"; setting it to a
-   *  Machine.id narrows the result set to packages pinned to that
-   *  machine. Selecting a machine implicitly forces category=MACHINE
-   *  in the filter logic (we keep `categoryFilter` separate so the
-   *  user can still pick non-machine categories like Coaching). */
-  const [machineRowFilter, setMachineRowFilter] = useState<'all' | string>('all');
-  const [centerMachines, setCenterMachines] = useState<CenterMachineRow[]>([]);
-  const [timingFilter, setTimingFilter] = useState<'DAY' | 'EVENING' | ''>('');
+  /** Top-level category filter. `null` (no selection) shows all
+   *  packages — matches the admin Packages tab which lists everything
+   *  by default after commit bec7435. */
+  const [categoryFilter, setCategoryFilter] = useState<BookingCategory | null>(null);
+  /** Secondary timing chip. `null` means "no timing filter" so packages
+   *  of any timing (Day, Evening, Both) are shown. */
+  const [timingFilter, setTimingFilter] = useState<'DAY' | 'EVENING' | null>(null);
   const { currentCenter } = useCenter();
-  const isResourceCenter = currentCenter?.bookingModel === 'RESOURCE_BASED';
   const [selectedPackage, setSelectedPackage] = useState<PackageInfo | null>(null);
   const [confirmPurchaseId, setConfirmPurchaseId] = useState<string | null>(null);
   const [useWalletForPkg, setUseWalletForPkg] = useState(false);
@@ -161,7 +167,21 @@ export default function PackagesPage() {
     setLoading(true);
     try {
       const res = await fetch('/api/packages');
-      if (res.ok) setPackages(await res.json());
+      if (res.ok) {
+        // Newer envelope is `{ packages, enabledCategories, bookingModel }`.
+        // Fall back to the legacy bare-array shape if an older deploy is
+        // serving this client.
+        const data = await res.json();
+        if (Array.isArray(data)) {
+          setPackages(data);
+          setEnabledCategories(null);
+        } else {
+          setPackages(Array.isArray(data?.packages) ? data.packages : []);
+          setEnabledCategories(
+            Array.isArray(data?.enabledCategories) ? data.enabledCategories : null,
+          );
+        }
+      }
     } catch (e) {
       console.error('Failed to fetch packages', e);
     } finally {
@@ -201,24 +221,6 @@ export default function PackagesPage() {
     if (tab === 'my' && session) fetchMyPackages();
     if (tab === 'browse') fetchPackages();
   }, [tab, session]);
-
-  // RESOURCE_BASED centers only — fetch the center's actual Machine
-  // rows so the filter row can render real machine cards (Yantra,
-  // Leverage Tennis, …) instead of the ABCA enum allowlist. We avoid
-  // calling this on MACHINE_PITCH centers because the legacy cards
-  // already cover their machines without a network round-trip.
-  useEffect(() => {
-    if (!isResourceCenter || !currentCenter?.id) {
-      setCenterMachines([]);
-      return;
-    }
-    let cancelled = false;
-    fetch(`/api/centers/${currentCenter.id}/machines`)
-      .then((res) => (res.ok ? res.json() : []))
-      .then((data) => { if (!cancelled) setCenterMachines(Array.isArray(data) ? data : []); })
-      .catch(() => { if (!cancelled) setCenterMachines([]); });
-    return () => { cancelled = true; };
-  }, [isResourceCenter, currentCenter?.id]);
 
   const handlePurchase = async (packageId: string) => {
     if (!session) {
@@ -319,74 +321,43 @@ export default function PackagesPage() {
     }
   };
 
-  const hasActiveFilter = isResourceCenter
-    ? (categoryFilter !== 'all' || machineRowFilter !== 'all' || timingFilter !== '')
-    : (machineFilter !== 'all' || timingFilter !== '');
+  const hasActiveFilter = categoryFilter !== null || timingFilter !== null;
 
   const clearFilters = () => {
-    setMachineFilter('all');
-    setCategoryFilter('all');
-    setMachineRowFilter('all');
-    setTimingFilter('');
+    setCategoryFilter(null);
+    setTimingFilter(null);
   };
 
-  // Filtered packages based on machine card / category card + timing.
-  // RESOURCE_BASED centers (Toplay) add a third axis — `machineRowFilter` —
-  // so "select Yantra → only Yantra packages" works the same way the
-  // ABCA enum cards do on the main branch.
+  /** Visible category cards = canonical list ∩ center's enabled
+   *  categories. We always show MACHINE for legacy ABCA installs where
+   *  the policy hasn't been initialised, because every ABCA package is
+   *  effectively MACHINE-category. */
+  const visibleCategoryCards = useMemo(() => {
+    if (!enabledCategories || enabledCategories.length === 0) {
+      // Either pre-policy or the API returned the legacy array shape.
+      // Fall back to the categories actually represented in the
+      // package list — that way ABCA still shows just "Bowling Machine"
+      // while a multi-category center shows everything it really has.
+      const present = new Set<BookingCategory>(packages.map(packageCategory));
+      return CATEGORY_CARDS.filter((c) => present.has(c.id));
+    }
+    const enabledSet = new Set(enabledCategories);
+    return CATEGORY_CARDS.filter((c) => enabledSet.has(c.id));
+  }, [enabledCategories, packages]);
+
+  // Filter the package list by the active category + timing chips.
   const filteredPackages = useMemo(() => {
     let filtered = packages;
-    if (isResourceCenter) {
-      // Machine-row filter implicitly narrows to category=MACHINE because
-      // only MACHINE packages can be pinned to a machine row. We keep
-      // `categoryFilter` independent so picking a category card after a
-      // machine card switches the lens to that category instead of
-      // accumulating both.
-      if (machineRowFilter !== 'all') {
-        filtered = filtered.filter(
-          (pkg) => pkg.category === 'MACHINE' && pkg.machineRowId === machineRowFilter,
-        );
-      } else if (categoryFilter !== 'all') {
-        filtered = filtered.filter((pkg) => pkg.category === categoryFilter);
-      }
-    } else if (machineFilter !== 'all') {
-      const card = PACKAGE_MACHINE_CARDS.find(c => c.id === machineFilter);
-      if (card) {
-        // Filter by machineId if available, fallback to machineType category for older packages
-        filtered = filtered.filter(pkg =>
-          pkg.machineId ? pkg.machineId === machineFilter : pkg.machineType === card.category
-        );
-      }
+    if (categoryFilter) {
+      filtered = filtered.filter((p) => packageCategory(p) === categoryFilter);
     }
     if (timingFilter) {
-      filtered = filtered.filter(pkg => pkg.timingType === timingFilter || pkg.timingType === 'BOTH');
+      filtered = filtered.filter((p) => p.timingType === timingFilter || p.timingType === 'BOTH');
     }
     return filtered;
-  }, [packages, machineFilter, categoryFilter, machineRowFilter, timingFilter, isResourceCenter]);
+  }, [packages, categoryFilter, timingFilter]);
 
-  // ABCA-style splits — packages without a resource category fall through
-  // to these. Resource-only packages never hit them because `machineType`
-  // on a category-targeted package is the placeholder 'LEATHER' but is
-  // grouped via `resourcePackagesByCategory` below.
-  const leatherPackages = filteredPackages.filter(p => !p.category && p.machineType === 'LEATHER');
-  const tennisPackages = filteredPackages.filter(p => !p.category && p.machineType === 'TENNIS');
-
-  /** Resource packages grouped by category, preserving the order in
-   *  PACKAGE_CATEGORY_CARDS. Returned as [card, packages][] so the
-   *  render block can use the card's label + dot directly. */
-  const resourcePackagesByCategory = useMemo(() => {
-    if (!isResourceCenter) return [] as Array<[typeof PACKAGE_CATEGORY_CARDS[number], PackageInfo[]]>;
-    return PACKAGE_CATEGORY_CARDS
-      .map((card) => [card, filteredPackages.filter((p) => p.category === card.id)] as [typeof PACKAGE_CATEGORY_CARDS[number], PackageInfo[]])
-      .filter(([, pkgs]) => pkgs.length > 0);
-  }, [filteredPackages, isResourceCenter]);
-
-  const getTimingLabel = (t: string) => {
-    if (t === 'DAY') return 'Day';
-    if (t === 'EVENING') return 'Evening/Night';
-    if (t === 'BOTH') return 'Day & Evening';
-    return t;
-  };
+  const getTimingLabel = (t: string) => PACKAGE_TIMING_LABEL[t] || t;
 
   return (
     <div className="min-h-[calc(100vh-56px)]">
@@ -451,94 +422,9 @@ export default function PackagesPage() {
               </div>
             ) : (
               <div className="space-y-4">
-                {myPackages.map(up => {
-                  const remaining = up.totalSessions - up.usedSessions;
-                  const pct = up.totalSessions > 0 ? (up.usedSessions / up.totalSessions) * 100 : 0;
-                  const isActive = up.status === 'ACTIVE';
-                  const isExpired = up.status === 'EXPIRED';
-                  const today = startOfDay(new Date());
-                  const expiry = startOfDay(new Date(up.expiryDate));
-                  const daysRemaining = differenceInDays(expiry, today);
-                  const isFirstBookingPending = isActive && up.usedSessions === 0;
-
-                  return (
-                    <div key={up.id}>
-                    {isFirstBookingPending && (
-                      <PackageFirstBookingBanner packageName={up.packageName} />
-                    )}
-                    <div className="bg-white/[0.04] backdrop-blur-sm rounded-xl border border-white/[0.08] p-5">
-                      <div className="flex items-start justify-between mb-3">
-                        <div>
-                          <div className="flex items-center gap-2 mb-1 flex-wrap">
-                            <h3 className="text-sm font-semibold text-white">{up.packageName}</h3>
-                            <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${
-                              isActive ? 'bg-green-500/15 text-green-400' :
-                              isExpired ? 'bg-red-500/15 text-red-400' :
-                              'bg-slate-500/15 text-slate-400'
-                            }`}>
-                              {up.status}
-                            </span>
-                            {/* Category chip for resource-based packages
-                                (Toplay). Hidden on ABCA rows. */}
-                            {up.category && (
-                              <span className="text-[10px] px-2 py-0.5 rounded-full font-medium bg-purple-500/15 text-purple-300">
-                                {CATEGORY_LABEL[up.category] || up.category}
-                              </span>
-                            )}
-                          </div>
-                          <div className="flex flex-col gap-1 text-[11px] text-slate-400">
-                            <span className="flex items-center gap-1">
-                              <Clock className="w-3 h-3" />
-                              {(up as any).pendingActivation ? (
-                                'Pending activation — starts on first booking'
-                              ) : isExpired ? (
-                                `Expired on ${new Date(up.expiryDate).toLocaleDateString()}`
-                              ) : daysRemaining <= 0 ? (
-                                "Expires today"
-                              ) : (
-                                `${daysRemaining} day${daysRemaining === 1 ? '' : 's'} remaining`
-                              )}
-                            </span>
-                            {(() => {
-                              const pitches = (up.pitchTypes && up.pitchTypes.length > 0)
-                                ? up.pitchTypes
-                                : (up.wicketType ? [up.wicketType] : []);
-                              if (pitches.length === 0) return null;
-                              return (
-                                <span className="flex items-center gap-1">
-                                  <span className="text-slate-500">Pitch:</span>
-                                  <span className="text-slate-300">{pitches.map(p => labelMap[p] || p).join(', ')}</span>
-                                </span>
-                              );
-                            })()}
-                          </div>
-                        </div>
-                        {isActive && remaining > 0 && (
-                          <Link
-                            href="/slots"
-                            className="bg-accent hover:bg-accent-light text-primary px-3 py-1.5 rounded-lg text-[11px] font-semibold transition-colors"
-                          >
-                            Book
-                          </Link>
-                        )}
-                      </div>
-
-                      <div className="mb-0">
-                        <div className="flex justify-between text-[10px] mb-1">
-                          <span className="text-slate-500">Sessions (Per Slot: 30 Min)</span>
-                          <span className="text-white">{up.usedSessions}/{up.totalSessions}</span>
-                        </div>
-                        <div className="w-full bg-white/[0.06] rounded-full h-1.5">
-                          <div
-                            className={`h-1.5 rounded-full transition-all ${pct >= 100 ? 'bg-red-500' : pct >= 75 ? 'bg-yellow-500' : 'bg-accent'}`}
-                            style={{ width: `${Math.min(pct, 100)}%` }}
-                          />
-                        </div>
-                      </div>
-                    </div>
-                    </div>
-                  );
-                })}
+                {myPackages.map(up => (
+                  <PurchasedPackageCard key={up.id} pkg={up} />
+                ))}
               </div>
             )}
           </div>
@@ -549,11 +435,11 @@ export default function PackagesPage() {
           <div>
             {/* ─── Filters Section ─── */}
             <div className="bg-white/[0.03] rounded-xl border border-white/[0.06] p-4 mb-5">
-              {/* Machine Type Filter */}
+              {/* Booking Category Filter */}
               <div className="mb-4">
                 <div className="flex items-center justify-between mb-2">
                   <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
-                    {isResourceCenter ? 'Category' : 'Machine Type'}
+                    Booking Category
                   </label>
                   {hasActiveFilter && (
                     <button
@@ -565,197 +451,79 @@ export default function PackagesPage() {
                     </button>
                   )}
                 </div>
-                {/* Resource categories (Toplay-style centers) — replaces the
-                    legacy leather/tennis machine cards with category chips
-                    so the user filters by what they're booking, not the
-                    machine model. */}
-                {isResourceCenter ? (
-                  <>
-                    {/* By-machine card row — mirrors the ABCA filter row
-                        from the main branch. Renders one card per
-                        Machine row at the center (Yantra, Leverage
-                        Tennis, …) so the user can pick "show me only
-                        Yantra packages" exactly like ABCA. Hidden when
-                        the center has no machines configured. */}
-                    {centerMachines.length > 0 && (
-                      <div className="mb-3">
-                        <p className="text-[9px] font-semibold text-slate-500 uppercase tracking-wider mb-1.5">By Machine</p>
-                        <div className="grid grid-cols-2 gap-1.5">
-                          {centerMachines.map((m) => {
-                            const isSelected = machineRowFilter === m.id;
-                            const img = m.machineType.imageUrl || MACHINE_TYPE_IMAGE[m.machineType.code] || '/images/leathermachine.jpeg';
-                            const label = m.shortName ?? m.name;
-                            const sub = m.machineType.ballType === 'TENNIS' ? 'Tennis' : m.machineType.ballType === 'LEATHER' ? 'Leather' : m.machineType.name;
-                            return (
-                              <button
-                                key={m.id}
-                                onClick={() => {
-                                  // Toggle: clicking the active card clears
-                                  // both filters; clicking a different card
-                                  // switches to that machine and clears the
-                                  // category lens (machine filter implies
-                                  // category=MACHINE in filteredPackages).
-                                  if (isSelected) {
-                                    setMachineRowFilter('all');
-                                  } else {
-                                    setMachineRowFilter(m.id);
-                                    setCategoryFilter('all');
-                                  }
-                                  setTimingFilter('');
-                                }}
-                                className={`flex items-center gap-1.5 px-1.5 py-1 rounded-lg transition-all cursor-pointer text-left ${
-                                  isSelected
-                                    ? 'bg-accent/15 ring-1 ring-accent/50 shadow-sm'
-                                    : 'bg-white/[0.04] border border-white/[0.08] hover:border-accent/30'
-                                }`}
-                              >
-                                {/* eslint-disable-next-line @next/next/no-img-element */}
-                                <img
-                                  src={img}
-                                  alt={label}
-                                  className="w-7 h-7 rounded-md object-cover flex-shrink-0"
-                                />
-                                <div className="min-w-0">
-                                  <span className={`text-[10px] font-bold leading-tight block ${isSelected ? 'text-accent' : 'text-slate-300'}`}>
-                                    {label}
-                                  </span>
-                                  <p className={`text-[8px] truncate ${isSelected ? 'text-accent/70' : 'text-slate-500'}`}>
-                                    {sub}
-                                  </p>
-                                </div>
-                              </button>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    )}
-
-                    <p className="text-[9px] font-semibold text-slate-500 uppercase tracking-wider mb-1.5">By Category</p>
-                    <div className="grid grid-cols-2 gap-1.5">
-                      {PACKAGE_CATEGORY_CARDS.map((card) => {
-                        const isSelected = categoryFilter === card.id;
-                        return (
-                          <button
-                            key={card.id}
-                            onClick={() => {
-                              // Picking a category card clears the
-                              // machine-row filter so the two lenses
-                              // don't fight each other (machine filter
-                              // implicitly hides every non-MACHINE
-                              // category).
-                              if (isSelected) {
-                                setCategoryFilter('all');
-                              } else {
-                                setCategoryFilter(card.id);
-                                setMachineRowFilter('all');
-                              }
-                              setTimingFilter('');
-                            }}
-                            className={`flex items-center gap-2 px-2 py-1.5 rounded-lg transition-all cursor-pointer text-left ${
-                              isSelected
-                                ? 'bg-accent/15 ring-1 ring-accent/50 shadow-sm'
-                                : 'bg-white/[0.04] border border-white/[0.08] hover:border-accent/30'
-                            }`}
-                          >
-                            <span className={`w-2 h-2 rounded-full flex-shrink-0 ${card.dot}`} />
-                            <div className="min-w-0">
-                              <span className={`text-[10px] font-bold leading-tight block ${isSelected ? 'text-accent' : 'text-slate-300'}`}>
-                                {card.label}
-                              </span>
-                              <p className={`text-[8px] truncate ${isSelected ? 'text-accent/70' : 'text-slate-500'}`}>
-                                {card.sub}
-                              </p>
-                            </div>
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </>
+                {visibleCategoryCards.length === 0 ? (
+                  <p className="text-[11px] text-slate-500 italic">
+                    No booking categories enabled for {currentCenter?.name || 'this center'}.
+                  </p>
                 ) : (
-                <>
-                {/* Leather Machines */}
-                <div className="grid grid-cols-2 gap-1.5 mb-1.5">
-                  {PACKAGE_MACHINE_CARDS.filter(c => c.category === 'LEATHER').map((card) => {
-                    const isSelected = machineFilter === card.id;
-                    return (
-                      <button
-                        key={card.id}
-                        onClick={() => { setMachineFilter(isSelected ? 'all' : card.id); setTimingFilter(''); }}
-                        className={`flex items-center gap-1.5 px-1.5 py-1 rounded-lg transition-all cursor-pointer text-left ${
-                          isSelected
-                            ? 'bg-accent/15 ring-1 ring-accent/50 shadow-sm'
-                            : 'bg-white/[0.04] border border-white/[0.08] hover:border-accent/30'
-                        }`}
-                      >
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img
-                          src={card.image}
-                          alt={card.label}
-                          className="w-7 h-7 rounded-md object-cover flex-shrink-0"
-                        />
-                        <div className="min-w-0">
-                          <span className={`text-[10px] font-bold leading-tight ${isSelected ? 'text-accent' : 'text-slate-300'}`}>
-                            {card.label}
-                          </span>
-                          <p className={`text-[8px] ${isSelected ? 'text-accent/70' : 'text-slate-500'}`}>
-                            {card.sub}
-                          </p>
-                        </div>
-                      </button>
-                    );
-                  })}
-                </div>
-                {/* Tennis Machines */}
-                <div className="grid grid-cols-2 gap-1.5">
-                  {PACKAGE_MACHINE_CARDS.filter(c => c.category === 'TENNIS').map((card) => {
-                    const isSelected = machineFilter === card.id;
-                    return (
-                      <button
-                        key={card.id}
-                        onClick={() => { setMachineFilter(isSelected ? 'all' : card.id); setTimingFilter(''); }}
-                        className={`flex items-center gap-1.5 px-1.5 py-1 rounded-lg transition-all cursor-pointer text-left ${
-                          isSelected
-                            ? 'bg-accent/15 ring-1 ring-accent/50 shadow-sm'
-                            : 'bg-white/[0.04] border border-white/[0.08] hover:border-accent/30'
-                        }`}
-                      >
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img
-                          src={card.image}
-                          alt={card.label}
-                          className="w-7 h-7 rounded-md object-cover flex-shrink-0"
-                        />
-                        <div className="min-w-0">
-                          <span className={`text-[10px] font-bold leading-tight ${isSelected ? 'text-accent' : 'text-slate-300'}`}>
-                            {card.label}
-                          </span>
-                          <p className={`text-[8px] ${isSelected ? 'text-accent/70' : 'text-slate-500'}`}>
-                            {card.sub}
-                          </p>
-                        </div>
-                      </button>
-                    );
-                  })}
-                </div>
-                </>
+                  <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+                    {visibleCategoryCards.map((card) => {
+                      const isSelected = categoryFilter === card.id;
+                      const Icon = card.icon;
+                      return (
+                        <button
+                          key={card.id}
+                          onClick={() => {
+                            // Toggle: clicking the active card clears
+                            // the category lens. Timing is preserved so
+                            // a user can flip between categories while
+                            // keeping their Day/Evening preference.
+                            setCategoryFilter(isSelected ? null : card.id);
+                          }}
+                          className={`flex items-center gap-2 px-2.5 py-2 rounded-lg transition-all cursor-pointer text-left ${
+                            isSelected
+                              ? 'bg-accent/15 ring-1 ring-accent/50 shadow-sm'
+                              : 'bg-white/[0.04] border border-white/[0.08] hover:border-accent/30'
+                          }`}
+                        >
+                          <div className={`w-7 h-7 rounded-md flex items-center justify-center flex-shrink-0 ${
+                            isSelected ? 'bg-accent/20' : 'bg-white/[0.06]'
+                          }`}>
+                            <Icon className={`w-3.5 h-3.5 ${isSelected ? 'text-accent' : 'text-slate-400'}`} />
+                          </div>
+                          <div className="min-w-0">
+                            <span className={`text-[11px] font-bold leading-tight block ${isSelected ? 'text-accent' : 'text-slate-300'}`}>
+                              {card.label}
+                            </span>
+                            <p className={`text-[9px] truncate ${isSelected ? 'text-accent/70' : 'text-slate-500'}`}>
+                              {card.sub}
+                            </p>
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
                 )}
               </div>
 
-              {/* Timing Filter */}
+              {/* Timing Filter — secondary chip, single-select with
+                  clear. Defaults to no selection so packages of any
+                  timing (Day, Evening, Both) show through. */}
               <div>
-                <label className="block text-[10px] font-bold text-slate-400 mb-2 uppercase tracking-wider">
-                  Timing
-                </label>
+                <div className="flex items-center justify-between mb-2">
+                  <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                    Timing
+                  </label>
+                  {timingFilter && (
+                    <button
+                      onClick={() => setTimingFilter(null)}
+                      className="inline-flex items-center gap-1 text-[10px] text-slate-500 hover:text-accent transition-colors cursor-pointer"
+                    >
+                      <X className="w-3 h-3" />
+                      Clear
+                    </button>
+                  )}
+                </div>
                 <div className="grid grid-cols-2 gap-2">
                   {([
-                    { key: 'DAY' as const, label: 'Day', sub: '7:00 AM – 5:00 PM', Icon: Sun },
-                    { key: 'EVENING' as const, label: 'Evening / Night', sub: '7:00 PM – 10:30 PM', Icon: Moon },
+                    { key: 'DAY' as const,     label: 'Day',     sub: '7:00 AM – 5:00 PM',  Icon: Sun },
+                    { key: 'EVENING' as const, label: 'Evening', sub: '7:00 PM – 10:30 PM', Icon: Moon },
                   ]).map(t => {
                     const isActive = timingFilter === t.key;
                     return (
                       <button
                         key={t.key}
-                        onClick={() => setTimingFilter(isActive ? '' : t.key)}
+                        onClick={() => setTimingFilter(isActive ? null : t.key)}
                         className={`flex items-center gap-2 px-2 py-1.5 rounded-lg transition-all cursor-pointer text-left ${
                           isActive
                             ? 'bg-accent/15 ring-1 ring-accent/50 shadow-sm'
@@ -771,7 +539,7 @@ export default function PackagesPage() {
                           <span className={`text-[10px] font-bold block ${isActive ? 'text-accent' : 'text-slate-300'}`}>
                             {t.label}
                           </span>
-                          <span className={`text-[8px] ${isActive ? 'text-accent/70' : 'text-slate-500'}`}>
+                          <span className={`text-[9px] ${isActive ? 'text-accent/70' : 'text-slate-500'}`}>
                             {t.sub}
                           </span>
                         </div>
@@ -806,55 +574,20 @@ export default function PackagesPage() {
                 )}
               </div>
             ) : (
-              <div className="space-y-5">
-                {/* Resource-based packages (Toplay) — one section per
-                    category present in the result set. Keeps the same
-                    PackageSection visual treatment so ABCA and Toplay
-                    users get a consistent feel. */}
-                {isResourceCenter && resourcePackagesByCategory.map(([card, pkgs]) => (
-                  <PackageSection
-                    key={card.id}
-                    title={card.label}
-                    dotColor={card.dot}
-                    count={pkgs.length}
-                    packages={pkgs}
-                    showBallType={false}
+              <div className="space-y-2">
+                {/* Single uniform card list — matches the admin
+                    Available Packages cards (AdminPackageCard) from
+                    commit bec7435 so admins and users see the same
+                    package treatment. */}
+                {filteredPackages.map((pkg) => (
+                  <PackageCard
+                    key={pkg.id}
+                    pkg={pkg}
                     purchasing={purchasing}
-                    onPurchase={handlePurchase}
                     onSelect={setSelectedPackage}
                     getTimingLabel={getTimingLabel}
                   />
                 ))}
-
-                {/* Leather Packages (ABCA) */}
-                {!isResourceCenter && leatherPackages.length > 0 && (
-                  <PackageSection
-                    title="Leather Ball Machines"
-                    dotColor="bg-red-500"
-                    count={leatherPackages.length}
-                    packages={leatherPackages}
-                    showBallType
-                    purchasing={purchasing}
-                    onPurchase={handlePurchase}
-                    onSelect={setSelectedPackage}
-                    getTimingLabel={getTimingLabel}
-                  />
-                )}
-
-                {/* Tennis Packages (ABCA) */}
-                {!isResourceCenter && tennisPackages.length > 0 && (
-                  <PackageSection
-                    title="Tennis Machines"
-                    dotColor="bg-green-500"
-                    count={tennisPackages.length}
-                    packages={tennisPackages}
-                    showBallType={false}
-                    purchasing={purchasing}
-                    onPurchase={handlePurchase}
-                    onSelect={setSelectedPackage}
-                    getTimingLabel={getTimingLabel}
-                  />
-                )}
               </div>
             )}
           </div>
@@ -886,20 +619,10 @@ export default function PackagesPage() {
             <div className="flex items-start justify-between mb-5">
               <div>
                 <h2 className="text-lg font-bold text-white">{selectedPackage.name}</h2>
-                {selectedPackage.category ? (
-                  <span className="inline-block mt-1 text-[10px] px-2 py-0.5 rounded-full font-semibold bg-purple-500/15 text-purple-300">
-                    {CATEGORY_LABEL[selectedPackage.category] || selectedPackage.category}
-                    {selectedPackage.machineRow ? ` · ${selectedPackage.machineRow.shortName ?? selectedPackage.machineRow.name}` : ''}
-                  </span>
-                ) : (
-                  <span className={`inline-block mt-1 text-[10px] px-2 py-0.5 rounded-full font-semibold ${
-                    selectedPackage.machineType === 'LEATHER'
-                      ? 'bg-red-500/15 text-red-400'
-                      : 'bg-green-500/15 text-green-400'
-                  }`}>
-                    {selectedPackage.machineId ? labelMap[selectedPackage.machineId] : (selectedPackage.machineType === 'LEATHER' ? 'Leather Ball Machine' : 'Tennis Machine')}
-                  </span>
-                )}
+                <span className="inline-block mt-1 text-[10px] px-2 py-0.5 rounded-full font-semibold bg-purple-500/15 text-purple-300">
+                  {packageCategoryLabel(selectedPackage.category)}
+                  {selectedPackage.machineRow ? ` · ${selectedPackage.machineRow.shortName ?? selectedPackage.machineRow.name}` : ''}
+                </span>
               </div>
               <button
                 onClick={() => setSelectedPackage(null)}
@@ -912,29 +635,38 @@ export default function PackagesPage() {
             <div className="space-y-4">
               {/* Details Grid */}
               <div className="grid grid-cols-2 gap-3">
-                {/* Category-targeted packages (Toplay) lead with the
-                    category + optional pinned machine instead of the
-                    legacy enum-based machine label. */}
-                {selectedPackage.category ? (
-                  <>
-                    <DetailItem
-                      label="Category"
-                      value={CATEGORY_LABEL[selectedPackage.category] || selectedPackage.category}
-                    />
-                    {selectedPackage.machineRow && (
-                      <DetailItem
-                        label="Machine"
-                        value={selectedPackage.machineRow.shortName ?? selectedPackage.machineRow.name}
-                      />
-                    )}
-                  </>
-                ) : (
-                  <>
-                    <DetailItem label="Machine" value={selectedPackage.machineId ? labelMap[selectedPackage.machineId] : (selectedPackage.machineType === 'LEATHER' ? 'Leather Ball' : 'Tennis')} />
-                    {selectedPackage.machineType === 'LEATHER' && (
-                      <DetailItem label="Ball Type" value={labelMap[selectedPackage.ballType] || selectedPackage.ballType} />
-                    )}
-                  </>
+                <DetailItem
+                  label="Category"
+                  value={packageCategoryLabel(selectedPackage.category)}
+                />
+                {/* Machine — show pinned Machine row first (resource
+                    centers), then ABCA's legacy enum machine. Only
+                    relevant for MACHINE-category packages, which we
+                    enforce via packageCategory() so non-machine
+                    packages don't leak a machine chip. */}
+                {packageCategory(selectedPackage) === 'MACHINE' && selectedPackage.machineRow && (
+                  <DetailItem
+                    label="Machine"
+                    value={selectedPackage.machineRow.shortName ?? selectedPackage.machineRow.name}
+                  />
+                )}
+                {packageCategory(selectedPackage) === 'MACHINE' && !selectedPackage.machineRow && selectedPackage.machineId && (
+                  <DetailItem
+                    label="Machine"
+                    value={labelMap[selectedPackage.machineId] || selectedPackage.machineId}
+                  />
+                )}
+                {categoryUsesBallType(selectedPackage.category) && selectedPackage.ballType && (
+                  <DetailItem
+                    label="Ball Type"
+                    value={labelMap[selectedPackage.ballType] || selectedPackage.ballType}
+                  />
+                )}
+                {selectedPackage.wicketType && (
+                  <DetailItem
+                    label="Pitch"
+                    value={PACKAGE_WICKET_LABEL[selectedPackage.wicketType] || selectedPackage.wicketType}
+                  />
                 )}
                 <DetailItem
                   label="Timing"
@@ -1033,96 +765,310 @@ export default function PackagesPage() {
     </div>
   );
 }
-// ─── Package Section (Leather or Tennis) ────────────────
-function PackageSection({
-  title, dotColor, count, packages, showBallType, purchasing, onPurchase, onSelect, getTimingLabel,
+
+// ─── Package Card (Browse list) ─────────────────────────
+/**
+ * Single uniform package card used in the Browse tab. Visual structure
+ * mirrors the admin AdminPackageCard from commit bec7435: name +
+ * category chip + price on the top row, chip row of axes (machine /
+ * ball / pitch / timing / sessions) below, click anywhere on the card
+ * to open the detail modal.
+ */
+function PackageCard({
+  pkg, purchasing, onSelect, getTimingLabel,
 }: {
-  title: string;
-  dotColor: string;
-  count: number;
-  packages: PackageInfo[];
-  showBallType: boolean;
+  pkg: PackageInfo;
   purchasing: string | null;
-  onPurchase: (id: string) => void;
   onSelect: (pkg: PackageInfo) => void;
   getTimingLabel: (t: string) => string;
 }) {
+  const cat = packageCategory(pkg);
+  const showBallType = cat === 'MACHINE' && pkg.machineType !== 'TENNIS' && !!pkg.ballType;
+  const machineLabel = pkg.machineRow
+    ? (pkg.machineRow.shortName ?? pkg.machineRow.name)
+    : (pkg.machineId ? (labelMap[pkg.machineId] || pkg.machineId) : null);
+
   return (
-    <div>
-      <div className="flex items-center gap-2 mb-3">
-        <span className={`w-2 h-2 rounded-full ${dotColor}`}></span>
-        <h3 className="text-sm font-bold text-white">{title}</h3>
-        <span className="text-[10px] text-slate-500 bg-white/[0.04] px-2 py-0.5 rounded-full">{count}</span>
-      </div>
-      <div className="space-y-2">
-        {packages.map((pkg) => (
+    <div className="bg-white/[0.04] backdrop-blur-sm rounded-xl border border-white/[0.08] hover:border-white/[0.12] transition-colors">
+      <div className="p-4">
+        <div className="flex items-start justify-between gap-3">
           <div
-            key={pkg.id}
-            className="bg-white/[0.04] backdrop-blur-sm rounded-xl border border-white/[0.08] hover:border-white/[0.12] transition-colors"
+            className="min-w-0 flex-1 cursor-pointer"
+            onClick={() => onSelect(pkg)}
           >
-            {/* Mobile card layout */}
-            <div className="p-4">
-              <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0 flex-1 cursor-pointer" onClick={() => onSelect(pkg)}>
-                  <h4 className="text-sm font-semibold text-white hover:text-accent transition-colors leading-tight">{pkg.name}</h4>
-                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-1.5">
-                    {/* Resource-based axes — category + optional pinned
-                        machine row, shown ahead of the legacy machineId
-                        chip so the category is the first visual cue. */}
-                    {pkg.category && (
-                      <span className="text-[10px] text-purple-300 flex items-center gap-1">
-                        <Package className="w-3 h-3 text-purple-400/70" />
-                        {CATEGORY_LABEL[pkg.category] || pkg.category}
-                      </span>
-                    )}
-                    {pkg.machineRow && (
-                      <span className="text-[10px] text-cyan-300 flex items-center gap-1">
-                        <Package className="w-3 h-3 text-cyan-400/70" />
-                        {pkg.machineRow.shortName ?? pkg.machineRow.name}
-                      </span>
-                    )}
-                    {pkg.machineId && (
-                      <span className="text-[10px] text-slate-400 flex items-center gap-1">
-                        <Package className="w-3 h-3 text-slate-500" />
-                        {labelMap[pkg.machineId] || pkg.machineId}
-                      </span>
-                    )}
-                    {showBallType && pkg.ballType && (
-                      <span className="text-[10px] text-slate-400 flex items-center gap-1">
-                        <Zap className="w-3 h-3 text-slate-500" />
-                        {labelMap[pkg.ballType] || pkg.ballType}
-                      </span>
-                    )}
-                    <span className="text-[10px] text-slate-400 flex items-center gap-1">
-                      {pkg.timingType === 'DAY' ? <Sun className="w-3 h-3 text-slate-500" /> : pkg.timingType === 'EVENING' ? <Moon className="w-3 h-3 text-slate-500" /> : <Clock className="w-3 h-3 text-slate-500" />}
-                      {getTimingLabel(pkg.timingType)}
-                    </span>
-                    {pkg.wicketType && (
-                      <span className="text-[10px] text-slate-400 flex items-center gap-1">
-                        <span className="text-slate-500">Pitch:</span>
-                        <span className="text-slate-300">{labelMap[pkg.wicketType] || pkg.wicketType}</span>
-                      </span>
-                    )}
-                    <span className="text-[10px] text-slate-400 flex items-center gap-1">
-                      <Calendar className="w-3 h-3 text-slate-500" />
-                      {pkg.totalSessions} Sessions (Per Slot: 30 Minutes) · {pkg.validityDays} Days Validity
-                    </span>
-                  </div>
-                </div>
-                <div className="flex items-center gap-2 flex-shrink-0">
-                  <span className="text-sm font-bold text-accent">₹{pkg.price}</span>
-                  <button
-                    onClick={() => onSelect(pkg)}
-                    disabled={purchasing === pkg.id}
-                    className="bg-accent hover:bg-accent-light text-primary px-3 py-1.5 rounded-lg text-[11px] font-bold transition-colors disabled:opacity-50 cursor-pointer"
-                  >
-                    {purchasing === pkg.id ? <Loader2 className="w-3 h-3 animate-spin" /> : 'Buy'}
-                  </button>
-                </div>
-              </div>
+            <div className="flex items-center gap-2 flex-wrap">
+              <h4 className="text-sm font-semibold text-white hover:text-accent transition-colors leading-tight">{pkg.name}</h4>
+              <span className="text-[10px] px-2 py-0.5 rounded-full font-medium bg-purple-500/15 text-purple-300">
+                {PACKAGE_CATEGORY_LABEL[cat]}
+              </span>
+            </div>
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-1.5">
+              {cat === 'MACHINE' && machineLabel && (
+                <span className="text-[10px] text-slate-400 flex items-center gap-1">
+                  <Package className="w-3 h-3 text-slate-500" />
+                  {machineLabel}
+                </span>
+              )}
+              {showBallType && (
+                <span className="text-[10px] text-slate-400 flex items-center gap-1">
+                  <Zap className="w-3 h-3 text-slate-500" />
+                  {labelMap[pkg.ballType] || pkg.ballType}
+                </span>
+              )}
+              {pkg.wicketType && (
+                <span className="text-[10px] text-slate-400 flex items-center gap-1">
+                  <span className="text-slate-500">Pitch:</span>
+                  <span className="text-slate-300">{PACKAGE_WICKET_LABEL[pkg.wicketType] || pkg.wicketType}</span>
+                </span>
+              )}
+              <span className="text-[10px] text-slate-400 flex items-center gap-1">
+                {pkg.timingType === 'DAY' ? <Sun className="w-3 h-3 text-slate-500" /> : pkg.timingType === 'EVENING' ? <Moon className="w-3 h-3 text-slate-500" /> : <Clock className="w-3 h-3 text-slate-500" />}
+                {getTimingLabel(pkg.timingType)}
+              </span>
+              <span className="text-[10px] text-slate-400 flex items-center gap-1">
+                <Calendar className="w-3 h-3 text-slate-500" />
+                {pkg.totalSessions} Sessions (Per Slot: 30 Minutes) · {pkg.validityDays} Days Validity
+              </span>
             </div>
           </div>
-        ))}
+          <div className="flex items-center gap-2 flex-shrink-0">
+            <span className="text-sm font-bold text-accent">₹{pkg.price}</span>
+            <button
+              onClick={() => onSelect(pkg)}
+              disabled={purchasing === pkg.id}
+              className="bg-accent hover:bg-accent-light text-primary px-3 py-1.5 rounded-lg text-[11px] font-bold transition-colors disabled:opacity-50 cursor-pointer"
+            >
+              {purchasing === pkg.id ? <Loader2 className="w-3 h-3 animate-spin" /> : 'Buy'}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Purchased Package Card (My Packages) ────────────────
+/**
+ * Card for a row in the "My Packages" list. Surfaces every detail the
+ * user might care about — category, pitch, machine (for bowling
+ * machine packages), sessions used/left, timing, purchase + expiry
+ * dates, remaining validity days, and a short "Booking Access"
+ * summary — without hiding the load-bearing numbers (Sessions Left,
+ * Expiry, Remaining Days) behind a click. Long-tail details that
+ * don't fit cleanly are tucked under an optional "Details" expander
+ * but the prominent fields stay visible at all times.
+ */
+function PurchasedPackageCard({ pkg }: { pkg: MyPackage }) {
+  const [expanded, setExpanded] = useState(false);
+
+  const remaining = pkg.totalSessions - pkg.usedSessions;
+  const pct = pkg.totalSessions > 0 ? (pkg.usedSessions / pkg.totalSessions) * 100 : 0;
+  const isActive = pkg.status === 'ACTIVE';
+  const isExpired = pkg.status === 'EXPIRED';
+
+  const today = startOfDay(new Date());
+  const expiryDateObj = pkg.expiryDate ? startOfDay(new Date(pkg.expiryDate)) : null;
+  const daysRemaining = expiryDateObj ? differenceInDays(expiryDateObj, today) : null;
+  const isFirstBookingPending = isActive && pkg.usedSessions === 0;
+
+  const cat = packageCategory(pkg);
+  const showBallType = cat === 'MACHINE' && pkg.machineType !== 'TENNIS' && !!pkg.ballType;
+  const pitches = (pkg.pitchTypes && pkg.pitchTypes.length > 0)
+    ? pkg.pitchTypes
+    : (pkg.wicketType ? [pkg.wicketType] : []);
+  const machineLabel = pkg.machineRowName
+    ?? (pkg.machineId ? (labelMap[pkg.machineId] || pkg.machineId) : null);
+
+  // Formatted IST-friendly dates. The API returns ISO strings; date-fns
+  // formats them in the browser's locale but the value is already a
+  // calendar date so the dd MMM yyyy rendering stays correct in IST.
+  const purchaseFmt = pkg.activationDate
+    ? format(new Date(pkg.activationDate), 'dd MMM yyyy')
+    : null;
+  const expiryFmt = pkg.expiryDate
+    ? format(new Date(pkg.expiryDate), 'dd MMM yyyy')
+    : null;
+
+  // Sessions-Left colour escalates from green (lots left) → amber
+  // (running low) → red (last session). Keeps the most actionable
+  // number visually prominent without an explicit dropdown.
+  const sessionsLeftColor =
+    remaining <= 1 ? 'text-red-400'
+    : remaining <= 3 ? 'text-amber-400'
+    : 'text-emerald-400';
+
+  // Validity-days colour escalates similarly. Spec asked for
+  // red/amber when ≤ 7 days remaining.
+  const daysColor =
+    daysRemaining === null ? 'text-slate-300'
+    : daysRemaining < 0 ? 'text-red-400'
+    : daysRemaining <= 3 ? 'text-red-400'
+    : daysRemaining <= 7 ? 'text-amber-400'
+    : 'text-emerald-400';
+
+  // Booking access summary — derived from existing package fields, no
+  // schema additions. Spells out what the package can be redeemed
+  // against so users don't have to infer from the chip row.
+  const bookingAccess = (() => {
+    const parts: string[] = [];
+    parts.push(PACKAGE_CATEGORY_LABEL[cat] || 'Bookings');
+    if (cat === 'MACHINE' && machineLabel) parts.push(`on ${machineLabel}`);
+    if (pitches.length > 0) {
+      parts.push(`(${pitches.map(p => PACKAGE_WICKET_LABEL[p] || labelMap[p] || p).join(' / ')})`);
+    }
+    const t = pkg.timingType;
+    if (t === 'DAY') parts.push('· Day slots only');
+    else if (t === 'EVENING') parts.push('· Evening slots only');
+    else parts.push('· Day & Evening slots');
+    return parts.join(' ');
+  })();
+
+  return (
+    <div>
+      {isFirstBookingPending && (
+        <PackageFirstBookingBanner packageName={pkg.packageName} />
+      )}
+      <div className="bg-white/[0.04] backdrop-blur-sm rounded-xl border border-white/[0.08] p-5">
+        {/* Header: name, status, category chip, Book CTA */}
+        <div className="flex items-start justify-between mb-3 gap-3">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2 mb-1 flex-wrap">
+              <h3 className="text-sm font-semibold text-white">{pkg.packageName}</h3>
+              <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${
+                isActive ? 'bg-green-500/15 text-green-400' :
+                isExpired ? 'bg-red-500/15 text-red-400' :
+                'bg-slate-500/15 text-slate-400'
+              }`}>
+                {pkg.status}
+              </span>
+              <span className="text-[10px] px-2 py-0.5 rounded-full font-medium bg-purple-500/15 text-purple-300">
+                {PACKAGE_CATEGORY_LABEL[cat]}
+              </span>
+            </div>
+          </div>
+          {isActive && remaining > 0 && (
+            <Link
+              href="/slots"
+              className="bg-accent hover:bg-accent-light text-primary px-3 py-1.5 rounded-lg text-[11px] font-semibold transition-colors flex-shrink-0"
+            >
+              Book
+            </Link>
+          )}
+        </div>
+
+        {/* Sessions Left + Remaining Days — load-bearing callouts that
+            must remain visible without expanding any dropdown. */}
+        <div className="grid grid-cols-2 gap-2 mb-3">
+          <div className="bg-white/[0.03] rounded-lg p-2.5">
+            <div className="text-[9px] font-medium text-slate-500 uppercase tracking-wider mb-0.5">Sessions Left</div>
+            <div className="flex items-baseline gap-1">
+              <span className={`text-xl font-bold ${sessionsLeftColor}`}>{remaining}</span>
+              <span className="text-[10px] text-slate-500">/ {pkg.totalSessions}</span>
+            </div>
+            <div className="text-[9px] text-slate-500 mt-0.5">Used: {pkg.usedSessions}</div>
+          </div>
+          <div className="bg-white/[0.03] rounded-lg p-2.5">
+            <div className="text-[9px] font-medium text-slate-500 uppercase tracking-wider mb-0.5">Expiry</div>
+            <div className={`text-sm font-bold ${daysColor}`}>
+              {pkg.pendingActivation
+                ? 'Pending'
+                : expiryFmt ?? 'No expiry'}
+            </div>
+            <div className="text-[9px] mt-0.5 text-slate-500">
+              {pkg.pendingActivation
+                ? 'Starts on first booking'
+                : daysRemaining === null
+                  ? 'No expiry'
+                  : isExpired
+                    ? 'Expired'
+                    : daysRemaining < 0
+                      ? `${Math.abs(daysRemaining)} day${Math.abs(daysRemaining) === 1 ? '' : 's'} overdue`
+                      : daysRemaining === 0
+                        ? 'Expires today'
+                        : `${daysRemaining} day${daysRemaining === 1 ? '' : 's'} left`}
+            </div>
+          </div>
+        </div>
+
+        {/* Progress bar */}
+        <div className="mb-3">
+          <div className="flex justify-between text-[10px] mb-1">
+            <span className="text-slate-500">Sessions (Per Slot: 30 Min)</span>
+            <span className="text-white">{pkg.usedSessions}/{pkg.totalSessions}</span>
+          </div>
+          <div className="w-full bg-white/[0.06] rounded-full h-1.5">
+            <div
+              className={`h-1.5 rounded-full transition-all ${pct >= 100 ? 'bg-red-500' : pct >= 75 ? 'bg-yellow-500' : 'bg-accent'}`}
+              style={{ width: `${Math.min(pct, 100)}%` }}
+            />
+          </div>
+        </div>
+
+        {/* Always-visible chip row — category, machine, pitch, timing,
+            purchase date. Mirrors the AdminPackageCard chip strip so
+            admin and user views line up visually. */}
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+          {cat === 'MACHINE' && machineLabel && (
+            <span className="text-[10px] text-slate-400 flex items-center gap-1">
+              <Package className="w-3 h-3 text-slate-500" />
+              {machineLabel}
+            </span>
+          )}
+          {showBallType && (
+            <span className="text-[10px] text-slate-400 flex items-center gap-1">
+              <Zap className="w-3 h-3 text-slate-500" />
+              {labelMap[pkg.ballType] || pkg.ballType}
+            </span>
+          )}
+          {pitches.length > 0 && (
+            <span className="text-[10px] text-slate-400 flex items-center gap-1">
+              <span className="text-slate-500">Pitch:</span>
+              <span className="text-slate-300">{pitches.map(p => PACKAGE_WICKET_LABEL[p] || labelMap[p] || p).join(', ')}</span>
+            </span>
+          )}
+          <span className="text-[10px] text-slate-400 flex items-center gap-1">
+            {pkg.timingType === 'DAY' ? <Sun className="w-3 h-3 text-slate-500" /> : pkg.timingType === 'EVENING' ? <Moon className="w-3 h-3 text-slate-500" /> : <Clock className="w-3 h-3 text-slate-500" />}
+            {PACKAGE_TIMING_LABEL[pkg.timingType] || pkg.timingType}
+          </span>
+          {purchaseFmt && (
+            <span className="text-[10px] text-slate-400 flex items-center gap-1">
+              <Calendar className="w-3 h-3 text-slate-500" />
+              Purchased {purchaseFmt}
+            </span>
+          )}
+        </div>
+
+        {/* Details expander — long-tail info (booking access summary,
+            payment, history count). Sessions Left, Expiry and
+            Remaining Days are intentionally kept *above* this
+            expander so the most actionable numbers are always
+            visible. */}
+        <button
+          onClick={() => setExpanded((v) => !v)}
+          className="mt-3 text-[10px] text-accent hover:text-accent-light transition-colors cursor-pointer"
+        >
+          {expanded ? 'Hide details ▴' : 'View details ▾'}
+        </button>
+        {expanded && (
+          <div className="mt-2 pt-3 border-t border-white/[0.05] space-y-2 text-[11px] text-slate-300">
+            <div className="flex flex-wrap gap-x-4 gap-y-1">
+              <span><span className="text-slate-500">Booking Access:</span> {bookingAccess}</span>
+            </div>
+            {pkg.amountPaid != null && (
+              <div>
+                <span className="text-slate-500">Amount Paid:</span> ₹{pkg.amountPaid}
+                {pkg.totalExtraPayments > 0 && (
+                  <span className="text-slate-500"> · Extra: ₹{pkg.totalExtraPayments}</span>
+                )}
+              </div>
+            )}
+            {pkg.bookingHistory && pkg.bookingHistory.length > 0 && (
+              <div>
+                <span className="text-slate-500">Bookings made:</span> {pkg.bookingHistory.length}
+              </div>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );
