@@ -133,6 +133,7 @@ export function ResourcePackageManagement() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState({ ...emptyForm });
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   const reload = async () => {
     if (!currentCenter) return;
@@ -311,6 +312,35 @@ export function ResourcePackageManagement() {
       await reload();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Failed to update');
+    }
+  };
+
+  /** Confirm-driven delete. The server returns `mode: 'hard'` when the
+   *  package had no UserPackage rows (truly gone) and `mode: 'soft'`
+   *  when it had at least one purchase (just flipped isActive=false so
+   *  existing user packages keep working). Toast wording mirrors that
+   *  distinction so the admin knows what actually happened. */
+  const handleDelete = async (id: string) => {
+    setDeleting(true);
+    try {
+      const res = await fetch(`/api/admin/packages/${id}`, { method: 'DELETE' });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(data.error || 'Failed to delete package');
+      }
+      if (data.mode === 'soft') {
+        toast.success('Package deactivated — existing purchases preserved');
+      } else {
+        toast.success('Package deleted');
+      }
+      setPackages((prev) => prev.filter((p) => p.id !== id));
+      setConfirmDeleteId(null);
+      // If we were editing the deleted package, drop out of edit mode.
+      if (editingId === id) reset();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to delete package');
+    } finally {
+      setDeleting(false);
     }
   };
 
@@ -696,9 +726,8 @@ export function ResourcePackageManagement() {
                       onClick={() => setConfirmDeleteId(p.id)}
                       className="p-1.5 text-slate-500 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-colors cursor-pointer"
                       title="Delete"
-                      disabled
                     >
-                      <Trash2 className="w-3.5 h-3.5 opacity-30" />
+                      <Trash2 className="w-3.5 h-3.5" />
                     </button>
                   </div>
                 </div>
@@ -711,10 +740,19 @@ export function ResourcePackageManagement() {
       <ConfirmDialog
         open={confirmDeleteId !== null}
         title="Delete package?"
-        message="Existing user packages remain valid; the package just becomes uneditable. This is irreversible."
+        message={(() => {
+          const target = packages.find((p) => p.id === confirmDeleteId);
+          const purchased = target?._count?.userPackages ?? 0;
+          if (purchased > 0) {
+            return `This package has ${purchased} active purchase${purchased === 1 ? '' : 's'}. It will be deactivated — existing user packages and their bookings keep working, but no new purchases will be allowed.`;
+          }
+          return `Delete "${target?.name ?? 'this package'}"? This cannot be undone.`;
+        })()}
         confirmLabel="Delete"
-        onCancel={() => setConfirmDeleteId(null)}
-        onConfirm={() => setConfirmDeleteId(null)}
+        variant="danger"
+        loading={deleting}
+        onCancel={() => { if (!deleting) setConfirmDeleteId(null); }}
+        onConfirm={() => { if (confirmDeleteId) handleDelete(confirmDeleteId); }}
       />
     </div>
   );
