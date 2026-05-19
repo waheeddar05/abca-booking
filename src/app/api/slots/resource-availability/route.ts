@@ -376,9 +376,12 @@ export async function GET(req: NextRequest) {
               // categories". Empty list means "any category".
               if (offer.categories && offer.categories.length > 0
                 && !offer.categories.includes(cat)) continue;
-              // Resource-row gate: when offer pins to specific machine
-              // rows, the grid preview ignores it (the user hasn't
-              // picked one yet). Server-side booking will re-evaluate.
+              // Resource-row gate: machine-row-pinned offers are
+              // handled below in `machineDiscounts` (per machineId)
+              // so the user can see them when they pick that specific
+              // machine. The category-level preview here intentionally
+              // ignores them so the discount doesn't appear for the
+              // wrong machine.
               if (offer.machineRowIds && offer.machineRowIds.length > 0) continue;
 
               const d = offer.discountType === 'PERCENTAGE'
@@ -417,6 +420,93 @@ export async function GET(req: NextRequest) {
             pricingConfig,
             timeSlabConfig,
           });
+        }
+
+        // Per-machine discount preview. Promotional offers that pin
+        // to specific machineRowIds were skipped in the category-level
+        // preview above (no way to know which machine the user picks
+        // there). Here we evaluate each machine row independently so
+        // when the user picks Yantra 2 the discount for "Yantra 2
+        // weekend offer" shows up on the slot cards. The category
+        // bucket (`discountsByCategory.MACHINE`) acts as the floor —
+        // a global MACHINE offer applies to every machine; a
+        // machine-row offer adds to it only for the matching row.
+        const machineDiscounts: Record<string, {
+          recurring: number;
+          promo: number;
+          promoName: string | null;
+          total: number;
+        }> = {};
+        const machineCategoryFloor = discountsByCategory.MACHINE ?? {
+          recurring: 0, promo: 0, promoName: null, total: 0,
+        };
+        for (const m of machines) {
+          const mBase = machinePrices[m.id];
+          if (mBase <= 0) continue;
+
+          // Recurring rules matched to this machine row.
+          const mMatched = recurringRules.filter((rule) =>
+            recurringRuleMatches({
+              rule,
+              startTime: slot.startTime,
+              category: 'MACHINE',
+              machineRowId: m.id,
+            }),
+          );
+          const mRecSummary = computeRecurringDiscountForSlot({
+            matches: mMatched,
+            isConsecutive: false,
+            isSpecialUser,
+          });
+          const mRecurring = Math.min(mRecSummary.total, mBase);
+
+          // Promo offers — both center-wide (empty machineRowIds, gated
+          // out of the category preview here? no — those WERE counted
+          // above; we re-evaluate so the per-machine bucket is the
+          // single source of truth) and row-pinned offers that match
+          // this machine.
+          let mPromo = 0;
+          let mPromoName: string | null = null;
+          const mRemaining = Math.max(0, mBase - mRecurring);
+          if (mRemaining > 0) {
+            for (const offer of activePromoOffers) {
+              if (offer.appliesTo === 'SPECIAL' && !isSpecialUser) continue;
+              if (offer.appliesTo === 'NON_SPECIAL' && isSpecialUser) continue;
+              if (offer.days && offer.days.length > 0 && !offer.days.includes(slotDayOfWeek)) continue;
+              if (offer.timeSlotStart && offer.timeSlotEnd) {
+                const oStart = timeStrToMinutes(offer.timeSlotStart);
+                const oEnd = timeStrToMinutes(offer.timeSlotEnd);
+                if (slotMinutes < oStart || slotMinutes >= oEnd) continue;
+              }
+              // Category gate: empty = all categories; otherwise must
+              // include MACHINE since this loop only previews MACHINE
+              // bookings against the picked machine row.
+              if (offer.categories && offer.categories.length > 0
+                && !offer.categories.includes('MACHINE')) continue;
+              // Machine-row gate: empty = applies to every machine;
+              // otherwise must include THIS row.
+              if (offer.machineRowIds && offer.machineRowIds.length > 0
+                && !offer.machineRowIds.includes(m.id)) continue;
+
+              const d = offer.discountType === 'PERCENTAGE'
+                ? Math.min(mRemaining, Math.floor((mRemaining * offer.discountValue) / 100))
+                : Math.min(mRemaining, Math.floor(offer.discountValue));
+              if (d > mPromo) {
+                mPromo = d;
+                mPromoName = offer.name;
+              }
+            }
+          }
+
+          const mTotal = mRecurring + mPromo;
+          if (mTotal > 0 || machineCategoryFloor.total > 0) {
+            machineDiscounts[m.id] = {
+              recurring: mRecurring,
+              promo: mPromo,
+              promoName: mPromoName,
+              total: mTotal,
+            };
+          }
         }
 
         return {
@@ -459,6 +549,12 @@ export async function GET(req: NextRequest) {
           // Recurring + promo discounts by category. Empty when no rule
           // matches; client treats missing entries as 0 discount.
           discountsByCategory,
+          // Per-machine MACHINE-category discount preview. When the
+          // user has picked a specific machine the client should prefer
+          // this entry over discountsByCategory.MACHINE so machine-row
+          // pinned offers reflect in the slot card. Empty when no
+          // offer / recurring rule matches any machine here.
+          machineDiscounts,
         };
       }),
     );

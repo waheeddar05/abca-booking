@@ -96,6 +96,18 @@ interface ResourceSlot {
     promoName: string | null;
     total: number;
   }>>;
+  /** Per-Machine-row discount preview for MACHINE bookings. Includes
+   *  offers pinned to specific machineRowIds, which would otherwise
+   *  be invisible at the category level (no way to know which machine
+   *  the user picks from a category-aggregate). When the user has
+   *  selected a machine, the slot card uses this entry; falls back to
+   *  discountsByCategory.MACHINE when absent. */
+  machineDiscounts?: Record<string, {
+    recurring: number;
+    promo: number;
+    promoName: string | null;
+    total: number;
+  }>;
   /** Categories blocked at this slot by an admin block. Empty when the
    *  slot is fully open. Used to grey out the slot card for the active
    *  category — without this, the user could tap an apparently-free
@@ -773,7 +785,15 @@ export default function ResourceSlotsPage() {
     if (typeof r === 'number') return r;
     if (typeof r === 'object') {
       if (isConsecutive) {
-        return typeof r.consecutive === 'number' ? r.consecutive / 2 : null;
+        // Mirror the server's `pickRate` semantics: when the admin
+        // left `consecutive` blank / zero, treat that as "no
+        // consecutive discount configured" and fall back to the
+        // per-slot single price instead of returning 0 (which would
+        // make back-to-back bookings free).
+        if (typeof r.consecutive === 'number' && r.consecutive > 0) {
+          return r.consecutive / 2;
+        }
+        return typeof r.single === 'number' && r.single > 0 ? r.single : null;
       }
       return typeof r.single === 'number' ? r.single : null;
     }
@@ -810,11 +830,22 @@ export default function ResourceSlotsPage() {
    *  category. Returns null when no recurring or promotional offer
    *  applies. The slot card uses this to render a "₹X off" badge and
    *  `slotPriceFor` subtracts it from the displayed price so the user
-   *  sees what they'll actually pay (server recomputes on book). */
+   *  sees what they'll actually pay (server recomputes on book).
+   *
+   *  For MACHINE bookings, prefer the per-machine discount entry
+   *  (s.machineDiscounts[machineId]) so machine-row-pinned offers
+   *  reflect in the card. Falls back to the category-level bucket
+   *  when no per-machine entry exists. */
   const discountFor = (s: ResourceSlot): {
     amount: number;
     promoName: string | null;
   } | null => {
+    if (category === 'MACHINE' && machineId) {
+      const mDisc = s.machineDiscounts?.[machineId];
+      if (mDisc && mDisc.total > 0) {
+        return { amount: mDisc.total, promoName: mDisc.promoName };
+      }
+    }
     const d = s.discountsByCategory?.[category];
     if (!d || d.total <= 0) return null;
     return { amount: d.total, promoName: d.promoName };
@@ -863,12 +894,19 @@ export default function ResourceSlotsPage() {
     }
 
     if (category === 'SIDEARM' && pitchType) {
+      // SIDEARM / NET pricing is now pair-shaped per pitch (single +
+      // consecutive). Run the pair through pickClientRate so the
+      // consecutive total / 2 gets used in a back-to-back chain;
+      // reading v[slab] directly would return the {single,consecutive}
+      // object and render '[object Object]' in the bottom bar.
       const v = cfg.sidearmPricing?.[pitchType];
-      if (v && v[slab] != null) return v[slab];
+      const r = pickClientRate(v?.[slab], consecutive);
+      if (r != null) return r;
     }
     if (category === 'NET' && pitchType) {
       const v = cfg.netPricing?.[pitchType];
-      if (v && v[slab] != null) return v[slab];
+      const r = pickClientRate(v?.[slab], consecutive);
+      if (r != null) return r;
     }
 
     return cfg.categoryRates[category]?.[slab] ?? s.prices[category] ?? 0;
@@ -984,14 +1022,20 @@ export default function ResourceSlotsPage() {
     let promo = 0;
     let promoLabel: string | null = null;
     for (const s of selectedSlots) {
-      const d = s.discountsByCategory?.[category];
+      // For MACHINE bookings with a picked machine, the per-machine
+      // bucket wins so machine-row-pinned offers count toward the
+      // bottom-bar Save line. Falls back to the category bucket when
+      // no per-machine entry exists.
+      const d = category === 'MACHINE' && machineId
+        ? (s.machineDiscounts?.[machineId] ?? s.discountsByCategory?.[category])
+        : s.discountsByCategory?.[category];
       if (!d) continue;
       recurring += d.recurring || 0;
       promo += d.promo || 0;
       if (!promoLabel && d.promoName) promoLabel = d.promoName;
     }
     return { recurring, promo, promoLabel };
-  }, [selectedSlots, category]);
+  }, [selectedSlots, category, machineId]);
   const totalSavings = originalTotal - totalPrice;
 
   const toggleSlot = (slot: ResourceSlot) => {
