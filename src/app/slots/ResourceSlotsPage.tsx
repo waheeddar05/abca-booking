@@ -238,7 +238,7 @@ function describeResourceType(type: string | null | undefined): string {
   if (!type) return '';
   switch (type) {
     case 'NET':           return 'indoor net';
-    case 'TURF_WICKET':   return 'turf';
+    case 'TURF_WICKET':   return 'natural turf';
     case 'CEMENT_WICKET': return 'cement';
     case 'COURT':         return 'court';
     default:              return type.toLowerCase().replace(/_/g, ' ');
@@ -712,6 +712,21 @@ export default function ResourceSlotsPage() {
       return { ok: false, reason: 'This machine is blocked for this slot' };
     }
 
+    // Helper: does the slot have ANY pitch with free capacity?
+    //   - Used to keep the slot "Open" when the user's currently picked
+    //     pitch is full but another pitch (e.g. natural turf) still has
+    //     capacity. The pitch picker then guides them to switch.
+    //   - Falls back to the legacy freeIndoorNets check when the
+    //     server hasn't returned freeByPitch yet (old response shape).
+    const hasAnyPitchFree = (): boolean => {
+      if (!s.freeByPitch) return s.freeIndoorNets.length > 0;
+      return (
+        s.freeByPitch.ASTRO.length > 0
+        || s.freeByPitch.CEMENT.length > 0
+        || s.freeByPitch.NATURAL.length > 0
+      );
+    };
+
     if (cat === 'MACHINE') {
       // Selected machine itself busy? If yes, the slot is unbookable for
       // this user regardless of what nets / operators look like. Without
@@ -721,23 +736,16 @@ export default function ResourceSlotsPage() {
       if (machineId && (s.busyMachineIds ?? []).includes(machineId)) {
         return { ok: false, reason: 'This machine is already booked at this slot' };
       }
-      // Pitch-driven pool gate. ASTRO eats indoor net capacity,
-      // CEMENT eats cement-wicket capacity, NATURAL eats outdoor
-      // turf-wicket capacity. pickNetFor mirrors the same map so a
-      // slot the grid says is "Open" will be accepted server-side.
-      // No pitch picked → fall back to the indoor pool (legacy).
-      const pool = pitchType && s.freeByPitch
-        ? s.freeByPitch[pitchType as 'ASTRO' | 'CEMENT' | 'NATURAL']
-        : s.freeIndoorNets;
-      if (!pool || pool.length === 0) {
-        return {
-          ok: false,
-          reason: pitchType === 'NATURAL'
-            ? 'No natural-turf wickets free'
-            : pitchType === 'CEMENT'
-              ? 'No cement wickets free'
-              : 'All nets are taken at this slot',
-        };
+      // Slot is bookable as long as ANY enabled pitch has free capacity
+      // at this slot. The pitch picker disambiguates which pool the
+      // booking will consume — server's pickNetFor matches the user's
+      // pitch choice exactly, so picking a pitch with no capacity surfaces
+      // a clean 409 at submit (rare, since the picker is in their face).
+      // Before this relaxation, the slot greyed out the moment the
+      // auto-selected pitch's pool ran dry — even when natural turf still
+      // had room — confusing admins running multi-surface centers.
+      if (!hasAnyPitchFree()) {
+        return { ok: false, reason: 'All nets are taken at this slot' };
       }
       // Operator gating — only for non-tennis (leather) machines. Tennis
       // machines can self-operate, so a busy operator pool doesn't block
@@ -756,29 +764,15 @@ export default function ResourceSlotsPage() {
     }
     if (cat === 'SIDEARM') {
       if (s.freeSidearmStaff.length === 0) return { ok: false, reason: 'No sidearm specialist free' };
-      const pool = pitchType && s.freeByPitch
-        ? s.freeByPitch[pitchType as 'ASTRO' | 'CEMENT' | 'NATURAL']
-        : s.freeIndoorNets;
-      if (!pool || pool.length === 0) {
-        return {
-          ok: false,
-          reason: pitchType === 'NATURAL'
-            ? 'No natural-turf wickets free'
-            : pitchType === 'CEMENT'
-              ? 'No cement wickets free'
-              : 'No nets free',
-        };
-      }
+      // Same union-of-pitches gate as MACHINE. Lets the user see the
+      // slot as open when astro is full but natural turf still has
+      // capacity — they pick the pitch via the chip row above.
+      if (!hasAnyPitchFree()) return { ok: false, reason: 'No nets free' };
       return { ok: true };
     }
     if (cat === 'COACHING') {
       if (s.freeCoaches.length === 0) return { ok: false, reason: 'No coaches free' };
-      // Coaching can use any pitch; default to indoor pool when no
-      // pitch is selected. When a pitch is picked, respect that pool.
-      const pool = pitchType && s.freeByPitch
-        ? s.freeByPitch[pitchType as 'ASTRO' | 'CEMENT' | 'NATURAL']
-        : s.freeIndoorNets;
-      if (!pool || pool.length === 0) return { ok: false, reason: 'No nets free' };
+      if (!hasAnyPitchFree()) return { ok: false, reason: 'No nets free' };
       return { ok: true };
     }
     if (cat === 'FULL_COURT') {
@@ -791,23 +785,12 @@ export default function ResourceSlotsPage() {
       return { ok: true };
     }
     if (cat === 'NET') {
-      // Same pitch-driven pool gate as MACHINE/SIDEARM. With pitch
-      // picked, the gate uses the matching pool (ASTRO → indoor net,
-      // NATURAL → outdoor turf wicket, CEMENT → cement wicket) and
-      // honours that pool's independent capacity.
-      const pool = pitchType && s.freeByPitch
-        ? s.freeByPitch[pitchType as 'ASTRO' | 'CEMENT' | 'NATURAL']
-        : s.freeIndoorNets;
-      if (!pool || pool.length === 0) {
-        return {
-          ok: false,
-          reason: pitchType === 'NATURAL'
-            ? 'No natural-turf wickets free'
-            : pitchType === 'CEMENT'
-              ? 'No cement wickets free'
-              : 'No nets free',
-        };
-      }
+      // Cricket nets is the canonical case where this matters: even
+      // when indoor net astro capacity is exhausted, a natural-turf
+      // wicket with free capacity should keep the slot openable. The
+      // pitch chip row gates the actual booking surface; server's
+      // pickNetFor enforces the per-pitch pool at commit time.
+      if (!hasAnyPitchFree()) return { ok: false, reason: 'No nets free' };
       return { ok: true };
     }
     if (cat === 'CORPORATE_BATCH') {

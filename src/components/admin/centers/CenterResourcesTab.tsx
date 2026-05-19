@@ -17,7 +17,12 @@ type ResourceRow = {
 
 const TYPE_LABELS: Record<ResourceRow['type'], string> = {
   NET: 'Net',
-  TURF_WICKET: 'Turf wicket',
+  // "Natural Turf" is the user-facing label even though the DB enum
+  // value is TURF_WICKET — keeps the admin UI in sync with what the
+  // pitch picker says on the booking screen ("Astro Turf / Cement /
+  // Natural Turf"). The legacy "Turf wicket" label confused admins
+  // into thinking turf wickets and natural turf were distinct.
+  TURF_WICKET: 'Natural Turf',
   CEMENT_WICKET: 'Cement wicket',
   COURT: 'Full court',
 };
@@ -236,7 +241,7 @@ function ResourceEditor({
         <Field label="Type" required>
           <SelectInput value={type} onChange={(e) => setType(e.target.value as ResourceRow['type'])}>
             <option value="NET">Net</option>
-            <option value="TURF_WICKET">Turf wicket</option>
+            <option value="TURF_WICKET">Natural Turf</option>
             <option value="CEMENT_WICKET">Cement wicket</option>
             <option value="COURT">Full court (composed of nets)</option>
           </SelectInput>
