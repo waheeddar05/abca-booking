@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Plus, Loader2, Trash2, Pencil, Check, X } from 'lucide-react';
+import { Plus, Loader2, Trash2, Pencil, Check, X, Eye, EyeOff } from 'lucide-react';
 import { Field, TextInput, NumberInput, SelectInput, PrimaryButton, SecondaryButton, Banner } from './centerForms';
 
 type ResourceRow = {
@@ -27,6 +27,8 @@ export function CenterResourcesTab({ centerId }: { centerId: string }) {
   const [loading, setLoading] = useState(true);
   const [showNew, setShowNew] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [showInactive, setShowInactive] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
 
   const refresh = async () => {
     setLoading(true);
@@ -40,27 +42,66 @@ export function CenterResourcesTab({ centerId }: { centerId: string }) {
 
   useEffect(() => { refresh(); }, [centerId]);
 
-  const remove = async (id: string) => {
+  // Soft delete — sets isActive=false. Existing bookings keep their
+  // BookingResourceAssignment refs intact; the resource just stops
+  // appearing in pickers and counting toward live capacity.
+  const deactivate = async (id: string) => {
     if (!confirm('Deactivate this resource? Existing bookings retain their reference; new bookings cannot use it.')) return;
+    setActionError(null);
     const res = await fetch(`/api/admin/centers/${centerId}/resources/${id}`, { method: 'DELETE' });
     if (res.ok) refresh();
+    else {
+      const data = await res.json().catch(() => ({}));
+      setActionError(data?.error || `Deactivate failed (HTTP ${res.status})`);
+    }
+  };
+
+  // Hard delete — only allowed when nothing references the resource.
+  // The server rejects with 409 + a count of linked bookings / machines
+  // when refs exist; we render that message so the admin knows why.
+  const hardDelete = async (r: ResourceRow) => {
+    if (!confirm(`Permanently delete "${r.name}"? This cannot be undone. Bookings or machines that reference this resource will block the delete.`)) return;
+    setActionError(null);
+    const res = await fetch(`/api/admin/centers/${centerId}/resources/${r.id}?hard=true`, { method: 'DELETE' });
+    if (res.ok) {
+      refresh();
+      return;
+    }
+    const data = await res.json().catch(() => ({}));
+    setActionError(data?.error || `Delete failed (HTTP ${res.status})`);
   };
 
   if (loading) {
     return <div className="flex items-center gap-2 text-slate-400 py-6 justify-center"><Loader2 className="w-4 h-4 animate-spin" /> Loading…</div>;
   }
 
+  // Default view hides inactive rows so the list isn't cluttered by
+  // soft-deleted resources kept around for audit. Toggle reveals them
+  // with a 'Delete permanently' affordance.
+  const visibleResources = showInactive ? resources : resources.filter((r) => r.isActive);
+  const inactiveCount = resources.filter((r) => !r.isActive).length;
+
   return (
     <div className="space-y-4">
-      <div className="flex justify-between items-center gap-3">
-        <p className="text-xs text-slate-400">
+      <div className="flex justify-between items-center gap-3 flex-wrap">
+        <p className="text-xs text-slate-400 min-w-0 flex-1">
           Bookable units (nets, courts, turf wickets). Used by the resource-based engine for availability.
           Centers using the legacy machine/pitch model can leave this empty.
         </p>
-        <PrimaryButton onClick={() => setShowNew(true)}>
-          <Plus className="w-4 h-4" /> Add resource
-        </PrimaryButton>
+        <div className="flex items-center gap-2 shrink-0">
+          {inactiveCount > 0 && (
+            <SecondaryButton onClick={() => setShowInactive((v) => !v)}>
+              {showInactive ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+              {showInactive ? 'Hide inactive' : `Show inactive (${inactiveCount})`}
+            </SecondaryButton>
+          )}
+          <PrimaryButton onClick={() => setShowNew(true)}>
+            <Plus className="w-4 h-4" /> Add resource
+          </PrimaryButton>
+        </div>
       </div>
+
+      {actionError && <Banner kind="error">{actionError}</Banner>}
 
       {showNew && (
         <ResourceEditor
@@ -70,11 +111,15 @@ export function CenterResourcesTab({ centerId }: { centerId: string }) {
         />
       )}
 
-      {resources.length === 0 ? (
-        <div className="text-center text-slate-500 py-6 text-sm">No resources configured.</div>
+      {visibleResources.length === 0 ? (
+        <div className="text-center text-slate-500 py-6 text-sm">
+          {resources.length === 0
+            ? 'No resources configured.'
+            : 'No active resources. Toggle "Show inactive" to see deactivated rows.'}
+        </div>
       ) : (
         <div className="space-y-2">
-          {resources.map((r) => (
+          {visibleResources.map((r) => (
             <div key={r.id} className="rounded-xl bg-white/[0.02] border border-white/[0.06] p-3">
               {editingId === r.id ? (
                 <ResourceEditor
@@ -104,13 +149,28 @@ export function CenterResourcesTab({ centerId }: { centerId: string }) {
                     >
                       <Pencil className="w-4 h-4" />
                     </button>
-                    <button
-                      onClick={() => remove(r.id)}
-                      className="p-2 rounded-lg text-red-400/70 hover:bg-red-500/10 hover:text-red-400 cursor-pointer"
-                      title="Deactivate"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
+                    {/* Active rows get the soft-deactivate button.
+                        Inactive rows get a permanent-delete button —
+                        the server still refuses if any bookings or
+                        machines reference the row, so this is safe to
+                        expose. */}
+                    {r.isActive ? (
+                      <button
+                        onClick={() => deactivate(r.id)}
+                        className="p-2 rounded-lg text-amber-400/70 hover:bg-amber-500/10 hover:text-amber-400 cursor-pointer"
+                        title="Deactivate (preserves history)"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    ) : (
+                      <button
+                        onClick={() => hardDelete(r)}
+                        className="inline-flex items-center gap-1 px-2 py-1.5 rounded-lg text-[11px] font-medium text-red-300/80 hover:text-red-300 bg-red-500/5 hover:bg-red-500/10 border border-red-500/15 cursor-pointer"
+                        title="Permanently delete — refused if any bookings or machines still reference it"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" /> Delete
+                      </button>
+                    )}
                   </div>
                 </div>
               )}
