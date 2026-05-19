@@ -38,6 +38,10 @@ export interface CenterSummary {
   latitude: number | null;
   longitude: number | null;
   contactPhone: string | null;
+  /** Multi-contact list. Optional — readers fall back to a one-entry
+   *  list synthesised from contactPhone when missing. Each entry is
+   *  { name: string | null, number: string }. */
+  contactPhones?: Array<{ name: string | null; number: string }> | null;
   contactEmail: string | null;
   mapUrl: string | null;
   logoUrl: string | null;
@@ -166,6 +170,7 @@ const centerSummarySelect = {
   latitude: true,
   longitude: true,
   contactPhone: true,
+  contactPhones: true,
   contactEmail: true,
   mapUrl: true,
   logoUrl: true,

@@ -41,6 +41,11 @@ export interface PublicCenter {
   latitude: number | null;
   longitude: number | null;
   contactPhone: string | null;
+  /** Multi-contact list. Each entry: { name?: string | null, number: string }.
+   *  Preferred over `contactPhone` when present; readers should fall back
+   *  to a one-entry list synthesised from contactPhone when this is null
+   *  or empty so legacy data still renders. */
+  contactPhones?: Array<{ name: string | null; number: string }> | null;
   contactEmail: string | null;
   mapUrl: string | null;
   logoUrl: string | null;

@@ -40,6 +40,14 @@ model Center {
   latitude     Float?
   longitude    Float?
   contactPhone String?
+  // Multiple per-center contacts surfaced on the landing page's
+  // 'Ready to play' strip. Each entry: { name: string|null,
+  // number: string }. Keeping the single contactPhone column for
+  // back-compat; readers prefer contactPhones when non-empty and
+  // fall back to a single-entry list synthesised from contactPhone
+  // otherwise. JSON instead of a side table to avoid a join on
+  // every landing-page hit.
+  contactPhones Json?
   contactEmail String?
   mapUrl       String?
   logoUrl      String?

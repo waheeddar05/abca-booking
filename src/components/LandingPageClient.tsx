@@ -14,14 +14,26 @@ export default function LandingPageClient() {
   const hasMultipleCenters = centers.length >= 2;
 
   // "Ready to play?" contacts come from the selected center only —
-  // not the platform-wide CONTACT_NUMBERS allowlist. Each chip below
-  // renders only when the corresponding center field is set, so a
-  // center with just an Instagram handle won't show empty phone/map
-  // cards. Instagram link is kept as the platform-wide URL because
-  // it points at the brand account, not per-center socials.
-  const centerPhone = (currentCenter?.contactPhone ?? '').trim();
+  // not the platform-wide CONTACT_NUMBERS allowlist. Phones come from
+  // `contactPhones` when the center has configured a multi-contact
+  // list; otherwise we fall back to a single-entry list synthesised
+  // from `contactPhone` for legacy data. Empty phone strings are
+  // dropped so a stale row doesn't render a "Call (no number)" chip.
   const centerEmail = (currentCenter?.contactEmail ?? '').trim();
   const centerMapUrl = (currentCenter?.mapUrl ?? '').trim();
+  const phoneContacts: Array<{ name: string | null; number: string }> = (() => {
+    const list = currentCenter?.contactPhones;
+    if (Array.isArray(list) && list.length > 0) {
+      return list
+        .map((c) => ({
+          name: (c?.name ?? '').trim() || null,
+          number: (c?.number ?? '').trim(),
+        }))
+        .filter((c) => c.number.length > 0);
+    }
+    const single = (currentCenter?.contactPhone ?? '').trim();
+    return single.length > 0 ? [{ name: null, number: single }] : [];
+  })();
 
   const openLogin = () => setLoginOpen(true);
   const closeLogin = () => setLoginOpen(false);
@@ -314,22 +326,23 @@ export default function LandingPageClient() {
               Missing fields render no chip rather than a generic
               fallback. */}
           <div className="flex flex-wrap items-start justify-center gap-3 md:gap-8 w-full">
-            {centerPhone && (
+            {phoneContacts.map((c, idx) => (
               <a
-                href={`tel:${centerPhone}`}
+                key={`${c.number}-${idx}`}
+                href={`tel:${c.number}`}
                 className="flex flex-col items-center gap-0.5 md:gap-1.5 group active:scale-95 transition-transform min-w-0"
               >
                 <div className="w-9 h-9 md:w-12 md:h-12 rounded-xl bg-white/[0.04] border border-white/[0.08] flex items-center justify-center group-hover:bg-accent group-hover:text-primary group-hover:border-accent/40 transition-all group-hover:shadow-[0_0_24px_rgba(56,189,248,0.25)] mb-0.5 md:mb-1 flex-shrink-0">
                   <Phone className="w-3.5 h-3.5 md:w-5 md:h-5" />
                 </div>
                 <span className="text-[8px] md:text-[11px] uppercase font-bold tracking-wider text-slate-600 truncate w-full text-center">
-                  {currentCenter?.shortName || currentCenter?.name || 'Phone'}
+                  {c.name || currentCenter?.shortName || currentCenter?.name || 'Phone'}
                 </span>
                 <span className="text-white font-bold text-[9px] md:text-sm truncate w-full tabular-nums text-center">
-                  {centerPhone}
+                  {c.number}
                 </span>
               </a>
-            )}
+            ))}
             {centerEmail && (
               <a
                 href={`mailto:${centerEmail}`}

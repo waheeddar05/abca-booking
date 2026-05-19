@@ -43,6 +43,22 @@ const CenterPatchSchema = z.object({
   latitude: z.number().min(-90).max(90).optional().nullable(),
   longitude: z.number().min(-180).max(180).optional().nullable(),
   contactPhone: z.string().max(40).optional().nullable(),
+  /** Multiple per-center contacts shown on the landing-page strip.
+   *  Each entry: { name?: string | null, number: string }. Optional —
+   *  send null or omit to leave unchanged; send [] to clear back to
+   *  the single contactPhone fallback. Numbers are length-checked
+   *  but not regex-validated server-side; the admin form is the
+   *  authoritative entry point. */
+  contactPhones: z
+    .array(
+      z.object({
+        name: z.string().max(60).optional().nullable(),
+        number: z.string().min(1).max(40),
+      }),
+    )
+    .max(20)
+    .optional()
+    .nullable(),
   contactEmail: z.string().email().max(200).optional().nullable().or(z.literal('')),
   mapUrl: z.string().url().max(500).optional().nullable().or(z.literal('')),
   logoUrl: z.string().url().max(500).optional().nullable().or(z.literal('')),
