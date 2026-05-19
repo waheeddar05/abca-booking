@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { useSession } from 'next-auth/react';
 import { Save, Loader2, Plus, Trash2 } from 'lucide-react';
-import { Field, TextInput, TextArea, NumberInput, SelectInput, PrimaryButton, Banner } from './centerForms';
+import { Field, TextInput, TextArea, SelectInput, PrimaryButton, Banner } from './centerForms';
 
 export type CenterDetail = {
   id: string;
@@ -33,6 +33,23 @@ export type CenterDetail = {
   themeColor: string | null;
 };
 
+/**
+ * General tab for `/admin/centers/[id]` — kept to the day-to-day
+ * essentials only:
+ *   - Name + slug (read-only)
+ *   - Booking model + Active toggle (super-admin)
+ *   - A single Address textarea (postal address is stored in
+ *     addressLine1; addressLine2 / city / state / pincode are kept as
+ *     null on save from this form — admins who need separate fields can
+ *     edit them via SQL/Studio. They were near-never used.)
+ *   - Landing-page contact: phone, email, map URL (the source of truth
+ *     for ContactFooter on the user app).
+ *
+ * Rarely-used fields trimmed from the form: shortName, displayOrder,
+ * description, latitude/longitude, logoUrl, themeColor, separate city/
+ * state/pincode lines. The columns still exist on the Center row; this
+ * form just doesn't surface them.
+ */
 export function CenterGeneralTab({
   center,
   onSaved,
@@ -54,21 +71,13 @@ export function CenterGeneralTab({
     setMsg(null);
     setSaving(true);
     try {
-      // `bookingModel` and `isActive` are super-admin-only on the API.
-      // Strip them when the caller isn't a super admin so the save
+      // The simplified form only touches the fields we actually expose.
+      // `bookingModel` and `isActive` are super-admin-only on the API;
+      // strip them when the caller isn't a super admin so the save
       // doesn't 403 on those fields.
       const payload: Record<string, unknown> = {
         name: form.name,
-        shortName: form.shortName || null,
-        description: form.description || null,
-        displayOrder: form.displayOrder,
         addressLine1: form.addressLine1 || null,
-        addressLine2: form.addressLine2 || null,
-        city: form.city || null,
-        state: form.state || null,
-        pincode: form.pincode || null,
-        latitude: form.latitude,
-        longitude: form.longitude,
         contactPhone: form.contactPhone || null,
         // Strip blank rows so a half-filled "Add contact" doesn't
         // overwrite the saved list with an empty-number entry. When
@@ -81,11 +90,8 @@ export function CenterGeneralTab({
         })(),
         contactEmail: form.contactEmail || null,
         mapUrl: form.mapUrl || null,
-        logoUrl: form.logoUrl || null,
-        themeColor: form.themeColor || null,
       };
       if (isSuperAdmin) {
-        payload.bookingModel = form.bookingModel;
         payload.isActive = form.isActive;
       }
       const res = await fetch(`/api/admin/centers/${center.id}`, {
@@ -106,7 +112,7 @@ export function CenterGeneralTab({
   };
 
   return (
-    <form onSubmit={save} className="space-y-5">
+    <form onSubmit={save} className="space-y-6 max-w-3xl">
       <Section title="Basics">
         <div className="grid sm:grid-cols-2 gap-3">
           <Field label="Name" required>
@@ -116,41 +122,19 @@ export function CenterGeneralTab({
               onChange={(e) => set('name', e.target.value)}
             />
           </Field>
-          <Field label="Slug (read-only)">
+          <Field label="Slug" help="Used in URLs and cookies. Not editable.">
             <TextInput value={form.slug} disabled />
           </Field>
-          <Field label="Short name">
+          {/* Booking model is intentionally read-only here. Flipping it
+              breaks every running booking flow; switch from the DB if
+              you really need to. */}
+          <Field label="Booking model" help="How availability is computed at this center.">
             <TextInput
-              value={form.shortName ?? ''}
-              onChange={(e) => set('shortName', e.target.value || null)}
+              disabled
+              value={form.bookingModel === 'RESOURCE_BASED' ? 'Resource-based (nets + staff)' : 'Machine / Pitch (legacy)'}
             />
           </Field>
-          <Field label="Display order">
-            <NumberInput
-              value={form.displayOrder}
-              onChange={(e) => set('displayOrder', Number(e.target.value))}
-            />
-          </Field>
-          {/* Booking model + Active stay super-admin-only: flipping
-              either of them breaks every running booking flow. Center
-              admins see them as read-only summaries instead. */}
-          <Field label="Booking model" help="Affects how availability is computed.">
-            {isSuperAdmin ? (
-              <SelectInput
-                value={form.bookingModel}
-                onChange={(e) => set('bookingModel', e.target.value as 'MACHINE_PITCH' | 'RESOURCE_BASED')}
-              >
-                <option value="MACHINE_PITCH">Machine / Pitch (legacy)</option>
-                <option value="RESOURCE_BASED">Resource-based (nets + staff)</option>
-              </SelectInput>
-            ) : (
-              <TextInput
-                disabled
-                value={form.bookingModel === 'RESOURCE_BASED' ? 'Resource-based (nets + staff)' : 'Machine / Pitch (legacy)'}
-              />
-            )}
-          </Field>
-          <Field label="Active">
+          <Field label="Status">
             {isSuperAdmin ? (
               <SelectInput
                 value={form.isActive ? 'true' : 'false'}
@@ -164,63 +148,29 @@ export function CenterGeneralTab({
             )}
           </Field>
         </div>
-        <Field label="Description">
+      </Section>
+
+      <Section title="Address" subtitle="Shown on the landing page and used by the centers list.">
+        <Field label="Postal address">
           <TextArea
-            rows={2}
-            value={form.description ?? ''}
-            onChange={(e) => set('description', e.target.value || null)}
+            rows={3}
+            value={form.addressLine1 ?? ''}
+            onChange={(e) => set('addressLine1', e.target.value || null)}
+            placeholder="Street, area, city, state, pincode"
           />
         </Field>
       </Section>
 
-      <Section title="Location">
+      <Section
+        title="Landing-page contact"
+        subtitle="These values drive the 'Ready to play?' strip and the contact footer on the user app."
+      >
         <div className="grid sm:grid-cols-2 gap-3">
-          <Field label="Address line 1">
-            <TextInput value={form.addressLine1 ?? ''} onChange={(e) => set('addressLine1', e.target.value || null)} />
-          </Field>
-          <Field label="Address line 2">
-            <TextInput value={form.addressLine2 ?? ''} onChange={(e) => set('addressLine2', e.target.value || null)} />
-          </Field>
-          <Field label="City">
-            <TextInput value={form.city ?? ''} onChange={(e) => set('city', e.target.value || null)} />
-          </Field>
-          <Field label="State">
-            <TextInput value={form.state ?? ''} onChange={(e) => set('state', e.target.value || null)} />
-          </Field>
-          <Field label="Pincode">
-            <TextInput value={form.pincode ?? ''} onChange={(e) => set('pincode', e.target.value || null)} />
-          </Field>
-          <Field label="Map URL" help="A Google Maps / OpenStreetMap link to the center.">
-            <TextInput
-              type="url"
-              value={form.mapUrl ?? ''}
-              onChange={(e) => set('mapUrl', e.target.value || null)}
-            />
-          </Field>
-          <Field label="Latitude" help="Used for nearest-center auto-suggest.">
-            <NumberInput
-              step="any"
-              value={form.latitude ?? ''}
-              onChange={(e) => set('latitude', e.target.value === '' ? null : Number(e.target.value))}
-            />
-          </Field>
-          <Field label="Longitude">
-            <NumberInput
-              step="any"
-              value={form.longitude ?? ''}
-              onChange={(e) => set('longitude', e.target.value === '' ? null : Number(e.target.value))}
-            />
-          </Field>
-        </div>
-      </Section>
-
-      <Section title="Contact">
-        <div className="grid sm:grid-cols-2 gap-3">
-          <Field label="Primary phone">
+          <Field label="Phone" help="Used as fallback when the contacts list below is empty.">
             <TextInput
               value={form.contactPhone ?? ''}
               onChange={(e) => set('contactPhone', e.target.value || null)}
-              placeholder="Used as fallback when no contacts below"
+              placeholder="9876543210"
             />
           </Field>
           <Field label="Email">
@@ -228,6 +178,15 @@ export function CenterGeneralTab({
               type="email"
               value={form.contactEmail ?? ''}
               onChange={(e) => set('contactEmail', e.target.value || null)}
+              placeholder="hello@yourcenter.in"
+            />
+          </Field>
+          <Field label="Map URL" help="Google Maps / OpenStreetMap link. Powers the 'Map' button.">
+            <TextInput
+              type="url"
+              value={form.mapUrl ?? ''}
+              onChange={(e) => set('mapUrl', e.target.value || null)}
+              placeholder="https://maps.app.goo.gl/..."
             />
           </Field>
         </div>
@@ -236,30 +195,12 @@ export function CenterGeneralTab({
             on the landing page's 'Ready to play' section. Empty rows
             are stripped at save time so leaving a half-filled "Add"
             in place doesn't poison the list. When no rows exist the
-            landing page falls back to the primary phone above. */}
-        <div className="mt-4">
+            landing page falls back to the phone above. */}
+        <div>
           <ContactPhonesEditor
             value={form.contactPhones ?? []}
             onChange={(v) => set('contactPhones', v)}
           />
-        </div>
-      </Section>
-
-      <Section title="Branding">
-        <div className="grid sm:grid-cols-2 gap-3">
-          <Field label="Logo URL">
-            <TextInput
-              type="url"
-              value={form.logoUrl ?? ''}
-              onChange={(e) => set('logoUrl', e.target.value || null)}
-            />
-          </Field>
-          <Field label="Theme color" help="Hex code, e.g. #38bdf8.">
-            <TextInput
-              value={form.themeColor ?? ''}
-              onChange={(e) => set('themeColor', e.target.value || null)}
-            />
-          </Field>
         </div>
       </Section>
 
@@ -275,10 +216,13 @@ export function CenterGeneralTab({
   );
 }
 
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
+function Section({ title, subtitle, children }: { title: string; subtitle?: string; children: React.ReactNode }) {
   return (
     <div className="space-y-3">
-      <h3 className="text-xs uppercase tracking-wider font-bold text-slate-300">{title}</h3>
+      <div>
+        <h3 className="text-xs uppercase tracking-wider font-bold text-slate-300">{title}</h3>
+        {subtitle && <p className="text-[11px] text-slate-500 mt-0.5 leading-relaxed">{subtitle}</p>}
+      </div>
       {children}
     </div>
   );
@@ -309,12 +253,12 @@ function ContactPhonesEditor({
 
   return (
     <div className="space-y-2">
-      <div className="flex items-center justify-between">
-        <div>
-          <h4 className="text-xs font-semibold text-slate-200">Landing-page contacts</h4>
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <div className="min-w-0">
+          <h4 className="text-xs font-semibold text-slate-200">Additional contacts</h4>
           <p className="text-[11px] text-slate-500 leading-relaxed mt-0.5">
             Each row becomes a chip on the &lsquo;Ready to play?&rsquo; section. Name is optional;
-            number is required. Leave the whole list empty to fall back to the primary phone above.
+            number is required. Leave the list empty to fall back to the phone above.
           </p>
         </div>
         <button
@@ -328,7 +272,7 @@ function ContactPhonesEditor({
 
       {value.length === 0 ? (
         <p className="text-[11px] text-slate-500 italic py-2">
-          No contacts yet. The landing page will show the primary phone (or nothing if both are blank).
+          No contacts yet. The landing page will show the phone above (or nothing if it&apos;s blank).
         </p>
       ) : (
         <div className="space-y-1.5">

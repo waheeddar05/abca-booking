@@ -141,9 +141,7 @@ export function CenterResourcesTab({ centerId }: { centerId: string }) {
                       {!r.isActive && <span className="text-[10px] px-1.5 py-0.5 rounded bg-red-500/10 text-red-400 uppercase tracking-wide">inactive</span>}
                     </div>
                     <div className="text-xs text-slate-500 mt-0.5">
-                      {TYPE_LABELS[r.type]} · {r.category.toLowerCase()}
-                      {r.capacity > 1 && <> · capacity {r.capacity}</>}
-                      {r._count?.machines ? <> · {r._count.machines} machine{r._count.machines === 1 ? '' : 's'}</> : null}
+                      {TYPE_LABELS[r.type]} · capacity {r.capacity}
                     </div>
                   </div>
                   <div className="flex gap-1 flex-shrink-0">
@@ -201,10 +199,13 @@ function ResourceEditor({
   const isEdit = !!initial?.id;
   const [name, setName] = useState(initial?.name || '');
   const [type, setType] = useState<ResourceRow['type']>(initial?.type || 'NET');
-  const [category, setCategory] = useState<ResourceRow['category']>(initial?.category || 'INDOOR');
   const [capacity, setCapacity] = useState<number>(initial?.capacity ?? 1);
-  const [displayOrder, setDisplayOrder] = useState<number>(initial?.displayOrder ?? 0);
-  const [isActive, setIsActive] = useState(initial?.isActive ?? true);
+  // Preserved from `initial` so an edit doesn't silently clobber these
+  // back to defaults — but no longer exposed as form fields. New rows
+  // default to INDOOR / order 0 / active.
+  const category: ResourceRow['category'] = initial?.category ?? 'INDOOR';
+  const displayOrder: number = initial?.displayOrder ?? 0;
+  const isActive: boolean = initial?.isActive ?? true;
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
@@ -234,7 +235,7 @@ function ResourceEditor({
 
   return (
     <form onSubmit={save} className="space-y-3 rounded-xl bg-white/[0.02] border border-white/[0.06] p-3">
-      <div className="grid sm:grid-cols-2 gap-3">
+      <div className="grid sm:grid-cols-3 gap-3">
         <Field label="Name" required>
           <TextInput required value={name} onChange={(e) => setName(e.target.value)} placeholder="Indoor Net 1" />
         </Field>
@@ -246,25 +247,14 @@ function ResourceEditor({
             <option value="COURT">Full court (composed of nets)</option>
           </SelectInput>
         </Field>
-        <Field label="Category" required>
-          <SelectInput value={category} onChange={(e) => setCategory(e.target.value as ResourceRow['category'])}>
-            <option value="INDOOR">Indoor</option>
-            <option value="OUTDOOR">Outdoor</option>
-          </SelectInput>
-        </Field>
         <Field label="Capacity" help="Concurrent bookings supported. Default 1.">
           <NumberInput min={1} value={capacity} onChange={(e) => setCapacity(Math.max(1, Number(e.target.value)))} />
         </Field>
-        <Field label="Display order">
-          <NumberInput value={displayOrder} onChange={(e) => setDisplayOrder(Number(e.target.value))} />
-        </Field>
-        <Field label="Active">
-          <SelectInput value={isActive ? 'true' : 'false'} onChange={(e) => setIsActive(e.target.value === 'true')}>
-            <option value="true">Active</option>
-            <option value="false">Inactive</option>
-          </SelectInput>
-        </Field>
       </div>
+      {/* Category / displayOrder / active are kept in state so edits
+          don't accidentally clear them on save, but they're no longer
+          surfaced as form fields — they were near-never used by admins.
+          New resources default to INDOOR + active + order 0. */}
 
       {err && <Banner kind="error">{err}</Banner>}
 

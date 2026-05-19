@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { Plus, Loader2, Trash2, Pencil, Check, X } from 'lucide-react';
-import { Field, TextInput, NumberInput, SelectInput, PrimaryButton, SecondaryButton, Banner } from './centerForms';
+import { Field, TextInput, SelectInput, PrimaryButton, SecondaryButton, Banner } from './centerForms';
 
 type PitchTypeId = 'ASTRO' | 'TURF' | 'CEMENT' | 'NATURAL';
 type BallTypeId = 'TENNIS' | 'LEATHER' | 'MACHINE';
@@ -22,7 +22,6 @@ type MachineRow = {
 };
 
 type MachineType = { id: string; code: string; name: string; ballType: string; isActive: boolean };
-type ResourceLite = { id: string; name: string; type: string; category: string; isActive: boolean };
 
 // Three surfaces only — Astro Turf, Cement, Natural Turf. The legacy
 // 'TURF' enum value is kept in the schema but is no longer offered.
@@ -41,22 +40,22 @@ const BALL_TYPE_OPTIONS: Array<{ id: BallTypeId; label: string }> = [
 export function CenterMachinesTab({ centerId }: { centerId: string }) {
   const [machines, setMachines] = useState<MachineRow[]>([]);
   const [types, setTypes] = useState<MachineType[]>([]);
-  const [resources, setResources] = useState<ResourceLite[]>([]);
   const [loading, setLoading] = useState(true);
   const [showNew, setShowNew] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
 
+  // We no longer fetch resources here — the "default lane" picker has
+  // been removed from the simplified editor. Resources are still
+  // managed in the Resources tab.
   const refresh = async () => {
     setLoading(true);
     try {
-      const [mRes, tRes, rRes] = await Promise.all([
+      const [mRes, tRes] = await Promise.all([
         fetch(`/api/admin/centers/${centerId}/machines`),
         fetch(`/api/admin/machine-types`),
-        fetch(`/api/admin/centers/${centerId}/resources`),
       ]);
       if (mRes.ok) setMachines(await mRes.json());
       if (tRes.ok) setTypes(await tRes.json());
-      if (rRes.ok) setResources(await rRes.json());
     } finally {
       setLoading(false);
     }
@@ -101,7 +100,6 @@ export function CenterMachinesTab({ centerId }: { centerId: string }) {
         <MachineEditor
           centerId={centerId}
           types={types}
-          resources={resources}
           onCancel={() => setShowNew(false)}
           onSaved={() => { setShowNew(false); refresh(); }}
         />
@@ -117,7 +115,6 @@ export function CenterMachinesTab({ centerId }: { centerId: string }) {
                 <MachineEditor
                   centerId={centerId}
                   types={types}
-                  resources={resources}
                   initial={m}
                   onCancel={() => setEditingId(null)}
                   onSaved={() => { setEditingId(null); refresh(); }}
@@ -128,15 +125,9 @@ export function CenterMachinesTab({ centerId }: { centerId: string }) {
                     <div className="flex items-center gap-2 flex-wrap">
                       <span className="text-sm font-semibold text-white">{m.name}</span>
                       {!m.isActive && <span className="text-[10px] px-1.5 py-0.5 rounded bg-red-500/10 text-red-400 uppercase tracking-wide">inactive</span>}
-                      {m.legacyMachineId && (
-                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-white/5 text-slate-400 uppercase tracking-wide">
-                          legacy: {m.legacyMachineId}
-                        </span>
-                      )}
                     </div>
                     <div className="text-xs text-slate-500 mt-0.5">
                       {m.machineType.name} ({m.machineType.ballType.toLowerCase()})
-                      {m.resource && <> · default lane: {m.resource.name}</>}
                     </div>
                     <div className="flex flex-wrap gap-1 mt-1.5">
                       {m.supportedPitchTypes.length > 0 && m.supportedPitchTypes.map((p) => (
@@ -191,14 +182,12 @@ export function CenterMachinesTab({ centerId }: { centerId: string }) {
 function MachineEditor({
   centerId,
   types,
-  resources,
   initial,
   onCancel,
   onSaved,
 }: {
   centerId: string;
   types: MachineType[];
-  resources: ResourceLite[];
   initial?: Partial<MachineRow>;
   onCancel: () => void;
   onSaved: () => void;
@@ -207,9 +196,11 @@ function MachineEditor({
   const [machineTypeId, setMachineTypeId] = useState(initial?.machineType?.id || types[0]?.id || '');
   const [name, setName] = useState(initial?.name || '');
   const [shortName, setShortName] = useState(initial?.shortName || '');
-  const [resourceId, setResourceId] = useState(initial?.resourceId || '');
-  const [displayOrder, setDisplayOrder] = useState(initial?.displayOrder ?? 0);
-  const [isActive, setIsActive] = useState(initial?.isActive ?? true);
+  // Display order / default lane / active toggle and resourcing have been
+  // removed from this simplified editor. They keep their existing DB
+  // values on edit (we don't send them in the PATCH) and default to
+  // sensible values on create (server-side defaults: displayOrder 0,
+  // isActive true, no resource lane).
   const [supportedPitchTypes, setSupportedPitchTypes] = useState<PitchTypeId[]>(
     initial?.supportedPitchTypes ?? [],
   );
@@ -243,9 +234,6 @@ function MachineEditor({
           ...(isEdit ? {} : { machineTypeId }),
           name,
           shortName: shortName || null,
-          resourceId: resourceId || null,
-          displayOrder,
-          isActive,
           supportedPitchTypes,
           supportedBallTypes,
         }),
@@ -280,23 +268,6 @@ function MachineEditor({
         </Field>
         <Field label="Short name">
           <TextInput value={shortName} onChange={(e) => setShortName(e.target.value)} placeholder="Yantra" />
-        </Field>
-        <Field label="Default lane / resource" help="Optional: which net or wicket this machine usually sits on. Machines are still movable per booking.">
-          <SelectInput value={resourceId} onChange={(e) => setResourceId(e.target.value)}>
-            <option value="">— Roaming —</option>
-            {resources.filter((r) => r.isActive).map((r) => (
-              <option key={r.id} value={r.id}>{r.name} ({r.type.toLowerCase()})</option>
-            ))}
-          </SelectInput>
-        </Field>
-        <Field label="Display order">
-          <NumberInput value={displayOrder} onChange={(e) => setDisplayOrder(Number(e.target.value))} />
-        </Field>
-        <Field label="Active">
-          <SelectInput value={isActive ? 'true' : 'false'} onChange={(e) => setIsActive(e.target.value === 'true')}>
-            <option value="true">Active</option>
-            <option value="false">Inactive</option>
-          </SelectInput>
         </Field>
       </div>
 

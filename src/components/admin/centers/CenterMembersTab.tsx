@@ -586,7 +586,9 @@ function UserMembershipsRow({
   // they already have" no-op. ADMIN is also hidden for non-super-admin
   // callers because the API rejects it (matches NewMembershipForm).
   const currentRoles = new Set<MembershipRole>(group.memberships.map((m) => m.role));
-  const ALL_ROLES: MembershipRole[] = ['ADMIN', 'OPERATOR', 'COACH', 'SIDEARM_SPECIALIST'];
+  // Include GROUND_STAFF so admins can also grant the new facility
+  // role inline. ADMIN stays super-only.
+  const ALL_ROLES: MembershipRole[] = ['ADMIN', 'OPERATOR', 'COACH', 'SIDEARM_SPECIALIST', 'GROUND_STAFF'];
   const assignableRoles = ALL_ROLES.filter(
     (r) => !currentRoles.has(r) && (isSuperAdmin || r !== 'ADMIN'),
   );
