@@ -1,0 +1,31 @@
+src/components/admin/centers/CenterMembersTab.tsx
+  s_6e0bc014652981::t_5a1c0e67de0e18 589-591
+src/components/admin/centers/CenterResourcesTab.tsx
+  s_6e0bc014652981::t_5d9fb68c0c7e92 203-208
+  s_6e0bc014652981::t_1327fb8deb4ac6 238,254-257
+  s_6e0bc014652981::t_880106e52fcdd4 144
+src/components/admin/centers/CenterGeneralTab.tsx
+  s_6e0bc014652981::t_16028066ef91d5 6,36-52,74-76,115,125,128-131,133-134,137,151-154,156-159,164-167,169,173,181-189,198-199,219,222-225,256-258,261,275
+src/app/admin/centers/[id]/page.tsx
+  s_6e0bc014652981::t_0f8d4e15e0f385 7,16-19
+src/components/admin/centers/CenterMachinesTab.tsx
+  s_6e0bc014652981::t_5a7c817d1daaa0 199-203
+  s_6e0bc014652981::t_7bbac537f96797 5
+  s_6e0bc014652981::t_23a213d40f6adb 47-49,53
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.4",
+  "base_commit_sha": "8cd86f3f13d8b69906a115a85495483026284fb8",
+  "prompts": {},
+  "sessions": {
+    "s_6e0bc014652981": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "45340075-50bc-4580-814c-d4efb70ccc5a",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Waheed <waheeddar8@gmail.com>"
+    }
+  }
+}
