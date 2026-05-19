@@ -2282,26 +2282,36 @@ function PeoplePicker({
   onChange: (v: string | null) => void;
   emptyMessage: string;
 }) {
+  // Same grid + icon-on-left layout as Session Type tiles, machine
+  // cards, and ChipSelector. Coach / Sidearm Specialist used to sit
+  // in a centered flex-wrap row that didn't line up with anything
+  // else in the picker; the unified visual makes the whole booking
+  // flow read as one consistent design.
   return (
     <PickerRow label={label}>
       {help && <div className="text-[10px] text-slate-500 mb-1.5">{help}</div>}
       {options.length === 0 ? (
         <span className="text-xs text-amber-400">{emptyMessage}</span>
       ) : (
-        <div className="flex gap-2 flex-wrap">
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
           {options.map((p) => {
             const active = value === p.userId;
             return (
               <button
                 key={p.userId}
-                onClick={() => onChange(p.userId)}
-                className={`flex-1 min-w-[5rem] flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+                onClick={() => onChange(active ? null : p.userId)}
+                className={`flex items-center justify-start gap-2 px-3 py-2.5 rounded-lg text-xs font-semibold transition-all cursor-pointer min-w-0 text-left ${
                   active
                     ? 'bg-accent text-primary shadow-sm'
                     : 'bg-white/[0.04] text-slate-400 border border-white/[0.08] hover:border-accent/20'
                 }`}
               >
-                {p.name || '(no name)'}
+                <div className={`w-7 h-7 rounded-md flex items-center justify-center flex-shrink-0 ${
+                  active ? 'bg-primary/15' : 'bg-white/[0.04]'
+                }`}>
+                  <UserCog className={`w-4 h-4 ${active ? 'text-primary' : 'text-accent'}`} />
+                </div>
+                <span className="truncate">{p.name || '(no name)'}</span>
               </button>
             );
           })}
