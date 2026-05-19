@@ -346,12 +346,24 @@ export default function ConfigurationPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ key, value: String(value) }),
       });
-      if (!res.ok) throw new Error('Failed to save');
+      if (!res.ok) {
+        // Surface the server's error so a 403 (wrong center) or 400
+        // (validation) is visible instead of silently swallowed. The
+        // previous version threw on !res.ok and rendered a flat
+        // 'Failed to save' — admins reported toggles that didn't
+        // stick after refresh, which turned out to be a save that
+        // failed with no useful UI signal.
+        const errBody = await res.json().catch(() => ({} as { error?: string }));
+        throw new Error(errBody?.error || `HTTP ${res.status}`);
+      }
       setPaymentSettings(prev => ({ ...prev, [key]: value }));
       setPaymentMessage({ text: 'Saved', type: 'success' });
       setTimeout(() => setPaymentMessage({ text: '', type: '' }), 2000);
-    } catch {
-      setPaymentMessage({ text: 'Failed to save', type: 'error' });
+    } catch (err) {
+      setPaymentMessage({
+        text: err instanceof Error ? `Failed to save: ${err.message}` : 'Failed to save',
+        type: 'error',
+      });
     } finally {
       setSavingPayment(false);
     }
@@ -1094,7 +1106,15 @@ export default function ConfigurationPage() {
           on top of those: when OFF, ResourceSlotsPage hides the chip
           rows and auto-picks the first supported option per machine.
           ON is the default — chips show whenever the machine supports
-          more than one value. Matches what ABCA exposes globally. */}
+          more than one value. Matches what ABCA exposes globally.
+
+          NOTE: toggling here writes via /api/admin/policies (one POST
+          per flip), NOT via 'Save Machine Configuration' at the bottom
+          of the page. Each click is its own save — the Saved /
+          Failed-to-save banner under the toggles confirms the result.
+          Don't wire these into the machine-config save button: that
+          one POSTs to a different endpoint and would silently drop
+          these keys. */}
       {currentCenter?.bookingModel === 'RESOURCE_BASED' && (
         <AdminCard
           title="Slot picker"
@@ -1104,29 +1124,36 @@ export default function ConfigurationPage() {
         >
           <div className="space-y-1">
             <AdminToggle
-              enabled={paymentSettings['BALL_TYPE_SELECTION_ENABLED'] !== false}
-              onToggle={() => {
-                const next = paymentSettings['BALL_TYPE_SELECTION_ENABLED'] === false ? true : false;
-                handleSavePayment('BALL_TYPE_SELECTION_ENABLED', next);
-              }}
+              enabled={paymentSettings.BALL_TYPE_SELECTION_ENABLED}
+              onToggle={() => handleSavePayment(
+                'BALL_TYPE_SELECTION_ENABLED',
+                !paymentSettings.BALL_TYPE_SELECTION_ENABLED,
+              )}
               label="Ball type selection"
               description="Show the ball-type chip row when a machine supports more than one. Turn off to auto-pick the first supported ball."
               size="sm"
               disabled={savingPayment}
             />
             <AdminToggle
-              enabled={paymentSettings['PITCH_TYPE_SELECTION_ENABLED'] !== false}
-              onToggle={() => {
-                const next = paymentSettings['PITCH_TYPE_SELECTION_ENABLED'] === false ? true : false;
-                handleSavePayment('PITCH_TYPE_SELECTION_ENABLED', next);
-              }}
+              enabled={paymentSettings.PITCH_TYPE_SELECTION_ENABLED}
+              onToggle={() => handleSavePayment(
+                'PITCH_TYPE_SELECTION_ENABLED',
+                !paymentSettings.PITCH_TYPE_SELECTION_ENABLED,
+              )}
               label="Pitch type selection"
               description="Show the pitch-type chip row for MACHINE / SIDEARM / NET when the relevant resource supports more than one. Turn off to auto-pick the first."
               size="sm"
               disabled={savingPayment}
             />
+            <p className="text-[10px] text-slate-500 italic mt-2">
+              Saves immediately on click. The &lsquo;Save Machine
+              Configuration&rsquo; button at the bottom does NOT save
+              these toggles &mdash; if you flipped one but didn&rsquo;t see
+              a &lsquo;Saved&rsquo; / &lsquo;Failed to save&rsquo; line below it, the
+              click never registered.
+            </p>
             {paymentMessage.text && (
-              <p className={`text-[11px] mt-2 ${paymentMessage.type === 'success' ? 'text-emerald-400' : 'text-red-400'}`}>
+              <p className={`text-xs mt-1 font-medium ${paymentMessage.type === 'success' ? 'text-emerald-400' : 'text-red-400'}`}>
                 {paymentMessage.text}
               </p>
             )}
