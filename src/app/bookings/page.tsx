@@ -34,6 +34,16 @@ interface BookingCenter {
   contactPhone: string | null;
   contactEmail: string | null;
   mapUrl: string | null;
+  // Top-priority active GROUND_STAFF membership at this center,
+  // flattened by the API. BookingCard surfaces it as the default
+  // contact pill on NET / FULL_COURT rows (Cricket Nets + Full
+  // Indoor Court) which don't have a per-booking operator / coach /
+  // sidearm row. Null when no ground staff is configured yet.
+  groundStaff: {
+    id: string;
+    name: string | null;
+    mobileNumber: string | null;
+  } | null;
 }
 
 interface Booking {

@@ -2229,22 +2229,36 @@ function ChipSelector({
 
   if (options.length <= 1) return null;
 
+  // Layout mirrors the Session Type tiles above: 2-col grid (3-col
+  // on sm+), icon-on-the-left visual marker, left-aligned label,
+  // consistent padding/border-radius. Admins specifically asked that
+  // Pitch Type / Ball Type chips share dimensions + alignment with
+  // the session category cards so the whole picker reads as one
+  // coherent design.
   return (
     <PickerRow label={label} required={required}>
-      <div className="flex gap-2">
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
         {options.map((opt) => {
           const active = value === opt.id;
           return (
             <button
               key={opt.id}
               onClick={() => onChange(opt.id)}
-              className={`flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+              className={`flex items-center justify-start gap-2 px-3 py-2.5 rounded-lg text-xs font-semibold transition-all cursor-pointer min-w-0 text-left ${
                 active
                   ? 'bg-accent text-primary shadow-sm'
                   : 'bg-white/[0.04] text-slate-400 border border-white/[0.08] hover:border-accent/20'
               }`}
             >
-              {opt.label}
+              {/* Small colored dot — visual anchor that mirrors the
+                  icon-on-left of the Session Type tiles without
+                  forcing a per-option icon. Pitches and ball types
+                  don't have natural icons, so a dot keeps the layout
+                  consistent. */}
+              <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${
+                active ? 'bg-primary/70' : 'bg-accent/60'
+              }`} />
+              <span className="truncate">{opt.label}</span>
             </button>
           );
         })}

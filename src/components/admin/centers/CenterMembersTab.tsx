@@ -5,7 +5,7 @@ import { useSession } from 'next-auth/react';
 import { Plus, Loader2, Trash2, X, UserPlus, Mail, Phone, CalendarClock, Save, Pencil } from 'lucide-react';
 import { Field, TextInput, SelectInput, PrimaryButton, SecondaryButton, Banner } from './centerForms';
 
-type MembershipRole = 'ADMIN' | 'OPERATOR' | 'COACH' | 'SIDEARM_SPECIALIST';
+type MembershipRole = 'ADMIN' | 'OPERATOR' | 'COACH' | 'SIDEARM_SPECIALIST' | 'GROUND_STAFF';
 
 type MembershipRow = {
   id: string;
@@ -26,6 +26,7 @@ const ROLE_LABEL: Record<MembershipRole, string> = {
   OPERATOR: 'Operator',
   COACH: 'Coach',
   SIDEARM_SPECIALIST: 'Sidearm Specialist',
+  GROUND_STAFF: 'Ground Staff',
 };
 
 const ROLE_COLOR: Record<MembershipRole, string> = {
@@ -33,6 +34,7 @@ const ROLE_COLOR: Record<MembershipRole, string> = {
   OPERATOR: 'bg-sky-500/10 text-sky-400 border-sky-500/20',
   COACH: 'bg-purple-500/10 text-purple-400 border-purple-500/20',
   SIDEARM_SPECIALIST: 'bg-amber-500/10 text-amber-400 border-amber-500/20',
+  GROUND_STAFF: 'bg-teal-500/10 text-teal-400 border-teal-500/20',
 };
 
 export function CenterMembersTab({ centerId }: { centerId: string }) {
@@ -143,6 +145,7 @@ export function CenterMembersTab({ centerId }: { centerId: string }) {
             <option value="OPERATOR">Operators</option>
             <option value="COACH">Coaches</option>
             <option value="SIDEARM_SPECIALIST">Sidearm Specialist</option>
+            <option value="GROUND_STAFF">Ground Staff</option>
           </SelectInput>
           <form onSubmit={(e) => { e.preventDefault(); refresh(); }} className="flex items-center gap-2">
             <TextInput
@@ -210,6 +213,7 @@ function groupByUser(members: MembershipRow[]): Array<{
     OPERATOR: 1,
     COACH: 2,
     SIDEARM_SPECIALIST: 3,
+    GROUND_STAFF: 4,
   };
   const map = new Map<string, { userId: string; user: MembershipRow['user']; memberships: MembershipRow[] }>();
   for (const m of members) {
@@ -362,6 +366,7 @@ function NewMembershipForm({
     { id: 'OPERATOR',           label: 'Operator' },
     { id: 'COACH',              label: 'Coach' },
     { id: 'SIDEARM_SPECIALIST', label: 'Sidearm Specialist' },
+    { id: 'GROUND_STAFF',       label: 'Ground Staff' },
   ];
 
   // Already-at-this-center memberships matter for the typeahead so the

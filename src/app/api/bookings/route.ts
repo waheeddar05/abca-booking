@@ -102,6 +102,20 @@ export async function GET(req: NextRequest) {
                 contactPhone: true,
                 contactEmail: true,
                 mapUrl: true,
+                // Ground staff are the default contact for Cricket Nets
+                // and Full Indoor Court bookings (categories that don't
+                // have a per-booking operator / coach / sidearm row).
+                // Pull the highest-priority active GROUND_STAFF
+                // membership; BookingCard surfaces them as a 'Call'
+                // pill on NET / FULL_COURT rows.
+                memberships: {
+                  where: { role: 'GROUND_STAFF', isActive: true },
+                  orderBy: [{ priority: 'asc' }, { createdAt: 'asc' }],
+                  take: 1,
+                  select: {
+                    user: { select: { id: true, name: true, mobileNumber: true } },
+                  },
+                },
               },
             },
             packageBooking: {
@@ -238,6 +252,19 @@ export async function GET(req: NextRequest) {
             contactPhone: b.center.contactPhone ?? null,
             contactEmail: b.center.contactEmail ?? null,
             mapUrl: b.center.mapUrl ?? null,
+            // Top-priority ground staff at the center, flattened for
+            // BookingCard to render as the contact pill on NET /
+            // FULL_COURT rows (which don't have a per-booking operator
+            // / coach / sidearm). Null when no GROUND_STAFF member is
+            // configured at the center yet.
+            groundStaff: (() => {
+              const gs = (b.center.memberships ?? [])[0]?.user;
+              return gs ? {
+                id: gs.id,
+                name: gs.name ?? null,
+                mobileNumber: gs.mobileNumber ?? null,
+              } : null;
+            })(),
           }
         : null,
     }));

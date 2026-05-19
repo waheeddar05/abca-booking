@@ -404,16 +404,22 @@ export async function PATCH(req: NextRequest) {
           // Demotion at this center: remove every membership at this
           // center. If the user still has staff memberships at OTHER
           // centers, restore their User.role so they can keep working
-          // there.
+          // there. Prefer a membership role that maps to a UserRole
+          // (ADMIN > OPERATOR > COACH > SIDEARM_SPECIALIST). GROUND_STAFF
+          // is a center-side facility role with no UserRole equivalent —
+          // if that's all the user has left, fall back to plain USER and
+          // keep the membership intact.
           await tx.centerMembership.deleteMany({ where: { userId: id, centerId } });
-          const otherMembership = await tx.centerMembership.findFirst({
+          const otherMemberships = await tx.centerMembership.findMany({
             where: { userId: id, isActive: true },
             select: { role: true },
           });
-          if (otherMembership) {
+          const PROMOTABLE: MembershipRoleString[] = ['ADMIN', 'OPERATOR', 'COACH', 'SIDEARM_SPECIALIST'];
+          const fallback = PROMOTABLE.find((r) => otherMemberships.some((m) => m.role === r));
+          if (fallback) {
             await tx.user.update({
               where: { id },
-              data: { role: otherMembership.role },
+              data: { role: fallback },
             });
           }
         }

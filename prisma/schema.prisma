@@ -129,6 +129,12 @@ enum MembershipRole {
   // Renamed from SIDEARM_STAFF — same role, clearer label. The Postgres
   // enum value is renamed in-place via the migration; no data movement.
   SIDEARM_SPECIALIST
+  // Center-side facility staff. Default contact for Cricket Nets and
+  // Full Indoor Court bookings — surfaces as a "Call" / name pill on
+  // the user's booking card, similar to how bowling-machine operators
+  // appear for MACHINE bookings. Multiple ground-staff memberships are
+  // ranked by CenterMembership.priority (lower = first contact).
+  GROUND_STAFF
 }
 
 // Weekly recurring availability for a coach or sidearm specialist.

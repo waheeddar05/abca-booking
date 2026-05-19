@@ -14,7 +14,7 @@ import { z } from 'zod';
  *                          who has never logged in).
  */
 
-const RoleEnum = z.enum(['ADMIN', 'OPERATOR', 'COACH', 'SIDEARM_SPECIALIST']);
+const RoleEnum = z.enum(['ADMIN', 'OPERATOR', 'COACH', 'SIDEARM_SPECIALIST', 'GROUND_STAFF']);
 
 // Backwards-compatible: the legacy `role` (single) keeps working; the
 // new `roles` (array) is preferred for the multi-role assign UI. At
@@ -22,7 +22,10 @@ const RoleEnum = z.enum(['ADMIN', 'OPERATOR', 'COACH', 'SIDEARM_SPECIALIST']);
 // a deduped array of roles to create.
 const MembershipCreateSchema = z.object({
   role: RoleEnum.optional(),
-  roles: z.array(RoleEnum).max(4).optional(),
+  // Bumped from 4 to 5 to allow the new GROUND_STAFF role alongside
+  // ADMIN / OPERATOR / COACH / SIDEARM_SPECIALIST when an admin
+  // assigns multiple roles to the same user in one go.
+  roles: z.array(RoleEnum).max(5).optional(),
   // One of these must be provided to identify or create the user:
   userId: z.string().optional(),
   email: z.string().email().optional(),
@@ -143,7 +146,9 @@ export async function POST(req: NextRequest, ctx: { params: Promise<Params> }) {
       );
     }
     // ADMIN / OPERATOR require an existing account (auth flow exercised
-    // at least once). COACH / SIDEARM_SPECIALIST may be created here.
+    // at least once). COACH / SIDEARM_SPECIALIST / GROUND_STAFF may be
+    // created here — admins typically onboard these center-side staff
+    // before they ever sign in themselves.
     const requiresExisting = rolesToAssign.some((r) => r === 'ADMIN' || r === 'OPERATOR');
     if (requiresExisting) {
       return NextResponse.json(
@@ -151,10 +156,16 @@ export async function POST(req: NextRequest, ctx: { params: Promise<Params> }) {
         { status: 404 },
       );
     }
-    // Pick a primary role for the new user — COACH wins over specialist
-    // when both are being assigned, since coaches are typically more
-    // visible. The membership rows below carry the per-role detail.
-    const primary = rolesToAssign.includes('COACH') ? 'COACH' : 'SIDEARM_SPECIALIST';
+    // Pick a primary platform role for the new user. COACH wins over
+    // SIDEARM_SPECIALIST when both are assigned, since coaches are more
+    // visible. GROUND_STAFF is a center-side facility role — it doesn't
+    // correspond to a UserRole, so we fall back to plain USER and let
+    // the CenterMembership row carry the GROUND_STAFF authorisation.
+    const primary: 'COACH' | 'SIDEARM_SPECIALIST' | 'USER' = rolesToAssign.includes('COACH')
+      ? 'COACH'
+      : rolesToAssign.includes('SIDEARM_SPECIALIST')
+        ? 'SIDEARM_SPECIALIST'
+        : 'USER';
     user = await prisma.user.create({
       data: {
         name: parsed.data.name || (parsed.data.email ? parsed.data.email.split('@')[0] : null),
@@ -165,14 +176,18 @@ export async function POST(req: NextRequest, ctx: { params: Promise<Params> }) {
       },
     });
   } else {
-    // Bump the user's primary role if any of the assigned roles is more
-    // privileged than what they have today. Membership rows below stay
-    // as the source of truth for per-role authorisation.
+    // Bump the user's primary platform role if any of the assigned
+    // roles is more privileged than what they have today. Membership
+    // rows below stay as the source of truth for per-role authorisation.
+    // GROUND_STAFF is a center-side facility role with no UserRole
+    // equivalent — skip it entirely in the rank promotion.
     const order = ['USER', 'COACH', 'SIDEARM_SPECIALIST', 'OPERATOR', 'ADMIN'] as const;
-    const currentRank = order.indexOf(user.role as (typeof order)[number]);
+    type OrderRole = (typeof order)[number];
+    const currentRank = order.indexOf(user.role as OrderRole);
     let highestRank = currentRank;
     for (const r of rolesToAssign) {
-      const rank = order.indexOf(r);
+      if (r === 'GROUND_STAFF') continue;
+      const rank = order.indexOf(r as OrderRole);
       if (rank > highestRank) highestRank = rank;
     }
     if (highestRank > currentRank) {

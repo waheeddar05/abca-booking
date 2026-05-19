@@ -334,6 +334,32 @@ export function BookingCard({ booking, role, renderActions, renderPrice, renderO
         </div>
       )}
 
+      {/* Ground Staff contact — surfaced for Cricket Nets (NET) and
+          Full Indoor Court (FULL_COURT) bookings. Those categories
+          don't have a per-booking operator / coach / sidearm row so
+          the user has nobody to call on arrival. Falls back silently
+          when no GROUND_STAFF membership is configured at the center. */}
+      {(booking.category === 'NET' || booking.category === 'FULL_COURT')
+        && booking.center?.groundStaff && (
+        <div className="flex items-center gap-2 mb-2 bg-white/[0.02] rounded-lg px-2.5 py-1.5 border border-white/[0.04]">
+          <User className="w-3 h-3 text-teal-400/70 flex-shrink-0" />
+          <div className="flex items-center gap-2 min-w-0 flex-1">
+            <span className="text-[11px] text-slate-400 flex-shrink-0">Ground Staff:</span>
+            <span className="text-[11px] text-white truncate">
+              {booking.center.groundStaff.name || 'Available on-site'}
+            </span>
+          </div>
+          {booking.center.groundStaff.mobileNumber && (
+            <a
+              href={`tel:${booking.center.groundStaff.mobileNumber}`}
+              className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-medium text-accent bg-accent/10 hover:bg-accent/20 active:scale-95 flex-shrink-0"
+            >
+              <Phone className="w-2.5 h-2.5" /> Call
+            </a>
+          )}
+        </div>
+      )}
+
       {/* Refund Details (user view shows detailed refund history) */}
       {role === 'user' && booking.refunds && booking.refunds.length > 0 && (
         <div className="mb-2 bg-white/[0.02] rounded-lg px-2.5 py-1.5 border border-white/[0.04]">
