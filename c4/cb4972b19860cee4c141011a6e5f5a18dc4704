@@ -1,0 +1,47 @@
+src/app/api/admin/slots/block/route.ts
+  s_6e0bc014652981::t_4fcbda39fed4f2 166-178,198
+  s_6e0bc014652981::t_153e505c5108d4 563-574
+  s_6e0bc014652981::t_c4d87b151aa2fd 202-213,236-282,306-320,322-326,328-351,354-373,375-378,380,382,387,390-421,428-429
+  s_6e0bc014652981::t_f96d0249cd623b 473
+  s_6e0bc014652981::t_09aef54474539c 92
+  s_6e0bc014652981::t_2bc3c146cbfb87 8-12
+src/lib/resource-booking.ts
+  s_6e0bc014652981::t_fe592a2d9921f8 775-790,800-813,838-841,843-873,875-884,887-901,904-911,913-924
+  s_6e0bc014652981::t_c8c7972277e3e5 943-954,965-968,972-989,1008-1023
+  s_6e0bc014652981::t_443d0914c4b65f 709
+  s_6e0bc014652981::t_040772288614da 746
+  s_6e0bc014652981::t_14641429dabf91 874
+  s_6e0bc014652981::t_93a449fca45cac 656-665
+prisma/migrations/20260520000000_add_netcount_to_blocked_slot/migration.sql
+  s_6e0bc014652981::t_d19d54f56b3ed0 1-5
+src/components/admin/ResourceBlockManagement.tsx
+  s_6e0bc014652981::t_1abbdc24755903 128-129
+  s_6e0bc014652981::t_4bd95080451854 365-371,387
+  s_6e0bc014652981::t_507657b4d9bd64 262-272,287
+  s_6e0bc014652981::t_d0a1db27a0a31b 83-89,98-113
+  s_6e0bc014652981::t_e7962869b2e4d8 192
+  s_6e0bc014652981::t_8682a9b63c4893 602-606,608-609,612-672
+  s_6e0bc014652981::t_6be6404c7e790c 798,808-816
+  s_6e0bc014652981::t_98385d5ecb6011 172-176
+  s_6e0bc014652981::t_b2bed55d54cbeb 338
+  s_6e0bc014652981::t_80fdca02db9648 237
+  s_6e0bc014652981::t_1b5f544874b897 1042-1043,1045-1046,1049-1105
+prisma/schema.prisma
+  s_6e0bc014652981::t_eb6181185498c5 535-541
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.4",
+  "base_commit_sha": "c4cb4972b19860cee4c141011a6e5f5a18dc4704",
+  "prompts": {},
+  "sessions": {
+    "s_6e0bc014652981": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "45340075-50bc-4580-814c-d4efb70ccc5a",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Waheed <waheeddar8@gmail.com>"
+    }
+  }
+}
