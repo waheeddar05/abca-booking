@@ -10,6 +10,7 @@ import { AdminToggle } from '@/components/admin/AdminToggle';
 import { useCenter } from '@/lib/center-context';
 import { ResourcePricingEditor } from '@/components/admin/ResourcePricingEditor';
 import { EnabledCategoriesEditor } from '@/components/admin/EnabledCategoriesEditor';
+import { EnabledPitchTypesEditor } from '@/components/admin/EnabledPitchTypesEditor';
 import { Ticket } from 'lucide-react';
 
 interface SlabPricing {
@@ -1130,6 +1131,23 @@ export default function ConfigurationPage() {
             scope={scope}
             centerLabel={currentCenter.shortName ?? currentCenter.name}
           />
+        </AdminCard>
+      )}
+
+      {/* Per-category pitch types — admin can flip individual pitches
+          on/off for Cricket Nets, Sidearm, and Personal Coaching. Each
+          row writes to its own CenterPolicy key (NET_PITCH_TYPES /
+          SIDEARM_PITCH_TYPES / COACHING_PITCH_TYPES). Saves on the
+          per-row 'Save' button — flipping chips doesn't auto-save so
+          admins can stage a multi-chip change. */}
+      {currentCenter?.bookingModel === 'RESOURCE_BASED' && (
+        <AdminCard
+          title="Pitch types per category"
+          icon={<Ticket className="w-4 h-4 text-accent" />}
+          collapsible
+          defaultOpen={false}
+        >
+          <EnabledPitchTypesEditor scope={scope} />
         </AdminCard>
       )}
 

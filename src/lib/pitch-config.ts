@@ -80,6 +80,20 @@ export async function getNetPitchTypes(centerId: string): Promise<PitchType[]> {
 }
 
 /**
+ * Personal Coaching pitch types — same admin-editable policy shape as
+ * Sidearm + Net. Read by the user-side slot picker so admins can hide
+ * specific pitches (e.g. drop Cement) without touching the engine.
+ */
+export async function getCoachingPitchTypes(centerId: string): Promise<PitchType[]> {
+  const list = await getCenterOnlyPolicyJson<PitchType[]>(
+    'COACHING_PITCH_TYPES',
+    centerId,
+    ALL_PITCH_TYPES,
+  );
+  return Array.isArray(list) && list.length > 0 ? list : ALL_PITCH_TYPES;
+}
+
+/**
  * Booking categories enabled for the user-facing slot picker at this
  * center. Drives the visible tabs on /slots. Stored as a JSON array;
  * anything missing or invalid falls back to "everything is enabled".

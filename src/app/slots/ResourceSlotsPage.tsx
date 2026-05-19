@@ -171,6 +171,9 @@ interface ResourceAvailabilityResponse {
   sidearmPitchTypes: PitchTypeId[];
   /** Same idea for bare-net bookings. */
   netPitchTypes: PitchTypeId[];
+  /** Same idea for Personal Coaching bookings — driven by the
+   *  COACHING_PITCH_TYPES per-center policy. */
+  coachingPitchTypes?: PitchTypeId[];
   /** Booking categories the admin has enabled for this center. The UI
    *  hides any tab not in this list. Defaults to every category. */
   enabledCategories: Category[];
@@ -591,6 +594,11 @@ export default function ResourceSlotsPage() {
       pitchOptions = data?.sidearmPitchTypes ?? [];
     } else if (category === 'NET') {
       pitchOptions = data?.netPitchTypes ?? [];
+    } else if (category === 'COACHING') {
+      // Coaching gained a pitch picker so admins can offer the same
+      // 'Astro / Cement / Natural' choice they expose on cricket
+      // nets. Defaults to every pitch when the policy isn't set.
+      pitchOptions = data?.coachingPitchTypes ?? data?.netPitchTypes ?? [];
     }
 
     // Helper: does this pitch have at least one slot with free
@@ -627,7 +635,7 @@ export default function ResourceSlotsPage() {
       setBallType(null);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [category, machineId, machines, data?.sidearmPitchTypes, data?.netPitchTypes, data?.slots]);
+  }, [category, machineId, machines, data?.sidearmPitchTypes, data?.netPitchTypes, data?.coachingPitchTypes, data?.slots]);
 
   // Default-select the first coach / sidearm staff for those tabs.
   // Auto-assign happens server-side too, but the UI shows the first
@@ -1478,6 +1486,23 @@ export default function ResourceSlotsPage() {
           label="Pitch Type"
           required={(data!.netPitchTypes.length) > 1}
           options={data!.netPitchTypes.map((id) => ({ id, label: PITCH_TYPE_LABELS[id] }))}
+          value={pitchType}
+          onChange={(v) => setPitchType(v as PitchTypeId | null)}
+        />
+      )}
+
+      {/* Coaching pitch picker — gated by COACHING_PITCH_TYPES policy
+          set in Admin → Settings. Hidden when no pitches are
+          configured for coaching (defaults to all three per pitch-
+          config.ts). pitchTypeSelectionEnabled toggle also gates it
+          for parity with sidearm/net. */}
+      {category === 'COACHING'
+        && paymentConfig?.pitchTypeSelectionEnabled !== false
+        && ((data?.coachingPitchTypes?.length ?? data?.netPitchTypes?.length ?? 0) > 0) && (
+        <ChipSelector
+          label="Pitch Type"
+          required={((data?.coachingPitchTypes ?? data?.netPitchTypes ?? []).length) > 1}
+          options={(data?.coachingPitchTypes ?? data?.netPitchTypes ?? []).map((id) => ({ id, label: PITCH_TYPE_LABELS[id] }))}
           value={pitchType}
           onChange={(v) => setPitchType(v as PitchTypeId | null)}
         />

@@ -23,7 +23,7 @@ import {
   applyBlocksToAvailability,
 } from '@/lib/resource-booking';
 import { getResourcePricingConfig, getResourceSlotPrice } from '@/lib/resource-pricing';
-import { getSidearmPitchTypes, getNetPitchTypes, getEnabledBookingCategories } from '@/lib/pitch-config';
+import { getSidearmPitchTypes, getNetPitchTypes, getCoachingPitchTypes, getEnabledBookingCategories } from '@/lib/pitch-config';
 import { sanitizeApiError } from '@/lib/api-errors';
 import { getOperatorCount } from '@/lib/operatorAssign';
 import {
@@ -142,6 +142,7 @@ export async function GET(req: NextRequest) {
       machines,
       sidearmPitchTypes,
       netPitchTypes,
+      coachingPitchTypes,
       enabledCategories,
       bookings,
       batchConfig,
@@ -162,6 +163,7 @@ export async function GET(req: NextRequest) {
       }),
       getSidearmPitchTypes(center.id),
       getNetPitchTypes(center.id),
+      getCoachingPitchTypes(center.id),
       getEnabledBookingCategories(center.id),
       prisma.booking.findMany({
         where: { centerId: center.id, date: dateUTC, status: { not: 'CANCELLED' } },
@@ -595,6 +597,7 @@ export async function GET(req: NextRequest) {
       // per-machine list is fetched separately by the picker.
       sidearmPitchTypes,
       netPitchTypes,
+      coachingPitchTypes,
       enabledCategories,
       // Resolved pricing config + slab boundaries — the client uses
       // these to compute the right price for the user's specific
