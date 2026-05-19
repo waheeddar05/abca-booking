@@ -234,17 +234,41 @@ export async function POST(req: NextRequest) {
 
     const user = await prisma.user.findUnique({ where: { id: userId }, select: { role: true } });
     if (!user) return NextResponse.json({ error: 'User not found' }, { status: 404 });
-    if (user.role !== 'OPERATOR') {
-      return NextResponse.json(
-        { error: 'User must have OPERATOR role before assigning machines' },
-        { status: 400 },
-      );
-    }
 
     const admin = await getAuthenticatedUser(req);
     const center = admin ? await resolveCurrentCenter(req, admin) : null;
     if (!center) {
       return NextResponse.json({ error: 'No center selected' }, { status: 400 });
+    }
+
+    // Accept either:
+    //  - The legacy global User.role = 'OPERATOR' (ABCA users predate
+    //    multi-center memberships), or
+    //  - An active CenterMembership(role=OPERATOR) for THIS center on UAT
+    //    (where operators are granted per-center via the Members tab,
+    //    not by promoting the global User.role).
+    // Previously this guard only checked the global column, so any
+    // operator who was added through the new center-membership flow
+    // and never had their User.role bumped would be rejected here.
+    let isOperatorAtCenter = user.role === 'OPERATOR';
+    if (!isOperatorAtCenter) {
+      const membership = await prisma.centerMembership.findUnique({
+        where: {
+          userId_centerId_role: {
+            userId,
+            centerId: center.id,
+            role: 'OPERATOR',
+          },
+        },
+        select: { isActive: true },
+      });
+      isOperatorAtCenter = !!membership?.isActive;
+    }
+    if (!isOperatorAtCenter) {
+      return NextResponse.json(
+        { error: 'User must have OPERATOR role at this center before assigning machines' },
+        { status: 400 },
+      );
     }
 
     let resolved;
