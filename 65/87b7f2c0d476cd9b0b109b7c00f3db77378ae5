@@ -1,0 +1,21 @@
+src/app/api/admin/bookings/export/route.ts
+  s_6e0bc014652981::t_b97093b5ab486e 190-208,210-211
+  s_6e0bc014652981::t_59d1073e85fe75 209
+  s_6e0bc014652981::t_8fa125858c094c 301-319,332,335-338,341,352
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.4",
+  "base_commit_sha": "6587b7f2c0d476cd9b0b109b7c00f3db77378ae5",
+  "prompts": {},
+  "sessions": {
+    "s_6e0bc014652981": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "45340075-50bc-4580-814c-d4efb70ccc5a",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Waheed <waheeddar8@gmail.com>"
+    }
+  }
+}
