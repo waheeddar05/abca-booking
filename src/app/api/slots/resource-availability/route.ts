@@ -202,6 +202,7 @@ export async function GET(req: NextRequest) {
         const busyCoachIds = new Set<string>();
         const busyStaffIds = new Set<string>();
         const busyMachineIds = new Set<string>();
+        let hasFullCourtBooking = false;
         for (const b of bookings) {
           if (slot.startTime >= b.endTime || b.startTime >= slot.endTime) continue;
           for (const ra of b.resourceAssignments) {
@@ -210,6 +211,9 @@ export async function GET(req: NextRequest) {
           if (b.assignedCoachId) busyCoachIds.add(b.assignedCoachId);
           if (b.assignedStaffId) busyStaffIds.add(b.assignedStaffId);
           if (b.assignedMachineId) busyMachineIds.add(b.assignedMachineId);
+          // FULL_COURT booking overlapping the slot locks the entire
+          // indoor net pool — see resource-booking.ts computeSlotAvailability.
+          if (b.category === 'FULL_COURT') hasFullCourtBooking = true;
         }
         // Seed the legacy `claimedResourceIds` view; computeSlotAvailability
         // overwrites it with a capacity-aware version below.
@@ -243,6 +247,7 @@ export async function GET(req: NextRequest) {
             busyCoachIds,
             busyStaffIds,
             busyMachineIds,
+            hasFullCourtBooking,
           },
           batchNets,
           // Pass the slot so coaches/specialists outside their weekly

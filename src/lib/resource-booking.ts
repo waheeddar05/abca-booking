@@ -247,6 +247,18 @@ interface OccupancySnapshot {
   busyStaffIds: Set<string>;
   /** Machine IDs busy at the slot. */
   busyMachineIds: Set<string>;
+  /**
+   * True when any non-cancelled FULL_COURT booking overlaps the slot.
+   * Locks the entire indoor net pool — no MACHINE / NET / SIDEARM /
+   * COACHING booking can land on indoor nets while a full-court
+   * session is in progress, regardless of each net's remaining
+   * capacity. Natural-turf / cement pools are unaffected (independent
+   * surfaces). Required because BookingResourceAssignment has a unique
+   * (booking, resource) constraint — full-court can only put 1 row per
+   * net into the table, but the semantic is "claim every unit of every
+   * net at this slot."
+   */
+  hasFullCourtBooking: boolean;
 }
 
 /**
@@ -282,6 +294,9 @@ export async function getOccupancyForSlot(
       id: true,
       startTime: true,
       endTime: true,
+      // category drives the hasFullCourtBooking flag — a FULL_COURT
+      // overlap claims the entire indoor pool regardless of capacity.
+      category: true,
       assignedMachineId: true,
       assignedCoachId: true,
       assignedStaffId: true,
@@ -299,6 +314,7 @@ export async function getOccupancyForSlot(
   const busyCoachIds = new Set<string>();
   const busyStaffIds = new Set<string>();
   const busyMachineIds = new Set<string>();
+  let hasFullCourtBooking = false;
 
   for (const b of bookings) {
     if (!overlaps(b.startTime, b.endTime, slot.startTime, slot.endTime)) continue;
@@ -308,6 +324,7 @@ export async function getOccupancyForSlot(
     if (b.assignedCoachId) busyCoachIds.add(b.assignedCoachId);
     if (b.assignedStaffId) busyStaffIds.add(b.assignedStaffId);
     if (b.assignedMachineId) busyMachineIds.add(b.assignedMachineId);
+    if (b.category === 'FULL_COURT') hasFullCourtBooking = true;
   }
 
   // Default `claimedResourceIds` treats any load as claimed (capacity=1
@@ -315,7 +332,7 @@ export async function getOccupancyForSlot(
   // `withCapacityDerivedClaims` when they assemble the SlotAvailability.
   const claimedResourceIds = new Set<string>(resourceLoad.keys());
 
-  return { resourceLoad, claimedResourceIds, busyCoachIds, busyStaffIds, busyMachineIds };
+  return { resourceLoad, claimedResourceIds, busyCoachIds, busyStaffIds, busyMachineIds, hasFullCourtBooking };
 }
 
 /**
@@ -444,6 +461,19 @@ export function computeSlotAvailability(inputs: AvailabilityInputs): SlotAvailab
   );
   const outdoor = resources.filter((r) => r.category === 'OUTDOOR');
 
+  // FULL_COURT lock: an overlapping full-court booking takes the
+  // entire indoor pool, regardless of each net's remaining capacity.
+  // Schema can't express that via BookingResourceAssignment (the
+  // unique (booking, resource) constraint allows at most 1 row per
+  // net), so the engine special-cases it here: when a FULL_COURT
+  // overlaps the slot, every indoor NET is treated as claimed. This
+  // is what prevents a 4-cap Indoor Net from accepting Machine /
+  // Sidearm / Coaching / Net bookings while the court is "in use."
+  // Outdoor / cement pools are untouched — they're independent surfaces.
+  if (occupancy.hasFullCourtBooking) {
+    for (const n of indoorNets) occupancy.claimedResourceIds.add(n.id);
+  }
+
   // A resource with remaining capacity (load < capacity) is "free"
   // — it can host another booking at this slot. With every Resource at
   // capacity 1 this collapses back to the old "any booking = claimed"
@@ -470,12 +500,21 @@ export function computeSlotAvailability(inputs: AvailabilityInputs): SlotAvailab
   const freeCoaches = scheduledCoaches.filter((c) => !occupancy.busyCoachIds.has(c.userId));
   const freeStaff = scheduledStaff.filter((s) => !occupancy.busyStaffIds.has(s.userId));
 
-  // Full court requires every active indoor net to be unclaimed AND the
-  // corporate batch to not be active.
+  // Full court requires every active indoor net to be at zero load
+  // (no other booking using any capacity unit) AND the corporate
+  // batch to not be active. The capacity-aware "free" check above
+  // accepts a net with load < capacity as free, which is wrong for
+  // full-court — the whole net must be empty. Falling back to
+  // resourceLoad.get(id) ?? 0 catches the "no bookings at all on
+  // this net" case explicitly.
+  const everyIndoorEmpty = indoorNets.every(
+    (n) => (occupancy.resourceLoad.get(n.id) ?? 0) === 0,
+  );
   const fullCourtAvailable =
-    indoorNets.length > 0 &&
-    freeIndoor.length === indoorNets.length &&
-    heldByBatch === 0;
+    indoorNets.length > 0
+    && everyIndoorEmpty
+    && !occupancy.hasFullCourtBooking
+    && heldByBatch === 0;
 
   // Per-pitch free pools. Each pitch keeps its own list so a booking
   // for NATURAL consumes outdoor turf capacity, not indoor net capacity.
