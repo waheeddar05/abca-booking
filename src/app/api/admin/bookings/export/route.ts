@@ -187,6 +187,28 @@ export async function GET(req: NextRequest) {
     // Check if there are any package bookings to decide whether to show Extra Amount column
     const hasPackageBookings = bookings.some((b: any) => !!b.packageBooking);
 
+    // Map raw BookingCategory enum to human-readable labels. ABCA legacy
+    // rows have null category but are effectively bowling-machine
+    // sessions (schema defaults to MACHINE), so the fallback is "Bowling
+    // Machine".
+    const CATEGORY_LABELS: Record<string, string> = {
+      MACHINE: 'Bowling Machine',
+      SIDEARM: 'Sidearm',
+      NET: 'Cricket Nets',
+      FULL_COURT: 'Full Indoor Court',
+      COACHING: 'Personal Coaching',
+      CORPORATE_BATCH: 'Corporate Batch',
+    };
+    const categoryLabel = (raw: string | null | undefined): string =>
+      (raw && CATEGORY_LABELS[raw]) || 'Bowling Machine';
+
+    // Ball type / operation mode only apply to bowling-machine sessions.
+    // For sidearm / nets / coaching / full-court / corporate-batch the
+    // cell reads "Not Applicable" (mirrors the admin bookings page
+    // which gates operation mode on `!category || category === 'MACHINE'`).
+    const isMachineBooking = (b: { category?: string | null }): boolean =>
+      !b.category || b.category === 'MACHINE';
+
     const headers = [
       'Booking ID',
       'Date',
@@ -276,6 +298,25 @@ export async function GET(req: NextRequest) {
       // same order so the per-row numbers always sum back to the
       // captured payment.
       const split = computeSplit(b);
+      const machineRow = isMachineBooking(b);
+      // Payment Method display:
+      //   pkg rows           → 'NA' (unchanged)
+      //   wallet > 0 && online > 0 → 'Wallet + Online'
+      //   wallet > 0 only    → 'Wallet'
+      //   online > 0 only    → 'Online'
+      //   else               → raw paymentMethod (covers CASH / unknown)
+      let paymentMethodCol: string;
+      if (pkg) {
+        paymentMethodCol = 'NA';
+      } else if (split.wallet > 0 && split.online > 0) {
+        paymentMethodCol = 'Wallet + Online';
+      } else if (split.wallet > 0) {
+        paymentMethodCol = 'Wallet';
+      } else if (split.online > 0) {
+        paymentMethodCol = 'Online';
+      } else {
+        paymentMethodCol = b.paymentMethod || '';
+      }
       return [
         b.id,
         formatIST(b.date, 'yyyy-MM-dd'),
@@ -288,17 +329,16 @@ export async function GET(req: NextRequest) {
         pkg ? 'Package' : 'Regular',
         pkg ? (b.packageBooking?.userPackage?.package?.name || '') : 'NA',
         pkg ? (b.packageBooking?.userPackageId || '') : 'NA',
-        b.ballType,
+        machineRow ? b.ballType : 'Not Applicable',
         b.pitchType || '',
         machineLabel,
-        // Resource-based columns: category, coach, staff. Empty on ABCA
-        // rows because the schema defaults category to 'MACHINE' there
-        // (which equals the ABCA legacy default, so the column reads
-        // 'MACHINE' for everyone — clear enough).
-        b.category || '',
+        // Resource-based columns: category (human label), coach, staff.
+        // Legacy ABCA rows have null category but represent bowling
+        // machine sessions, so the label falls back to "Bowling Machine".
+        categoryLabel(b.category),
         b.assignedCoach?.name || '',
         b.assignedStaff?.name || '',
-        b.operationMode || '',
+        machineRow ? (b.operationMode || '') : 'Not Applicable',
         b.status,
         pkg ? ((b.packageBooking?.extraCharge || 0) + (b.kitRentalCharge || 0)).toString() : (b.price?.toString() || ''),
         // Wallet / online amounts paired with the same row as the
@@ -309,7 +349,7 @@ export async function GET(req: NextRequest) {
         `"${(b.createdBy || '').replace(/"/g, '""')}"`,
         `"${(b.cancelledBy || '').replace(/"/g, '""')}"`,
         b.status === 'CANCELLED' && b.updatedAt ? formatIST(b.updatedAt, 'yyyy-MM-dd HH:mm:ss') : '',
-        pkg ? 'NA' : (b.paymentMethod || ''),
+        paymentMethodCol,
         pkg ? 'NA' : (b.paymentStatus || ''),
         b.kitRental ? 'Yes' : 'No',
         b.kitRentalCharge != null ? b.kitRentalCharge.toString() : '',
