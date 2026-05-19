@@ -90,7 +90,7 @@ export function CenterResourcesTab({ centerId }: { centerId: string }) {
     <div className="space-y-4">
       <div className="flex justify-between items-center gap-3 flex-wrap">
         <p className="text-xs text-slate-400 min-w-0 flex-1">
-          Bookable units (nets, courts, turf wickets). Used by the resource-based engine for availability.
+          Bookable units (nets, courts, natural turf). Used by the resource-based engine for availability.
           Centers using the legacy machine/pitch model can leave this empty.
         </p>
         <div className="flex items-center gap-2 shrink-0">

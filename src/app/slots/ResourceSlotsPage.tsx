@@ -752,7 +752,7 @@ export default function ResourceSlotsPage() {
       return { pool: s.freeIndoorNets, usedFallback: true };
     };
     const reasonForEmptyPool = (): string => {
-      if (pitchType === 'NATURAL') return 'No natural-turf wickets free';
+      if (pitchType === 'NATURAL') return 'No natural turf free';
       if (pitchType === 'CEMENT') return 'No cement wickets free';
       return 'All nets are taken at this slot';
     };

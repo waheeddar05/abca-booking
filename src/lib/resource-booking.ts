@@ -1096,7 +1096,7 @@ async function pickNetFor({
   if (!candidate) {
     if (pitch === 'NATURAL') {
       throw new BookingResourceError(
-        'No natural-turf wickets available for this slot',
+        'No natural turf available for this slot',
         409,
       );
     }
