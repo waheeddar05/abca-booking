@@ -813,10 +813,28 @@ export default function ResourceSlotsPage() {
       // ballType — relying on the code string would silently miss any
       // future Tennis machine added with a different code than
       // 'LEVERAGE'.
+      //
+      // Two operator-unavailability paths to cover:
+      //   1. Admin marked operators unavailable for this window
+      //      (date override or schedule sets count to 0).
+      //      → s.selfOperate === true, s.operatorAvailable === true.
+      //      Tennis machines fall back to self-operate; leather
+      //      machines need an operator who isn't there — Not Available.
+      //   2. Operators scheduled but every one is already booked.
+      //      → s.operatorAvailable === false.
+      //      Same rule: tennis self-operates, leather greys out.
       const selectedMachine = machineId ? filteredMachines.find((m) => m.id === machineId) : null;
       const isTennisMachine = selectedMachine?.machineType?.ballType === 'TENNIS';
-      if (!isTennisMachine && s.operatorAvailable === false && s.selfOperate === false) {
-        return { ok: false, reason: 'All operators are booked for this slot' };
+      if (!isTennisMachine) {
+        // Leather machines always need an operator. A center configured
+        // for self-operate (operatorCount = 0) leaves leather machines
+        // unbookable for the window — the machine can't run itself.
+        if (s.selfOperate === true) {
+          return { ok: false, reason: 'Operator unavailable — this machine requires an operator' };
+        }
+        if (s.operatorAvailable === false) {
+          return { ok: false, reason: 'All operators are booked for this slot' };
+        }
       }
       return { ok: true };
     }
@@ -1781,12 +1799,15 @@ export default function ResourceSlotsPage() {
               // (matches ABCA SlotGrid). True when no operator will be
               // assigned to this booking: either operatorCount=0 at the
               // slot, or operators exist but are all busy AND the user
-              // picked a tennis machine (LEVERAGE ballType).
+              // picked a tennis machine (LEVERAGE ballType). Leather
+              // machines are never self-operate — they need an operator
+              // who, when absent, makes the slot unavailable (gated
+              // above in slotIsBookable).
               const sel = machineId ? filteredMachines.find((m) => m.id === machineId) : null;
               const isTennisMachine = sel?.machineType?.ballType === 'TENNIS';
-              const isSelfOperate = !isUnavailable && category === 'MACHINE' && (
+              const isSelfOperate = !isUnavailable && category === 'MACHINE' && isTennisMachine && (
                 slot.selfOperate === true
-                || (isTennisMachine && slot.operatorAvailable === false)
+                || slot.operatorAvailable === false
               );
 
               const bgClass = isUnavailable
@@ -2064,7 +2085,9 @@ export default function ResourceSlotsPage() {
                 {category === 'MACHINE' && selectedSlots.some((s) => {
                   const m = machineId ? filteredMachines.find((mm) => mm.id === machineId) : null;
                   const tennis = m?.machineType?.ballType === 'TENNIS';
-                  return s.selfOperate || (tennis && s.operatorAvailable === false);
+                  // Only tennis machines self-operate. Leather selections
+                  // are blocked upstream when no operator is free.
+                  return tennis && (s.selfOperate === true || s.operatorAvailable === false);
                 }) && (
                   <span> &middot; <span className="text-amber-400">Self Operate</span></span>
                 )}

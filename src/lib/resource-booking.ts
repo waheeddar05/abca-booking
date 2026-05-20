@@ -1115,6 +1115,20 @@ export async function planBooking(
     // insert a Booking for the same machine + time, producing the
     // observed "expected 2, got 4" duplicate rows.
     tx?: { booking: { findMany: typeof prisma.booking.findMany } };
+    /**
+     * Operator availability for MACHINE bookings. The engine itself
+     * doesn't query operator schedules — that lives in
+     * `lib/operatorAssign.ts` and the route handler computes it
+     * before calling planBooking. When `required` is true and
+     * `available` is false, the booking is rejected immediately so
+     * leather-ball / operator-mandatory machines can't be booked
+     * during an operator-unavailable window (admin date override,
+     * weekly off, or every scheduled operator already busy).
+     * SELF_OPERATE is intentionally NOT a fallback here — that's
+     * only valid for tennis machines, which the route flags by
+     * passing `required: false`.
+     */
+    operator?: { required: boolean; available: boolean };
   } = {},
 ): Promise<PlannedAssignment> {
   const slot: BookableSlotWindow = {
@@ -1163,6 +1177,20 @@ export async function planBooking(
   const resolved = await (async (): Promise<PlannedAssignment> => {
   switch (plan.category) {
     case 'MACHINE': {
+      // Operator availability gate. The route handler resolves
+      // `operator.required` from the picked machine's MachineType.ballType
+      // (LEATHER → required, TENNIS → not required) and `operator.available`
+      // from getOperatorCount + live busy count. We reject here so a
+      // leather-ball booking can't slip through during an operator-
+      // unavailable window — same outcome whether the admin set
+      // operatorCount=0 (date override / weekly off) or every
+      // scheduled operator was already booked.
+      if (context.operator?.required && !context.operator.available) {
+        throw new BookingResourceError(
+          'Operator unavailable for this slot — this machine requires an operator',
+          409,
+        );
+      }
       // Machine occupancy gate. Without this, two bookings for the
       // same Machine row at overlapping times could both succeed —
       // the UI hides the busy machine but a direct POST or a race

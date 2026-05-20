@@ -762,6 +762,47 @@ async function executeResourceBookingCore(
             for (let i = 0; i < plans.length; i++) {
               const plan = plans[i];
               const isConsecutive = planIsConsecutive[i];
+              // Operator-availability pre-check for MACHINE bookings.
+              // Leather (and any future operator-mandatory) machines
+              // can't be booked when the admin marked operators
+              // unavailable for the window (operatorCount === 0) or
+              // every scheduled operator is already booked. Tennis
+              // machines self-operate, so they're not gated here.
+              // Passed into planBooking so the engine has a single
+              // place to reject the booking — the operator-assignment
+              // cascade further down still runs to actually pick the
+              // assigned operator + record the operationMode.
+              let planOperatorRequired = false;
+              let planOperatorAvailable = true;
+              if (plan.category === 'MACHINE') {
+                // ballType comes from the picked Machine.machineType
+                // resolved earlier (`machineTypeBallType`). LEATHER (and
+                // anything that isn't TENNIS) requires an operator.
+                planOperatorRequired = machineTypeBallType !== 'TENNIS';
+                if (planOperatorRequired) {
+                  const opCount = await getOperatorCount(
+                    plan.date,
+                    plan.startTime,
+                    timeSlabConfig,
+                    center.id,
+                  );
+                  if (opCount === 0) {
+                    planOperatorAvailable = false;
+                  } else {
+                    const busyCount = await tx.booking.count({
+                      where: {
+                        centerId: center.id,
+                        date: plan.date,
+                        startTime: plan.startTime,
+                        status: 'BOOKED',
+                        operatorId: { not: null },
+                      },
+                    });
+                    planOperatorAvailable = busyCount < opCount;
+                  }
+                }
+              }
+
               // Re-plan inside the transaction. CRITICAL: pass `tx` so
               // the occupancy SELECT participates in this transaction's
               // read set. Without it, two concurrent submits both see
@@ -771,7 +812,11 @@ async function executeResourceBookingCore(
               // intended slots). With `tx`, the SELECT triggers
               // serialization conflict detection and the loser gets
               // retried by the outer P2034 handler.
-              const assignment = await planBooking(plan, { audience, tx });
+              const assignment = await planBooking(plan, {
+                audience,
+                tx,
+                operator: { required: planOperatorRequired, available: planOperatorAvailable },
+              });
 
               const isPackageRedemption = !!userPackage;
 
