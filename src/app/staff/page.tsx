@@ -82,6 +82,24 @@ interface StaffMeResponse {
   roles: StaffRole[];
 }
 
+/**
+ * Compact center-machine row used to populate the Machine filter dropdown
+ * on the operator tab. Fetched from the public `/api/centers/[id]/machines`
+ * endpoint so the options always reflect what admins have configured at
+ * the current center (and not the hardcoded ABCA-era `MACHINES` constant).
+ *
+ * `legacyMachineId` bridges to the legacy `MachineId` enum used by ABCA
+ * bookings; resource-based machines (e.g. Toplay Master 200) have it null
+ * and are filtered via `Machine.id` against `Booking.assignedMachineId`.
+ */
+interface CenterMachine {
+  id: string;
+  name: string;
+  shortName?: string | null;
+  legacyMachineId?: string | null;
+  isActive: boolean;
+}
+
 const CATEGORY_TABS = [
   { key: 'all', label: 'All' },
   { key: 'today', label: 'Today' },
@@ -120,6 +138,11 @@ export default function StaffDashboard() {
     to: '',
     machineId: '',
   });
+  // Center's configured machines — populates the Machine filter on the
+  // operator tab. Loaded lazily once we know the current center id (from
+  // /api/staff/me). Empty list while loading or if the center has no
+  // active machines.
+  const [centerMachines, setCenterMachines] = useState<CenterMachine[]>([]);
 
   // Bootstrap — what roles does the user have?
   useEffect(() => {
@@ -143,6 +166,30 @@ export default function StaffDashboard() {
       })
       .finally(() => setMeLoading(false));
   }, []);
+
+  // Pull the active machines for the resolved center. Powers the operator
+  // tab's Machine filter dropdown so it shows only the machines actually
+  // configured at this center — not the hardcoded ABCA-era list. Re-runs
+  // whenever the center changes (admin centre-switch → new options).
+  useEffect(() => {
+    if (!me?.centerId) {
+      setCenterMachines([]);
+      return;
+    }
+    let cancelled = false;
+    fetch(`/api/centers/${me.centerId}/machines`)
+      .then((r) => (r.ok ? r.json() : []))
+      .then((rows: CenterMachine[]) => {
+        if (cancelled) return;
+        setCenterMachines(Array.isArray(rows) ? rows.filter((m) => m.isActive) : []);
+      })
+      .catch(() => {
+        if (!cancelled) setCenterMachines([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [me?.centerId]);
 
   const fetchBookings = useCallback(async () => {
     if (!role) return;
@@ -378,7 +425,11 @@ export default function StaffDashboard() {
                 <option value="CANCELLED">Cancelled</option>
               </select>
             </div>
-            {/* Machine filter — only meaningful for the OPERATOR tab. */}
+            {/* Machine filter — only meaningful for the OPERATOR tab.
+                Options are sourced from the center's configured Machine
+                rows. Value = `legacyMachineId` when present (ABCA, so the
+                bookings API matches on the legacy enum) else `Machine.id`
+                (resource-based centers — matches `assignedMachineId`). */}
             {role === 'OPERATOR' && (
               <div>
                 <label className="block text-[11px] font-semibold text-slate-300 mb-1.5">Machine</label>
@@ -387,12 +438,18 @@ export default function StaffDashboard() {
                   value={filters.machineId}
                   onChange={handleFilterChange}
                   className="w-full bg-white/[0.06] border border-white/[0.15] text-white rounded-lg px-3 py-2.5 text-sm outline-none focus:border-accent focus:ring-1 focus:ring-accent/20 cursor-pointer"
+                  disabled={centerMachines.length === 0}
                 >
                   <option value="">All Machines</option>
-                  <option value="GRAVITY">Gravity</option>
-                  <option value="YANTRA">Yantra</option>
-                  <option value="LEVERAGE_INDOOR">Leverage Tennis (Indoor)</option>
-                  <option value="LEVERAGE_OUTDOOR">Leverage Tennis (Outdoor)</option>
+                  {centerMachines.map((m) => {
+                    const value = m.legacyMachineId ?? m.id;
+                    const label = m.shortName ?? m.name;
+                    return (
+                      <option key={m.id} value={value}>
+                        {label}
+                      </option>
+                    );
+                  })}
                 </select>
               </div>
             )}
