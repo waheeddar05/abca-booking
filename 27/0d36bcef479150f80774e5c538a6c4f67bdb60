@@ -1,0 +1,24 @@
+src/components/slots/DateSelector.tsx
+  s_6e0bc014652981::t_1e7f9c7c9cfccc 25,34,40,43-44
+src/components/slots/MachineSelector.tsx
+  s_6e0bc014652981::t_3cca428564d76f 64,74
+src/app/slots/ResourceSlotsPage.tsx
+  s_6e0bc014652981::t_87f17f7b17c64d 1373,1382,1388,1391
+  s_6e0bc014652981::t_b6d760909ed985 1419-1431,1447,1457-1459,1462-1463
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.4",
+  "base_commit_sha": "270d36bcef479150f80774e5c538a6c4f67bdb60",
+  "prompts": {},
+  "sessions": {
+    "s_6e0bc014652981": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "45340075-50bc-4580-814c-d4efb70ccc5a",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Waheed <waheeddar8@gmail.com>"
+    }
+  }
+}
