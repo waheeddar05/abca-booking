@@ -61,7 +61,7 @@ const MachineCardButton = memo(function MachineCardButton({
       aria-checked={isSelected}
       aria-label={`${card.label} – ${card.shortLabel}`}
       onClick={() => onSelect(card.id)}
-      className={`flex items-center gap-2 pl-1.5 pr-3 py-1 rounded-lg text-xs font-semibold border cursor-pointer transition-all text-left min-w-0 ${
+      className={`flex items-center gap-1.5 pl-1.5 pr-2 py-1 rounded-lg text-xs font-semibold border cursor-pointer transition-all text-left min-w-0 ${
         isSelected
           ? 'bg-accent text-primary border-accent shadow-sm'
           : 'bg-white/[0.04] text-slate-300 border-white/[0.08] hover:border-accent/30'
@@ -71,7 +71,7 @@ const MachineCardButton = memo(function MachineCardButton({
       <img
         src={card.image}
         alt={card.label}
-        className="w-7 h-7 rounded-md object-cover flex-shrink-0 bg-white/5"
+        className="w-6 h-6 rounded-md object-cover flex-shrink-0 bg-white/5"
       />
       <span className="leading-tight text-left min-w-0">
         <span className="block truncate">{card.label}</span>

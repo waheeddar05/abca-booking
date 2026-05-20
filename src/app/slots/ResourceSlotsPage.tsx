@@ -1370,7 +1370,7 @@ export default function ResourceSlotsPage() {
             so Bowling Machine / Cricket Nets / Full Indoor Court /
             Sidearm have a visual anchor on the left, with the name
             text aligned underneath each other. */}
-        <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+        <div className="grid grid-cols-2 md:grid-cols-3 gap-1.5">
           {CATEGORIES.filter(
             ({ key }) => !data?.enabledCategories || data.enabledCategories.includes(key),
           ).map(({ key, label, icon: Icon }) => {
@@ -1379,16 +1379,16 @@ export default function ResourceSlotsPage() {
               <button
                 key={key}
                 onClick={() => setCategory(key)}
-                className={`flex items-center justify-start gap-2 px-3 py-2.5 rounded-lg text-xs font-semibold transition-all cursor-pointer min-w-0 text-left ${
+                className={`flex items-center justify-start gap-1.5 px-2 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer min-w-0 text-left ${
                   active
                     ? 'bg-accent text-primary shadow-sm'
                     : 'bg-white/[0.04] text-slate-400 border border-white/[0.08] hover:border-accent/20'
                 }`}
               >
-                <div className={`w-7 h-7 rounded-md flex items-center justify-center flex-shrink-0 ${
+                <div className={`w-6 h-6 rounded-md flex items-center justify-center flex-shrink-0 ${
                   active ? 'bg-primary/15' : 'bg-white/[0.04]'
                 }`}>
-                  <Icon className={`w-4 h-4 ${active ? 'text-primary' : 'text-accent'}`} />
+                  <Icon className={`w-3.5 h-3.5 ${active ? 'text-primary' : 'text-accent'}`} />
                 </div>
                 <span className="truncate">{label}</span>
               </button>
@@ -1416,7 +1416,19 @@ export default function ResourceSlotsPage() {
             // its content. A 2-column grid (single column on phone-
             // narrow) gives every machine the same footprint and lines
             // them up visually — admins specifically asked for this.
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            <div
+              className={`grid gap-1.5 ${
+                filteredMachines.length === 1
+                  ? 'grid-cols-1'
+                  : filteredMachines.length === 3
+                    ? 'grid-cols-3'
+                    : filteredMachines.length === 4
+                      ? 'grid-cols-4'
+                      : filteredMachines.length > 4
+                        ? 'grid-cols-2 sm:grid-cols-4'
+                        : 'grid-cols-2'
+              }`}
+            >
               {filteredMachines.map((m) => {
                 const active = machineId === m.id;
                 const imageUrl = m.machineType.imageUrl;
@@ -1432,7 +1444,7 @@ export default function ResourceSlotsPage() {
                   <button
                     key={m.id}
                     onClick={() => setMachineId(active ? null : m.id)}
-                    className={`flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-semibold border cursor-pointer transition-all min-w-0 text-left ${
+                    className={`flex items-center gap-1.5 pl-1.5 pr-2 py-1 rounded-lg text-xs font-semibold border cursor-pointer transition-all min-w-0 text-left ${
                       active
                         ? 'bg-accent text-primary border-accent shadow-sm'
                         : 'bg-white/[0.04] text-slate-300 border-white/[0.08] hover:border-accent/30'
@@ -1442,13 +1454,13 @@ export default function ResourceSlotsPage() {
                       <Image
                         src={imageUrl}
                         alt={displayName}
-                        width={32}
-                        height={32}
-                        className="w-8 h-8 rounded-md object-cover bg-white/5 flex-shrink-0"
+                        width={28}
+                        height={28}
+                        className="w-7 h-7 rounded-md object-cover bg-white/5 flex-shrink-0"
                       />
                     ) : (
-                      <div className="w-8 h-8 rounded-md bg-white/5 flex items-center justify-center flex-shrink-0">
-                        <Settings2 className={`w-4 h-4 ${active ? 'text-primary/70' : 'text-slate-500'}`} />
+                      <div className="w-7 h-7 rounded-md bg-white/5 flex items-center justify-center flex-shrink-0">
+                        <Settings2 className={`w-3.5 h-3.5 ${active ? 'text-primary/70' : 'text-slate-500'}`} />
                       </div>
                     )}
                     <span className="leading-tight text-left min-w-0 flex-1">
