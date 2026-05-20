@@ -1,0 +1,26 @@
+src/app/api/slots/book-resource/route.ts
+  s_6e0bc014652981::t_84d72ca933adc3 765-805,815-819
+src/app/slots/ResourceSlotsPage.tsx
+  s_6e0bc014652981::t_6e991e2ae457c9 2088-2090
+  s_6e0bc014652981::t_103b5b34f985d7 816-825,828-837
+  s_6e0bc014652981::t_368e43d1660a4a 1802-1805,1808,1810
+src/lib/resource-booking.ts
+  s_6e0bc014652981::t_1d0eb0738cde88 1118-1131
+  s_6e0bc014652981::t_2ce3baeb6202a0 1180-1193
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.4",
+  "base_commit_sha": "55ed14768431ee00a878260f1087a492f664336a",
+  "prompts": {},
+  "sessions": {
+    "s_6e0bc014652981": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "45340075-50bc-4580-814c-d4efb70ccc5a",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Waheed <waheeddar8@gmail.com>"
+    }
+  }
+}
