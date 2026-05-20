@@ -258,6 +258,17 @@ function AdminPackagesLegacy() {
     e.preventDefault();
     if (!selectedUser) { setAssignMessage({ text: 'Please select a user', type: 'error' }); return; }
     if (!assignForm.name.trim()) { setAssignMessage({ text: 'Please enter a package name', type: 'error' }); return; }
+    // Bowling Machine assignments must be pinned to a specific machine —
+    // "Any Bowling Machine" is no longer a valid choice. The dropdown
+    // already restricts to the center's active machines; this guards
+    // the case where the center has zero machines configured.
+    if (!assignForm.machineId) { setAssignMessage({ text: 'Please select a machine', type: 'error' }); return; }
+    // Timing must be a concrete slot (Day or Evening) — "Both"/"Anytime"
+    // is not offered to keep package redemption deterministic.
+    if (assignForm.timingType !== 'DAY' && assignForm.timingType !== 'EVENING') {
+      setAssignMessage({ text: 'Please select a timing (Day or Evening)', type: 'error' });
+      return;
+    }
     if (!assignForm.totalSessions || assignForm.totalSessions <= 0) { setAssignMessage({ text: 'Sessions must be a positive number', type: 'error' }); return; }
     if (!assignForm.validityDays || assignForm.validityDays <= 0) { setAssignMessage({ text: 'Validity days must be a positive number', type: 'error' }); return; }
 
@@ -1003,7 +1014,9 @@ function AdminPackagesLegacy() {
 
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="block text-[10px] font-medium text-slate-400 mb-1">Machine</label>
+                <label className="block text-[10px] font-medium text-slate-400 mb-1">
+                  Machine <span className="text-accent">*</span>
+                </label>
                 <select
                   value={assignForm.machineId}
                   onChange={e => {
@@ -1018,7 +1031,13 @@ function AdminPackagesLegacy() {
                     }));
                   }}
                   className="w-full bg-white/[0.04] border border-white/[0.1] text-white text-sm rounded-xl px-3 py-3 outline-none focus:border-accent"
+                  required
                 >
+                  {/* No "Any Bowling Machine" option — admin must pick a
+                      specific machine from the current center's roster. */}
+                  {!assignForm.machineId && (
+                    <option value="" disabled>Select a machine…</option>
+                  )}
                   {centerMachines.map(m => (
                     <option key={m.id} value={m.legacyMachineId || m.id}>
                       {m.shortName || m.name}
@@ -1056,16 +1075,20 @@ function AdminPackagesLegacy() {
                 </select>
               </div>
               <div>
-                <label className="block text-[10px] font-medium text-slate-400 mb-1">Timing</label>
+                <label className="block text-[10px] font-medium text-slate-400 mb-1">
+                  Timing <span className="text-accent">*</span>
+                </label>
                 <select
                   value={assignForm.timingType}
                   onChange={e => setAssignForm(prev => ({ ...prev, timingType: e.target.value }))}
                   className="w-full bg-white/[0.04] border border-white/[0.1] text-white text-sm rounded-xl px-3 py-3 outline-none focus:border-accent"
+                  required
                 >
+                  {/* Only Day / Evening — "Anytime" / "Both" intentionally
+                      dropped so the redemption window is unambiguous. */}
                   {PACKAGE_TIMING_OPTIONS.map(t => (
                     <option key={t.value} value={t.value}>{t.label}</option>
                   ))}
-                  <option value="BOTH">Both</option>
                 </select>
               </div>
             </div>
@@ -1097,7 +1120,12 @@ function AdminPackagesLegacy() {
 
             <button
               type="submit"
-              disabled={assigning || !selectedUser}
+              disabled={
+                assigning ||
+                !selectedUser ||
+                !assignForm.machineId ||
+                (assignForm.timingType !== 'DAY' && assignForm.timingType !== 'EVENING')
+              }
               className="w-full bg-accent hover:bg-accent-light text-primary font-semibold py-3 rounded-xl text-sm transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
             >
               {assigning ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
