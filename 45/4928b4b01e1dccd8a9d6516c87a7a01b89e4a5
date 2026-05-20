@@ -1,0 +1,22 @@
+src/app/admin/packages/page.tsx
+  s_6e0bc014652981::t_de86a04b3e2014 261-271
+  s_6e0bc014652981::t_951735b6f6df30 1017-1019,1034,1036-1040
+  s_6e0bc014652981::t_88f68b219d7435 1078-1080,1085,1087-1088
+  s_6e0bc014652981::t_04f5e017aa3d67 1123-1128
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.4",
+  "base_commit_sha": "454928b4b01e1dccd8a9d6516c87a7a01b89e4a5",
+  "prompts": {},
+  "sessions": {
+    "s_6e0bc014652981": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "45340075-50bc-4580-814c-d4efb70ccc5a",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Waheed <waheeddar8@gmail.com>"
+    }
+  }
+}
