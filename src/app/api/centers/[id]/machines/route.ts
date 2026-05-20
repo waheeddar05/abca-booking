@@ -39,6 +39,10 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string 
         id: true,
         name: true,
         shortName: true,
+        // Bridge to the legacy MachineId enum — needed by clients that
+        // filter ABCA-style packages (where `Package.machineId` is the
+        // enum) against the new Machine table.
+        legacyMachineId: true,
         isActive: true,
         displayOrder: true,
         supportedPitchTypes: true,
