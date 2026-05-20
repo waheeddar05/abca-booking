@@ -1,0 +1,27 @@
+src/app/api/centers/[id]/machines/route.ts
+  s_6e0bc014652981::t_0225e95afc5678 42-45
+src/app/packages/page.tsx
+  s_6e0bc014652981::t_3e108301e9e3bf 979-984,1013,1019-1020,1026,1028-1036,1038-1039,1047,1049-1052,1075-1078,1109-1131,1134
+  s_6e0bc014652981::t_d6e82a4d65be94 247-279
+  s_6e0bc014652981::t_4a2623afec7d62 379-380,385
+  s_6e0bc014652981::t_8621bff9c086a7 163-169
+  s_6e0bc014652981::t_04e70ba798b9c4 48-62
+  s_6e0bc014652981::t_50c5e0db06a2f4 572-625
+  s_6e0bc014652981::t_a16f2e01c6338a 405-407,416-429,431
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.4",
+  "base_commit_sha": "a756351e0b76336d7bfca2b26b1390750a4a466e",
+  "prompts": {},
+  "sessions": {
+    "s_6e0bc014652981": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "45340075-50bc-4580-814c-d4efb70ccc5a",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Waheed <waheeddar8@gmail.com>"
+    }
+  }
+}
