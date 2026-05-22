@@ -603,8 +603,16 @@ function UserMembershipsRow({
               {group.user.name || group.user.email || group.user.mobileNumber || '(no name)'}
             </span>
             <div className="flex gap-1">
-              {group.user.email && <Mail className="w-3 h-3 text-slate-500" title={group.user.email} />}
-              {group.user.mobileNumber && <Phone className="w-3 h-3 text-slate-500" title={group.user.mobileNumber} />}
+              {group.user.email && (
+                <span title={group.user.email}>
+                  <Mail className="w-3 h-3 text-slate-500" />
+                </span>
+              )}
+              {group.user.mobileNumber && (
+                <span title={group.user.mobileNumber}>
+                  <Phone className="w-3 h-3 text-slate-500" />
+                </span>
+              )}
             </div>
           </div>
           <div className="flex flex-wrap gap-1 mt-1">
