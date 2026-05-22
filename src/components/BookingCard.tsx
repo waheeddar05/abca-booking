@@ -289,7 +289,17 @@ export function BookingCard({ booking, role, renderActions, renderPrice, renderO
         )}
         {booking.paymentMethod && (
           <span className="text-[10px] px-1.5 py-0.5 rounded font-medium bg-white/[0.04] text-slate-500">
-            {booking.paymentMethod === 'CASH' ? 'Cash' : booking.paymentMethod === 'WALLET' ? 'Wallet' : 'Online'}
+            {(() => {
+              if (booking.isPackageBooking || !!booking.packageBooking) return 'Package';
+              // Check for split payment
+              const meta = (booking.payment?.metadata || {}) as any;
+              const walletPortion = typeof meta.walletDeduction === 'number' ? meta.walletDeduction : 0;
+              const onlinePortion = booking.payment?.amount || 0;
+              if (walletPortion > 0 && onlinePortion > 0) return 'Wallet + Online';
+              if (booking.paymentMethod === 'WALLET' || walletPortion > 0) return 'Wallet';
+              if (booking.paymentMethod === 'CASH') return 'Cash';
+              return 'Online';
+            })()}
           </span>
         )}
       </div>

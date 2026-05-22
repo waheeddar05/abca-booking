@@ -481,8 +481,7 @@ export function ResourcePricingEditor({
       {/* Other categories — Personal Coaching + Full Indoor Court.
           Now 4-cell each (Morning Single/2 Cons. + Evening Single/2
           Cons.) so admins can give consecutive-slot discounts the
-          same way cricket nets / sidearm allow. CORPORATE_BATCH was
-          dropped earlier; the DB enum stays for back-compat. */}
+          same way cricket nets / sidearm allow. */}
       <div className="space-y-2 pt-3 border-t border-white/[0.04]">
         <div className="text-[10px] uppercase tracking-wider text-slate-500 font-semibold">
           Category defaults
@@ -492,12 +491,12 @@ export function ResourcePricingEditor({
           one-off Full Indoor Court category. 2 Cons. is the TOTAL for
           a back-to-back pair; per-slot in a chain = total / 2.
         </p>
-        <div className="grid grid-cols-[1fr_auto_auto_auto_auto] gap-1.5 sm:gap-2 items-center text-[10px] uppercase tracking-wider text-slate-500">
+        <div className="grid grid-cols-[1.2fr_1fr_1fr_1fr_1fr] gap-2 items-center text-[10px] uppercase tracking-wider text-slate-500 mb-1">
           <div>Category</div>
-          <div className="w-16 sm:w-20 text-center">M. Single</div>
-          <div className="w-16 sm:w-20 text-center">M. 2 Cons.</div>
-          <div className="w-16 sm:w-20 text-center">E. Single</div>
-          <div className="w-16 sm:w-20 text-center">E. 2 Cons.</div>
+          <div className="text-center">M. Single</div>
+          <div className="text-center">M. 2 Cons.</div>
+          <div className="text-center">E. Single</div>
+          <div className="text-center">E. 2 Cons.</div>
         </div>
         {(
           [
@@ -510,8 +509,8 @@ export function ResourcePricingEditor({
             write({ ...cell, [slab]: { ...cell[slab], [kind]: n } });
           };
           return (
-            <div key={key} className="grid grid-cols-[1fr_auto_auto_auto_auto] gap-1.5 sm:gap-2 items-center">
-              <div className="text-xs sm:text-sm text-white truncate">{CATEGORY_LABELS[key]}</div>
+            <div key={key} className="grid grid-cols-[1.2fr_1fr_1fr_1fr_1fr] gap-2 items-center py-0.5">
+              <div className="text-xs sm:text-sm text-white truncate font-medium">{CATEGORY_LABELS[key]}</div>
               <PriceInput value={cell.morning.single}      onChange={(n) => update('morning', 'single', n)} />
               <PriceInput value={cell.morning.consecutive} onChange={(n) => update('morning', 'consecutive', n)} />
               <PriceInput value={cell.evening.single}      onChange={(n) => update('evening', 'single', n)} />
@@ -548,7 +547,7 @@ function PriceInput({ value, onChange }: { value: number; onChange: (n: number) 
   // re-derives from `value` once it's blurred.
   const [draft, setDraft] = useState<string | null>(null);
   return (
-    <div className="relative w-20 sm:w-28">
+    <div className="relative">
       <IndianRupee className="absolute left-2 top-1/2 -translate-y-1/2 w-3 h-3 text-slate-500" />
       <input
         type="number"
@@ -561,7 +560,7 @@ function PriceInput({ value, onChange }: { value: number; onChange: (n: number) 
           const n = Number(e.target.value);
           if (e.target.value !== '' && !Number.isNaN(n)) onChange(n);
         }}
-        className="w-full bg-white/[0.04] border border-white/[0.1] text-white placeholder:text-slate-500 rounded-lg pl-7 pr-2 py-1.5 text-sm outline-none focus:border-accent focus:ring-1 focus:ring-accent/20 transition-colors"
+        className="w-full bg-white/[0.04] border border-white/[0.1] text-white placeholder:text-slate-500 rounded-lg pl-7 pr-2 py-1.5 text-xs sm:text-sm outline-none focus:border-accent focus:ring-1 focus:ring-accent/20 transition-colors"
       />
     </div>
   );

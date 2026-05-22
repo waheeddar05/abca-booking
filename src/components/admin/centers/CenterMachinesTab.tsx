@@ -87,12 +87,12 @@ export function CenterMachinesTab({ centerId }: { centerId: string }) {
 
   return (
     <div className="space-y-4">
-      <div className="flex justify-between items-center">
-        <p className="text-xs text-slate-400">
-          Each machine is an instance at this center. The same machine type can have multiple instances (e.g. two Yantras).
+      <div className="flex justify-between items-center gap-4">
+        <p className="text-[11px] text-slate-500 leading-tight flex-1">
+          Instances of machines at this center.
         </p>
-        <PrimaryButton onClick={() => setShowNew(true)}>
-          <Plus className="w-4 h-4" /> Add machine
+        <PrimaryButton onClick={() => setShowNew(true)} className="px-2 py-1.5 text-xs rounded-lg shrink-0">
+          <Plus className="w-3.5 h-3.5" /> Add machine
         </PrimaryButton>
       </div>
 
@@ -108,9 +108,9 @@ export function CenterMachinesTab({ centerId }: { centerId: string }) {
       {machines.length === 0 ? (
         <div className="text-center text-slate-500 py-6 text-sm">No machines configured yet.</div>
       ) : (
-        <div className="space-y-2">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
           {machines.map((m) => (
-            <div key={m.id} className="rounded-xl bg-white/[0.02] border border-white/[0.06] p-3">
+            <div key={m.id} className="rounded-xl bg-white/[0.02] border border-white/[0.06] p-2.5">
               {editingId === m.id ? (
                 <MachineEditor
                   centerId={centerId}
@@ -120,53 +120,40 @@ export function CenterMachinesTab({ centerId }: { centerId: string }) {
                   onSaved={() => { setEditingId(null); refresh(); }}
                 />
               ) : (
-                <div className="flex items-center justify-between gap-3">
+                <div className="flex items-center justify-between gap-2">
                   <div className="min-w-0">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span className="text-sm font-semibold text-white">{m.name}</span>
-                      {!m.isActive && <span className="text-[10px] px-1.5 py-0.5 rounded bg-red-500/10 text-red-400 uppercase tracking-wide">inactive</span>}
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <span className="text-xs font-semibold text-white">{m.name}</span>
+                      {!m.isActive && <span className="text-[9px] px-1 py-0.5 rounded bg-red-500/10 text-red-400 uppercase tracking-wide">inactive</span>}
                     </div>
-                    <div className="text-xs text-slate-500 mt-0.5">
+                    <div className="text-[10px] text-slate-500 mt-0.5">
                       {m.machineType.name} ({m.machineType.ballType.toLowerCase()})
                     </div>
-                    <div className="flex flex-wrap gap-1 mt-1.5">
+                    <div className="flex flex-wrap gap-1 mt-1">
                       {m.supportedPitchTypes.length > 0 && m.supportedPitchTypes.map((p) => (
                         <span
                           key={`p-${p}`}
-                          className="text-[9px] uppercase tracking-wide px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-300 border border-blue-500/20"
+                          className="text-[8px] uppercase tracking-wide px-1 py-0.5 rounded bg-blue-500/10 text-blue-300 border border-blue-500/15"
                         >
                           {PITCH_TYPE_OPTIONS.find((o) => o.id === p)?.label ?? p}
                         </span>
                       ))}
-                      {m.supportedBallTypes.length > 0 && m.supportedBallTypes.map((b) => (
-                        <span
-                          key={`b-${b}`}
-                          className="text-[9px] uppercase tracking-wide px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-300 border border-amber-500/20"
-                        >
-                          {BALL_TYPE_OPTIONS.find((o) => o.id === b)?.label ?? b}
-                        </span>
-                      ))}
-                      {m.supportedPitchTypes.length === 0 && m.supportedBallTypes.length === 0 && (
-                        <span className="text-[10px] text-slate-600 italic">
-                          No pitch / ball types configured — user-side picker hidden.
-                        </span>
-                      )}
                     </div>
                   </div>
-                  <div className="flex gap-1 flex-shrink-0">
+                  <div className="flex gap-0.5 flex-shrink-0">
                     <button
                       onClick={() => setEditingId(m.id)}
-                      className="p-2 rounded-lg text-slate-400 hover:bg-white/[0.06] hover:text-white cursor-pointer"
+                      className="p-1.5 rounded-lg text-slate-400 hover:bg-white/[0.06] hover:text-white cursor-pointer"
                       title="Edit"
                     >
-                      <Pencil className="w-4 h-4" />
+                      <Pencil className="w-3.5 h-3.5" />
                     </button>
                     <button
                       onClick={() => remove(m.id)}
-                      className="p-2 rounded-lg text-red-400/70 hover:bg-red-500/10 hover:text-red-400 cursor-pointer"
+                      className="p-1.5 rounded-lg text-red-400/70 hover:bg-red-500/10 hover:text-red-400 cursor-pointer"
                       title="Deactivate"
                     >
-                      <Trash2 className="w-4 h-4" />
+                      <Trash2 className="w-3.5 h-3.5" />
                     </button>
                   </div>
                 </div>
@@ -193,14 +180,10 @@ function MachineEditor({
   onSaved: () => void;
 }) {
   const isEdit = !!initial?.id;
-  const [machineTypeId, setMachineTypeId] = useState(initial?.machineType?.id || types[0]?.id || '');
+  const [machineTypeId, setMachineTypeId] = useState(initial?.machineType?.id || '');
+  const [customType, setCustomType] = useState('');
   const [name, setName] = useState(initial?.name || '');
   const [shortName, setShortName] = useState(initial?.shortName || '');
-  // Display order / default lane / active toggle and resourcing have been
-  // removed from this simplified editor. They keep their existing DB
-  // values on edit (we don't send them in the PATCH) and default to
-  // sensible values on create (server-side defaults: displayOrder 0,
-  // isActive true, no resource lane).
   const [supportedPitchTypes, setSupportedPitchTypes] = useState<PitchTypeId[]>(
     initial?.supportedPitchTypes ?? [],
   );
@@ -209,6 +192,8 @@ function MachineEditor({
   );
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+
+  const isOther = machineTypeId === 'OTHER';
 
   const togglePitch = (id: PitchTypeId) =>
     setSupportedPitchTypes((prev) =>
@@ -222,21 +207,40 @@ function MachineEditor({
   const save = async (e: React.FormEvent) => {
     e.preventDefault();
     setErr(null);
+    if (!isEdit && !machineTypeId) {
+      setErr('Please select a machine type');
+      return;
+    }
+    if (isOther && !customType.trim()) {
+      setErr('Please enter the custom machine type');
+      return;
+    }
+
     setSaving(true);
     try {
       const url = isEdit
         ? `/api/admin/centers/${centerId}/machines/${initial!.id}`
         : `/api/admin/centers/${centerId}/machines`;
+
+      const body: any = {
+        name,
+        shortName: shortName || null,
+        supportedPitchTypes,
+        supportedBallTypes,
+      };
+
+      if (!isEdit) {
+        if (isOther) {
+          body.customMachineType = customType;
+        } else {
+          body.machineTypeId = machineTypeId;
+        }
+      }
+
       const res = await fetch(url, {
         method: isEdit ? 'PATCH' : 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          ...(isEdit ? {} : { machineTypeId }),
-          name,
-          shortName: shortName || null,
-          supportedPitchTypes,
-          supportedBallTypes,
-        }),
+        body: JSON.stringify(body),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -249,19 +253,43 @@ function MachineEditor({
     }
   };
 
+  const DEFAULT_MACHINE_TYPES = [
+    { id: 'yantra-leather', name: 'Yantra (Leather Gravity)', ballType: 'Leather' },
+    { id: 'master-200-tennis', name: 'Master 200 (Tennis Leverage)', ballType: 'Tennis' },
+  ];
+
   return (
     <form onSubmit={save} className="space-y-3 rounded-xl bg-white/[0.02] border border-white/[0.06] p-3">
       <div className="grid sm:grid-cols-2 gap-3">
         {!isEdit && (
-          <Field label="Machine type" required>
-            <SelectInput value={machineTypeId} onChange={(e) => setMachineTypeId(e.target.value)} required>
-              {types.filter((t) => t.isActive).map((t) => (
-                <option key={t.id} value={t.id}>
-                  {t.name} ({t.ballType.toLowerCase()})
-                </option>
-              ))}
-            </SelectInput>
-          </Field>
+          <>
+            <Field label="Machine type" required>
+              <SelectInput value={machineTypeId} onChange={(e) => setMachineTypeId(e.target.value)} required>
+                <option value="">Select type...</option>
+                {DEFAULT_MACHINE_TYPES.map((t) => (
+                  <option key={t.id} value={t.id}>
+                    {t.name}
+                  </option>
+                ))}
+                {types.filter(t => !DEFAULT_MACHINE_TYPES.some(d => d.name === t.name)).map((t) => (
+                  <option key={t.id} value={t.id}>
+                    {t.name}
+                  </option>
+                ))}
+                <option value="OTHER">Other</option>
+              </SelectInput>
+            </Field>
+            {isOther && (
+              <Field label="Custom Machine Name" required>
+                <TextInput
+                  required
+                  value={customType}
+                  onChange={(e) => setCustomType(e.target.value)}
+                  placeholder="Enter machine type"
+                />
+              </Field>
+            )}
+          </>
         )}
         <Field label="Display name" required>
           <TextInput required value={name} onChange={(e) => setName(e.target.value)} placeholder="Yantra 1" />

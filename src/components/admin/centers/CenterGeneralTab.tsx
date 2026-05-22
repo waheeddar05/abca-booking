@@ -112,97 +112,93 @@ export function CenterGeneralTab({
   };
 
   return (
-    <form onSubmit={save} className="space-y-6 max-w-3xl">
-      <Section title="Basics">
-        <div className="grid sm:grid-cols-2 gap-3">
-          <Field label="Name" required>
-            <TextInput
-              required
-              value={form.name}
-              onChange={(e) => set('name', e.target.value)}
-            />
-          </Field>
-          <Field label="Slug" help="Used in URLs and cookies. Not editable.">
-            <TextInput value={form.slug} disabled />
-          </Field>
-          {/* Booking model is intentionally read-only here. Flipping it
-              breaks every running booking flow; switch from the DB if
-              you really need to. */}
-          <Field label="Booking model" help="How availability is computed at this center.">
-            <TextInput
-              disabled
-              value={form.bookingModel === 'RESOURCE_BASED' ? 'Resource-based (nets + staff)' : 'Machine / Pitch (legacy)'}
-            />
-          </Field>
-          <Field label="Status">
-            {isSuperAdmin ? (
-              <SelectInput
-                value={form.isActive ? 'true' : 'false'}
-                onChange={(e) => set('isActive', e.target.value === 'true')}
-              >
-                <option value="true">Active — visible to users</option>
-                <option value="false">Inactive — hidden</option>
-              </SelectInput>
-            ) : (
-              <TextInput disabled value={form.isActive ? 'Active — visible to users' : 'Inactive — hidden'} />
-            )}
-          </Field>
-        </div>
-      </Section>
+    <form onSubmit={save} className="space-y-4 max-w-4xl">
+      <div className="grid lg:grid-cols-2 gap-6">
+        <div className="space-y-4">
+          <Section title="Basics">
+            <div className="grid sm:grid-cols-2 gap-3">
+              <Field label="Name" required>
+                <TextInput
+                  required
+                  value={form.name}
+                  onChange={(e) => set('name', e.target.value)}
+                />
+              </Field>
+              <Field label="Slug">
+                <TextInput value={form.slug} disabled />
+              </Field>
+              {/* Booking model is intentionally read-only here. */}
+              <Field label="Booking model">
+                <TextInput
+                  disabled
+                  value={form.bookingModel === 'RESOURCE_BASED' ? 'Resource-based' : 'Machine / Pitch'}
+                />
+              </Field>
+              <Field label="Status">
+                {isSuperAdmin ? (
+                  <SelectInput
+                    value={form.isActive ? 'true' : 'false'}
+                    onChange={(e) => set('isActive', e.target.value === 'true')}
+                  >
+                    <option value="true">Active</option>
+                    <option value="false">Inactive</option>
+                  </SelectInput>
+                ) : (
+                  <TextInput disabled value={form.isActive ? 'Active' : 'Inactive'} />
+                )}
+              </Field>
+            </div>
+          </Section>
 
-      <Section title="Address" subtitle="Shown on the landing page and used by the centers list.">
-        <Field label="Postal address">
-          <TextArea
-            rows={3}
-            value={form.addressLine1 ?? ''}
-            onChange={(e) => set('addressLine1', e.target.value || null)}
-            placeholder="Street, area, city, state, pincode"
-          />
-        </Field>
-      </Section>
+          <Section title="Address">
+            <Field label="Postal address">
+              <TextArea
+                rows={2}
+                value={form.addressLine1 ?? ''}
+                onChange={(e) => set('addressLine1', e.target.value || null)}
+                placeholder="Street, area, city, state, pincode"
+              />
+            </Field>
+          </Section>
 
-      <Section
-        title="Landing-page contact"
-        subtitle="These values drive the 'Ready to play?' strip and the contact footer on the user app."
-      >
-        <div className="grid sm:grid-cols-2 gap-3">
-          <Field label="Phone" help="Used as fallback when the contacts list below is empty.">
-            <TextInput
-              value={form.contactPhone ?? ''}
-              onChange={(e) => set('contactPhone', e.target.value || null)}
-              placeholder="9876543210"
-            />
-          </Field>
-          <Field label="Email">
-            <TextInput
-              type="email"
-              value={form.contactEmail ?? ''}
-              onChange={(e) => set('contactEmail', e.target.value || null)}
-              placeholder="hello@yourcenter.in"
-            />
-          </Field>
-          <Field label="Map URL" help="Google Maps / OpenStreetMap link. Powers the 'Map' button.">
-            <TextInput
-              type="url"
-              value={form.mapUrl ?? ''}
-              onChange={(e) => set('mapUrl', e.target.value || null)}
-              placeholder="https://maps.app.goo.gl/..."
-            />
-          </Field>
+          <Section title="Landing-page contact">
+            <div className="grid sm:grid-cols-2 gap-3">
+              <Field label="Phone">
+                <TextInput
+                  value={form.contactPhone ?? ''}
+                  onChange={(e) => set('contactPhone', e.target.value || null)}
+                  placeholder="9876543210"
+                />
+              </Field>
+              <Field label="Email">
+                <TextInput
+                  type="email"
+                  value={form.contactEmail ?? ''}
+                  onChange={(e) => set('contactEmail', e.target.value || null)}
+                  placeholder="hello@yourcenter.in"
+                />
+              </Field>
+              <Field label="Map URL">
+                <TextInput
+                  type="url"
+                  value={form.mapUrl ?? ''}
+                  onChange={(e) => set('mapUrl', e.target.value || null)}
+                  placeholder="https://maps.app.goo.gl/..."
+                />
+              </Field>
+            </div>
+          </Section>
         </div>
 
-        {/* Multi-contact strip. Each (name, number) pair becomes a chip
-            on the landing page's 'Ready to play' section. Empty rows
-            are stripped at save time so leaving a half-filled "Add"
-            in place doesn't poison the list. When no rows exist the
-            landing page falls back to the phone above. */}
-        <div>
-          <ContactPhonesEditor
-            value={form.contactPhones ?? []}
-            onChange={(v) => set('contactPhones', v)}
-          />
+        <div className="space-y-4">
+          <Section title="Additional Contacts">
+            <ContactPhonesEditor
+              value={form.contactPhones ?? []}
+              onChange={(v) => set('contactPhones', v)}
+            />
+          </Section>
         </div>
-      </Section>
+      </div>
 
       {msg && <Banner kind={msg.kind}>{msg.text}</Banner>}
 

@@ -34,18 +34,17 @@ import {
 import { timeToMinutes } from '@/lib/pricing';
 import type { BookingCategory } from '@prisma/client';
 
-/** IST day-of-week (0=Sun..6=Sat) without locale formatters. */
+/** IST day-of-week (0=Sun..6=Sat). */
 function getDayOfWeekIST(d: Date): number {
-  const istMs = d.getTime() + (5 * 60 + 30) * 60 * 1000;
-  return new Date(istMs).getUTCDay();
+  return new Date(d.toLocaleString('en-US', { timeZone: 'Asia/Kolkata' })).getDay();
 }
 
 /** IST minutes-of-day for a Date. Used to compare against offer time
  *  windows stored as HH:MM strings. */
 function getMinutesOfDayIST(d: Date): number {
-  const istMs = d.getTime() + (5 * 60 + 30) * 60 * 1000;
-  const ist = new Date(istMs);
-  return ist.getUTCHours() * 60 + ist.getUTCMinutes();
+  const istStr = d.toLocaleTimeString('en-GB', { timeZone: 'Asia/Kolkata', hour12: false });
+  const [h, m] = istStr.split(':').map(Number);
+  return h * 60 + m;
 }
 
 /** HH:MM string → minutes since midnight. */
@@ -232,10 +231,15 @@ export async function GET(req: NextRequest) {
           if (!batchConfig.enabled || batchConfig.netsConsumed <= 0) return 0;
           const dow = getDayOfWeekIST(slotWindow.startTime);
           if (batchConfig.days.length > 0 && !batchConfig.days.includes(dow)) return 0;
-          const sStart = `${String(getMinutesOfDayIST(slotWindow.startTime) / 60 | 0).padStart(2, '0')}:${String(getMinutesOfDayIST(slotWindow.startTime) % 60).padStart(2, '0')}`;
-          const sEnd = `${String(getMinutesOfDayIST(slotWindow.endTime) / 60 | 0).padStart(2, '0')}:${String(getMinutesOfDayIST(slotWindow.endTime) % 60).padStart(2, '0')}`;
-          if (sEnd <= batchConfig.startTime) return 0;
-          if (sStart >= batchConfig.endTime) return 0;
+
+          const startMin = getMinutesOfDayIST(slotWindow.startTime);
+          const endMin = getMinutesOfDayIST(slotWindow.endTime);
+
+          const batchStartMin = timeStrToMinutes(batchConfig.startTime);
+          const batchEndMin = timeStrToMinutes(batchConfig.endTime);
+
+          if (endMin <= batchStartMin) return 0;
+          if (startMin >= batchEndMin) return 0;
           return batchConfig.netsConsumed;
         })();
         const blocks = filterBlocksForSlotSync(candidateBlocks, slotWindow);

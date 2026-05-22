@@ -71,6 +71,9 @@ export async function completePackagePurchase(
   const activation = new Date();
   const expiry = new Date(activation);
   expiry.setDate(expiry.getDate() + pkg.validityDays);
+  // Set expiry to the very end of the day (23:59:59.999) to ensure
+  // a "30 day" package actually lasts until the end of the 30th day.
+  expiry.setHours(23, 59, 59, 999);
 
   const userPackage = await prisma.userPackage.create({
     data: {

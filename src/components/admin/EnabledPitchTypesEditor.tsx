@@ -30,13 +30,14 @@ const PITCHES: Array<{ id: PitchKey; label: string }> = [
   { id: 'NATURAL', label: 'Natural Turf' },
 ];
 
-type CategoryKey = 'SIDEARM' | 'NET' | 'COACHING';
+type CategoryKey = 'SIDEARM' | 'NET' | 'COACHING' | 'MACHINE';
 const CATEGORIES: Array<{
   id: CategoryKey;
   label: string;
   sub: string;
-  policyKey: 'SIDEARM_PITCH_TYPES' | 'NET_PITCH_TYPES' | 'COACHING_PITCH_TYPES';
+  policyKey: 'SIDEARM_PITCH_TYPES' | 'NET_PITCH_TYPES' | 'COACHING_PITCH_TYPES' | 'MACHINE_PITCH_TYPES';
 }> = [
+  { id: 'MACHINE',  label: 'Bowling Machine',   sub: 'Gravity/Yantra/Leverage', policyKey: 'MACHINE_PITCH_TYPES' },
   { id: 'NET',      label: 'Cricket Nets',      sub: 'Bare-net practice',  policyKey: 'NET_PITCH_TYPES' },
   { id: 'SIDEARM',  label: 'Sidearm',           sub: 'Bowled by a specialist', policyKey: 'SIDEARM_PITCH_TYPES' },
   { id: 'COACHING', label: 'Personal Coaching', sub: 'With a coach',        policyKey: 'COACHING_PITCH_TYPES' },
@@ -55,9 +56,10 @@ export function EnabledPitchTypesEditor({
     NET:      new Set(['ASTRO', 'CEMENT', 'NATURAL']),
     SIDEARM:  new Set(['ASTRO', 'CEMENT', 'NATURAL']),
     COACHING: new Set(['ASTRO', 'CEMENT', 'NATURAL']),
+    MACHINE:  new Set(['ASTRO', 'CEMENT', 'NATURAL']),
   });
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState<CategoryKey | null>(null);
+  const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<{ text: string; ok: boolean } | null>(null);
 
   // Load existing values. Fall back to all-three when the key is unset
@@ -97,38 +99,32 @@ export function EnabledPitchTypesEditor({
     return () => { cancelled = true; };
   }, [scope]);
 
-  const save = async (cat: CategoryKey) => {
-    const enabled = Array.from(selections[cat]);
-    if (enabled.length === 0) {
-      // Refuse to save an empty list — the engine treats it the same
-      // as "unset" anyway (falls back to all pitches), so the admin's
-      // intent (hide every pitch) wouldn't actually take effect.
-      setMessage({ text: `Pick at least one pitch for ${cat}`, ok: false });
-      setTimeout(() => setMessage(null), 2500);
-      return;
-    }
-    setSaving(cat);
+  const saveAll = async () => {
+    setSaving(true);
     setMessage(null);
-    const policyKey = CATEGORIES.find((c) => c.id === cat)!.policyKey;
     try {
-      const res = await fetch(`/api/admin/policies?scope=${scope}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ key: policyKey, value: JSON.stringify(enabled) }),
+      const promises = CATEGORIES.map((cat) => {
+        const enabled = Array.from(selections[cat.id]);
+        if (enabled.length === 0) return Promise.resolve();
+
+        return fetch(`/api/admin/policies?scope=${scope}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ key: cat.policyKey, value: JSON.stringify(enabled) }),
+        });
       });
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        throw new Error(body?.error || `HTTP ${res.status}`);
+
+      const results = await Promise.all(promises);
+      if (results.every((r) => !r || r.ok)) {
+        setMessage({ text: 'Saved all pitch types', ok: true });
+        setTimeout(() => setMessage(null), 3000);
+      } else {
+        setMessage({ text: 'Some updates failed', ok: false });
       }
-      setMessage({ text: 'Saved', ok: true });
-      setTimeout(() => setMessage(null), 2000);
-    } catch (e) {
-      setMessage({
-        text: e instanceof Error ? `Failed: ${e.message}` : 'Failed to save',
-        ok: false,
-      });
+    } catch {
+      setMessage({ text: 'Failed to save', ok: false });
     } finally {
-      setSaving(null);
+      setSaving(false);
     }
   };
 
@@ -152,7 +148,7 @@ export function EnabledPitchTypesEditor({
   }
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-4">
       <p className="text-[11px] text-slate-500 leading-relaxed">
         Pick which pitch types are offered in each booking flow. Disabling Cement
         here, for example, hides the Cement chip from the Cricket Nets pitch
@@ -164,24 +160,13 @@ export function EnabledPitchTypesEditor({
         {CATEGORIES.map((cat) => (
           <div
             key={cat.id}
-            className="rounded-xl bg-white/[0.02] border border-white/[0.06] p-3"
+            className="rounded-xl bg-white/[0.03] border border-white/[0.08] p-3.5 flex items-center justify-between gap-4"
           >
-            <div className="flex items-start justify-between gap-3 mb-2 flex-wrap">
-              <div className="min-w-0">
-                <div className="text-sm font-semibold text-white">{cat.label}</div>
-                <div className="text-[10px] text-slate-500">{cat.sub}</div>
-              </div>
-              <button
-                type="button"
-                onClick={() => save(cat.id)}
-                disabled={saving !== null}
-                className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11px] font-semibold bg-accent/15 hover:bg-accent/25 text-accent border border-accent/30 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {saving === cat.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <Save className="w-3 h-3" />}
-                Save
-              </button>
+            <div className="min-w-0">
+              <div className="text-sm font-semibold text-white">{cat.label}</div>
+              <div className="text-[10px] text-slate-500 uppercase tracking-wider">{cat.sub}</div>
             </div>
-            <div className="flex gap-1.5 flex-wrap">
+            <div className="flex gap-1.5 flex-shrink-0">
               {PITCHES.map((p) => {
                 const on = selections[cat.id].has(p.id);
                 return (
@@ -189,13 +174,13 @@ export function EnabledPitchTypesEditor({
                     key={p.id}
                     type="button"
                     onClick={() => togglePitch(cat.id, p.id)}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-semibold border cursor-pointer transition-colors ${
+                    className={`px-3 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wider border cursor-pointer transition-all ${
                       on
-                        ? 'bg-accent/15 text-accent border-accent/30'
-                        : 'bg-white/[0.04] text-slate-400 border-white/[0.08] hover:border-white/[0.16]'
+                        ? 'bg-accent text-primary border-accent shadow-sm'
+                        : 'bg-white/[0.04] text-slate-500 border-white/[0.08] hover:border-white/[0.16]'
                     }`}
                   >
-                    {p.label}
+                    {p.id}
                   </button>
                 );
               })}
@@ -204,11 +189,22 @@ export function EnabledPitchTypesEditor({
         ))}
       </div>
 
-      {message && (
-        <p className={`text-[11px] font-medium ${message.ok ? 'text-emerald-400' : 'text-red-400'}`}>
-          {message.text}
-        </p>
-      )}
+      <div className="flex items-center justify-end gap-3 pt-2">
+        {message && (
+          <p className={`text-[11px] font-medium ${message.ok ? 'text-emerald-400' : 'text-red-400'}`}>
+            {message.text}
+          </p>
+        )}
+        <button
+          type="button"
+          onClick={saveAll}
+          disabled={saving}
+          className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-accent text-black text-xs font-bold hover:bg-accent/90 active:scale-95 disabled:opacity-60 disabled:cursor-not-allowed cursor-pointer transition-all"
+        >
+          {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
+          Save Pitch Types
+        </button>
+      </div>
     </div>
   );
 }

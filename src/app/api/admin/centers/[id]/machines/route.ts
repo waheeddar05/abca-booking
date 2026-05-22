@@ -21,7 +21,8 @@ const PitchTypeEnum = z.enum(['ASTRO', 'CEMENT', 'NATURAL']);
 const BallTypeEnum = z.enum(['TENNIS', 'LEATHER', 'MACHINE']);
 
 const MachineCreateSchema = z.object({
-  machineTypeId: z.string().min(1, 'machineTypeId is required'),
+  machineTypeId: z.string().optional().nullable(),
+  customMachineType: z.string().optional().nullable(),
   name: z.string().min(1).max(120),
   shortName: z.string().max(60).optional().nullable(),
   resourceId: z.string().optional().nullable(),
@@ -69,9 +70,51 @@ export async function POST(req: NextRequest, ctx: { params: Promise<Params> }) {
   }
 
   // Verify center & machineType exist; resource (if set) belongs to this center.
+  let finalMachineTypeId = parsed.data.machineTypeId;
+
+  if (parsed.data.customMachineType) {
+    // Check if a machine type with this name already exists
+    let mt = await prisma.machineType.findFirst({
+      where: { name: parsed.data.customMachineType.trim() },
+    });
+    if (!mt) {
+      // Create a new MachineType for this custom entry
+      const code = parsed.data.customMachineType.toLowerCase().replace(/\s+/g, '-').slice(0, 30);
+      mt = await prisma.machineType.create({
+        data: {
+          name: parsed.data.customMachineType.trim(),
+          code: `${code}-${Date.now().toString(36)}`,
+          ballType: 'MACHINE', // Default for custom machines
+          isActive: true,
+        },
+      });
+    }
+    finalMachineTypeId = mt.id;
+  } else if (parsed.data.machineTypeId?.startsWith('yantra-') || parsed.data.machineTypeId?.startsWith('master-200-')) {
+    // Handle the UI-only virtual IDs for defaults
+    const name = parsed.data.machineTypeId.includes('yantra') ? 'Yantra (Leather Gravity)' : 'Master 200 (Tennis Leverage)';
+    const ballType = parsed.data.machineTypeId.includes('leather') ? 'LEATHER' : 'TENNIS';
+    let mt = await prisma.machineType.findFirst({ where: { name } });
+    if (!mt) {
+      mt = await prisma.machineType.create({
+        data: {
+          name,
+          code: parsed.data.machineTypeId,
+          ballType,
+          isActive: true,
+        },
+      });
+    }
+    finalMachineTypeId = mt.id;
+  }
+
+  if (!finalMachineTypeId) {
+    return NextResponse.json({ error: 'Machine type ID or custom name required' }, { status: 400 });
+  }
+
   const [center, mt, resource] = await Promise.all([
     prisma.center.findUnique({ where: { id: centerId } }),
-    prisma.machineType.findUnique({ where: { id: parsed.data.machineTypeId } }),
+    prisma.machineType.findUnique({ where: { id: finalMachineTypeId } }),
     parsed.data.resourceId
       ? prisma.resource.findUnique({ where: { id: parsed.data.resourceId } })
       : Promise.resolve(null),
@@ -85,7 +128,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<Params> }) {
   const created = await prisma.machine.create({
     data: {
       centerId,
-      machineTypeId: parsed.data.machineTypeId,
+      machineTypeId: finalMachineTypeId,
       name: parsed.data.name,
       shortName: parsed.data.shortName || null,
       resourceId: parsed.data.resourceId || null,

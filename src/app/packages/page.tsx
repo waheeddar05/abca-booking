@@ -126,11 +126,11 @@ const CATEGORY_CARDS: Array<{
   icon: typeof Settings2;
   dot: string;
 }> = [
-  { id: 'MACHINE',    label: 'Bowling Machine',  sub: 'Yantra / Leverage',          icon: Settings2,  dot: 'bg-red-500' },
-  { id: 'NET',        label: 'Cricket Nets',     sub: 'Bare net for self practice', icon: LayoutGrid, dot: 'bg-cyan-500' },
+  { id: 'MACHINE',    label: 'Bowling Machine',  sub: 'Yantra / Master 200',        icon: Settings2,  dot: 'bg-red-500' },
+  { id: 'NET',        label: 'Cricket Net',      sub: 'Self practice session',      icon: LayoutGrid, dot: 'bg-cyan-500' },
   { id: 'SIDEARM',    label: 'Sidearm',          sub: 'Bowled by a specialist',     icon: Users,      dot: 'bg-emerald-500' },
   { id: 'FULL_COURT', label: 'Full Indoor Court',sub: 'Entire indoor court',        icon: LayoutGrid, dot: 'bg-purple-500' },
-  { id: 'COACHING',   label: 'Personal Coaching',sub: 'With a coach',               icon: UserCog,    dot: 'bg-amber-500' },
+  { id: 'COACHING',   label: 'Personal Coaching',sub: 'Session with a coach',         icon: UserCog,    dot: 'bg-amber-500' },
 ];
 
 /**
@@ -1048,8 +1048,8 @@ function PurchasedPackageCard({ pkg }: { pkg: MyPackage }) {
         {/* Header: name, status, category chip, Book CTA */}
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0 flex-1">
+            <h3 className="text-sm font-semibold text-white leading-tight mb-1">{pkg.packageName}</h3>
             <div className="flex items-center gap-2 flex-wrap">
-              <h3 className="text-sm font-semibold text-white leading-tight">{pkg.packageName}</h3>
               <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${
                 isActive ? 'bg-green-500/15 text-green-400' :
                 isExpired ? 'bg-red-500/15 text-red-400' :

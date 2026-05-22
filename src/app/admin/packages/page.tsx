@@ -673,6 +673,7 @@ function AdminPackagesLegacy() {
                     { key: 'EVENING' as const, label: 'Evening', Icon: Moon },
                   ]).map(t => {
                     const active = timingFilter === t.key;
+                    const label = t.key === 'DAY' ? '6 AM to 6 PM' : '6 PM to 10:30 PM';
                     return (
                       <button key={t.key} onClick={() => setTimingFilter(active ? '' : t.key)}
                         className={`flex items-center gap-2 px-2 py-1.5 rounded-lg transition-all cursor-pointer text-left ${active ? 'bg-accent/15 ring-1 ring-accent/50 shadow-sm' : 'bg-white/[0.04] border border-white/[0.08] hover:border-accent/30'}`}>
@@ -681,6 +682,7 @@ function AdminPackagesLegacy() {
                         </div>
                         <div className="min-w-0">
                           <span className={`text-[10px] font-bold block ${active ? 'text-accent' : 'text-slate-300'}`}>{t.label}</span>
+                          <span className={`text-[8px] block ${active ? 'text-accent/70' : 'text-slate-500'}`}>{label}</span>
                         </div>
                       </button>
                     );
@@ -1402,14 +1404,6 @@ function AdminPackageCard({
             {pkg.isActive ? <ToggleRight className="w-4 h-4 text-green-400" /> : <ToggleLeft className="w-4 h-4 text-slate-500" />}
             {pkg.isActive ? 'Active' : 'Inactive'}
           </button>
-          <button
-            onClick={onDelete}
-            className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold text-red-300 bg-red-500/10 hover:bg-red-500/20 border border-red-500/30 rounded-lg transition-colors cursor-pointer"
-            title="Delete package"
-          >
-            <Trash2 className="w-3.5 h-3.5" />
-            Delete
-          </button>
         </div>
       </div>
     </div>
@@ -1532,19 +1526,23 @@ function PackageForm({
           <div>
             <label className="block text-[11px] font-medium text-slate-400 mb-1">Timing</label>
             <div className="flex gap-2">
-              {PACKAGE_TIMING_OPTIONS.map(t => (
-                <button
-                  key={t.value}
-                  type="button"
-                  onClick={() => setForm({ ...form, timingType: t.value })}
-                  className={`flex-1 px-3 py-2.5 rounded-lg text-xs font-semibold transition-all cursor-pointer text-center ${form.timingType === t.value
-                      ? 'bg-accent text-primary shadow-sm'
-                      : 'bg-white/[0.04] text-slate-400 border border-white/[0.08] hover:border-accent/20'
-                    }`}
-                >
-                  {t.label}
-                </button>
-              ))}
+              {PACKAGE_TIMING_OPTIONS.map(t => {
+                const timingLabel = t.value === 'DAY' ? '6am-6pm' : '6pm-10:30pm';
+                return (
+                  <button
+                    key={t.value}
+                    type="button"
+                    onClick={() => setForm({ ...form, timingType: t.value })}
+                    className={`flex-1 px-1 py-2.5 rounded-lg transition-all cursor-pointer text-center flex flex-col items-center justify-center ${form.timingType === t.value
+                        ? 'bg-accent text-primary shadow-sm'
+                        : 'bg-white/[0.04] text-slate-400 border border-white/[0.08] hover:border-accent/20'
+                      }`}
+                  >
+                    <span className="text-xs font-semibold">{t.label}</span>
+                    <span className={`text-[8px] font-medium ${form.timingType === t.value ? 'text-primary/70' : 'text-slate-500'}`}>{timingLabel}</span>
+                  </button>
+                );
+              })}
             </div>
           </div>
           <div>

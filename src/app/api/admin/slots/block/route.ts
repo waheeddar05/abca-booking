@@ -208,6 +208,8 @@ export async function POST(req: NextRequest) {
     //   - Resource-based (Toplay): category / assignedMachineId /
     //     resource assignments. FULL_COURT blocks cascade to every
     //     indoor-pool category (NET / SIDEARM / MACHINE / FULL_COURT).
+    // Task: machineId-targeted blocks should ONLY cancel bookings for
+    // THAT specific machine.
     const where: Record<string, unknown> = {
       centerId: center.id,
       date: { gte: start, lte: end },
@@ -215,9 +217,15 @@ export async function POST(req: NextRequest) {
     };
 
     if (validatedMachineIds.length > 0) {
-      where.machineId = { in: validatedMachineIds };
+      where.OR = [
+        { machineId: { in: validatedMachineIds } },
+        { assignedMachineId: { in: validatedMachineIds } }
+      ];
     } else if (validatedMachineId) {
-      where.machineId = validatedMachineId;
+      where.OR = [
+        { machineId: validatedMachineId },
+        { assignedMachineId: validatedMachineId }
+      ];
     } else if (machineType) {
       if (machineType === 'LEATHER' || machineType === 'MACHINE') {
         where.OR = [
@@ -253,6 +261,13 @@ export async function POST(req: NextRequest) {
         effectiveCategories.add('NET');
         effectiveCategories.add('SIDEARM');
         effectiveCategories.add('MACHINE');
+
+        // Full-court blocks only restrict indoor wickets (Astro/Cement).
+        // Ensure natural turf bookings are NOT cancelled by this block
+        // by adding a status filter or an explicit pitchType filter.
+        if (!where.pitchType) {
+          where.pitchType = { in: ['ASTRO', 'CEMENT'] };
+        }
       }
       if (effectiveCategories.size > 0) {
         orClauses.push({ category: { in: Array.from(effectiveCategories) as BookingCategory[] } });

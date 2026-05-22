@@ -133,32 +133,32 @@ export function CenterMembersTab({ centerId }: { centerId: string }) {
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap justify-between items-center gap-3">
-        <div className="flex items-center gap-2 flex-wrap">
+      <div className="flex flex-wrap justify-between items-center gap-2">
+        <div className="flex items-center gap-1.5 flex-wrap flex-1 min-w-0">
           <SelectInput
             value={filter}
             onChange={(e) => setFilter(e.target.value as MembershipRole | 'ALL')}
-            className="!w-auto"
+            className="!w-auto !py-1.5 !text-xs"
           >
             <option value="ALL">All roles</option>
             <option value="ADMIN">Admins</option>
             <option value="OPERATOR">Operators</option>
             <option value="COACH">Coaches</option>
-            <option value="SIDEARM_SPECIALIST">Sidearm Specialist</option>
-            <option value="GROUND_STAFF">Ground Staff</option>
+            <option value="SIDEARM_SPECIALIST">Sidearm</option>
+            <option value="GROUND_STAFF">Ground</option>
           </SelectInput>
-          <form onSubmit={(e) => { e.preventDefault(); refresh(); }} className="flex items-center gap-2">
+          <form onSubmit={(e) => { e.preventDefault(); refresh(); }} className="flex items-center gap-1.5 flex-1 min-w-[200px]">
             <TextInput
               value={q}
               onChange={(e) => setQ(e.target.value)}
-              placeholder="Search name / email / phone"
-              className="!w-56"
+              placeholder="Search..."
+              className="flex-1 !py-1.5 !text-xs"
             />
-            <SecondaryButton type="submit">Search</SecondaryButton>
+            <SecondaryButton type="submit" className="px-2.5 py-1.5 text-xs">Search</SecondaryButton>
           </form>
         </div>
-        <PrimaryButton onClick={() => setShowNew(true)}>
-          <UserPlus className="w-4 h-4" /> Assign user
+        <PrimaryButton onClick={() => setShowNew(true)} className="px-2.5 py-1.5 text-xs">
+          <UserPlus className="w-3.5 h-3.5" /> Assign
         </PrimaryButton>
       </div>
 
@@ -570,24 +570,13 @@ function UserMembershipsRow({
   onAddRole: (userId: string, role: MembershipRole) => Promise<string | null>;
   onUserUpdated: () => void;
 }) {
-  // The schedule editor is per-membership (so a user who's both a
-  // Coach and a Specialist can keep different schedules per role).
-  // Track which membership's editor is currently open.
   const [expandedMembershipId, setExpandedMembershipId] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
-  // Inline "+ Add role" picker — closed by default; opens on click so
-  // the row stays compact when the admin isn't actively editing it.
   const [addingRole, setAddingRole] = useState(false);
   const [savingRole, setSavingRole] = useState<MembershipRole | null>(null);
   const [addError, setAddError] = useState<string | null>(null);
 
-  // Roles the user already holds at this center — already rendered as
-  // chips, so we exclude them from the picker to avoid the "add a role
-  // they already have" no-op. ADMIN is also hidden for non-super-admin
-  // callers because the API rejects it (matches NewMembershipForm).
   const currentRoles = new Set<MembershipRole>(group.memberships.map((m) => m.role));
-  // Include GROUND_STAFF so admins can also grant the new facility
-  // role inline. ADMIN stays super-only.
   const ALL_ROLES: MembershipRole[] = ['ADMIN', 'OPERATOR', 'COACH', 'SIDEARM_SPECIALIST', 'GROUND_STAFF'];
   const assignableRoles = ALL_ROLES.filter(
     (r) => !currentRoles.has(r) && (isSuperAdmin || r !== 'ADMIN'),
@@ -606,75 +595,26 @@ function UserMembershipsRow({
   };
 
   return (
-    <div className="rounded-xl bg-white/[0.02] border border-white/[0.06]">
-      <div className="p-3 flex items-start justify-between gap-3">
+    <div className="rounded-xl bg-white/[0.02] border border-white/[0.06] overflow-hidden">
+      <div className="p-2.5 flex flex-wrap items-center justify-between gap-2">
         <div className="min-w-0 flex-1">
-          <div className="text-sm font-semibold text-white truncate">
-            {group.user.name || '(no name)'}
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-semibold text-white truncate">
+              {group.user.name || group.user.email || group.user.mobileNumber || '(no name)'}
+            </span>
+            <div className="flex gap-1">
+              {group.user.email && <Mail className="w-3 h-3 text-slate-500" title={group.user.email} />}
+              {group.user.mobileNumber && <Phone className="w-3 h-3 text-slate-500" title={group.user.mobileNumber} />}
+            </div>
           </div>
-        </div>
-        <div className="flex items-center gap-1.5 shrink-0">
-          <button
-            onClick={() => setEditing((v) => !v)}
-            className={`inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-medium border cursor-pointer ${
-              editing
-                ? 'text-accent bg-accent/10 border-accent/30'
-                : 'text-slate-300 bg-white/[0.04] border-white/[0.1] hover:bg-white/[0.08]'
-            }`}
-            title="Edit name / email / phone"
-          >
-            <Pencil className="w-3 h-3" /> Edit
-          </button>
-          <button
-            onClick={() => onRemoveUser(group.userId)}
-            className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-medium text-red-300/80 hover:text-red-300 bg-red-500/5 hover:bg-red-500/10 border border-red-500/15 cursor-pointer"
-            title="Remove this user from the center (revokes all their roles)"
-          >
-            <Trash2 className="w-3 h-3" /> Remove user
-          </button>
-        </div>
-      </div>
-      <div className="px-3 pb-3 -mt-2">
-        <div className="min-w-0">
-          <div className="flex items-center gap-3 text-xs text-slate-500 mt-0.5 flex-wrap">
-            {group.user.email && (
-              <span className="flex items-center gap-1">
-                <Mail className="w-3 h-3" /> {group.user.email}
-              </span>
-            )}
-            {group.user.mobileNumber && (
-              <span className="flex items-center gap-1">
-                <Phone className="w-3 h-3" /> {group.user.mobileNumber}
-              </span>
-            )}
-          </div>
-          {/* Role chips — one per active membership at this center.
-              Each chip carries its own schedule + delete affordances
-              so the admin can manage roles independently. */}
-          <div className="flex items-center gap-1.5 mt-2 flex-wrap">
-            {editing && group.memberships[0] && (
-            <UserProfileEditor
-              centerId={centerId}
-              membershipId={group.memberships[0].id}
-              initial={{
-                name: group.user.name ?? '',
-                email: group.user.email ?? '',
-                mobileNumber: group.user.mobileNumber ?? '',
-              }}
-              onCancel={() => setEditing(false)}
-              onSaved={() => {
-                setEditing(false);
-                onUserUpdated();
-              }}
-            />
-          )}
-          {group.memberships.map((m) => {
+          <div className="flex flex-wrap gap-1 mt-1">
+            {group.memberships.map((m) => {
               const supportsSchedule = m.role === 'COACH' || m.role === 'SIDEARM_SPECIALIST';
               const expanded = expandedMembershipId === m.id;
               return (
                 <span
                   key={m.id}
-                  className={`inline-flex items-center gap-1 pl-2 pr-1 py-0.5 rounded-full border text-[10px] uppercase tracking-wide ${ROLE_COLOR[m.role]}`}
+                  className={`inline-flex items-center gap-1 pl-1.5 pr-0.5 py-0.5 rounded-full border text-[9px] uppercase tracking-wide ${ROLE_COLOR[m.role]}`}
                 >
                   {ROLE_LABEL[m.role]}
                   {supportsSchedule && (
@@ -683,7 +623,7 @@ function UserMembershipsRow({
                       className={`ml-0.5 p-0.5 rounded-full cursor-pointer ${
                         expanded ? 'bg-white/15' : 'hover:bg-white/10'
                       }`}
-                      title="Weekly schedule"
+                      title="Schedule"
                     >
                       <CalendarClock className="w-3 h-3" />
                     </button>
@@ -691,69 +631,79 @@ function UserMembershipsRow({
                   <button
                     onClick={() => onRemoveRole(m.id)}
                     className="p-0.5 rounded-full hover:bg-red-500/20 cursor-pointer"
-                    title={`Remove ${ROLE_LABEL[m.role]} role`}
                   >
-                    <X className="w-3 h-3" />
+                    <X className="w-2.5 h-2.5" />
                   </button>
                 </span>
               );
             })}
-            {/* Inline "+ Add role" affordance. Hidden once the user
-                already holds every assignable role at this center.
-                Clicking expands a small chip picker; clicking a chip
-                POSTs to the same /members endpoint that the "Assign
-                user" form uses, scoped to this user. */}
             {assignableRoles.length > 0 && !addingRole && (
               <button
-                type="button"
-                onClick={() => { setAddingRole(true); setAddError(null); }}
-                className="inline-flex items-center gap-1 pl-1.5 pr-2 py-0.5 rounded-full border border-dashed border-white/[0.15] text-[10px] uppercase tracking-wide text-slate-400 hover:text-white hover:border-white/[0.3] hover:bg-white/[0.04] cursor-pointer"
-                title="Grant this user another role at this center"
+                onClick={() => setAddingRole(true)}
+                className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full border border-dashed border-white/10 text-[9px] text-slate-500 hover:text-slate-300 cursor-pointer"
               >
-                <Plus className="w-3 h-3" /> Add role
+                <Plus className="w-2.5 h-2.5" /> Role
               </button>
             )}
             {addingRole && (
-              <span className="inline-flex items-center gap-1 flex-wrap">
-                {assignableRoles.map((r) => {
-                  const saving = savingRole === r;
-                  return (
-                    <button
-                      key={r}
-                      type="button"
-                      disabled={savingRole !== null}
-                      onClick={() => handleAddRole(r)}
-                      className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-[10px] uppercase tracking-wide cursor-pointer transition-opacity ${ROLE_COLOR[r]} ${
-                        savingRole !== null && !saving ? 'opacity-40' : 'hover:brightness-125'
-                      } disabled:cursor-not-allowed`}
-                      title={`Grant ${ROLE_LABEL[r]} role`}
-                    >
-                      {saving ? <Loader2 className="w-3 h-3 animate-spin" /> : <Plus className="w-3 h-3" />}
-                      {ROLE_LABEL[r]}
-                    </button>
-                  );
-                })}
-                <button
-                  type="button"
-                  disabled={savingRole !== null}
-                  onClick={() => { setAddingRole(false); setAddError(null); }}
-                  className="p-0.5 rounded-full text-slate-400 hover:bg-white/[0.08] hover:text-white cursor-pointer disabled:cursor-not-allowed"
-                  title="Cancel"
-                >
-                  <X className="w-3 h-3" />
-                </button>
-              </span>
+              <div className="flex items-center gap-1">
+                {assignableRoles.map(r => (
+                  <button
+                    key={r}
+                    onClick={() => handleAddRole(r)}
+                    disabled={!!savingRole}
+                    className={`text-[9px] px-1.5 py-0.5 rounded-full border ${ROLE_COLOR[r]} cursor-pointer`}
+                  >
+                    {savingRole === r ? '...' : r}
+                  </button>
+                ))}
+                <button onClick={() => setAddingRole(false)} className="p-0.5 text-slate-500"><X className="w-3 h-3" /></button>
+              </div>
             )}
           </div>
-          {addError && (
-            <div className="mt-1.5 text-[11px] text-red-400">{addError}</div>
-          )}
+        </div>
+        <div className="flex items-center gap-1">
+          <button
+            onClick={() => setEditing(!editing)}
+            className={`p-1.5 rounded-lg border text-slate-400 hover:text-white cursor-pointer ${editing ? 'bg-accent/10 border-accent/30 text-accent' : 'border-transparent'}`}
+          >
+            <Pencil className="w-3.5 h-3.5" />
+          </button>
+          <button
+            onClick={() => onRemoveUser(group.userId)}
+            className="p-1.5 rounded-lg border border-transparent text-red-400/70 hover:bg-red-500/10 hover:text-red-400 cursor-pointer"
+          >
+            <Trash2 className="w-3.5 h-3.5" />
+          </button>
         </div>
       </div>
+
+      {editing && (
+        <div className="px-2.5 pb-2.5">
+          <UserProfileEditor
+            centerId={centerId}
+            membershipId={group.memberships[0].id}
+            initial={{
+              name: group.user.name ?? '',
+              email: group.user.email ?? '',
+              mobileNumber: group.user.mobileNumber ?? '',
+            }}
+            onCancel={() => setEditing(false)}
+            onSaved={() => {
+              setEditing(false);
+              onUserUpdated();
+            }}
+          />
+        </div>
+      )}
+
       {expandedMembershipId && (
-        <div className="border-t border-white/[0.06] p-3">
-          <div className="text-[10px] uppercase tracking-wider text-slate-500 mb-2">
-            {ROLE_LABEL[group.memberships.find((m) => m.id === expandedMembershipId)!.role]} schedule
+        <div className="border-t border-white/[0.06] p-2.5 bg-black/10">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-[10px] uppercase font-bold text-slate-400">
+              {ROLE_LABEL[group.memberships.find(m => m.id === expandedMembershipId)!.role]} Schedule
+            </span>
+            <button onClick={() => setExpandedMembershipId(null)} className="text-slate-500"><X className="w-3.5 h-3.5" /></button>
           </div>
           <AvailabilityEditor centerId={centerId} membershipId={expandedMembershipId} />
         </div>

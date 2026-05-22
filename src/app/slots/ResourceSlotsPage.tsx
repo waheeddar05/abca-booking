@@ -1482,14 +1482,12 @@ export default function ResourceSlotsPage() {
                       </div>
                     )}
                     <span className="leading-tight text-left min-w-0 flex-1">
-                      <span className="block truncate">
-                        {displayName} ({ballLabel})
+                      <span className="block truncate text-[11px]">
+                        {displayName}
                       </span>
-                      {m.resource && (
-                        <span className={`block text-[10px] font-medium truncate ${active ? 'text-primary/70' : 'text-slate-500'}`}>
-                          {surface}: {m.resource.name}
-                        </span>
-                      )}
+                      <span className={`block text-[10px] font-medium truncate ${active ? 'text-primary/70' : 'text-slate-500'}`}>
+                        {ballLabel}{m.resource ? ` • ${m.resource.name}` : ''}
+                      </span>
                     </span>
                   </button>
                 );
@@ -1624,7 +1622,6 @@ export default function ResourceSlotsPage() {
       {category === 'COACHING' && (
         <PeoplePicker
           label="Coach"
-          help="Leave empty to auto-assign the first available coach."
           options={data?.slots[0]?.freeCoaches ?? []}
           value={coachId}
           onChange={setCoachId}
@@ -1635,7 +1632,6 @@ export default function ResourceSlotsPage() {
       {category === 'SIDEARM' && (
         <PeoplePicker
           label="Sidearm Specialist"
-          help="Leave empty to auto-assign."
           options={data?.slots[0]?.freeSidearmStaff ?? []}
           value={staffId}
           onChange={setStaffId}
@@ -1889,7 +1885,7 @@ export default function ResourceSlotsPage() {
                   {/* Surface the specific unavailable reason on the card
                       so users don't have to hover for the tooltip. Keeps
                       the existing "NOT AVAILABLE" / "BLOCKED" header. */}
-                  {isUnavailable && bookable.reason && (
+                  {isUnavailable && bookable.reason && bookable.reason !== 'Not Available' && (
                     <div className="mt-1 text-[9px] text-slate-500 leading-snug line-clamp-2">
                       {bookable.reason}
                     </div>
@@ -2334,7 +2330,7 @@ function PeoplePicker({
             return (
               <button
                 key={p.userId}
-                onClick={() => onChange(active ? null : p.userId)}
+                onClick={() => onChange(p.userId)}
                 className={`flex items-center justify-start gap-2 px-3 py-2.5 rounded-lg text-xs font-semibold transition-all cursor-pointer min-w-0 text-left ${
                   active
                     ? 'bg-accent text-primary shadow-sm'

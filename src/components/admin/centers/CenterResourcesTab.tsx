@@ -89,19 +89,18 @@ export function CenterResourcesTab({ centerId }: { centerId: string }) {
   return (
     <div className="space-y-4">
       <div className="flex justify-between items-center gap-3 flex-wrap">
-        <p className="text-xs text-slate-400 min-w-0 flex-1">
-          Bookable units (nets, courts, natural turf). Used by the resource-based engine for availability.
-          Centers using the legacy machine/pitch model can leave this empty.
+        <p className="text-[11px] text-slate-500 leading-tight flex-1">
+          Bookable units (nets, courts, turf). Used by the resource-based engine.
         </p>
-        <div className="flex items-center gap-2 shrink-0">
+        <div className="flex items-center gap-1.5 shrink-0">
           {inactiveCount > 0 && (
-            <SecondaryButton onClick={() => setShowInactive((v) => !v)}>
-              {showInactive ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-              {showInactive ? 'Hide inactive' : `Show inactive (${inactiveCount})`}
+            <SecondaryButton onClick={() => setShowInactive((v) => !v)} className="px-2 py-1.5 text-xs rounded-lg">
+              {showInactive ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+              {showInactive ? 'Hide' : `Show (${inactiveCount})`}
             </SecondaryButton>
           )}
-          <PrimaryButton onClick={() => setShowNew(true)}>
-            <Plus className="w-4 h-4" /> Add resource
+          <PrimaryButton onClick={() => setShowNew(true)} className="px-2 py-1.5 text-xs rounded-lg">
+            <Plus className="w-3.5 h-3.5" /> Add resource
           </PrimaryButton>
         </div>
       </div>
@@ -120,12 +119,12 @@ export function CenterResourcesTab({ centerId }: { centerId: string }) {
         <div className="text-center text-slate-500 py-6 text-sm">
           {resources.length === 0
             ? 'No resources configured.'
-            : 'No active resources. Toggle "Show inactive" to see deactivated rows.'}
+            : 'No active resources.'}
         </div>
       ) : (
-        <div className="space-y-2">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
           {visibleResources.map((r) => (
-            <div key={r.id} className="rounded-xl bg-white/[0.02] border border-white/[0.06] p-3">
+            <div key={r.id} className="rounded-xl bg-white/[0.02] border border-white/[0.06] p-2.5">
               {editingId === r.id ? (
                 <ResourceEditor
                   centerId={centerId}
@@ -134,44 +133,39 @@ export function CenterResourcesTab({ centerId }: { centerId: string }) {
                   onSaved={() => { setEditingId(null); refresh(); }}
                 />
               ) : (
-                <div className="flex items-center justify-between gap-3">
+                <div className="flex items-center justify-between gap-2">
                   <div className="min-w-0">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span className="text-sm font-semibold text-white">{r.name}</span>
-                      {!r.isActive && <span className="text-[10px] px-1.5 py-0.5 rounded bg-red-500/10 text-red-400 uppercase tracking-wide">inactive</span>}
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <span className="text-xs font-semibold text-white">{r.name}</span>
+                      {!r.isActive && <span className="text-[9px] px-1 py-0.5 rounded bg-red-500/10 text-red-400 uppercase tracking-wide">inactive</span>}
                     </div>
-                    <div className="text-xs text-slate-500 mt-0.5">
-                      {TYPE_LABELS[r.type]} · capacity {r.capacity}
+                    <div className="text-[10px] text-slate-500 mt-0.5">
+                      {TYPE_LABELS[r.type]} · cap {r.capacity}
                     </div>
                   </div>
-                  <div className="flex gap-1 flex-shrink-0">
+                  <div className="flex gap-0.5 flex-shrink-0">
                     <button
                       onClick={() => setEditingId(r.id)}
-                      className="p-2 rounded-lg text-slate-400 hover:bg-white/[0.06] hover:text-white cursor-pointer"
+                      className="p-1.5 rounded-lg text-slate-400 hover:bg-white/[0.06] hover:text-white cursor-pointer"
                       title="Edit"
                     >
-                      <Pencil className="w-4 h-4" />
+                      <Pencil className="w-3.5 h-3.5" />
                     </button>
-                    {/* Active rows get the soft-deactivate button.
-                        Inactive rows get a permanent-delete button —
-                        the server still refuses if any bookings or
-                        machines reference the row, so this is safe to
-                        expose. */}
                     {r.isActive ? (
                       <button
                         onClick={() => deactivate(r.id)}
-                        className="p-2 rounded-lg text-amber-400/70 hover:bg-amber-500/10 hover:text-amber-400 cursor-pointer"
-                        title="Deactivate (preserves history)"
+                        className="p-1.5 rounded-lg text-amber-400/70 hover:bg-amber-500/10 hover:text-amber-400 cursor-pointer"
+                        title="Deactivate"
                       >
-                        <Trash2 className="w-4 h-4" />
+                        <Trash2 className="w-3.5 h-3.5" />
                       </button>
                     ) : (
                       <button
                         onClick={() => hardDelete(r)}
-                        className="inline-flex items-center gap-1 px-2 py-1.5 rounded-lg text-[11px] font-medium text-red-300/80 hover:text-red-300 bg-red-500/5 hover:bg-red-500/10 border border-red-500/15 cursor-pointer"
-                        title="Permanently delete — refused if any bookings or machines still reference it"
+                        className="p-1.5 rounded-lg text-red-400/70 hover:bg-red-500/10 hover:text-red-400 cursor-pointer"
+                        title="Delete permanently"
                       >
-                        <Trash2 className="w-3.5 h-3.5" /> Delete
+                        <Trash2 className="w-3.5 h-3.5" />
                       </button>
                     )}
                   </div>

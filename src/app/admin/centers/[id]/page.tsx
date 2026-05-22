@@ -4,7 +4,7 @@ import { useEffect, useState, use } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useSession } from 'next-auth/react';
-import { Building2, ArrowLeft, Loader2, Trash2, MapPin, CreditCard, Users, Settings2 } from 'lucide-react';
+import { Building2, ArrowLeft, Loader2, Trash2, MapPin, CreditCard, Users, Settings2, UserCog } from 'lucide-react';
 import { AdminPageHeader } from '@/components/admin/AdminPageHeader';
 import { AdminCard } from '@/components/admin/AdminCard';
 import { CenterGeneralTab, type CenterDetail } from '@/components/admin/centers/CenterGeneralTab';
@@ -12,11 +12,12 @@ import { CenterPaymentTab } from '@/components/admin/centers/CenterPaymentTab';
 import { CenterMachinesTab } from '@/components/admin/centers/CenterMachinesTab';
 import { CenterResourcesTab } from '@/components/admin/centers/CenterResourcesTab';
 import { CenterMembersTab } from '@/components/admin/centers/CenterMembersTab';
+import { CenterSidearmTab } from '@/components/admin/centers/CenterSidearmTab';
 
 // Policies tab is intentionally not rendered here — center policies are
 // managed elsewhere (and most are global). The CenterPoliciesTab
 // component is left on disk in case other surfaces want to mount it.
-type TabKey = 'general' | 'payment' | 'machines' | 'resources' | 'members';
+type TabKey = 'general' | 'payment' | 'machines' | 'resources' | 'members' | 'sidearm';
 
 type TabDef = {
   key: TabKey;
@@ -34,6 +35,7 @@ const TABS: Array<TabDef> = [
   { key: 'machines', label: 'Machines', icon: Settings2 },
   { key: 'resources', label: 'Resources', icon: Building2 },
   { key: 'members', label: 'Members', icon: Users },
+  { key: 'sidearm', label: 'Sidearm Availability', icon: UserCog },
 ];
 
 type DetailWithCounts = CenterDetail & {
@@ -157,20 +159,20 @@ export default function CenterEditPage({ params }: { params: Promise<{ id: strin
       </AdminPageHeader>
 
       {/* Tabs */}
-      <div className="flex gap-1 overflow-x-auto -mx-1 px-1 pb-2 mb-4 border-b border-white/[0.06] no-scrollbar">
+      <div className="flex gap-0.5 sm:gap-1 overflow-x-auto -mx-1 px-1 pb-2 mb-4 border-b border-white/[0.06] no-scrollbar">
         {visibleTabs.map(({ key, label, icon: Icon }) => {
           const active = tab === key;
           return (
             <button
               key={key}
               onClick={() => setTab(key)}
-              className={`flex items-center gap-1.5 px-3 py-2 rounded-t-lg text-xs font-medium whitespace-nowrap transition-colors cursor-pointer ${
+              className={`flex items-center gap-1 sm:gap-1.5 px-2 sm:px-3 py-2 rounded-t-lg text-[10px] sm:text-xs font-medium whitespace-nowrap transition-colors cursor-pointer ${
                 active
                   ? 'bg-accent/10 text-accent border-b-2 border-accent'
                   : 'text-slate-400 hover:text-slate-200 hover:bg-white/[0.04]'
               }`}
             >
-              <Icon className="w-3.5 h-3.5" />
+              <Icon className="w-3 sm:w-3.5 h-3 sm:h-3.5" />
               {label}
             </button>
           );
@@ -194,6 +196,7 @@ export default function CenterEditPage({ params }: { params: Promise<{ id: strin
           {tab === 'machines' && <CenterMachinesTab centerId={id} />}
           {tab === 'resources' && <CenterResourcesTab centerId={id} />}
           {tab === 'members' && <CenterMembersTab centerId={id} />}
+          {tab === 'sidearm' && <CenterSidearmTab centerId={id} />}
         </div>
       </AdminCard>
 

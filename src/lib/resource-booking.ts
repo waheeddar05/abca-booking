@@ -846,6 +846,8 @@ export function applyBlocksToAvailability(
     // FULL_COURT-tagged row that explicitly lists, say, "outdoor turf
     // 3" wouldn't be a sensible "full indoor court" reservation, so we
     // leave it as a per-resource block.
+    // Task adjustment: Full-court block only restricts indoor pitches
+    // (Astro, Cement). Natural turf remains bookable if available.
     if (b.categories.includes('FULL_COURT') && b.resourceIds.length === 0) {
       indoorPoolFullyClaimed = true;
       cascadeIndoorCategories = true;
@@ -874,6 +876,9 @@ export function applyBlocksToAvailability(
   const freeOutdoor = availability.freeOutdoorResources.filter((r) => !blockedResourceIds.has(r.id));
 
   // If any block fully claims the indoor pool, empty it out.
+  // Full-court blocks only target ASTRO/CEMENT pitches (the indoor
+  // pool). NATURAL turf resources (outdoor) are not affected unless
+  // they were explicitly pinned via blockedResourceIds.
   if (indoorPoolFullyClaimed) {
     freeIndoor = [];
   } else if (indoorNetsToHide > 0) {

@@ -290,7 +290,7 @@ export async function GET(req: NextRequest) {
       const machineLabel = b.machineId
         || b.assignedMachine?.shortName
         || b.assignedMachine?.name
-        || '';
+        || 'Not Applicable';
 
       // Wallet / online split for this booking. computeSplit() returns
       // {0, 0} for package + cash rows; for mixed wallet+Razorpay
@@ -324,20 +324,20 @@ export async function GET(req: NextRequest) {
         formatIST(b.startTime, 'HH:mm'),
         formatIST(b.endTime, 'HH:mm'),
         `"${(b.playerName || '').replace(/"/g, '""')}"`,
-        b.user?.email || '',
-        b.user?.mobileNumber || '',
+        b.user?.email || 'Not Applicable',
+        b.user?.mobileNumber || 'Not Applicable',
         pkg ? 'Package' : 'Regular',
-        pkg ? (b.packageBooking?.userPackage?.package?.name || '') : 'NA',
-        pkg ? (b.packageBooking?.userPackageId || '') : 'NA',
+        pkg ? (b.packageBooking?.userPackage?.package?.name || '') : 'Not Applicable',
+        pkg ? (b.packageBooking?.userPackageId || '') : 'Not Applicable',
         machineRow ? b.ballType : 'Not Applicable',
-        b.pitchType || '',
+        b.pitchType || 'Not Applicable',
         machineLabel,
         // Resource-based columns: category (human label), coach, staff.
         // Legacy ABCA rows have null category but represent bowling
         // machine sessions, so the label falls back to "Bowling Machine".
         categoryLabel(b.category),
-        b.assignedCoach?.name || '',
-        b.assignedStaff?.name || '',
+        b.assignedCoach?.name || 'Not Applicable',
+        b.assignedStaff?.name || 'Not Applicable',
         machineRow ? (b.operationMode || '') : 'Not Applicable',
         b.status,
         pkg ? ((b.packageBooking?.extraCharge || 0) + (b.kitRentalCharge || 0)).toString() : (b.price?.toString() || ''),
@@ -345,11 +345,11 @@ export async function GET(req: NextRequest) {
         // total so a quick sum check is obvious in Excel.
         split.wallet.toString(),
         split.online.toString(),
+        paymentMethodCol,
         ...(hasPackageBookings ? [pkg ? (b.packageBooking?.extraCharge ? b.packageBooking.extraCharge.toString() : '0') : '0'] : []),
         `"${(b.createdBy || '').replace(/"/g, '""')}"`,
         `"${(b.cancelledBy || '').replace(/"/g, '""')}"`,
         b.status === 'CANCELLED' && b.updatedAt ? formatIST(b.updatedAt, 'yyyy-MM-dd HH:mm:ss') : '',
-        paymentMethodCol,
         pkg ? 'NA' : (b.paymentStatus || ''),
         b.kitRental ? 'Yes' : 'No',
         b.kitRentalCharge != null ? b.kitRentalCharge.toString() : '',
