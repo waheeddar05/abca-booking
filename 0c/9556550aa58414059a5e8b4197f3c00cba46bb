@@ -1,0 +1,22 @@
+src/app/admin/configuration/page.tsx
+  s_f0fed2ff2c3bbf::t_ec83143d10c4d9 1146
+src/components/admin/EnabledPitchTypesEditor.tsx
+  s_f0fed2ff2c3bbf::t_3e427c663ec49b 149-161,163,167,169-171,173-174,182,184-185,188-199,208-216,221,224
+  s_f0fed2ff2c3bbf::t_5ac36744084dbc 33,38
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.0",
+  "base_commit_sha": "0c9556550aa58414059a5e8b4197f3c00cba46bb",
+  "prompts": {},
+  "sessions": {
+    "s_f0fed2ff2c3bbf": {
+      "agent_id": {
+        "tool": "junie",
+        "id": "1779471684760",
+        "model": "unknown"
+      },
+      "human_author": "Waheed <waheeddar8@gmail.com>"
+    }
+  }
+}
