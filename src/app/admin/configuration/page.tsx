@@ -1143,7 +1143,7 @@ export default function ConfigurationPage() {
       {currentCenter?.bookingModel === 'RESOURCE_BASED' && (
         <AdminCard
           title="Pitch types per category"
-          icon={<Ticket className="w-4 h-4 text-accent" />}
+          icon={<Zap className="w-4 h-4 text-accent" />}
           collapsible
           defaultOpen={false}
         >

@@ -30,14 +30,13 @@ const PITCHES: Array<{ id: PitchKey; label: string }> = [
   { id: 'NATURAL', label: 'Natural Turf' },
 ];
 
-type CategoryKey = 'SIDEARM' | 'NET' | 'COACHING' | 'MACHINE';
+type CategoryKey = 'SIDEARM' | 'NET' | 'COACHING';
 const CATEGORIES: Array<{
   id: CategoryKey;
   label: string;
   sub: string;
-  policyKey: 'SIDEARM_PITCH_TYPES' | 'NET_PITCH_TYPES' | 'COACHING_PITCH_TYPES' | 'MACHINE_PITCH_TYPES';
+  policyKey: 'SIDEARM_PITCH_TYPES' | 'NET_PITCH_TYPES' | 'COACHING_PITCH_TYPES';
 }> = [
-  { id: 'MACHINE',  label: 'Bowling Machine',   sub: 'Gravity/Yantra/Leverage', policyKey: 'MACHINE_PITCH_TYPES' },
   { id: 'NET',      label: 'Cricket Nets',      sub: 'Bare-net practice',  policyKey: 'NET_PITCH_TYPES' },
   { id: 'SIDEARM',  label: 'Sidearm',           sub: 'Bowled by a specialist', policyKey: 'SIDEARM_PITCH_TYPES' },
   { id: 'COACHING', label: 'Personal Coaching', sub: 'With a coach',        policyKey: 'COACHING_PITCH_TYPES' },
@@ -56,7 +55,6 @@ export function EnabledPitchTypesEditor({
     NET:      new Set(['ASTRO', 'CEMENT', 'NATURAL']),
     SIDEARM:  new Set(['ASTRO', 'CEMENT', 'NATURAL']),
     COACHING: new Set(['ASTRO', 'CEMENT', 'NATURAL']),
-    MACHINE:  new Set(['ASTRO', 'CEMENT', 'NATURAL']),
   });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -148,25 +146,32 @@ export function EnabledPitchTypesEditor({
   }
 
   return (
-    <div className="space-y-4">
-      <p className="text-[11px] text-slate-500 leading-relaxed">
-        Pick which pitch types are offered in each booking flow. Disabling Cement
-        here, for example, hides the Cement chip from the Cricket Nets pitch
-        picker on the user side. At least one pitch must stay enabled per
-        category — clearing all three falls back to the default 3-pitch set.
-      </p>
+    <div className="space-y-6">
+      <div className="flex items-start gap-3 p-3 rounded-xl bg-blue-500/5 border border-blue-500/10">
+        <div className="mt-0.5">
+          <svg className="w-4 h-4 text-blue-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+          </svg>
+        </div>
+        <p className="text-[11px] text-slate-400 leading-relaxed">
+          Select which pitch types are available for each booking category. 
+          Disabling a pitch hides it from the user's selection for that category.
+          <span className="block mt-1 text-slate-500 italic">Note: Machine pitch types are managed per-machine in the Machines tab.</span>
+        </p>
+      </div>
 
-      <div className="space-y-2">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         {CATEGORIES.map((cat) => (
           <div
             key={cat.id}
-            className="rounded-xl bg-white/[0.03] border border-white/[0.08] p-3.5 flex items-center justify-between gap-4"
+            className="rounded-2xl bg-white/[0.02] border border-white/[0.06] p-4 flex flex-col gap-4 transition-all hover:bg-white/[0.04]"
           >
-            <div className="min-w-0">
-              <div className="text-sm font-semibold text-white">{cat.label}</div>
-              <div className="text-[10px] text-slate-500 uppercase tracking-wider">{cat.sub}</div>
+            <div className="flex flex-col gap-0.5">
+              <div className="text-xs font-bold text-white tracking-tight">{cat.label}</div>
+              <div className="text-[9px] text-slate-500 uppercase tracking-widest font-medium">{cat.sub}</div>
             </div>
-            <div className="flex gap-1.5 flex-shrink-0">
+
+            <div className="flex flex-col gap-2">
               {PITCHES.map((p) => {
                 const on = selections[cat.id].has(p.id);
                 return (
@@ -174,13 +179,24 @@ export function EnabledPitchTypesEditor({
                     key={p.id}
                     type="button"
                     onClick={() => togglePitch(cat.id, p.id)}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wider border cursor-pointer transition-all ${
+                    className={`group relative flex items-center justify-between px-3 py-2.5 rounded-xl text-[11px] font-semibold border transition-all cursor-pointer ${
                       on
-                        ? 'bg-accent text-primary border-accent shadow-sm'
-                        : 'bg-white/[0.04] text-slate-500 border-white/[0.08] hover:border-white/[0.16]'
+                        ? 'bg-accent/10 text-accent border-accent/20 shadow-sm shadow-accent/5'
+                        : 'bg-black/20 text-slate-500 border-white/[0.05] hover:border-white/[0.1] hover:text-slate-400'
                     }`}
                   >
-                    {p.id}
+                    <span>{p.label}</span>
+                    <div className={`w-4 h-4 rounded-full border flex items-center justify-center transition-all ${
+                      on 
+                        ? 'bg-accent border-accent text-primary' 
+                        : 'border-white/10 bg-white/5'
+                    }`}>
+                      {on && (
+                        <svg className="w-2.5 h-2.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={4} d="M5 13l4 4L19 7" />
+                        </svg>
+                      )}
+                    </div>
                   </button>
                 );
               })}
@@ -189,20 +205,23 @@ export function EnabledPitchTypesEditor({
         ))}
       </div>
 
-      <div className="flex items-center justify-end gap-3 pt-2">
-        {message && (
-          <p className={`text-[11px] font-medium ${message.ok ? 'text-emerald-400' : 'text-red-400'}`}>
-            {message.text}
-          </p>
-        )}
+      <div className="flex items-center justify-between gap-3 pt-2 px-1">
+        <div className="min-w-0">
+          {message && (
+            <div className={`flex items-center gap-1.5 text-[11px] font-medium animate-in fade-in slide-in-from-left-2 duration-300 ${message.ok ? 'text-emerald-400' : 'text-red-400'}`}>
+              <div className={`w-1.5 h-1.5 rounded-full ${message.ok ? 'bg-emerald-400' : 'bg-red-400'} animate-pulse`} />
+              {message.text}
+            </div>
+          )}
+        </div>
         <button
           type="button"
           onClick={saveAll}
           disabled={saving}
-          className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-accent text-black text-xs font-bold hover:bg-accent/90 active:scale-95 disabled:opacity-60 disabled:cursor-not-allowed cursor-pointer transition-all"
+          className="flex items-center gap-2 px-6 py-2.5 rounded-xl bg-accent text-primary text-xs font-bold hover:bg-accent-light active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer transition-all shadow-lg shadow-accent/10"
         >
           {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
-          Save Pitch Types
+          Update All Categories
         </button>
       </div>
     </div>
