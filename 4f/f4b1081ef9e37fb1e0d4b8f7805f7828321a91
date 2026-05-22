@@ -1,0 +1,19 @@
+src/components/admin/centers/CenterMembersTab.tsx
+  s_f0fed2ff2c3bbf::t_4faf39c5096fa6 606-615
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.0",
+  "base_commit_sha": "4ff4b1081ef9e37fb1e0d4b8f7805f7828321a91",
+  "prompts": {},
+  "sessions": {
+    "s_f0fed2ff2c3bbf": {
+      "agent_id": {
+        "tool": "junie",
+        "id": "1779471684760",
+        "model": "unknown"
+      },
+      "human_author": "Waheed <waheeddar8@gmail.com>"
+    }
+  }
+}
