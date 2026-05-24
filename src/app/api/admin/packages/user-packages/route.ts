@@ -169,6 +169,9 @@ export async function POST(req: NextRequest) {
         if (days === undefined || days === 0) {
           return NextResponse.json({ error: 'days must be a non-zero number' }, { status: 400 });
         }
+        if (!userPackage.expiryDate) {
+          return NextResponse.json({ error: 'Package has not been activated yet (no expiry date to extend)' }, { status: 400 });
+        }
         const newExpiry = new Date(userPackage.expiryDate);
         newExpiry.setDate(newExpiry.getDate() + days);
         updateData = { expiryDate: newExpiry };

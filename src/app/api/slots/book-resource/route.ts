@@ -555,6 +555,7 @@ async function executeResourceBookingCore(
       // `wicketTypeUpgrades.ASTRO_TO_CEMENT` fee per slot.
       wicketType: string | null;
       extraChargeRules: unknown;
+      validityDays: number;
     };
   } | null = null;
   if (body.userPackageId) {
@@ -589,6 +590,7 @@ async function executeResourceBookingCore(
             // extra charge math below sees the same numbers the user
             // saw when they selected the package on the slot grid.
             extraChargeRules: true,
+            validityDays: true,
             isActive: true,
           },
         },
@@ -650,6 +652,7 @@ async function executeResourceBookingCore(
         ballType: found.package.ballType,
         wicketType: found.package.wicketType,
         extraChargeRules: found.package.extraChargeRules,
+        validityDays: found.package.validityDays,
       },
     };
   }

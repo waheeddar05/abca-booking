@@ -251,7 +251,7 @@ export async function validatePackageBooking(
     return { valid: false, error: 'Package is not active' };
   }
 
-  if (userPackage.expiryDate < now) {
+  if (userPackage.expiryDate && userPackage.expiryDate < now) {
     // Auto-expire
     await prisma.userPackage.update({
       where: { id: userPackageId },
@@ -261,7 +261,7 @@ export async function validatePackageBooking(
   }
 
   // Check if booking date is within package validity
-  if (slotStartTime > userPackage.expiryDate) {
+  if (userPackage.expiryDate && slotStartTime > userPackage.expiryDate) {
     return { valid: false, error: 'Slot is after package expiry date' };
   }
 

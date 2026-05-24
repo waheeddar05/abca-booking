@@ -588,8 +588,8 @@ model UserPackage {
   packageId       String
   totalSessions   Int
   usedSessions    Int               @default(0)
-  activationDate  DateTime          @default(now())
-  expiryDate      DateTime
+  activationDate  DateTime?
+  expiryDate      DateTime?
   status          UserPackageStatus @default(ACTIVE)
   amountPaid      Float
   createdAt       DateTime          @default(now())

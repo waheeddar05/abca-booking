@@ -400,6 +400,7 @@ export function ResourcePricingEditor({
 
       <Section title="Sidearm — per pitch">
         <SimplePitchSection
+          title="Sidearm Rates"
           rates={(value.sidearmPricing ?? {}) as Partial<Record<PitchKey, PairSlabRates>>}
           onChange={(pitch, slab, kind, n) => {
             setValue((prev) => {
@@ -427,6 +428,7 @@ export function ResourcePricingEditor({
 
       <Section title="Cricket nets booking — per pitch">
         <SimplePitchSection
+          title="Net Rates"
           rates={(value.netPricing ?? {}) as Partial<Record<PitchKey, PairSlabRates>>}
           onChange={(pitch, slab, kind, n) => {
             setValue((prev) => {
@@ -454,6 +456,7 @@ export function ResourcePricingEditor({
 
       <Section title="Personal Coaching — per pitch">
         <SimplePitchSection
+          title="Coaching Rates"
           rates={(value.coachingPricing ?? {}) as Partial<Record<PitchKey, PairSlabRates>>}
           onChange={(pitch, slab, kind, n) => {
             setValue((prev) => {

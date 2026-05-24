@@ -66,10 +66,12 @@ export async function completePackagePurchase(
   }
 
   // Total paid = Razorpay amount + wallet deduction.
+  const totalAmountPaid = payment.amount + walletDeduction;
+
   // Validity starts from first booking, not purchase date
   // Set to null as placeholder (will be recalculated on first booking)
-  const activation = null;
-  const expiry = null;
+  const activationDate: Date | null = null;
+  const expiryDate: Date | null = null;
 
   const userPackage = await prisma.userPackage.create({
     data: {
@@ -77,8 +79,8 @@ export async function completePackagePurchase(
       packageId: pkg.id,
       totalSessions: pkg.totalSessions,
       usedSessions: 0,
-      activationDate: activation,
-      expiryDate: expiry,
+      activationDate,
+      expiryDate,
       status: 'ACTIVE',
       amountPaid: totalAmountPaid,
     },
@@ -122,8 +124,9 @@ export async function completePackagePurchase(
         where: { id: userId },
         select: { mobileNumber: true, mobileVerified: true },
       });
+      const expiryStr = expiryDate ? (expiryDate as Date).toLocaleDateString('en-IN') : 'first booking';
       await notifyPaymentSuccess(userId, {
-        message: `Your "${pkg.name}" package (${pkg.totalSessions} sessions) is now active. Valid until ${expiry.toLocaleDateString('en-IN')}.`,
+        message: `Your "${pkg.name}" package (${pkg.totalSessions} sessions) is now active. Validity starts from ${expiryStr}.`,
         mobileNumber: notifUser?.mobileVerified ? notifUser.mobileNumber : null,
       });
     } catch (notifErr) {

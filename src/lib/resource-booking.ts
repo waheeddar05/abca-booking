@@ -43,6 +43,7 @@ import type {
   BookingStatus,
   ResourceCategory,
   ResourceType,
+  PitchType,
 } from '@prisma/client';
 
 // ─── Types ───────────────────────────────────────────────────────────

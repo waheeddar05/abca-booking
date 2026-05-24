@@ -737,6 +737,7 @@ function AdminPackagesLegacy() {
                     machineDisplay={machineDisplay}
                     onEdit={() => startEdit(pkg)}
                     onToggle={() => toggleActive(pkg)}
+                    onDelete={() => setDeletePackageId(pkg.id)}
                     editing={editingId === pkg.id}
                   />
                   {editingId === pkg.id && showForm && (
@@ -1388,6 +1389,14 @@ function AdminPackageCard({
         {/* Footer — admin-only actions. Keeps them out of the chip row
             so the visual hierarchy still matches the user card. */}
         <div className="flex items-center justify-end gap-2 mt-3 pt-3 border-t border-white/[0.05]">
+          <button
+            onClick={onDelete}
+            className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold text-red-400 bg-red-500/10 hover:bg-red-500/20 border border-red-500/20 rounded-lg transition-colors cursor-pointer mr-auto"
+            title="Delete Package"
+          >
+            <Trash2 className="w-3.5 h-3.5" />
+            Delete
+          </button>
           <button
             onClick={onEdit}
             className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold text-accent bg-accent/10 hover:bg-accent/20 border border-accent/30 rounded-lg transition-colors cursor-pointer"

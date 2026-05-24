@@ -211,8 +211,8 @@ export async function GET(req: NextRequest) {
         refundByPackage.get(up.id) || 0,
         up.package?.price || '',
         up.status,
-        new Date(up.activationDate).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata' }),
-        new Date(up.expiryDate).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata' }),
+        up.activationDate ? new Date(up.activationDate).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata' }) : 'Not Yet Activated',
+        up.expiryDate ? new Date(up.expiryDate).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata' }) : 'N/A',
       ];
     });
 
