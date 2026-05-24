@@ -1,0 +1,98 @@
+src/app/admin/layout.tsx
+  s_b5549e1e264668::t_c88699a0719466 83
+  s_b5549e1e264668::t_c0a2ab5f316c9b 35-43,54-59,64-67,75,90
+src/components/admin/centers/CenterResourcesTab.tsx
+  s_b5549e1e264668::t_23c712a4749b84 97,102-103
+  s_b5549e1e264668::t_3c791e11bf4060 232,234,237,244-248
+src/lib/promotionalOffers.ts
+  s_b5549e1e264668::t_c05f14d564b40e 98-101
+  s_b5549e1e264668::t_99bddc9fb6e4b9 105-108
+src/app/api/admin/stats/route.ts
+  s_b5549e1e264668::t_438060cc8222cd 140
+  s_b5549e1e264668::t_41eb6d28d82496 252-256
+  s_b5549e1e264668::t_4974364e591e2e 348
+src/app/api/admin/recurring-discounts/[id]/route.ts
+  s_b5549e1e264668::t_779efb1240556e 18-30,46-81,90-91
+src/app/admin/sidearm/page.tsx
+  s_b5549e1e264668::t_cb57e6643f9405 20
+  s_b5549e1e264668::t_b8e1d2d8647de0 43
+  s_b5549e1e264668::t_766cf635ee3bfe 57-60,68-76
+src/components/admin/centers/CenterGeneralTab.tsx
+  s_b5549e1e264668::t_ea8024e6a5d964 116,119,125,129,134,143,149,155-167,173,182,185-195,200
+src/components/admin/ResourcePricingEditor.tsx
+  s_b5549e1e264668::t_cbb088dbe631ad 351-404,406-415,418,420-422,426,428-453,455-480,482-483,510-528,531
+  s_b5549e1e264668::t_858e32587b492e 135-145
+  s_b5549e1e264668::t_54c1a36863128a 484-485,487-491,493-494,496-499,502,509
+src/components/admin/AdminMobileNav.tsx
+  s_b5549e1e264668::t_cb64b580c2b6b4 26,28-33,38-47,53,57
+src/app/admin/page.tsx
+  s_b5549e1e264668::t_b179d0deee4f57 29-30,154,156-168,173,175,178-179,181-183,186,244,268,291,314
+src/lib/package-purchase.ts
+  s_b5549e1e264668::t_fb8d87d27e73ab 69-72
+src/lib/resource-booking.ts
+  s_b5549e1e264668::t_5f39172e2475c3 656-658,749
+  s_b5549e1e264668::t_ad70df900a3764 855,857-867,873,875-880
+  s_b5549e1e264668::t_04f90c1cfe4d76 999-1003
+  s_b5549e1e264668::t_226226cbe5a1e3 1021-1034
+src/components/slots/OptionsPanel.tsx
+  s_b5549e1e264668::t_60a9da6adf3460 84,144
+src/components/admin/ResourceBlockManagement.tsx
+  s_b5549e1e264668::t_af3eac7f801f54 128,173,194,240,289,341,391
+  s_b5549e1e264668::t_b4b81a74616576 555-580,1011-1030
+src/app/admin/centers/[id]/page.tsx
+  s_b5549e1e264668::t_a830a0ddcd7922 162,169,175-176
+src/app/api/slots/book/route.ts
+  s_b5549e1e264668::t_4ac741467a1d47 810
+src/app/api/admin/slots/block/route.ts
+  s_b5549e1e264668::t_aad27f297deede 531-534
+  s_b5549e1e264668::t_b58629b51944d0 491
+  s_b5549e1e264668::t_cddf08bdb78100 268-270
+src/middleware.ts
+  s_b5549e1e264668::t_dbdc091dec296f 115
+src/app/api/packages/purchase/route.ts
+  s_b5549e1e264668::t_090d67460db06f 60-61
+src/components/admin/centers/CenterMembersTab.tsx
+  s_b5549e1e264668::t_96c818c5b33320 160
+  s_b5549e1e264668::t_6abd236272c4b2 599-617,619-652,654-659,661-664,666,668-672
+src/app/admin/slots/page.tsx
+  s_b5549e1e264668::t_9847acf73009fd 87,159,231-233,865-891
+  s_b5549e1e264668::t_f5369e369c00d8 97-107,302,327,892-904
+src/components/admin/centers/CenterMachinesTab.tsx
+  s_b5549e1e264668::t_40be1072e33e17 94-95
+  s_b5549e1e264668::t_9aabb9a51a01b4 257-260,265,268-280,288,295,298
+src/app/slots/ResourceSlotsPage.tsx
+  s_b5549e1e264668::t_077af39e8f6981 1631-1643,1653-1665
+  s_b5549e1e264668::t_8f1bbcc370b972 1556,1558-1559,1567,1569-1570,2308
+  s_b5549e1e264668::t_d4910a33a68fef 843-845,852-854
+src/app/api/admin/offers/route.ts
+  s_b5549e1e264668::t_d4f71763ac1df1 227-234
+src/app/api/slots/book-resource/route.ts
+  s_b5549e1e264668::t_be384199126ede 1189-1200,1203
+src/app/admin/packages/page.tsx
+  s_b5549e1e264668::t_b4d2506faf1936 676
+  s_b5549e1e264668::t_4a6e3bc4013980 1529
+src/app/api/admin/bookings/export/route.ts
+  s_b5549e1e264668::t_c05691b18c3a9e 243
+src/lib/resource-discounts.ts
+  s_b5549e1e264668::t_c9da55cb8f378d 61-62
+src/app/packages/page.tsx
+  s_b5549e1e264668::t_a9b0c8951eba39 646-647
+  s_b5549e1e264668::t_dd46876816a95d 801
+  s_b5549e1e264668::t_416abd2ed1a37f 1048,1052-1053
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.0",
+  "base_commit_sha": "3104f921b0f55ce2e6c8e3658b33a326833d0213",
+  "prompts": {},
+  "sessions": {
+    "s_b5549e1e264668": {
+      "agent_id": {
+        "tool": "junie",
+        "id": "1779592315901",
+        "model": "unknown"
+      },
+      "human_author": "Waheed <waheeddar8@gmail.com>"
+    }
+  }
+}
