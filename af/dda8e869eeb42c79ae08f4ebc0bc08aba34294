@@ -1,0 +1,40 @@
+src/app/api/admin/packages/reports/csv/route.ts
+  s_b5549e1e264668::t_dda0035c4b7175 214-215
+src/components/admin/ResourcePricingEditor.tsx
+  s_b5549e1e264668::t_283b7d3894f9af 403,431,459
+src/app/admin/packages/page.tsx
+  s_b5549e1e264668::t_37d7d922dc95f3 1393-1399
+  s_b5549e1e264668::t_20a02022e8b738 740
+src/app/api/slots/book-resource/route.ts
+  s_b5549e1e264668::t_6004ca91087900 655
+  s_b5549e1e264668::t_659e95c2ea8763 558,593
+src/lib/resource-booking.ts
+  s_b5549e1e264668::t_3264286fac41fe 46
+src/lib/package-purchase.ts
+  s_b5549e1e264668::t_b6edcb0b3334e5 129
+  s_b5549e1e264668::t_016a279528462a 127
+  s_b5549e1e264668::t_ea1e2135d13f6d 73-74,82-83
+  s_b5549e1e264668::t_23dbeeb1115694 69-70
+src/lib/packages.ts
+  s_b5549e1e264668::t_365734d0cb23a6 254,264
+src/app/api/admin/packages/user-packages/route.ts
+  s_b5549e1e264668::t_27cd6b952f7afb 172-174
+prisma/schema.prisma
+  s_b5549e1e264668::t_83d02d35ec6b13 591-592
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.0",
+  "base_commit_sha": "afdda8e869eeb42c79ae08f4ebc0bc08aba34294",
+  "prompts": {},
+  "sessions": {
+    "s_b5549e1e264668": {
+      "agent_id": {
+        "tool": "junie",
+        "id": "1779592315901",
+        "model": "unknown"
+      },
+      "human_author": "Waheed <waheeddar8@gmail.com>"
+    }
+  }
+}
