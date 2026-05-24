@@ -23,33 +23,38 @@ export function AdminMobileNav() {
       | undefined;
     const isSuperAdmin =
       sessionUser?.isSuperAdmin === true || sessionUser?.email === SUPER_ADMIN_EMAIL;
+    const isAdmin = sessionUser?.role === 'ADMIN';
     const isCenterAdmin =
-      !isSuperAdmin && sessionUser?.role === 'ADMIN' && !!currentCenter;
+      !isSuperAdmin && isAdmin && !!currentCenter;
+
+    // We also allow Sidearm Specialists to access the /admin/sidearm page
+    // so they can manage their own availability.
+    const hasSidearmMembership = currentCenter && sessionUser?.role === 'SIDEARM_SPECIALIST';
+    const canAccessSidearmTab = isAdmin || hasSidearmMembership;
 
     // Same parity gating as the desktop sidebar: legacy ABCA-only forms
     // hide on RESOURCE_BASED centers until their resource-aware versions
     // ship in this branch.
-    const tabs: Array<{ href: string; label: string; icon: typeof LayoutDashboard; models?: BookingModel[] }> = [
-        { href: '/admin', label: 'Home', icon: LayoutDashboard },
-        { href: '/admin/bookings', label: 'Bookings', icon: CalendarCheck },
-        { href: '/admin/slots', label: 'Slots', icon: Clock },
-        { href: '/admin/users', label: 'Users', icon: Users },
-        { href: '/admin/operators', label: 'Operators', icon: UserCog },
-        { href: '/admin/packages', label: 'Packages', icon: Package },
-        { href: '/admin/offers', label: 'Offers', icon: Tag },
-        { href: '/admin/configuration', label: 'Settings', icon: SlidersHorizontal },
+    const tabs: Array<{ href: string; label: string; icon: typeof LayoutDashboard; models?: BookingModel[]; hidden?: boolean }> = [
+        { href: '/admin', label: 'Home', icon: LayoutDashboard, hidden: !isAdmin },
+        { href: '/admin/bookings', label: 'Bookings', icon: CalendarCheck, hidden: !isAdmin },
+        { href: '/admin/slots', label: 'Slots', icon: Clock, hidden: !isAdmin },
+        { href: '/admin/users', label: 'Users', icon: Users, hidden: !isAdmin },
+        { href: '/admin/operators', label: 'Operators', icon: UserCog, hidden: !isAdmin },
+        { href: '/admin/sidearm', label: 'Sidearm', icon: Users, models: ['RESOURCE_BASED'], hidden: !canAccessSidearmTab },
+        { href: '/admin/packages', label: 'Packages', icon: Package, hidden: !isAdmin },
+        { href: '/admin/offers', label: 'Offers', icon: Tag, hidden: !isAdmin },
+        { href: '/admin/configuration', label: 'Settings', icon: SlidersHorizontal, hidden: !isAdmin },
         // Super admin → cross-center management. Center admin → deep
         // link to their own center's edit page (members / machines /
         // resources / policies tabs). Hidden for everyone else.
         ...(isSuperAdmin
           ? [{ href: '/admin/centers', label: 'Centers', icon: Building2 }]
-          : isCenterAdmin && currentCenter
-            ? [{ href: `/admin/centers/${currentCenter.id}`, label: 'My Center', icon: Building2 }]
-            : []),
+          : []),
     ];
 
     const visibleTabs = tabs.filter(
-        (t) => !t.models || currentModel == null || t.models.includes(currentModel),
+        (t) => (!t.models || currentModel == null || t.models.includes(currentModel)) && !t.hidden,
     );
 
     const isActive = (href: string) => {

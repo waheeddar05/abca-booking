@@ -32,11 +32,15 @@ export default function AdminLayout({
   const isSuperAdmin = sessionUser?.isSuperAdmin === true || sessionUser?.email === SUPER_ADMIN_EMAIL;
   // Anyone past the middleware /admin/* gate has User.role = 'ADMIN' —
   // either as a super admin OR as a center-admin with a CenterMembership
-  // somewhere. Non-super admins get a "My Center" deep link that points
-  // at their currently-selected center's edit page. The API enforces
-  // they actually have ADMIN membership there; if not, the page bounces
-  // them back to /admin.
-  const isCenterAdmin = !isSuperAdmin && sessionUser?.role === 'ADMIN' && !!currentCenter;
+  // somewhere.
+  const isAdmin = sessionUser?.role === 'ADMIN';
+  const isCenterAdmin = !isSuperAdmin && isAdmin && !!currentCenter;
+
+  // We also allow Sidearm Specialists to access the /admin/sidearm page
+  // so they can manage their own availability. The middleware is updated
+  // to allow them into /admin, and we gate the links here.
+  const hasSidearmMembership = currentCenter && sessionUser?.role === 'SIDEARM_SPECIALIST';
+  const canAccessSidearmTab = isAdmin || hasSidearmMembership;
 
   // Until we rebuild Slots/Operators/Offers/Packages for RESOURCE_BASED
   // centers (Toplay-style), the legacy forms hardcode the ABCA machine
@@ -47,20 +51,20 @@ export default function AdminLayout({
   // Each surface flips back on when its RESOURCE_BASED implementation
   // ships in this branch.
   const currentModel: BookingModel | null = currentCenter?.bookingModel ?? null;
-  const links: Array<{ href: string; label: string; icon: typeof LayoutDashboard; models?: BookingModel[] }> = [
-    { href: '/admin', label: 'Dashboard', icon: LayoutDashboard },
-    { href: '/admin/bookings', label: 'Bookings', icon: CalendarCheck },
-    { href: '/admin/slots', label: 'Slots', icon: Clock },
-    { href: '/admin/users', label: 'Users', icon: Users },
-    { href: '/admin/operators', label: 'Operators', icon: UserCog },
+  const links: Array<{ href: string; label: string; icon: typeof LayoutDashboard; models?: BookingModel[]; hidden?: boolean }> = [
+    { href: '/admin', label: 'Dashboard', icon: LayoutDashboard, hidden: !isAdmin },
+    { href: '/admin/bookings', label: 'Bookings', icon: CalendarCheck, hidden: !isAdmin },
+    { href: '/admin/slots', label: 'Slots', icon: Clock, hidden: !isAdmin },
+    { href: '/admin/users', label: 'Users', icon: Users, hidden: !isAdmin },
+    { href: '/admin/operators', label: 'Operators', icon: UserCog, hidden: !isAdmin },
     // Sidearm tab — manages SIDEARM_SPECIALIST memberships and their
     // availability (recurring + date-range) plus priority order for
     // auto-assignment. Resource-based centers only; ABCA never had a
     // sidearm role wired into bookings.
-    { href: '/admin/sidearm', label: 'Sidearm', icon: Users, models: ['RESOURCE_BASED'] },
-    { href: '/admin/offers', label: 'Offers', icon: Tag },
-    { href: '/admin/packages', label: 'Packages', icon: Package },
-    { href: '/admin/configuration', label: 'Settings', icon: SlidersHorizontal },
+    { href: '/admin/sidearm', label: 'Sidearm', icon: Users, models: ['RESOURCE_BASED'], hidden: !canAccessSidearmTab },
+    { href: '/admin/offers', label: 'Offers', icon: Tag, hidden: !isAdmin },
+    { href: '/admin/packages', label: 'Packages', icon: Package, hidden: !isAdmin },
+    { href: '/admin/configuration', label: 'Settings', icon: SlidersHorizontal, hidden: !isAdmin },
     // /admin/policies removed — its raw key/value editor was confusing
     // and overlapped the structured forms here on Settings. Per-center
     // overrides for advanced keys still live under Centers → Policies.
@@ -68,7 +72,7 @@ export default function AdminLayout({
     // API scopes the data to the current center for non-super admins
     // and gates destructive actions to super admins; center admins
     // primarily use it to view balances + credit/debit wallets.
-    { href: '/admin/user-management', label: 'User Mgmt', icon: UserCog },
+    { href: '/admin/user-management', label: 'User Mgmt', icon: UserCog, hidden: !isAdmin },
     ...(isSuperAdmin
       ? [
           { href: '/admin/centers', label: 'Centers', icon: Building2 },
@@ -76,22 +80,14 @@ export default function AdminLayout({
           { href: '/admin/maintenance', label: 'Maintenance', icon: Wrench },
           { href: '/admin/db-cleanup', label: 'DB Cleanup', icon: DatabaseZap },
         ]
-      : isCenterAdmin && currentCenter
-        ? [
-            // Center admins get a deep link to their center's edit page —
-            // members, machines, resources, policies, general info. The
-            // API gates each tab; ADMIN role assignment + payment keys +
-            // deactivation stay super-admin-only.
-            { href: `/admin/centers/${currentCenter.id}`, label: 'My Center', icon: Building2 },
-          ]
-        : []),
+      : []),
   ];
 
   // Filter by booking model. While the center is still loading
   // (`currentModel === null`), show every link so we don't briefly
   // render a stripped-down sidebar.
   const visibleLinks = links.filter(
-    (l) => !l.models || currentModel == null || l.models.includes(currentModel),
+    (l) => (!l.models || currentModel == null || l.models.includes(currentModel)) && !l.hidden,
   );
 
   const isActive = (href: string) =>

@@ -66,14 +66,10 @@ export async function completePackagePurchase(
   }
 
   // Total paid = Razorpay amount + wallet deduction.
-  const totalAmountPaid = payment.amount + walletDeduction;
-
-  const activation = new Date();
-  const expiry = new Date(activation);
-  expiry.setDate(expiry.getDate() + pkg.validityDays);
-  // Set expiry to the very end of the day (23:59:59.999) to ensure
-  // a "30 day" package actually lasts until the end of the 30th day.
-  expiry.setHours(23, 59, 59, 999);
+  // Validity starts from first booking, not purchase date
+  // Set to null as placeholder (will be recalculated on first booking)
+  const activation = null;
+  const expiry = null;
 
   const userPackage = await prisma.userPackage.create({
     data: {

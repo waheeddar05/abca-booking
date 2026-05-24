@@ -673,7 +673,7 @@ function AdminPackagesLegacy() {
                     { key: 'EVENING' as const, label: 'Evening', Icon: Moon },
                   ]).map(t => {
                     const active = timingFilter === t.key;
-                    const label = t.key === 'DAY' ? '6 AM to 6 PM' : '6 PM to 10:30 PM';
+                    const label = t.key === 'DAY' ? '6 a.m. to 6 p.m.' : '6 p.m. to 10:30 p.m.';
                     return (
                       <button key={t.key} onClick={() => setTimingFilter(active ? '' : t.key)}
                         className={`flex items-center gap-2 px-2 py-1.5 rounded-lg transition-all cursor-pointer text-left ${active ? 'bg-accent/15 ring-1 ring-accent/50 shadow-sm' : 'bg-white/[0.04] border border-white/[0.08] hover:border-accent/30'}`}>
@@ -737,7 +737,6 @@ function AdminPackagesLegacy() {
                     machineDisplay={machineDisplay}
                     onEdit={() => startEdit(pkg)}
                     onToggle={() => toggleActive(pkg)}
-                    onDelete={() => setDeletePackageId(pkg.id)}
                     editing={editingId === pkg.id}
                   />
                   {editingId === pkg.id && showForm && (
@@ -1527,7 +1526,7 @@ function PackageForm({
             <label className="block text-[11px] font-medium text-slate-400 mb-1">Timing</label>
             <div className="flex gap-2">
               {PACKAGE_TIMING_OPTIONS.map(t => {
-                const timingLabel = t.value === 'DAY' ? '6am-6pm' : '6pm-10:30pm';
+                const timingLabel = t.value === 'DAY' ? '6 a.m. to 6 p.m.' : '6 p.m. to 10:30 p.m.';
                 return (
                   <button
                     key={t.value}

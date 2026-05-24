@@ -840,12 +840,18 @@ export default function ResourceSlotsPage() {
     }
     if (cat === 'SIDEARM') {
       if (s.freeSidearmStaff.length === 0) return { ok: false, reason: 'No sidearm specialist free' };
+      if (staffId && !s.freeSidearmStaff.some((p) => p.userId === staffId)) {
+        return { ok: false, reason: 'Selected specialist is busy in this slot' };
+      }
       const { pool } = poolForPicked();
       if (!pool || pool.length === 0) return { ok: false, reason: reasonForEmptyPool() };
       return { ok: true };
     }
     if (cat === 'COACHING') {
       if (s.freeCoaches.length === 0) return { ok: false, reason: 'No coaches free' };
+      if (coachId && !s.freeCoaches.some((p) => p.userId === coachId)) {
+        return { ok: false, reason: 'Selected coach is busy in this slot' };
+      }
       const { pool } = poolForPicked();
       if (!pool || pool.length === 0) return { ok: false, reason: reasonForEmptyPool() };
       return { ok: true };
@@ -1547,10 +1553,10 @@ export default function ResourceSlotsPage() {
                   <button
                     type="button"
                     onClick={() => setOperationMode('WITH_OPERATOR')}
-                    className={`flex-1 px-3 py-2 rounded-lg text-xs font-semibold border transition-colors cursor-pointer ${
+                    className={`flex-1 px-3 py-2.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
                       operationMode === 'WITH_OPERATOR'
-                        ? 'bg-accent text-black border-accent'
-                        : 'bg-white/[0.04] text-slate-300 border-white/[0.08] hover:bg-white/[0.08]'
+                        ? 'bg-accent text-primary shadow-sm'
+                        : 'bg-white/[0.04] text-slate-400 border border-white/[0.08] hover:border-accent/20'
                     }`}
                   >
                     With Operator
@@ -1558,10 +1564,10 @@ export default function ResourceSlotsPage() {
                   <button
                     type="button"
                     onClick={() => setOperationMode('SELF_OPERATE')}
-                    className={`flex-1 px-3 py-2 rounded-lg text-xs font-semibold border transition-colors cursor-pointer ${
+                    className={`flex-1 px-3 py-2.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
                       operationMode === 'SELF_OPERATE'
-                        ? 'bg-amber-500 text-black border-amber-500'
-                        : 'bg-white/[0.04] text-slate-300 border-white/[0.08] hover:bg-white/[0.08]'
+                        ? 'bg-accent text-primary shadow-sm'
+                        : 'bg-white/[0.04] text-slate-400 border border-white/[0.08] hover:border-accent/20'
                     }`}
                   >
                     Self Operate
@@ -1622,7 +1628,19 @@ export default function ResourceSlotsPage() {
       {category === 'COACHING' && (
         <PeoplePicker
           label="Coach"
-          options={data?.slots[0]?.freeCoaches ?? []}
+          options={(() => {
+            const seen = new Set<string>();
+            const all: PersonLite[] = [];
+            data?.slots.forEach((s) => {
+              s.freeCoaches.forEach((p) => {
+                if (!seen.has(p.userId)) {
+                  seen.add(p.userId);
+                  all.push(p);
+                }
+              });
+            });
+            return all;
+          })()}
           value={coachId}
           onChange={setCoachId}
           emptyMessage="No coaches free for the selected slots."
@@ -1632,7 +1650,19 @@ export default function ResourceSlotsPage() {
       {category === 'SIDEARM' && (
         <PeoplePicker
           label="Sidearm Specialist"
-          options={data?.slots[0]?.freeSidearmStaff ?? []}
+          options={(() => {
+            const seen = new Set<string>();
+            const all: PersonLite[] = [];
+            data?.slots.forEach((s) => {
+              s.freeSidearmStaff.forEach((p) => {
+                if (!seen.has(p.userId)) {
+                  seen.add(p.userId);
+                  all.push(p);
+                }
+              });
+            });
+            return all;
+          })()}
           value={staffId}
           onChange={setStaffId}
           emptyMessage="No sidearm specialist free for the selected slots."
@@ -2275,20 +2305,12 @@ function ChipSelector({
             <button
               key={opt.id}
               onClick={() => onChange(opt.id)}
-              className={`flex items-center justify-start gap-2 px-3 py-2.5 rounded-lg text-xs font-semibold transition-all cursor-pointer min-w-0 text-left ${
+              className={`flex-1 flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg text-xs font-semibold transition-all cursor-pointer min-w-0 text-center ${
                 active
                   ? 'bg-accent text-primary shadow-sm'
                   : 'bg-white/[0.04] text-slate-400 border border-white/[0.08] hover:border-accent/20'
               }`}
             >
-              {/* Small colored dot — visual anchor that mirrors the
-                  icon-on-left of the Session Type tiles without
-                  forcing a per-option icon. Pitches and ball types
-                  don't have natural icons, so a dot keeps the layout
-                  consistent. */}
-              <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${
-                active ? 'bg-primary/70' : 'bg-accent/60'
-              }`} />
               <span className="truncate">{opt.label}</span>
             </button>
           );

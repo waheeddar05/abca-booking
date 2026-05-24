@@ -807,6 +807,7 @@ export async function executeSlotBooking(
             const now = new Date();
             const expiry = new Date(now);
             expiry.setDate(expiry.getDate() + currentUserPackage.package.validityDays);
+            expiry.setHours(23, 59, 59, 999);
             updateData.activationDate = now;
             updateData.expiryDate = expiry;
           }

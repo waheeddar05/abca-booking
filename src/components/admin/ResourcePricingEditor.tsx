@@ -132,6 +132,17 @@ const CATEGORY_ORDER: CategoryKey[] = [
   'CORPORATE_BATCH',
 ];
 
+function Section({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <div className="space-y-3 bg-white/[0.02] border border-white/[0.06] rounded-xl p-4">
+      <div className="text-xs uppercase tracking-wider font-bold text-slate-300 border-b border-white/[0.04] pb-2 mb-2">
+        {title}
+      </div>
+      {children}
+    </div>
+  );
+}
+
 const DEFAULT_VALUE: ResourcePricingValue = {
   categoryRates: {
     MACHINE:        { morning: 600, evening: 800 },
@@ -337,191 +348,187 @@ export function ResourcePricingEditor({
   }
 
   return (
-    <div className="space-y-5">
-      {/* ─── Bowling Machine pricing — tabbed per Machine row ─────────
-          Mirrors main's ABCA pricing editor (5 tabs: leather / yantra /
-          machine / yantra_machine / tennis), but at this center-scope
-          each tab is a specific Machine ROW. Two Yantras at Toplay get
-          two tabs and can be priced independently. Each tab holds a
-          3-pitch × 4-ball matrix with morning + evening, single +
-          consecutive — same shape as PRICING_CONFIG on main. */}
-      {scope === 'center' && centerMachines.length > 0 ? (
-        <TabbedMachinePricing
-          machines={centerMachines}
-          matrix={value.machineRowPricing ?? {}}
-          onChange={(machineId, pitch, ball, slab, kind, n) => {
+    <div className="space-y-6">
+      <Section title="Bowling Machine — per machine">
+        {scope === 'center' && centerMachines.length > 0 ? (
+          <TabbedMachinePricing
+            machines={centerMachines}
+            matrix={value.machineRowPricing ?? {}}
+            onChange={(machineId, pitch, ball, slab, kind, n) => {
+              setValue((prev) => {
+                const all = { ...(prev.machineRowPricing ?? {}) };
+                const byMachine = { ...(all[machineId] ?? {}) };
+                const byPitch = { ...(byMachine[pitch] ?? {}) };
+                const cell: PairSlabRates = byPitch[ball]
+                  ? {
+                      morning: { ...byPitch[ball]!.morning },
+                      evening: { ...byPitch[ball]!.evening },
+                    }
+                  : {
+                      morning: { single: 0, consecutive: 0 },
+                      evening: { single: 0, consecutive: 0 },
+                    };
+                cell[slab] = { ...cell[slab], [kind]: n };
+                byPitch[ball] = cell;
+                byMachine[pitch] = byPitch;
+                all[machineId] = byMachine;
+                return { ...prev, machineRowPricing: all };
+              });
+            }}
+            onClearCell={(machineId, pitch, ball) => {
+              setValue((prev) => {
+                const all = { ...(prev.machineRowPricing ?? {}) };
+                const byMachine = { ...(all[machineId] ?? {}) };
+                const byPitch = { ...(byMachine[pitch] ?? {}) };
+                delete byPitch[ball];
+                if (Object.keys(byPitch).length === 0) delete byMachine[pitch];
+                else byMachine[pitch] = byPitch;
+                if (Object.keys(byMachine).length === 0) delete all[machineId];
+                else all[machineId] = byMachine;
+                return { ...prev, machineRowPricing: all };
+              });
+            }}
+          />
+        ) : (
+          <div className="text-[11px] text-slate-500 italic py-2">
+            {scope === 'global'
+              ? 'Bowling Machine pricing is configured per machine row at each center (Settings → Resource pricing on the center page).'
+              : 'No machines configured at this center yet. Add a machine on the Centers → Machines tab to enable per-machine pricing.'}
+          </div>
+        )}
+      </Section>
+
+      <Section title="Sidearm — per pitch">
+        <SimplePitchSection
+          rates={(value.sidearmPricing ?? {}) as Partial<Record<PitchKey, PairSlabRates>>}
+          onChange={(pitch, slab, kind, n) => {
             setValue((prev) => {
-              const all = { ...(prev.machineRowPricing ?? {}) };
-              const byMachine = { ...(all[machineId] ?? {}) };
-              const byPitch = { ...(byMachine[pitch] ?? {}) };
-              const cell: PairSlabRates = byPitch[ball]
-                ? {
-                    morning: { ...byPitch[ball]!.morning },
-                    evening: { ...byPitch[ball]!.evening },
-                  }
-                : {
-                    morning: { single: 0, consecutive: 0 },
-                    evening: { single: 0, consecutive: 0 },
-                  };
-              cell[slab] = { ...cell[slab], [kind]: n };
-              byPitch[ball] = cell;
-              byMachine[pitch] = byPitch;
-              all[machineId] = byMachine;
-              return { ...prev, machineRowPricing: all };
+              const next = { ...(prev.sidearmPricing ?? {}) } as Partial<Record<PitchKey, PairSlabRates>>;
+              const prevCell = next[pitch] ?? {
+                morning: { single: 0, consecutive: 0 },
+                evening: { single: 0, consecutive: 0 },
+              };
+              next[pitch] = {
+                ...prevCell,
+                [slab]: { ...prevCell[slab], [kind]: n },
+              };
+              return { ...prev, sidearmPricing: next };
             });
           }}
-          onClearCell={(machineId, pitch, ball) => {
+          onClear={(pitch) => {
             setValue((prev) => {
-              const all = { ...(prev.machineRowPricing ?? {}) };
-              const byMachine = { ...(all[machineId] ?? {}) };
-              const byPitch = { ...(byMachine[pitch] ?? {}) };
-              delete byPitch[ball];
-              if (Object.keys(byPitch).length === 0) delete byMachine[pitch];
-              else byMachine[pitch] = byPitch;
-              if (Object.keys(byMachine).length === 0) delete all[machineId];
-              else all[machineId] = byMachine;
-              return { ...prev, machineRowPricing: all };
+              const next = { ...(prev.sidearmPricing ?? {}) } as Partial<Record<PitchKey, PairSlabRates>>;
+              delete next[pitch];
+              return { ...prev, sidearmPricing: next };
             });
           }}
         />
-      ) : (
-        <div className="text-[11px] text-slate-500 italic py-2">
-          {scope === 'global'
-            ? 'Bowling Machine pricing is configured per machine row at each center (Settings → Resource pricing on the center page).'
-            : 'No machines configured at this center yet. Add a machine on the Centers → Machines tab to enable per-machine pricing.'}
-        </div>
-      )}
+      </Section>
 
-      {/* Sidearm per-pitch overrides — pair-shaped (single/consecutive)
-          so the admin can give back-to-back pairs a discount, same as
-          the ABCA bowling-machine matrix. Empty cells fall back to the
-          SIDEARM category default. */}
-      <SimplePitchSection
-        title="Sidearm — per pitch"
-        rates={(value.sidearmPricing ?? {}) as Partial<Record<PitchKey, PairSlabRates>>}
-        onChange={(pitch, slab, kind, n) => {
-          setValue((prev) => {
-            const next = { ...(prev.sidearmPricing ?? {}) } as Partial<Record<PitchKey, PairSlabRates>>;
-            const prevCell = next[pitch] ?? {
-              morning: { single: 0, consecutive: 0 },
-              evening: { single: 0, consecutive: 0 },
-            };
-            next[pitch] = {
-              ...prevCell,
-              [slab]: { ...prevCell[slab], [kind]: n },
-            };
-            return { ...prev, sidearmPricing: next };
-          });
-        }}
-        onClear={(pitch) => {
-          setValue((prev) => {
-            const next = { ...(prev.sidearmPricing ?? {}) } as Partial<Record<PitchKey, PairSlabRates>>;
-            delete next[pitch];
-            return { ...prev, sidearmPricing: next };
-          });
-        }}
-      />
+      <Section title="Cricket nets booking — per pitch">
+        <SimplePitchSection
+          rates={(value.netPricing ?? {}) as Partial<Record<PitchKey, PairSlabRates>>}
+          onChange={(pitch, slab, kind, n) => {
+            setValue((prev) => {
+              const next = { ...(prev.netPricing ?? {}) } as Partial<Record<PitchKey, PairSlabRates>>;
+              const prevCell = next[pitch] ?? {
+                morning: { single: 0, consecutive: 0 },
+                evening: { single: 0, consecutive: 0 },
+              };
+              next[pitch] = {
+                ...prevCell,
+                [slab]: { ...prevCell[slab], [kind]: n },
+              };
+              return { ...prev, netPricing: next };
+            });
+          }}
+          onClear={(pitch) => {
+            setValue((prev) => {
+              const next = { ...(prev.netPricing ?? {}) } as Partial<Record<PitchKey, PairSlabRates>>;
+              delete next[pitch];
+              return { ...prev, netPricing: next };
+            });
+          }}
+        />
+      </Section>
 
-      {/* Net per-pitch overrides — same single/consecutive pair shape. */}
-      <SimplePitchSection
-        title="Cricket nets booking — per pitch"
-        rates={(value.netPricing ?? {}) as Partial<Record<PitchKey, PairSlabRates>>}
-        onChange={(pitch, slab, kind, n) => {
-          setValue((prev) => {
-            const next = { ...(prev.netPricing ?? {}) } as Partial<Record<PitchKey, PairSlabRates>>;
-            const prevCell = next[pitch] ?? {
-              morning: { single: 0, consecutive: 0 },
-              evening: { single: 0, consecutive: 0 },
-            };
-            next[pitch] = {
-              ...prevCell,
-              [slab]: { ...prevCell[slab], [kind]: n },
-            };
-            return { ...prev, netPricing: next };
-          });
-        }}
-        onClear={(pitch) => {
-          setValue((prev) => {
-            const next = { ...(prev.netPricing ?? {}) } as Partial<Record<PitchKey, PairSlabRates>>;
-            delete next[pitch];
-            return { ...prev, netPricing: next };
-          });
-        }}
-      />
+      <Section title="Personal Coaching — per pitch">
+        <SimplePitchSection
+          rates={(value.coachingPricing ?? {}) as Partial<Record<PitchKey, PairSlabRates>>}
+          onChange={(pitch, slab, kind, n) => {
+            setValue((prev) => {
+              const next = { ...(prev.coachingPricing ?? {}) } as Partial<Record<PitchKey, PairSlabRates>>;
+              const prevCell = next[pitch] ?? {
+                morning: { single: 0, consecutive: 0 },
+                evening: { single: 0, consecutive: 0 },
+              };
+              next[pitch] = {
+                ...prevCell,
+                [slab]: { ...prevCell[slab], [kind]: n },
+              };
+              return { ...prev, coachingPricing: next };
+            });
+          }}
+          onClear={(pitch) => {
+            setValue((prev) => {
+              const next = { ...(prev.coachingPricing ?? {}) } as Partial<Record<PitchKey, PairSlabRates>>;
+              delete next[pitch];
+              return { ...prev, coachingPricing: next };
+            });
+          }}
+        />
+      </Section>
 
-      {/* Personal Coaching per-pitch — pair-shaped, mirrors sidearm
-          + net. Empty rows fall back to the COACHING category rate
-          below. */}
-      <SimplePitchSection
-        title="Personal coaching — per pitch"
-        rates={(value.coachingPricing ?? {}) as Partial<Record<PitchKey, PairSlabRates>>}
-        onChange={(pitch, slab, kind, n) => {
-          setValue((prev) => {
-            const next = { ...(prev.coachingPricing ?? {}) } as Partial<Record<PitchKey, PairSlabRates>>;
-            const prevCell = next[pitch] ?? {
-              morning: { single: 0, consecutive: 0 },
-              evening: { single: 0, consecutive: 0 },
-            };
-            next[pitch] = {
-              ...prevCell,
-              [slab]: { ...prevCell[slab], [kind]: n },
-            };
-            return { ...prev, coachingPricing: next };
-          });
-        }}
-        onClear={(pitch) => {
-          setValue((prev) => {
-            const next = { ...(prev.coachingPricing ?? {}) } as Partial<Record<PitchKey, PairSlabRates>>;
-            delete next[pitch];
-            return { ...prev, coachingPricing: next };
-          });
-        }}
-      />
-
-      {/* Other categories — Personal Coaching + Full Indoor Court.
-          Now 4-cell each (Morning Single/2 Cons. + Evening Single/2
-          Cons.) so admins can give consecutive-slot discounts the
-          same way cricket nets / sidearm allow. */}
-      <div className="space-y-2 pt-3 border-t border-white/[0.04]">
-        <div className="text-[10px] uppercase tracking-wider text-slate-500 font-semibold">
-          Category defaults
-        </div>
-        <p className="text-[10px] text-slate-500 leading-relaxed">
-          Used when no per-pitch rate is set above (Coaching) or for the
-          one-off Full Indoor Court category. 2 Cons. is the TOTAL for
-          a back-to-back pair; per-slot in a chain = total / 2.
+      <Section title="Full Indoor Court Booking">
+        <p className="text-[10px] text-slate-500 leading-relaxed mb-3">
+          Platform-wide flat rate for the Full Indoor Court category.
+          2 Cons. is the TOTAL for a back-to-back pair.
         </p>
-        <div className="grid grid-cols-[1.2fr_1fr_1fr_1fr_1fr] gap-2 items-center text-[10px] uppercase tracking-wider text-slate-500 mb-1">
-          <div>Category</div>
-          <div className="text-center">M. Single</div>
-          <div className="text-center">M. 2 Cons.</div>
-          <div className="text-center">E. Single</div>
-          <div className="text-center">E. 2 Cons.</div>
+        <div className="grid grid-cols-4 gap-2 mb-1">
+          <div className="text-[10px] uppercase tracking-wider text-slate-500 text-center">M. Single</div>
+          <div className="text-[10px] uppercase tracking-wider text-slate-500 text-center">M. 2 Cons.</div>
+          <div className="text-[10px] uppercase tracking-wider text-slate-500 text-center">E. Single</div>
+          <div className="text-[10px] uppercase tracking-wider text-slate-500 text-center">E. 2 Cons.</div>
         </div>
-        {(
-          [
-            { key: 'COACHING' as const,   read: () => value.coachingRate!,   write: (next: PairSlabRates) => setValue((prev) => ({ ...prev, coachingRate: next })) },
-            { key: 'FULL_COURT' as const, read: () => value.fullCourtRate!, write: (next: PairSlabRates) => setValue((prev) => ({ ...prev, fullCourtRate: next })) },
-          ]
-        ).map(({ key, read, write }) => {
-          const cell = read();
+        {(() => {
+          const cell = value.fullCourtRate!;
           const update = (slab: 'morning' | 'evening', kind: 'single' | 'consecutive', n: number) => {
-            write({ ...cell, [slab]: { ...cell[slab], [kind]: n } });
+            setValue((prev) => ({
+              ...prev,
+              fullCourtRate: { ...cell, [slab]: { ...cell[slab], [kind]: n } },
+            }));
           };
           return (
-            <div key={key} className="grid grid-cols-[1.2fr_1fr_1fr_1fr_1fr] gap-2 items-center py-0.5">
-              <div className="text-xs sm:text-sm text-white truncate font-medium">{CATEGORY_LABELS[key]}</div>
+            <div className="grid grid-cols-4 gap-2 py-0.5">
               <PriceInput value={cell.morning.single}      onChange={(n) => update('morning', 'single', n)} />
               <PriceInput value={cell.morning.consecutive} onChange={(n) => update('morning', 'consecutive', n)} />
               <PriceInput value={cell.evening.single}      onChange={(n) => update('evening', 'single', n)} />
               <PriceInput value={cell.evening.consecutive} onChange={(n) => update('evening', 'consecutive', n)} />
             </div>
           );
-        })}
-      </div>
+        })()}
+      </Section>
+
+      <Section title="Corporate Batch">
+        <p className="text-[10px] text-slate-500 leading-relaxed mb-3">
+          Morning and Evening flat rates for Corporate Batch bookings.
+        </p>
+        <div className="grid grid-cols-2 gap-4">
+          <LabeledPriceInput
+            label="Morning Rate"
+            value={value.categoryRates.CORPORATE_BATCH.morning}
+            onChange={(n) => setRate('CORPORATE_BATCH', 'morning', n)}
+          />
+          <LabeledPriceInput
+            label="Evening Rate"
+            value={value.categoryRates.CORPORATE_BATCH.evening}
+            onChange={(n) => setRate('CORPORATE_BATCH', 'evening', n)}
+          />
+        </div>
+      </Section>
 
       {/* Save bar */}
-      <div className="flex items-center justify-end gap-2 pt-2">
+      <div className="sticky bottom-0 bg-[#0f1d2f]/95 backdrop-blur-sm border-t border-white/[0.08] -mx-6 px-6 py-4 flex items-center justify-end gap-3 z-10">
         {message && (
           <span className={`text-xs font-medium ${message.ok ? 'text-green-400' : 'text-red-400'}`}>
             {message.text}

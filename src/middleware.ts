@@ -112,7 +112,7 @@ export async function middleware(req: NextRequest) {
 
   // Protect Admin routes
   if (pathname.startsWith("/admin")) {
-    if (userRole !== "ADMIN") {
+    if (userRole !== "ADMIN" && userRole !== "SIDEARM_SPECIALIST") {
       return NextResponse.redirect(new URL("/", req.url));
     }
   }

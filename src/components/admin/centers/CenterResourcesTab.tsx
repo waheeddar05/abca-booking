@@ -94,13 +94,13 @@ export function CenterResourcesTab({ centerId }: { centerId: string }) {
         </p>
         <div className="flex items-center gap-1.5 shrink-0">
           {inactiveCount > 0 && (
-            <SecondaryButton onClick={() => setShowInactive((v) => !v)} className="px-2 py-1.5 text-xs rounded-lg">
+            <SecondaryButton onClick={() => setShowInactive((v) => !v)} className="!px-2 !py-1 !text-[10px] rounded-md">
               {showInactive ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
               {showInactive ? 'Hide' : `Show (${inactiveCount})`}
             </SecondaryButton>
           )}
-          <PrimaryButton onClick={() => setShowNew(true)} className="px-2 py-1.5 text-xs rounded-lg">
-            <Plus className="w-3.5 h-3.5" /> Add resource
+          <PrimaryButton onClick={() => setShowNew(true)} className="!px-2 !py-1 !text-[10px] rounded-md">
+            <Plus className="w-3 h-3" /> Add resource
           </PrimaryButton>
         </div>
       </div>
@@ -229,21 +229,23 @@ function ResourceEditor({
 
   return (
     <form onSubmit={save} className="space-y-3 rounded-xl bg-white/[0.02] border border-white/[0.06] p-3">
-      <div className="grid sm:grid-cols-3 gap-3">
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
         <Field label="Name" required>
-          <TextInput required value={name} onChange={(e) => setName(e.target.value)} placeholder="Indoor Net 1" />
+          <TextInput required value={name} onChange={(e) => setName(e.target.value)} placeholder="Indoor Net 1" className="!py-1.5 !text-xs" />
         </Field>
         <Field label="Type" required>
-          <SelectInput value={type} onChange={(e) => setType(e.target.value as ResourceRow['type'])}>
+          <SelectInput value={type} onChange={(e) => setType(e.target.value as ResourceRow['type'])} className="!py-1.5 !text-xs">
             <option value="NET">Net</option>
             <option value="TURF_WICKET">Natural Turf</option>
             <option value="CEMENT_WICKET">Cement wicket</option>
             <option value="COURT">Full court (composed of nets)</option>
           </SelectInput>
         </Field>
-        <Field label="Capacity" help="Concurrent bookings supported. Default 1.">
-          <NumberInput min={1} value={capacity} onChange={(e) => setCapacity(Math.max(1, Number(e.target.value)))} />
-        </Field>
+        <div className="col-span-2 sm:col-span-1">
+          <Field label="Capacity" help="Concurrent bookings supported. Default 1.">
+            <NumberInput min={1} value={capacity} onChange={(e) => setCapacity(Math.max(1, Number(e.target.value)))} className="!py-1.5 !text-xs" />
+          </Field>
+        </div>
       </div>
       {/* Category / displayOrder / active are kept in state so edits
           don't accidentally clear them on save, but they're no longer

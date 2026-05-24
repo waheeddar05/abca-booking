@@ -1186,9 +1186,21 @@ async function executeResourceBookingCore(
                 }
 
                 const newUsed = fresh.usedSessions + 1;
+                const updateData: any = { usedSessions: newUsed };
+
+                // If first booking, activate validity period
+                if (fresh.usedSessions === 0) {
+                  const now = new Date();
+                  const expiry = new Date(now);
+                  expiry.setDate(expiry.getDate() + (userPackage.package?.validityDays || 0));
+                  expiry.setHours(23, 59, 59, 999);
+                  updateData.activationDate = now;
+                  updateData.expiryDate = expiry;
+                }
+
                 const updateRes = await tx.userPackage.updateMany({
                   where: { id: userPackage.id, usedSessions: fresh.usedSessions },
-                  data: { usedSessions: newUsed },
+                  data: updateData,
                 });
                 // Note: status stays ACTIVE even when usedSessions ===
                 // totalSessions (matches the legacy MACHINE_PITCH path).

@@ -265,7 +265,9 @@ export async function POST(req: NextRequest) {
         // Full-court blocks only restrict indoor wickets (Astro/Cement).
         // Ensure natural turf bookings are NOT cancelled by this block
         // by adding a status filter or an explicit pitchType filter.
-        if (!where.pitchType) {
+        // Task refinement: If the block itself specifies a pitch, use that.
+        // Otherwise, default to the indoor pool for Full Court.
+        if (!pitchType && !where.pitchType) {
           where.pitchType = { in: ['ASTRO', 'CEMENT'] };
         }
       }
@@ -486,6 +488,7 @@ export async function PUT(req: NextRequest) {
       categories,
       recurringDays,
       netCount,
+      pitchType,
     } = body;
 
     if (!id) {
@@ -523,6 +526,10 @@ export async function PUT(req: NextRequest) {
         updateData.machineId = null;
         updateData.machineType = null;
       }
+    }
+
+    if (pitchType !== undefined) {
+      updateData.pitchType = pitchType || null;
     }
 
     if (reason !== undefined) {

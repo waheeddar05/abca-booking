@@ -91,8 +91,8 @@ export function CenterMachinesTab({ centerId }: { centerId: string }) {
         <p className="text-[11px] text-slate-500 leading-tight flex-1">
           Instances of machines at this center.
         </p>
-        <PrimaryButton onClick={() => setShowNew(true)} className="px-2 py-1.5 text-xs rounded-lg shrink-0">
-          <Plus className="w-3.5 h-3.5" /> Add machine
+        <PrimaryButton onClick={() => setShowNew(true)} className="!px-2 !py-1 !text-[10px] rounded-md shrink-0">
+          <Plus className="w-3 h-3" /> Add machine
         </PrimaryButton>
       </div>
 
@@ -254,31 +254,30 @@ function MachineEditor({
   };
 
   const DEFAULT_MACHINE_TYPES = [
-    { id: 'yantra-leather', name: 'Yantra (Leather Gravity)', ballType: 'Leather' },
-    { id: 'master-200-tennis', name: 'Master 200 (Tennis Leverage)', ballType: 'Tennis' },
+    { id: 'yantra', name: 'Yantra', ballType: 'Leather' },
+    { id: 'gravity', name: 'Gravity', ballType: 'Leather' },
+    { id: 'master-200', name: 'Master200', ballType: 'Leather' },
+    { id: 'leverage-tennis', name: 'Leverage (Tennis)', ballType: 'Tennis' },
   ];
 
   return (
     <form onSubmit={save} className="space-y-3 rounded-xl bg-white/[0.02] border border-white/[0.06] p-3">
-      <div className="grid sm:grid-cols-2 gap-3">
+      <div className="grid grid-cols-2 gap-3">
         {!isEdit && (
           <>
-            <Field label="Machine type" required>
-              <SelectInput value={machineTypeId} onChange={(e) => setMachineTypeId(e.target.value)} required>
-                <option value="">Select type...</option>
-                {DEFAULT_MACHINE_TYPES.map((t) => (
-                  <option key={t.id} value={t.id}>
-                    {t.name}
-                  </option>
-                ))}
-                {types.filter(t => !DEFAULT_MACHINE_TYPES.some(d => d.name === t.name)).map((t) => (
-                  <option key={t.id} value={t.id}>
-                    {t.name}
-                  </option>
-                ))}
-                <option value="OTHER">Other</option>
-              </SelectInput>
-            </Field>
+            <div className={isOther ? 'col-span-1' : 'col-span-2'}>
+              <Field label="Machine type" required>
+                <SelectInput value={machineTypeId} onChange={(e) => setMachineTypeId(e.target.value)} required className="!py-1.5 !text-xs">
+                  <option value="">Select type...</option>
+                  {DEFAULT_MACHINE_TYPES.map((t) => (
+                    <option key={t.id} value={t.id}>
+                      {t.name}
+                    </option>
+                  ))}
+                  <option value="OTHER">Other</option>
+                </SelectInput>
+              </Field>
+            </div>
             {isOther && (
               <Field label="Custom Machine Name" required>
                 <TextInput
@@ -286,16 +285,17 @@ function MachineEditor({
                   value={customType}
                   onChange={(e) => setCustomType(e.target.value)}
                   placeholder="Enter machine type"
+                  className="!py-1.5 !text-xs"
                 />
               </Field>
             )}
           </>
         )}
         <Field label="Display name" required>
-          <TextInput required value={name} onChange={(e) => setName(e.target.value)} placeholder="Yantra 1" />
+          <TextInput required value={name} onChange={(e) => setName(e.target.value)} placeholder="Yantra 1" className="!py-1.5 !text-xs" />
         </Field>
         <Field label="Short name">
-          <TextInput value={shortName} onChange={(e) => setShortName(e.target.value)} placeholder="Yantra" />
+          <TextInput value={shortName} onChange={(e) => setShortName(e.target.value)} placeholder="Yantra" className="!py-1.5 !text-xs" />
         </Field>
       </div>
 

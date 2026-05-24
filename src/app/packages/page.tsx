@@ -643,8 +643,8 @@ export default function PackagesPage() {
                 </div>
                 <div className="grid grid-cols-2 gap-2">
                   {([
-                    { key: 'DAY' as const,     label: 'Day',     sub: '7:00 AM – 5:00 PM',  Icon: Sun },
-                    { key: 'EVENING' as const, label: 'Evening', sub: '7:00 PM – 10:30 PM', Icon: Moon },
+                    { key: 'DAY' as const,     label: 'Day',     sub: '6 a.m. to 6 p.m.',  Icon: Sun },
+                    { key: 'EVENING' as const, label: 'Evening', sub: '6 p.m. to 10:30 p.m.', Icon: Moon },
                   ]).map(t => {
                     const isActive = timingFilter === t.key;
                     return (
@@ -798,7 +798,7 @@ export default function PackagesPage() {
                 <DetailItem
                   label="Timing"
                   value={getTimingLabel(selectedPackage.timingType)}
-                  subValue={selectedPackage.timingType === 'DAY' ? '7:00 AM – 5:00 PM' : selectedPackage.timingType === 'EVENING' ? '7:00 PM – 10:30 PM' : 'Any time'}
+                  subValue={selectedPackage.timingType === 'DAY' ? '6 a.m. to 6 p.m.' : selectedPackage.timingType === 'EVENING' ? '6 p.m. to 10:30 p.m.' : 'Any time'}
                 />
                 <DetailItem label="Sessions (Per Slot: 30 Minutes)" value={`${selectedPackage.totalSessions} Sessions`} />
                 <DetailItem label="Validity" value={`${selectedPackage.validityDays} Days Validity`} />
@@ -1045,11 +1045,12 @@ function PurchasedPackageCard({ pkg }: { pkg: MyPackage }) {
         <PackageFirstBookingBanner packageName={pkg.packageName} />
       )}
       <div className="bg-white/[0.04] backdrop-blur-sm rounded-xl border border-white/[0.08] p-3.5">
-        {/* Header: name, status, category chip, Book CTA */}
+        {/* Header: name, Book CTA */}
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0 flex-1">
             <h3 className="text-sm font-semibold text-white leading-tight mb-1">{pkg.packageName}</h3>
-            <div className="flex items-center gap-2 flex-wrap">
+            {/* Status + Category on the next line as requested */}
+            <div className="flex items-center gap-2 flex-wrap mt-1">
               <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${
                 isActive ? 'bg-green-500/15 text-green-400' :
                 isExpired ? 'bg-red-500/15 text-red-400' :

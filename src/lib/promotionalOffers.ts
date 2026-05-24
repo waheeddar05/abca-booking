@@ -95,13 +95,17 @@ export async function getAllApplicablePromoDiscounts(
       // Check machine IDs (legacy enum) — MACHINE_PITCH centers only
       // Task: only check machineIds if the booking actually uses a machine.
       const isMachineBooking = !category || category === 'MACHINE';
-      if (isMachineBooking && offer.machineIds && offer.machineIds.length > 0 && machineId && !offer.machineIds.includes(machineId as MachineId)) {
-        return false;
+      if (isMachineBooking && offer.machineIds && offer.machineIds.length > 0) {
+        if (!machineId || !offer.machineIds.includes(machineId as MachineId)) {
+          return false;
+        }
       }
 
       // Check pitch types (legacy enum)
-      if (offer.pitchTypes && offer.pitchTypes.length > 0 && pitchType && !offer.pitchTypes.includes(pitchType as PitchType)) {
-        return false;
+      if (offer.pitchTypes && offer.pitchTypes.length > 0) {
+        if (!pitchType || !offer.pitchTypes.includes(pitchType as PitchType)) {
+          return false;
+        }
       }
 
       // Check Machine row IDs (RESOURCE_BASED). If the offer targets a

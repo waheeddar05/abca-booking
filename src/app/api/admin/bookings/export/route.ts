@@ -240,11 +240,11 @@ export async function GET(req: NextRequest) {
       // CASH/PACKAGE bookings → 0 / 0.
       'Wallet Amount',
       'Online Amount',
+      'Payment Method',
       ...(hasPackageBookings ? ['Extra Amount'] : []),
       'Created By',
       'Cancelled By',
       'Cancelled At',
-      'Payment Method',
       'Payment Status',
       'Kit Rental',
       'Kit Rental Charge',

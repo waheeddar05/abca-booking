@@ -125,6 +125,7 @@ interface EditForm {
   pickedResourceIds: string[];
   reason: string;
   appliesTo: 'ALL' | 'SPECIAL' | 'NON_SPECIAL';
+  pitchType: string;
   /** Empty string = "all nets" (legacy); a number = block that many. */
   netCount: string;
 }
@@ -169,6 +170,7 @@ export function ResourceBlockManagement() {
   const [pickedCategories, setPickedCategories] = useState<string[]>([]);
   const [reason, setReason] = useState('');
   const [appliesTo, setAppliesTo] = useState<'ALL' | 'SPECIAL' | 'NON_SPECIAL'>('ALL');
+  const [pitchType, setPitchType] = useState<string>('');
   // Partial cricket-net cap. Only meaningful when NET is in the picked
   // categories AND no specific resources are pinned — admin tells the
   // engine "reserve N nets, leave the rest bookable". Empty string =
@@ -189,6 +191,7 @@ export function ResourceBlockManagement() {
     pickedResourceIds: [],
     reason: '',
     appliesTo: 'ALL',
+    pitchType: '',
     netCount: '',
   });
   const [editLoading, setEditLoading] = useState(false);
@@ -234,6 +237,7 @@ export function ResourceBlockManagement() {
     setPickedCategories([]);
     setReason('');
     setAppliesTo('ALL');
+    setPitchType('');
     setNetCount('');
   };
 
@@ -282,6 +286,7 @@ export function ResourceBlockManagement() {
           machineRowIds: pickedMachineIds,
           resourceIds: pickedResourceIds,
           categories: pickedCategories,
+          pitchType: pitchType || null,
           reason: reason || null,
           appliesTo,
           netCount: netCountParsed,
@@ -333,6 +338,7 @@ export function ResourceBlockManagement() {
       pickedCategories: block.categories || [],
       pickedMachineIds: block.machineRowIds || [],
       pickedResourceIds: block.resourceIds || [],
+      pitchType: block.pitchType || '',
       reason: block.reason || '',
       appliesTo: (block.appliesTo as 'ALL' | 'SPECIAL' | 'NON_SPECIAL') || 'ALL',
       netCount: block.netCount != null ? String(block.netCount) : '',
@@ -382,6 +388,7 @@ export function ResourceBlockManagement() {
           machineRowIds: editForm.pickedMachineIds,
           resourceIds: editForm.pickedResourceIds,
           categories: editForm.pickedCategories,
+          pitchType: editForm.pitchType || null,
           reason: editForm.reason || null,
           appliesTo: editForm.appliesTo,
           netCount: editNetCount,
@@ -543,6 +550,32 @@ export function ResourceBlockManagement() {
             <p className="text-[10px] text-slate-500 mt-1.5">
               Empty = applies every day in the date range.
             </p>
+          </div>
+
+          {/* Pitch Type */}
+          <div className="mb-4">
+            <label className="block text-[10px] font-medium text-slate-400 mb-1.5 uppercase tracking-wider">
+              Pitch Type (optional)
+            </label>
+            <div className="flex flex-wrap gap-1.5">
+              {['ASTRO', 'NATURAL', 'CEMENT'].map((p) => {
+                const selected = pitchType === p;
+                return (
+                  <button
+                    key={p}
+                    type="button"
+                    onClick={() => setPitchType(selected ? '' : p)}
+                    className={`px-2.5 py-1.5 rounded-lg text-[11px] font-medium transition-all cursor-pointer ${
+                      selected
+                        ? 'bg-accent/20 text-accent ring-1 ring-accent/30'
+                        : 'bg-white/[0.04] text-slate-400 hover:bg-white/[0.06]'
+                    }`}
+                  >
+                    {p === 'ASTRO' ? 'Astro Turf' : p === 'NATURAL' ? 'Natural Turf' : 'Cement Wicket'}
+                  </button>
+                );
+              })}
+            </div>
           </div>
 
           {/* Categories */}
@@ -969,6 +1002,32 @@ export function ResourceBlockManagement() {
                         }`}
                       >
                         {DAY_LABELS[day]}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Pitch Type */}
+              <div>
+                <label className="block text-[10px] font-medium text-slate-500 mb-1.5 uppercase tracking-wider">
+                  Pitch Type (optional)
+                </label>
+                <div className="flex flex-wrap gap-1.5">
+                  {['ASTRO', 'NATURAL', 'CEMENT'].map((p) => {
+                    const selected = editForm.pitchType === p;
+                    return (
+                      <button
+                        key={p}
+                        type="button"
+                        onClick={() => setEditForm((f) => ({ ...f, pitchType: selected ? '' : p }))}
+                        className={`px-2.5 py-1.5 rounded-lg text-[11px] font-medium transition-all cursor-pointer ${
+                          selected
+                            ? 'bg-accent/20 text-accent ring-1 ring-accent/30'
+                            : 'bg-white/[0.04] text-slate-400 hover:bg-white/[0.06]'
+                        }`}
+                      >
+                        {p === 'ASTRO' ? 'Astro Turf' : p === 'NATURAL' ? 'Natural Turf' : 'Cement Wicket'}
                       </button>
                     );
                   })}

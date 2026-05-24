@@ -26,6 +26,8 @@ interface StaffSessionItem {
 interface Stats {
   totalBookings: number;
   totalRevenue: number;
+  bookingRevenue: number;
+  packageRevenue: number;
   bookingDistribution: BookingDistributionItem[];
   revenueBreakdown: {
     entries: Array<{
@@ -149,17 +151,7 @@ export default function AdminDashboard() {
       </div>
 
       {/* KPI Summary Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        <AdminStatCard
-          label="Total Bookings"
-          value={stats?.totalBookings ?? 0}
-          icon={CalendarCheck}
-          href="/admin/bookings"
-          gradient="bg-gradient-to-br from-blue-500/20 to-blue-500/5"
-          iconColor="text-blue-400"
-          loading={loading}
-          delay={0}
-        />
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <AdminStatCard
           label="Total Revenue"
           value={stats?.totalRevenue ? `₹${stats.totalRevenue.toLocaleString()}` : '₹0'}
@@ -169,7 +161,29 @@ export default function AdminDashboard() {
           iconColor="text-emerald-400"
           isText
           loading={loading}
+          delay={0}
+        />
+        <AdminStatCard
+          label="Bookings Revenue"
+          value={stats?.bookingRevenue ? `₹${stats.bookingRevenue.toLocaleString()}` : '₹0'}
+          icon={CalendarCheck}
+          href="/admin/bookings"
+          gradient="bg-gradient-to-br from-blue-500/20 to-blue-500/5"
+          iconColor="text-blue-400"
+          isText
+          loading={loading}
           delay={100}
+        />
+        <AdminStatCard
+          label="Package Revenue"
+          value={stats?.packageRevenue ? `₹${stats.packageRevenue.toLocaleString()}` : '₹0'}
+          icon={IndianRupee}
+          href="/admin/packages"
+          gradient="bg-gradient-to-br from-amber-500/20 to-amber-500/5"
+          iconColor="text-amber-400"
+          isText
+          loading={loading}
+          delay={200}
         />
       </div>
 
@@ -227,7 +241,7 @@ export default function AdminDashboard() {
             </div>
           ) : revenueByCategoryData.length > 0 ? (
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={revenueByCategoryData} margin={{ top: 10, right: 10, left: 10, bottom: 20 }}>
+              <BarChart data={revenueByCategoryData} margin={{ top: 10, right: 10, left: 30, bottom: 20 }}>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="rgba(255,255,255,0.05)" />
                 <XAxis 
                   dataKey="name" 
@@ -251,7 +265,7 @@ export default function AdminDashboard() {
                 />
                 <Bar dataKey="revenue" radius={[4, 4, 0, 0]} barSize={40}>
                   {revenueByCategoryData.map((_, index) => (
-                    <Cell key={`cell-${index}`} fill={CHART_COLORS[index % CHART_COLORS.length]} />
+                    <Cell key={`cell-${index}`} fill={CHART_COLORS[0]} />
                   ))}
                 </Bar>
               </BarChart>
@@ -274,7 +288,7 @@ export default function AdminDashboard() {
             </div>
           ) : revenueByMachineData.length > 0 ? (
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={revenueByMachineData} margin={{ top: 10, right: 10, left: 10, bottom: 20 }}>
+              <BarChart data={revenueByMachineData} margin={{ top: 10, right: 10, left: 30, bottom: 20 }}>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="rgba(255,255,255,0.05)" />
                 <XAxis 
                   dataKey="name" 
@@ -297,7 +311,7 @@ export default function AdminDashboard() {
                 />
                 <Bar dataKey="revenue" radius={[4, 4, 0, 0]} barSize={40}>
                   {revenueByMachineData.map((_, index) => (
-                    <Cell key={`cell-${index}`} fill={CHART_COLORS[(index + 2) % CHART_COLORS.length]} />
+                    <Cell key={`cell-${index}`} fill={CHART_COLORS[0]} />
                   ))}
                 </Bar>
               </BarChart>

@@ -113,24 +113,25 @@ export function CenterGeneralTab({
 
   return (
     <form onSubmit={save} className="space-y-4 max-w-4xl">
-      <div className="grid lg:grid-cols-2 gap-6">
+      <div className="grid lg:grid-cols-2 gap-4">
         <div className="space-y-4">
           <Section title="Basics">
-            <div className="grid sm:grid-cols-2 gap-3">
+            <div className="grid grid-cols-2 gap-2">
               <Field label="Name" required>
                 <TextInput
                   required
                   value={form.name}
                   onChange={(e) => set('name', e.target.value)}
+                  className="!py-1.5 !text-xs"
                 />
               </Field>
               <Field label="Slug">
-                <TextInput value={form.slug} disabled />
+                <TextInput value={form.slug} disabled className="!py-1.5 !text-xs opacity-60" />
               </Field>
-              {/* Booking model is intentionally read-only here. */}
               <Field label="Booking model">
                 <TextInput
                   disabled
+                  className="!py-1.5 !text-xs opacity-60"
                   value={form.bookingModel === 'RESOURCE_BASED' ? 'Resource-based' : 'Machine / Pitch'}
                 />
               </Field>
@@ -139,35 +140,37 @@ export function CenterGeneralTab({
                   <SelectInput
                     value={form.isActive ? 'true' : 'false'}
                     onChange={(e) => set('isActive', e.target.value === 'true')}
+                    className="!py-1.5 !text-xs"
                   >
                     <option value="true">Active</option>
                     <option value="false">Inactive</option>
                   </SelectInput>
                 ) : (
-                  <TextInput disabled value={form.isActive ? 'Active' : 'Inactive'} />
+                  <TextInput disabled value={form.isActive ? 'Active' : 'Inactive'} className="!py-1.5 !text-xs opacity-60" />
                 )}
               </Field>
             </div>
           </Section>
 
-          <Section title="Address">
-            <Field label="Postal address">
-              <TextArea
-                rows={2}
-                value={form.addressLine1 ?? ''}
-                onChange={(e) => set('addressLine1', e.target.value || null)}
-                placeholder="Street, area, city, state, pincode"
-              />
-            </Field>
-          </Section>
-
-          <Section title="Landing-page contact">
-            <div className="grid sm:grid-cols-2 gap-3">
+          <Section title="Address & Contact">
+            <div className="grid grid-cols-2 gap-2">
+              <div className="col-span-2">
+                <Field label="Postal address">
+                  <TextArea
+                    rows={1}
+                    value={form.addressLine1 ?? ''}
+                    onChange={(e) => set('addressLine1', e.target.value || null)}
+                    placeholder="Street, area, city, state, pincode"
+                    className="!py-1.5 !text-xs"
+                  />
+                </Field>
+              </div>
               <Field label="Phone">
                 <TextInput
                   value={form.contactPhone ?? ''}
                   onChange={(e) => set('contactPhone', e.target.value || null)}
                   placeholder="9876543210"
+                  className="!py-1.5 !text-xs"
                 />
               </Field>
               <Field label="Email">
@@ -176,21 +179,25 @@ export function CenterGeneralTab({
                   value={form.contactEmail ?? ''}
                   onChange={(e) => set('contactEmail', e.target.value || null)}
                   placeholder="hello@yourcenter.in"
+                  className="!py-1.5 !text-xs"
                 />
               </Field>
-              <Field label="Map URL">
-                <TextInput
-                  type="url"
-                  value={form.mapUrl ?? ''}
-                  onChange={(e) => set('mapUrl', e.target.value || null)}
-                  placeholder="https://maps.app.goo.gl/..."
-                />
-              </Field>
+              <div className="col-span-2">
+                <Field label="Map URL">
+                  <TextInput
+                    type="url"
+                    value={form.mapUrl ?? ''}
+                    onChange={(e) => set('mapUrl', e.target.value || null)}
+                    placeholder="https://maps.app.goo.gl/..."
+                    className="!py-1.5 !text-xs"
+                  />
+                </Field>
+              </div>
             </div>
           </Section>
         </div>
 
-        <div className="space-y-4">
+        <div>
           <Section title="Additional Contacts">
             <ContactPhonesEditor
               value={form.contactPhones ?? []}

@@ -224,6 +224,14 @@ export async function PATCH(req: NextRequest) {
       dataToUpdate.appliesTo = updates.appliesTo;
     }
 
+    // Ensure resource-based targeting axes are preserved if sent
+    if (updates.categories !== undefined) {
+      dataToUpdate.categories = (updates.categories || []) as any;
+    }
+    if (updates.machineRowIds !== undefined) {
+      dataToUpdate.machineRowIds = (updates.machineRowIds || []) as any;
+    }
+
     const offer = await prisma.promotionalOffer.update({
       where: { id },
       data: dataToUpdate,

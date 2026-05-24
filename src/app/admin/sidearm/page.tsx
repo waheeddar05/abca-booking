@@ -17,6 +17,7 @@
  */
 
 import { useEffect, useState } from 'react';
+import { useSession } from 'next-auth/react';
 import { useCenter } from '@/lib/center-context';
 import { Loader2, ArrowUp, ArrowDown, CalendarClock, CalendarRange, Save, Plus, Trash2, Users } from 'lucide-react';
 import { AdminPageHeader } from '@/components/admin/AdminPageHeader';
@@ -39,6 +40,7 @@ type Specialist = {
 const DAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
 export default function AdminSidearmPage() {
+  const { data: session } = useSession();
   const { currentCenter, loading: centerLoading } = useCenter();
   const [specialists, setSpecialists] = useState<Specialist[]>([]);
   const [loading, setLoading] = useState(true);
@@ -52,6 +54,10 @@ export default function AdminSidearmPage() {
     setLoading(true);
     setError(null);
     try {
+      const userRole = (session?.user as any)?.role;
+      const isSidearmSpecialist = userRole === 'SIDEARM_SPECIALIST';
+      const userId = (session?.user as any)?.id;
+
       const r = await fetch(
         `/api/admin/centers/${currentCenter.id}/members?role=SIDEARM_SPECIALIST`,
       );
@@ -59,7 +65,15 @@ export default function AdminSidearmPage() {
         const body = await r.json().catch(() => ({}));
         throw new Error(body?.error || `HTTP ${r.status}`);
       }
-      const list = (await r.json()) as Specialist[];
+      let list = (await r.json()) as Specialist[];
+
+      // If the user is just a sidearm specialist (not an admin), only show
+      // their own row. They can edit their own availability but shouldn't
+      // see or reorder others.
+      if (isSidearmSpecialist && userId) {
+        list = list.filter((s) => s.user.id === userId);
+      }
+
       setSpecialists(list);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to load specialists');

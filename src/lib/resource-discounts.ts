@@ -58,9 +58,8 @@ export function recurringRuleMatches({ rule, startTime, category, machineRowId }
   const ruleEnd = (rule.slotEndTime || rule.slotStartTime).padStart(5, '0');
   if (time < ruleStart || time >= ruleEnd) return false;
   if (rule.categories.length > 0 && !rule.categories.includes(category)) return false;
-  if (rule.machineRowIds.length > 0) {
-    if (!machineRowId) return false;
-    if (!rule.machineRowIds.includes(machineRowId)) return false;
+  if (rule.machineRowIds && rule.machineRowIds.length > 0) {
+    if (!machineRowId || !rule.machineRowIds.includes(machineRowId)) return false;
   }
   return true;
 }

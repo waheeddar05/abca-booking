@@ -137,6 +137,7 @@ export async function GET(req: NextRequest) {
             where: {
               ...centerFilter,
               category: 'MACHINE',
+              status: { in: ['BOOKED', 'DONE'] },
               ...(hasDateFilter ? { date: dateFilter } : {}),
             },
             select: {
@@ -248,7 +249,11 @@ export async function GET(req: NextRequest) {
       (async () => {
         try {
           const bookings = await prisma.booking.findMany({
-            where: { ...centerFilter, ...(hasDateFilter ? { date: dateFilter } : {}) },
+            where: {
+              ...centerFilter,
+              status: { in: ['BOOKED', 'DONE'] },
+              ...(hasDateFilter ? { date: dateFilter } : {}),
+            },
             select: {
               price: true,
               kitRentalCharge: true,
@@ -340,6 +345,7 @@ export async function GET(req: NextRequest) {
           const bookings = await prisma.booking.findMany({
             where: {
               ...centerFilter,
+              status: { in: ['BOOKED', 'DONE'] },
               ...(hasDateFilter ? { date: dateFilter } : {}),
             },
             select: {

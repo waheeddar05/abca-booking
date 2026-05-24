@@ -41,7 +41,6 @@ export const PACKAGE_BALL_OPTIONS = [
 export const PACKAGE_BALL_LABEL: Record<string, string> = {
   LEATHER: 'Leather',
   MACHINE: 'Machine',
-  BOTH:    'Leather + Machine',
 };
 
 // ─── Timing ──────────────────────────────────────────────
@@ -57,7 +56,6 @@ export const PACKAGE_TIMING_OPTIONS = [
 export const PACKAGE_TIMING_LABEL: Record<string, string> = {
   DAY:     'Day',
   EVENING: 'Evening',
-  BOTH:    'Day & Evening',
 };
 
 // ─── Booking Category ────────────────────────────────────
