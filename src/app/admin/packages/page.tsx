@@ -140,11 +140,6 @@ function AdminPackagesLegacy() {
     onConfirm: (value: number) => void;
   } | null>(null);
   const [cancelPackageId, setCancelPackageId] = useState<string | null>(null);
-  // Confirm-delete state for the Available Packages tab. Tracks which
-  // package is in the modal and whether the DELETE request is in flight
-  // so the dialog can show a spinner and block double-clicks.
-  const [deletePackageId, setDeletePackageId] = useState<string | null>(null);
-  const [deletingPackage, setDeletingPackage] = useState(false);
 
   // Center's actual machines, fetched on mount. Drives the Machine
   // dropdowns in the create/edit/assign forms instead of a hard-coded
@@ -428,41 +423,6 @@ function AdminPackagesLegacy() {
     }
   };
 
-  /**
-   * Delete a package. The server hard-deletes when no UserPackage rows
-   * exist; otherwise it flips `isActive=false` so existing purchases +
-   * bookings keep working. The toast wording mirrors which path ran.
-   */
-  const deletePackage = async (id: string) => {
-    setDeletingPackage(true);
-    try {
-      const res = await fetch(`/api/admin/packages/${id}`, { method: 'DELETE' });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        setMessage({ text: data.error || 'Failed to delete package', type: 'error' });
-        return;
-      }
-      if (data.mode === 'soft') {
-        setMessage({ text: 'Package deactivated — existing purchases preserved', type: 'success' });
-      } else {
-        setMessage({ text: 'Package deleted', type: 'success' });
-      }
-      // If we were inline-editing the package we just deleted, drop out
-      // of edit mode so the floating form panel doesn't dangle.
-      if (editingId === id) {
-        setShowForm(false);
-        setEditingId(null);
-        setForm(emptyForm);
-      }
-      setDeletePackageId(null);
-      fetchPackages();
-    } catch (e) {
-      console.error('Delete failed', e);
-      setMessage({ text: 'Internal server error', type: 'error' });
-    } finally {
-      setDeletingPackage(false);
-    }
-  };
 
   const startEdit = (pkg: PackageData) => {
     const storedMachineId = pkg.machineId
@@ -737,7 +697,6 @@ function AdminPackagesLegacy() {
                     machineDisplay={machineDisplay}
                     onEdit={() => startEdit(pkg)}
                     onToggle={() => toggleActive(pkg)}
-                    onDelete={() => setDeletePackageId(pkg.id)}
                     editing={editingId === pkg.id}
                   />
                   {editingId === pkg.id && showForm && (
@@ -1259,23 +1218,6 @@ function AdminPackagesLegacy() {
         onConfirm={() => { const id = cancelPackageId; setCancelPackageId(null); if (id) handleUserAction(id, 'CANCEL'); }}
         onCancel={() => setCancelPackageId(null)}
       />
-      <ConfirmDialog
-        open={!!deletePackageId}
-        title="Delete package?"
-        message={(() => {
-          const target = packages.find((p) => p.id === deletePackageId);
-          const purchased = target?._count?.userPackages ?? 0;
-          if (purchased > 0) {
-            return `This package has ${purchased} active purchase${purchased === 1 ? '' : 's'}. It will be deactivated — existing user packages and their bookings keep working, but no new purchases will be allowed.`;
-          }
-          return `Delete "${target?.name ?? 'this package'}"? This cannot be undone.`;
-        })()}
-        confirmLabel="Delete"
-        variant="danger"
-        loading={deletingPackage}
-        onConfirm={() => { if (deletePackageId) deletePackage(deletePackageId); }}
-        onCancel={() => { if (!deletingPackage) setDeletePackageId(null); }}
-      />
 
       {/* Hide scrollbar on the tab strip */}
       <style jsx>{`
@@ -1301,14 +1243,12 @@ function AdminPackageCard({
   machineDisplay,
   onEdit,
   onToggle,
-  onDelete,
   editing,
 }: {
   pkg: PackageData;
   machineDisplay: (id: string | null) => string;
   onEdit: () => void;
   onToggle: () => void;
-  onDelete: () => void;
   editing: boolean;
 }) {
   // Category label for the resource-aware chip. Defaults to "Bowling

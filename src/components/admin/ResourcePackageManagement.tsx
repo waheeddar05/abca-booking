@@ -132,8 +132,6 @@ export function ResourcePackageManagement() {
   const [submitting, setSubmitting] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState({ ...emptyForm });
-  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
-  const [deleting, setDeleting] = useState(false);
 
   const reload = async () => {
     if (!currentCenter) return;
@@ -315,34 +313,6 @@ export function ResourcePackageManagement() {
     }
   };
 
-  /** Confirm-driven delete. The server returns `mode: 'hard'` when the
-   *  package had no UserPackage rows (truly gone) and `mode: 'soft'`
-   *  when it had at least one purchase (just flipped isActive=false so
-   *  existing user packages keep working). Toast wording mirrors that
-   *  distinction so the admin knows what actually happened. */
-  const handleDelete = async (id: string) => {
-    setDeleting(true);
-    try {
-      const res = await fetch(`/api/admin/packages/${id}`, { method: 'DELETE' });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        throw new Error(data.error || 'Failed to delete package');
-      }
-      if (data.mode === 'soft') {
-        toast.success('Package deactivated — existing purchases preserved');
-      } else {
-        toast.success('Package deleted');
-      }
-      setPackages((prev) => prev.filter((p) => p.id !== id));
-      setConfirmDeleteId(null);
-      // If we were editing the deleted package, drop out of edit mode.
-      if (editingId === id) reset();
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Failed to delete package');
-    } finally {
-      setDeleting(false);
-    }
-  };
 
   if (loading) {
     return (
@@ -722,13 +692,7 @@ export function ResourcePackageManagement() {
                       <Pencil className="w-3.5 h-3.5" />
                       Edit
                     </button>
-                    <button
-                      onClick={() => setConfirmDeleteId(p.id)}
-                      className="p-1.5 text-slate-500 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-colors cursor-pointer"
-                      title="Delete"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
+                    {/* Delete button removed - packages are permanent records */}
                   </div>
                 </div>
               );
@@ -737,23 +701,6 @@ export function ResourcePackageManagement() {
         )}
       </div>
 
-      <ConfirmDialog
-        open={confirmDeleteId !== null}
-        title="Delete package?"
-        message={(() => {
-          const target = packages.find((p) => p.id === confirmDeleteId);
-          const purchased = target?._count?.userPackages ?? 0;
-          if (purchased > 0) {
-            return `This package has ${purchased} active purchase${purchased === 1 ? '' : 's'}. It will be deactivated — existing user packages and their bookings keep working, but no new purchases will be allowed.`;
-          }
-          return `Delete "${target?.name ?? 'this package'}"? This cannot be undone.`;
-        })()}
-        confirmLabel="Delete"
-        variant="danger"
-        loading={deleting}
-        onCancel={() => { if (!deleting) setConfirmDeleteId(null); }}
-        onConfirm={() => { if (confirmDeleteId) handleDelete(confirmDeleteId); }}
-      />
     </div>
   );
 }
