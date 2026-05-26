@@ -91,8 +91,8 @@ export function CenterMachinesTab({ centerId }: { centerId: string }) {
         <p className="text-[11px] text-slate-500 leading-tight flex-1">
           Instances of machines at this center.
         </p>
-        <PrimaryButton onClick={() => setShowNew(true)} className="!px-2 !py-1 !text-[10px] rounded-md shrink-0">
-          <Plus className="w-3 h-3" /> Add machine
+        <PrimaryButton onClick={() => setShowNew(true)} className="!px-1.5 !py-1 !text-[9px] rounded-md shrink-0">
+          <Plus className="w-2.5 h-2.5" /> Add machine
         </PrimaryButton>
       </div>
 
@@ -108,7 +108,7 @@ export function CenterMachinesTab({ centerId }: { centerId: string }) {
       {machines.length === 0 ? (
         <div className="text-center text-slate-500 py-6 text-sm">No machines configured yet.</div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
           {machines.map((m) => (
             <div key={m.id} className="rounded-xl bg-white/[0.02] border border-white/[0.06] p-2.5">
               {editingId === m.id ? (

@@ -166,7 +166,7 @@ export default function CenterEditPage({ params }: { params: Promise<{ id: strin
             <button
               key={key}
               onClick={() => setTab(key)}
-              className={`flex flex-col sm:flex-row items-center justify-center gap-0.5 sm:gap-1.5 px-1.5 sm:px-3 py-2 rounded-t-lg text-[9px] sm:text-xs font-medium whitespace-nowrap transition-colors cursor-pointer flex-1 min-w-0 ${
+              className={`flex flex-col sm:flex-row items-center justify-center gap-0.5 sm:gap-1 px-1 sm:px-2 py-2 rounded-t-lg text-[8px] sm:text-xs font-medium whitespace-nowrap transition-colors cursor-pointer flex-1 min-w-0 ${
                 active
                   ? 'bg-accent/10 text-accent border-b-2 border-accent'
                   : 'text-slate-400 hover:text-slate-200 hover:bg-white/[0.04]'

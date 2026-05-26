@@ -134,11 +134,11 @@ export function CenterMembersTab({ centerId }: { centerId: string }) {
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap justify-between items-center gap-2">
-        <div className="flex items-center gap-1.5 flex-wrap flex-1 min-w-0">
+        <div className="flex flex-wrap items-center gap-1.5 flex-1 min-w-0">
           <SelectInput
             value={filter}
             onChange={(e) => setFilter(e.target.value as MembershipRole | 'ALL')}
-            className="!w-auto !py-1.5 !text-xs"
+            className="!w-auto !py-1 !text-[10px]"
           >
             <option value="ALL">All roles</option>
             <option value="ADMIN">Admins</option>
@@ -147,18 +147,18 @@ export function CenterMembersTab({ centerId }: { centerId: string }) {
             <option value="SIDEARM_SPECIALIST">Sidearm</option>
             <option value="GROUND_STAFF">Ground</option>
           </SelectInput>
-          <form onSubmit={(e) => { e.preventDefault(); refresh(); }} className="flex items-center gap-1.5 flex-1 min-w-[200px]">
+          <form onSubmit={(e) => { e.preventDefault(); refresh(); }} className="flex items-center gap-1.5 flex-1 min-w-[150px]">
             <TextInput
               value={q}
               onChange={(e) => setQ(e.target.value)}
               placeholder="Search..."
-              className="flex-1 !py-1.5 !text-xs"
+              className="flex-1 !py-1 !text-[10px]"
             />
-            <SecondaryButton type="submit" className="px-2.5 py-1.5 text-xs">Search</SecondaryButton>
+            <SecondaryButton type="submit" className="px-2 py-1 text-[10px]">Search</SecondaryButton>
           </form>
         </div>
-        <PrimaryButton onClick={() => setShowNew(true)} className="!px-2.5 !py-1 !text-[10px] rounded-md">
-          <UserPlus className="w-3.5 h-3.5" /> Assign
+        <PrimaryButton onClick={() => setShowNew(true)} className="!px-2 !py-1 !text-[9px] rounded-md shrink-0">
+          <UserPlus className="w-3 h-3" /> Assign
         </PrimaryButton>
       </div>
 
@@ -178,7 +178,7 @@ export function CenterMembersTab({ centerId }: { centerId: string }) {
       ) : members.length === 0 ? (
         <div className="text-center text-slate-500 py-6 text-sm">No members yet.</div>
       ) : (
-        <div className="space-y-2">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
           {groupByUser(members).map((group) => (
             <UserMembershipsRow
               key={group.userId}

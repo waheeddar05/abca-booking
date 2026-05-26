@@ -71,17 +71,10 @@ export function CenterGeneralTab({
     setMsg(null);
     setSaving(true);
     try {
-      // The simplified form only touches the fields we actually expose.
-      // `bookingModel` and `isActive` are super-admin-only on the API;
-      // strip them when the caller isn't a super admin so the save
-      // doesn't 403 on those fields.
       const payload: Record<string, unknown> = {
         name: form.name,
         addressLine1: form.addressLine1 || null,
         contactPhone: form.contactPhone || null,
-        // Strip blank rows so a half-filled "Add contact" doesn't
-        // overwrite the saved list with an empty-number entry. When
-        // every row is blank we send null to fall back to contactPhone.
         contactPhones: (() => {
           const cleaned = (form.contactPhones ?? [])
             .map((c) => ({ name: (c.name ?? '').trim() || null, number: (c.number ?? '').trim() }))
@@ -113,42 +106,34 @@ export function CenterGeneralTab({
 
   return (
     <form onSubmit={save} className="space-y-4 max-w-4xl">
-      <div className="grid lg:grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div className="space-y-4">
           <Section title="Basics">
             <div className="grid grid-cols-2 gap-2">
-              <Field label="Name" required>
-                <TextInput
-                  required
-                  value={form.name}
-                  onChange={(e) => set('name', e.target.value)}
-                  className="!py-1.5 !text-xs"
-                />
-              </Field>
-              <Field label="Slug">
-                <TextInput value={form.slug} disabled className="!py-1.5 !text-xs opacity-60" />
-              </Field>
-              <Field label="Booking model">
-                <TextInput
-                  disabled
-                  className="!py-1.5 !text-xs opacity-60"
-                  value={form.bookingModel === 'RESOURCE_BASED' ? 'Resource-based' : 'Machine / Pitch'}
-                />
-              </Field>
-              <Field label="Status">
-                {isSuperAdmin ? (
-                  <SelectInput
-                    value={form.isActive ? 'true' : 'false'}
-                    onChange={(e) => set('isActive', e.target.value === 'true')}
+              <div className="col-span-2 sm:col-span-1">
+                <Field label="Name" required>
+                  <TextInput
+                    required
+                    value={form.name}
+                    onChange={(e) => set('name', e.target.value)}
                     className="!py-1.5 !text-xs"
-                  >
-                    <option value="true">Active</option>
-                    <option value="false">Inactive</option>
-                  </SelectInput>
-                ) : (
-                  <TextInput disabled value={form.isActive ? 'Active' : 'Inactive'} className="!py-1.5 !text-xs opacity-60" />
-                )}
-              </Field>
+                  />
+                </Field>
+              </div>
+              {isSuperAdmin && (
+                <div className="col-span-2 sm:col-span-1">
+                  <Field label="Status">
+                    <SelectInput
+                      value={form.isActive ? 'true' : 'false'}
+                      onChange={(e) => set('isActive', e.target.value === 'true')}
+                      className="!py-1.5 !text-xs"
+                    >
+                      <option value="true">Active</option>
+                      <option value="false">Inactive</option>
+                    </SelectInput>
+                  </Field>
+                </div>
+              )}
             </div>
           </Section>
 
@@ -156,8 +141,7 @@ export function CenterGeneralTab({
             <div className="grid grid-cols-2 gap-2">
               <div className="col-span-2">
                 <Field label="Postal address">
-                  <TextArea
-                    rows={1}
+                  <TextInput
                     value={form.addressLine1 ?? ''}
                     onChange={(e) => set('addressLine1', e.target.value || null)}
                     placeholder="Street, area, city, state, pincode"

@@ -58,6 +58,9 @@ export const PACKAGE_TIMING_LABEL: Record<string, string> = {
   EVENING: 'Evening',
 };
 
+export const PACKAGE_TIMING_DAY_LABEL = '6 a.m. to 6 p.m.';
+export const PACKAGE_TIMING_EVENING_LABEL = '6 p.m. to 10:30 p.m.';
+
 // ─── Booking Category ────────────────────────────────────
 // Surfaced as a column in the packages CSV and in the user-style
 // admin cards. Mirrors the labels used by the booking export so the

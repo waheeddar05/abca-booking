@@ -381,6 +381,7 @@ export async function POST(req: NextRequest) {
             booking,
             initiatedByUserId: admin.id,
             initiatedByName: cancelledByName,
+            requestedRefundMethod: 'WALLET', // Force refund to wallet as requested
           });
           if (refund) {
             refundResults.push({

@@ -40,7 +40,6 @@ const CATEGORY_OPTIONS = [
 const TIMING_OPTIONS = [
   { id: 'DAY', label: 'Day' },
   { id: 'EVENING', label: 'Evening' },
-  { id: 'BOTH', label: 'Any time' },
 ];
 
 interface CenterMachineLite {
@@ -95,20 +94,20 @@ const emptyForm = {
   name: '',
   category: 'MACHINE' as string,
   machineRowId: '' as string,
-  timingType: 'BOTH' as string,
+  timingType: 'DAY' as string,
   totalSessions: 4,
   validityDays: 30,
   price: 1000,
   // Ball type the package covers for MACHINE category. MACHINE = the
-  // package is for machine-balls only; LEATHER = leather-balls only;
-  // BOTH = either. Mirrors ABCA's `Package.ballType`. Only meaningful
+  // package is for machine-balls only; LEATHER = leather-balls only.
+  // Mirrors ABCA's `Package.ballType`. Only meaningful
   // when category=MACHINE; ignored for SIDEARM/COACHING/etc.
-  ballType: 'BOTH' as string,
+  ballType: 'MACHINE' as string,
   // Wicket type the package covers. ASTRO/CEMENT/NATURAL pin to a
-  // specific pitch; BOTH = any. Only meaningful when category uses
+  // specific pitch. Only meaningful when category uses
   // a pitch (MACHINE / SIDEARM / NET). Mirrors ABCA's
   // `Package.wicketType`.
-  wicketType: 'BOTH' as string,
+  wicketType: 'ASTRO' as string,
   // Per-slot extra charge when a DAY package is redeemed against an
   // evening slot. Mirrors ABCA's `extraChargeRules.timingUpgrade`.
   // Default 0 = no upgrade fee (DAY packages can't cover evening).
@@ -216,7 +215,6 @@ export function ResourcePackageManagement() {
       }
       if (
         wicketRelevantCategories.has(form.category)
-        && form.wicketType !== 'BOTH'
       ) {
         // Keep only paths that *start* at the package's wicketType
         // (upgrading FROM that pitch to a higher tier). Drops stale
@@ -289,9 +287,9 @@ export function ResourcePackageManagement() {
       name: p.name,
       category: (p.category ?? 'MACHINE') as string,
       machineRowId: p.machineRowId ?? '',
-      ballType: (p.ballType ?? 'BOTH') as string,
-      wicketType: (p.wicketType ?? 'BOTH') as string,
-      timingType: p.timingType,
+      ballType: (p.ballType ?? 'MACHINE') as string,
+      wicketType: (p.wicketType ?? 'ASTRO') as string,
+      timingType: p.timingType ?? 'DAY',
       totalSessions: p.totalSessions,
       validityDays: p.validityDays,
       price: p.price,
@@ -470,7 +468,6 @@ export function ResourcePackageManagement() {
                 onChange={(e) => setForm({ ...form, ballType: e.target.value })}
                 className={inputClass}
               >
-                <option value="BOTH" className="bg-[#1a2a40]">Leather + Machine</option>
                 <option value="MACHINE" className="bg-[#1a2a40]">Machine</option>
                 <option value="LEATHER" className="bg-[#1a2a40]">Leather</option>
               </select>
@@ -509,7 +506,6 @@ export function ResourcePackageManagement() {
                 onChange={(e) => setForm({ ...form, wicketType: e.target.value })}
                 className={inputClass}
               >
-                <option value="BOTH"    className="bg-[#1a2a40]">Any wicket</option>
                 <option value="ASTRO"   className="bg-[#1a2a40]">{PACKAGE_WICKET_LABEL.ASTRO}</option>
                 <option value="CEMENT"  className="bg-[#1a2a40]">{PACKAGE_WICKET_LABEL.CEMENT}</option>
                 <option value="NATURAL" className="bg-[#1a2a40]">{PACKAGE_WICKET_LABEL.NATURAL}</option>
@@ -519,7 +515,6 @@ export function ResourcePackageManagement() {
 
           {/* Wicket upgrade paths */}
           {(form.category === 'MACHINE' || form.category === 'SIDEARM' || form.category === 'NET')
-            && form.wicketType !== 'BOTH'
             && WICKET_UPGRADE_PATHS.some((p) => p.from === form.wicketType) && (
             <div className="mt-3">
               <label className="block text-[11px] font-medium text-slate-400 mb-1">

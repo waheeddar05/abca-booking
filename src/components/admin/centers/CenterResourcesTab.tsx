@@ -99,8 +99,8 @@ export function CenterResourcesTab({ centerId }: { centerId: string }) {
               {showInactive ? 'Hide' : `Show (${inactiveCount})`}
             </SecondaryButton>
           )}
-          <PrimaryButton onClick={() => setShowNew(true)} className="!px-2 !py-1 !text-[10px] rounded-md">
-            <Plus className="w-3 h-3" /> Add resource
+          <PrimaryButton onClick={() => setShowNew(true)} className="!px-1.5 !py-1 !text-[9px] rounded-md">
+            <Plus className="w-2.5 h-2.5" /> Add resource
           </PrimaryButton>
         </div>
       </div>

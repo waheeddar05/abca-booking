@@ -30,6 +30,8 @@ import { useCenter } from '@/lib/center-context';
 import {
   PACKAGE_CATEGORY_LABEL,
   PACKAGE_TIMING_LABEL,
+  PACKAGE_TIMING_DAY_LABEL,
+  PACKAGE_TIMING_EVENING_LABEL,
   PACKAGE_WICKET_LABEL,
   packageCategoryLabel,
   categoryUsesBallType,
@@ -643,8 +645,8 @@ export default function PackagesPage() {
                 </div>
                 <div className="grid grid-cols-2 gap-2">
                   {([
-                    { key: 'DAY' as const,     label: 'Day',     sub: '6 a.m. to 6 p.m.',  Icon: Sun },
-                    { key: 'EVENING' as const, label: 'Evening', sub: '6 p.m. to 10:30 p.m.', Icon: Moon },
+                    { key: 'DAY' as const,     label: 'Day',     sub: PACKAGE_TIMING_DAY_LABEL,  Icon: Sun },
+                    { key: 'EVENING' as const, label: 'Evening', sub: PACKAGE_TIMING_EVENING_LABEL, Icon: Moon },
                   ]).map(t => {
                     const isActive = timingFilter === t.key;
                     return (
@@ -1049,8 +1051,7 @@ function PurchasedPackageCard({ pkg }: { pkg: MyPackage }) {
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0 flex-1">
             <h3 className="text-sm font-semibold text-white leading-tight mb-1">{pkg.packageName}</h3>
-            {/* Status + Category on the next line as requested */}
-            <div className="flex items-center gap-2 flex-wrap mt-1">
+            <div className="flex items-center gap-2 flex-wrap">
               <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${
                 isActive ? 'bg-green-500/15 text-green-400' :
                 isExpired ? 'bg-red-500/15 text-red-400' :

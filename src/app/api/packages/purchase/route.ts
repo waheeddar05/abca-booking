@@ -33,7 +33,10 @@ export async function POST(req: NextRequest) {
         userId: user.id,
         packageId: pkg.id,
         status: 'ACTIVE',
-        expiryDate: { gte: now },
+        OR: [
+          { expiryDate: null },
+          { expiryDate: { gte: now } },
+        ],
       },
     });
 
