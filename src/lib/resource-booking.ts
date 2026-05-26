@@ -169,7 +169,7 @@ export interface AvailabilityWindow {
 
 /** A date-range availability window. Mirrors MembershipDateAvailability
  *  but with HH:MM/yyyy-mm-dd strings the engine can compare cheaply. */
-interface DateAvailabilityWindow {
+export interface DateAvailabilityWindow {
   fromDate: Date;
   toDate: Date;
   startTime: string | null; // HH:MM IST, null = all day
@@ -976,6 +976,7 @@ export function evaluateBlockForBooking(
     category: BookingCategory;
     machineRowId?: string | null;
     resourceIds: string[];
+    pitchType?: string | null;
   },
   audience: 'ALL' | 'SPECIAL' | 'NON_SPECIAL' = 'ALL',
 ): string | null {
