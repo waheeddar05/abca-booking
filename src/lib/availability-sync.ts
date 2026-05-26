@@ -1,10 +1,9 @@
 import { prisma } from '@/lib/prisma';
 import { getISTTime, formatIST } from '@/lib/time';
-import { slotMatchesMembershipAvailability } from '@/lib/resource-booking';
+import { slotMatchesMembershipAvailability, type AvailabilityWindow, type DateAvailabilityWindow } from '@/lib/resource-booking';
 import { adjustSiblingPricesForCancellation, processCancellationRefund } from '@/lib/booking-cancellation';
 import { notifyBookingCancelled } from '@/lib/notifications';
 import { log } from '@/lib/logger';
-import type { AvailabilityWindow, DateAvailabilityWindow } from '@prisma/client';
 
 /**
  * Checks for future bookings of a coach/staff member that are no longer
