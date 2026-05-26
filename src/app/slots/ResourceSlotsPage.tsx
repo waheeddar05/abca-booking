@@ -1549,14 +1549,14 @@ export default function ResourceSlotsPage() {
                 <label className="block text-[10px] font-medium text-accent mb-1.5 uppercase tracking-wider">
                   Operation Mode
                 </label>
-                <div className="flex gap-2">
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                   <button
                     type="button"
                     onClick={() => setOperationMode('WITH_OPERATOR')}
-                    className={`flex-1 px-3 py-2.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+                    className={`flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg text-xs font-semibold transition-all cursor-pointer border ${
                       operationMode === 'WITH_OPERATOR'
-                        ? 'bg-accent text-primary shadow-sm'
-                        : 'bg-white/[0.04] text-slate-400 border border-white/[0.08] hover:border-accent/20'
+                        ? 'bg-accent text-primary border-accent shadow-sm'
+                        : 'bg-white/[0.04] text-slate-400 border-white/[0.08] hover:border-accent/20'
                     }`}
                   >
                     With Operator
@@ -1564,10 +1564,10 @@ export default function ResourceSlotsPage() {
                   <button
                     type="button"
                     onClick={() => setOperationMode('SELF_OPERATE')}
-                    className={`flex-1 px-3 py-2.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+                    className={`flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg text-xs font-semibold transition-all cursor-pointer border ${
                       operationMode === 'SELF_OPERATE'
-                        ? 'bg-accent text-primary shadow-sm'
-                        : 'bg-white/[0.04] text-slate-400 border border-white/[0.08] hover:border-accent/20'
+                        ? 'bg-accent text-primary border-accent shadow-sm'
+                        : 'bg-white/[0.04] text-slate-400 border-white/[0.08] hover:border-accent/20'
                     }`}
                   >
                     Self Operate
@@ -2305,10 +2305,10 @@ function ChipSelector({
             <button
               key={opt.id}
               onClick={() => onChange(opt.id)}
-              className={`flex-1 flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg text-xs font-semibold transition-all cursor-pointer min-w-0 text-center ${
+              className={`flex-1 flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg text-xs font-semibold transition-all cursor-pointer border min-w-0 text-center ${
                 active
-                  ? 'bg-accent text-primary shadow-sm'
-                  : 'bg-white/[0.04] text-slate-400 border border-white/[0.08] hover:border-accent/20'
+                  ? 'bg-accent text-primary border-accent shadow-sm'
+                  : 'bg-white/[0.04] text-slate-400 border-white/[0.08] hover:border-accent/20'
               }`}
             >
               <span className="truncate">{opt.label}</span>
@@ -2353,10 +2353,10 @@ function PeoplePicker({
               <button
                 key={p.userId}
                 onClick={() => onChange(p.userId)}
-                className={`flex items-center justify-start gap-2 px-3 py-2.5 rounded-lg text-xs font-semibold transition-all cursor-pointer min-w-0 text-left ${
+                className={`flex items-center justify-start gap-2 px-3 py-2.5 rounded-lg text-xs font-semibold transition-all cursor-pointer border min-w-0 text-left ${
                   active
-                    ? 'bg-accent text-primary shadow-sm'
-                    : 'bg-white/[0.04] text-slate-400 border border-white/[0.08] hover:border-accent/20'
+                    ? 'bg-accent text-primary border-accent shadow-sm'
+                    : 'bg-white/[0.04] text-slate-400 border-white/[0.08] hover:border-accent/20'
                 }`}
               >
                 <div className={`w-7 h-7 rounded-md flex items-center justify-center flex-shrink-0 ${

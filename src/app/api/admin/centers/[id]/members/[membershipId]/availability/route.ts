@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { prisma } from '@/lib/prisma';
 import { getAuthenticatedUser, hasMembershipRole } from '@/lib/auth';
 import { sanitizeApiError } from '@/lib/api-errors';
+import { autoCancelImpactedBookings } from '@/lib/availability-sync';
 
 /**
  * Weekly recurring availability schedule for a coach or sidearm
@@ -110,10 +111,22 @@ export async function PUT(req: NextRequest, ctx: { params: Promise<Params> }) {
       return NextResponse.json({ error: 'Validation failed', issues: parsed.error.issues }, { status: 400 });
     }
 
-    // Replace all rows for this membership in a single transaction. We
-    // hard-delete instead of toggling isActive so the table doesn't
-    // accumulate stale rows after repeated edits — admins always see a
-    // clean current schedule.
+    const newWeekly = parsed.data.windows.map((w) => ({
+      membershipId,
+      dayOfWeek: w.dayOfWeek,
+      startTime: w.startTime,
+      endTime: w.endTime,
+      isActive: true,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    } as any));
+
+    // Fetch existing date ranges to keep them in the availability check
+    const existingDateRanges = await prisma.membershipDateAvailability.findMany({
+      where: { membershipId, isActive: true },
+    });
+
+    // Replace all rows for this membership in a single transaction.
     await prisma.$transaction([
       prisma.membershipAvailability.deleteMany({ where: { membershipId } }),
       ...(parsed.data.windows.length > 0
@@ -129,6 +142,16 @@ export async function PUT(req: NextRequest, ctx: { params: Promise<Params> }) {
           ]
         : []),
     ]);
+
+    // Check for impacted bookings and auto-cancel
+    await autoCancelImpactedBookings({
+      membershipId,
+      centerId,
+      adminUserId: user.id,
+      adminName: user.name || user.id,
+      newWeekly,
+      newDateRanges: existingDateRanges,
+    });
 
     const rows = await prisma.membershipAvailability.findMany({
       where: { membershipId },

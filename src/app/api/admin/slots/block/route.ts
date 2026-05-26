@@ -231,6 +231,7 @@ export async function POST(req: NextRequest) {
         where.OR = [
           { ballType: { in: ['LEATHER', 'MACHINE'] } },
           { machineId: { in: LEATHER_MACHINES } },
+          { assignedMachineId: { not: null } }
         ];
       } else {
         where.ballType = 'TENNIS';
@@ -261,12 +262,10 @@ export async function POST(req: NextRequest) {
         effectiveCategories.add('NET');
         effectiveCategories.add('SIDEARM');
         effectiveCategories.add('MACHINE');
+        effectiveCategories.add('COACHING');
 
-        // Full-court blocks only restrict indoor wickets (Astro/Cement).
-        // Ensure natural turf bookings are NOT cancelled by this block
-        // by adding a status filter or an explicit pitchType filter.
-        // Task refinement: If the block itself specifies a pitch, use that.
-        // Otherwise, default to the indoor pool for Full Court.
+        // Full-court blocks ONLY restrict indoor wickets (Astro/Cement).
+        // Natural turf bookings are NOT cancelled by this block.
         if (!pitchType && !where.pitchType) {
           where.pitchType = { in: ['ASTRO', 'CEMENT'] };
         }

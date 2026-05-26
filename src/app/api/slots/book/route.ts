@@ -394,14 +394,20 @@ export async function executeSlotBooking(
       const istTimeStr = getISTTime(slot.startTime);
       const slotPitchType = slot.pitchType;
 
-      const matchesRule = (rule: typeof recurringDiscountRules[0]) => {
+      const matchesRule = (rule: any) => {
         if (!rule.days.includes(dayOfWeek)) return false;
         const ruleStartTime = rule.slotStartTime.padStart(5, '0');
         const ruleEndTime = (rule.slotEndTime || rule.slotStartTime).padStart(5, '0');
         if (istTimeStr < ruleStartTime || istTimeStr >= ruleEndTime) return false;
         if (rule.machineIds && rule.machineIds.length > 0 && firstMachineId && !rule.machineIds.includes(firstMachineId)) return false;
-        const rulePitchTypes = (rule as Record<string, unknown>).pitchTypes as string[] | undefined;
+        const rulePitchTypes = rule.pitchTypes as string[] | undefined;
         if (rulePitchTypes && rulePitchTypes.length > 0 && slotPitchType && !rulePitchTypes.includes(slotPitchType)) return false;
+
+        // Category axis: ABCA bookings are always MACHINE. If the rule targets categories
+        // and doesn't include MACHINE, it shouldn't apply here.
+        const ruleCategories = rule.categories as string[] | undefined;
+        if (ruleCategories && ruleCategories.length > 0 && !ruleCategories.includes('MACHINE')) return false;
+
         return true;
       };
 

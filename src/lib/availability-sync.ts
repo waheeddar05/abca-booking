@@ -1,0 +1,143 @@
+import { prisma } from '@/lib/prisma';
+import { getISTTime, formatIST } from '@/lib/time';
+import { slotMatchesMembershipAvailability } from '@/lib/resource-booking';
+import { adjustSiblingPricesForCancellation, processCancellationRefund } from '@/lib/booking-cancellation';
+import { notifyBookingCancelled } from '@/lib/notifications';
+import { log } from '@/lib/logger';
+import type { AvailabilityWindow, DateAvailabilityWindow } from '@prisma/client';
+
+/**
+ * Checks for future bookings of a coach/staff member that are no longer
+ * compatible with their updated availability, cancels them, and issues
+ * a wallet refund.
+ */
+export async function autoCancelImpactedBookings(opts: {
+  membershipId: string;
+  centerId: string;
+  adminUserId: string;
+  adminName: string;
+  newWeekly?: AvailabilityWindow[];
+  newDateRanges?: DateAvailabilityWindow[];
+}) {
+  const { membershipId, centerId, adminUserId, adminName, newWeekly, newDateRanges } = opts;
+
+  // 1. Resolve the membership to get the user ID
+  const membership = await prisma.centerMembership.findUnique({
+    where: { id: membershipId },
+    select: { userId: true, role: true },
+  });
+  if (!membership) return;
+
+  // 2. Fetch future BOOKED bookings assigned to this member
+  const now = getISTTime();
+  const bookings = await prisma.booking.findMany({
+    where: {
+      centerId,
+      status: 'BOOKED',
+      startTime: { gte: now },
+      OR: [
+        { assignedCoachId: membership.userId },
+        { assignedStaffId: membership.userId },
+      ],
+    },
+  });
+
+  if (bookings.length === 0) return;
+
+  // 3. For each booking, check if it fits the NEW availability
+  for (const booking of bookings) {
+    const slot = {
+      date: new Date(booking.date),
+      startTime: new Date(booking.startTime),
+      endTime: new Date(booking.endTime),
+    };
+
+    const isStillAvailable = slotMatchesMembershipAvailability(
+      slot,
+      newWeekly || [],
+      newDateRanges || []
+    );
+
+    if (!isStillAvailable) {
+      await cancelAndRefundBooking({
+        booking,
+        adminUserId,
+        adminName,
+      });
+    }
+  }
+}
+
+async function cancelAndRefundBooking(opts: {
+  booking: any;
+  adminUserId: string;
+  adminName: string;
+}) {
+  const { booking, adminUserId, adminName } = opts;
+  const ctx = {
+    op: 'booking.autocancel.availability_change',
+    bookingId: booking.id,
+    userId: booking.userId,
+    centerId: booking.centerId,
+  };
+
+  try {
+    const cancelReason = `Cancelled due to change in specialist availability (Admin: ${adminName})`;
+
+    // Cancel the booking
+    await prisma.booking.update({
+      where: { id: booking.id },
+      data: {
+        status: 'CANCELLED',
+        cancelledBy: adminName,
+        cancellationReason: cancelReason,
+      },
+    });
+
+    // Reprice siblings if needed
+    await adjustSiblingPricesForCancellation(booking);
+
+    // Refund to wallet (default behavior for admin-initiated auto-cancel)
+    const refundResult = await processCancellationRefund({
+      booking,
+      initiatedByUserId: adminUserId,
+      initiatedByName: adminName,
+      requestedRefundMethod: 'WALLET',
+    });
+
+    // Notify user
+    if (booking.userId) {
+      const dateStr = formatIST(new Date(booking.date), 'EEE, dd MMM yyyy');
+      const timeStr = formatIST(new Date(booking.startTime), 'hh:mm a');
+      const endStr = formatIST(new Date(booking.endTime), 'hh:mm a');
+
+      const lines = [
+        `Specialist Availability Changed`,
+        `${dateStr} | ${timeStr} – ${endStr}`,
+        `Reason: ${cancelReason}`,
+      ];
+
+      let refundInfo: string | undefined;
+      if (refundResult) {
+        refundInfo = refundResult.method === 'WALLET'
+          ? `Refund: ₹${refundResult.amount} credited to wallet (Balance: ₹${refundResult.newBalance})`
+          : `Refund: ₹${refundResult.amount} will be credited to your bank`;
+      }
+
+      const user = await prisma.user.findUnique({
+        where: { id: booking.userId },
+        select: { mobileNumber: true, mobileVerified: true },
+      });
+
+      await notifyBookingCancelled(booking.userId, {
+        message: lines.join(' | '),
+        mobileNumber: user?.mobileVerified ? user.mobileNumber : null,
+        refundInfo,
+      });
+    }
+
+    log.info(ctx, `Auto-cancelled booking ${booking.id} due to availability change`);
+  } catch (err) {
+    log.error(ctx, `Failed to auto-cancel booking ${booking.id}`, err);
+  }
+}

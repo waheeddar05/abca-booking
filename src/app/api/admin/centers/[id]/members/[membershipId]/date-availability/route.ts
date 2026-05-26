@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { prisma } from '@/lib/prisma';
 import { getAuthenticatedUser, hasMembershipRole } from '@/lib/auth';
 import { sanitizeApiError } from '@/lib/api-errors';
+import { autoCancelImpactedBookings } from '@/lib/availability-sync';
 
 /**
  * Date-range availability for a coach or sidearm specialist
@@ -116,9 +117,25 @@ export async function PUT(req: NextRequest, ctx: { params: Promise<Params> }) {
       return NextResponse.json({ error: 'Validation failed', issues: parsed.error.issues }, { status: 400 });
     }
 
+    const newDateRanges = parsed.data.windows.map((w) => ({
+      membershipId,
+      fromDate: new Date(`${w.fromDate}T00:00:00.000Z`),
+      toDate: new Date(`${w.toDate}T00:00:00.000Z`),
+      startTime: w.startTime || null,
+      endTime: w.endTime || null,
+      label: w.label || null,
+      isActive: true,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    } as any));
+
+    // Fetch existing weekly availability to keep it in the check
+    const existingWeekly = await prisma.membershipAvailability.findMany({
+      where: { membershipId, isActive: true },
+    });
+
     // Replace-all semantics — same approach as the recurring availability
-    // sibling endpoint. Hard delete the old rows so admin never sees a
-    // mix of stale + current entries on edit.
+    // sibling endpoint.
     await prisma.$transaction([
       prisma.membershipDateAvailability.deleteMany({ where: { membershipId } }),
       ...(parsed.data.windows.length > 0
@@ -136,6 +153,16 @@ export async function PUT(req: NextRequest, ctx: { params: Promise<Params> }) {
           ]
         : []),
     ]);
+
+    // Check for impacted bookings and auto-cancel
+    await autoCancelImpactedBookings({
+      membershipId,
+      centerId,
+      adminUserId: user.id,
+      adminName: user.name || user.id,
+      newWeekly: existingWeekly,
+      newDateRanges,
+    });
 
     const rows = await prisma.membershipDateAvailability.findMany({
       where: { membershipId },

@@ -373,13 +373,13 @@ function RecurringAvailabilityEditor({
           always available unless a date range below restricts them.
         </p>
       ) : (
-        <div className="space-y-1.5">
+        <div className="space-y-1.5 overflow-x-auto pb-1">
           {windows.map((w, i) => (
-            <div key={i} className="grid grid-cols-[auto_auto_auto_auto] gap-2 items-center">
+            <div key={i} className="flex flex-wrap sm:grid sm:grid-cols-[1fr_auto_auto_auto] gap-2 items-center min-w-[300px]">
               <select
                 value={w.dayOfWeek}
                 onChange={(e) => update(i, { dayOfWeek: Number(e.target.value) })}
-                className="bg-white/[0.04] border border-white/[0.1] text-white rounded-lg px-2 py-1.5 text-xs outline-none focus:border-accent"
+                className="bg-white/[0.04] border border-white/[0.1] text-white rounded-lg px-2 py-1.5 text-xs outline-none focus:border-accent flex-1 sm:flex-none"
               >
                 {DAY_LABELS.map((d, idx) => (
                   <option key={idx} value={idx}>{d}</option>
@@ -389,19 +389,21 @@ function RecurringAvailabilityEditor({
                 type="time"
                 value={w.startTime}
                 onChange={(e) => update(i, { startTime: e.target.value })}
-                className="bg-white/[0.04] border border-white/[0.1] text-white rounded-lg px-2 py-1.5 text-xs outline-none focus:border-accent [color-scheme:dark]"
+                className="bg-white/[0.04] border border-white/[0.1] text-white rounded-lg px-2 py-1.5 text-xs outline-none focus:border-accent [color-scheme:dark] flex-1 sm:flex-none"
               />
               <input
                 type="time"
                 value={w.endTime}
                 onChange={(e) => update(i, { endTime: e.target.value })}
-                className="bg-white/[0.04] border border-white/[0.1] text-white rounded-lg px-2 py-1.5 text-xs outline-none focus:border-accent [color-scheme:dark]"
+                className="bg-white/[0.04] border border-white/[0.1] text-white rounded-lg px-2 py-1.5 text-xs outline-none focus:border-accent [color-scheme:dark] flex-1 sm:flex-none"
               />
               <button
                 type="button"
-                onClick={() => remove(i)}
+                onClick={() => {
+                  if (confirm('Delete this window?')) remove(i);
+                }}
                 className="p-1.5 rounded-lg text-red-400/70 hover:bg-red-500/10 hover:text-red-400 cursor-pointer"
-                title="Remove"
+                title="Delete Window"
               >
                 <Trash2 className="w-3.5 h-3.5" />
               </button>
@@ -588,9 +590,11 @@ function DateAvailabilityEditor({
               <div className="flex items-end justify-end h-full">
                 <button
                   type="button"
-                  onClick={() => remove(i)}
+                  onClick={() => {
+                    if (confirm('Delete this date range?')) remove(i);
+                  }}
                   className="p-1.5 rounded-lg text-red-400/70 hover:bg-red-500/10 hover:text-red-400 cursor-pointer"
-                  title="Remove"
+                  title="Delete Range"
                 >
                   <Trash2 className="w-3.5 h-3.5" />
                 </button>

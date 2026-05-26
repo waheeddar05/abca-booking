@@ -1024,15 +1024,9 @@ export function evaluateBlockForBooking(
 
     // AXIS 4: Pitch Type (Mirroring legacy pitchType field)
     // If the block pins a pitch, only bookings on that pitch are blocked.
-    // If the block specifies a pitch, it only hits bookings that consume
-    // resources matching that pitch.
     if (b.pitchType) {
       axisCount++;
-      // Since we don't have the booking's pitch here yet, this axis is
-      // skipped for now in THIS function, but `applyBlocksToAvailability`
-      // already handled the grid visibility.
-      // For now, we assume it matches to be safe (following the UI).
-      axisMatched++;
+      if (booking.pitchType === b.pitchType) axisMatched++;
     }
 
     // Partial NET block with capacity remaining: don't bounce the

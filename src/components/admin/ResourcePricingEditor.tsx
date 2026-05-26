@@ -487,12 +487,6 @@ export function ResourcePricingEditor({
           Platform-wide flat rate for the Full Indoor Court category.
           2 Cons. is the TOTAL for a back-to-back pair.
         </p>
-        <div className="grid grid-cols-4 gap-2 mb-1">
-          <div className="text-[10px] uppercase tracking-wider text-slate-500 text-center">M. Single</div>
-          <div className="text-[10px] uppercase tracking-wider text-slate-500 text-center">M. 2 Cons.</div>
-          <div className="text-[10px] uppercase tracking-wider text-slate-500 text-center">E. Single</div>
-          <div className="text-[10px] uppercase tracking-wider text-slate-500 text-center">E. 2 Cons.</div>
-        </div>
         {(() => {
           const cell = value.fullCourtRate!;
           const update = (slab: 'morning' | 'evening', kind: 'single' | 'consecutive', n: number) => {
@@ -502,32 +496,14 @@ export function ResourcePricingEditor({
             }));
           };
           return (
-            <div className="grid grid-cols-4 gap-2 py-0.5">
-              <PriceInput value={cell.morning.single}      onChange={(n) => update('morning', 'single', n)} />
-              <PriceInput value={cell.morning.consecutive} onChange={(n) => update('morning', 'consecutive', n)} />
-              <PriceInput value={cell.evening.single}      onChange={(n) => update('evening', 'single', n)} />
-              <PriceInput value={cell.evening.consecutive} onChange={(n) => update('evening', 'consecutive', n)} />
+            <div className="grid grid-cols-2 gap-x-4 gap-y-3">
+              <LabeledPriceInput label="Morn. Single" value={cell.morning.single} onChange={(n) => update('morning', 'single', n)} />
+              <LabeledPriceInput label="Morn. 2 Cons." value={cell.morning.consecutive} onChange={(n) => update('morning', 'consecutive', n)} />
+              <LabeledPriceInput label="Eve. Single" value={cell.evening.single} onChange={(n) => update('evening', 'single', n)} />
+              <LabeledPriceInput label="Eve. 2 Cons." value={cell.evening.consecutive} onChange={(n) => update('evening', 'consecutive', n)} />
             </div>
           );
         })()}
-      </Section>
-
-      <Section title="Corporate Batch">
-        <p className="text-[10px] text-slate-500 leading-relaxed mb-3">
-          Morning and Evening flat rates for Corporate Batch bookings.
-        </p>
-        <div className="grid grid-cols-2 gap-4">
-          <LabeledPriceInput
-            label="Morning Rate"
-            value={value.categoryRates.CORPORATE_BATCH.morning}
-            onChange={(n) => setRate('CORPORATE_BATCH', 'morning', n)}
-          />
-          <LabeledPriceInput
-            label="Evening Rate"
-            value={value.categoryRates.CORPORATE_BATCH.evening}
-            onChange={(n) => setRate('CORPORATE_BATCH', 'evening', n)}
-          />
-        </div>
       </Section>
 
       {/* Save bar */}
