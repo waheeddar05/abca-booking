@@ -196,6 +196,17 @@ export default function ConfigurationPage() {
   const [showMachineConfigConfirm, setShowMachineConfigConfirm] = useState(false);
   const [activePricingTab, setActivePricingTab] = useState<string>('leather');
 
+  // Unified Settings state
+  const [settingsSaveTrigger, setSettingsSaveTrigger] = useState(0);
+  const [categoriesSaveStatus, setCategoriesSaveStatus] = useState<{ saving: boolean; message: { text: string; ok: boolean } | null }>({ saving: false, message: null });
+  const [pitchTypesSaveStatus, setPitchTypesSaveStatus] = useState<{ saving: boolean; message: { text: string; ok: boolean } | null }>({ saving: false, message: null });
+  const isSettingsSaving = categoriesSaveStatus.saving || pitchTypesSaveStatus.saving;
+  const settingsMessage = categoriesSaveStatus.message || pitchTypesSaveStatus.message;
+
+  const handleSaveSettings = () => {
+    setSettingsSaveTrigger(prev => prev + 1);
+  };
+
 
   // Payment settings state
   // BALL_TYPE_SELECTION_ENABLED / PITCH_TYPE_SELECTION_ENABLED default
@@ -1117,37 +1128,65 @@ export default function ConfigurationPage() {
         </AdminCard>
       )}
 
-      {/* Booking categories — controls which tabs the user-facing slot
-          picker exposes (Bowling Machine / Sidearm / Coaching / …).
-          Separate card on purpose; this isn't a pricing concept. */}
+      {/* Unified Booking Settings — merged Booking Categories and Pitch Types
+          per Category into a single streamlined section. Consolidates
+          everything onto one 'Save All' button. */}
       {currentCenter?.bookingModel === 'RESOURCE_BASED' && (
         <AdminCard
-          title="Booking categories"
-          icon={<Ticket className="w-4 h-4 text-accent" />}
+          title="Booking Settings"
+          icon={<Settings className="w-4 h-4 text-accent" />}
           collapsible
-          defaultOpen={false}
+          defaultOpen={true}
         >
-          <EnabledCategoriesEditor
-            scope={scope}
-            centerLabel={currentCenter.shortName ?? currentCenter.name}
-          />
-        </AdminCard>
-      )}
+          <div className="space-y-8">
+            {/* Booking categories */}
+            <div>
+              <div className="flex items-center gap-2 mb-3">
+                <Ticket className="w-3.5 h-3.5 text-accent/70" />
+                <h4 className="text-[11px] font-bold text-white uppercase tracking-wider">Booking Categories</h4>
+              </div>
+              <EnabledCategoriesEditor
+                scope={scope}
+                centerLabel={currentCenter.shortName ?? currentCenter.name}
+                externalSaveTrigger={settingsSaveTrigger}
+                onSaveStatus={setCategoriesSaveStatus}
+              />
+            </div>
 
-      {/* Per-category pitch types — admin can flip individual pitches
-          on/off for Cricket Nets, Sidearm, and Personal Coaching. Each
-          row writes to its own CenterPolicy key (NET_PITCH_TYPES /
-          SIDEARM_PITCH_TYPES / COACHING_PITCH_TYPES). Saves on the
-          per-row 'Save' button — flipping chips doesn't auto-save so
-          admins can stage a multi-chip change. */}
-      {currentCenter?.bookingModel === 'RESOURCE_BASED' && (
-        <AdminCard
-          title="Pitch types per category"
-          icon={<Zap className="w-4 h-4 text-accent" />}
-          collapsible
-          defaultOpen={false}
-        >
-          <EnabledPitchTypesEditor scope={scope} />
+            {/* Pitch types per category */}
+            <div className="pt-6 border-t border-white/[0.06]">
+              <div className="flex items-center gap-2 mb-3">
+                <Zap className="w-3.5 h-3.5 text-accent/70" />
+                <h4 className="text-[11px] font-bold text-white uppercase tracking-wider">Pitch Types Per Category</h4>
+              </div>
+              <EnabledPitchTypesEditor
+                scope={scope}
+                externalSaveTrigger={settingsSaveTrigger}
+                onSaveStatus={setPitchTypesSaveStatus}
+              />
+            </div>
+
+            {/* Save Button */}
+            <div className="pt-4 flex items-center justify-between gap-4 border-t border-white/[0.06]">
+              <div className="min-w-0">
+                {settingsMessage && (
+                  <div className={`flex items-center gap-1.5 text-[11px] font-medium animate-in fade-in slide-in-from-left-2 duration-300 ${settingsMessage.ok ? 'text-emerald-400' : 'text-red-400'}`}>
+                    <div className={`w-1.5 h-1.5 rounded-full ${settingsMessage.ok ? 'bg-emerald-400' : 'bg-red-400'} animate-pulse`} />
+                    {settingsMessage.text}
+                  </div>
+                )}
+              </div>
+              <button
+                type="button"
+                onClick={handleSaveSettings}
+                disabled={isSettingsSaving}
+                className="flex items-center gap-2 px-8 py-2.5 rounded-xl bg-accent text-primary text-xs font-bold hover:bg-accent-light active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer transition-all shadow-lg shadow-accent/10"
+              >
+                {isSettingsSaving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
+                Save All Settings
+              </button>
+            </div>
+          </div>
         </AdminCard>
       )}
 
@@ -1169,7 +1208,7 @@ export default function ConfigurationPage() {
           these keys. */}
       {currentCenter?.bookingModel === 'RESOURCE_BASED' && (
         <AdminCard
-          title="Slot picker"
+          title="Slot picker display"
           icon={<Zap className="w-4 h-4 text-accent" />}
           collapsible
           defaultOpen={false}

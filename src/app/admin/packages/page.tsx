@@ -576,8 +576,14 @@ function AdminPackagesLegacy() {
               }}
               className="inline-flex items-center gap-2 bg-accent hover:bg-accent-light text-primary px-4 py-2.5 rounded-lg text-sm font-medium transition-colors cursor-pointer"
             >
+          {showForm && !editingId ? (
+            <>Cancel</>
+          ) : (
+            <>
               <Plus className="w-4 h-4" />
-              {showForm && !editingId ? 'Cancel' : '+ Create'}
+              Create Package
+            </>
+          )}
             </button>
           </div>
 

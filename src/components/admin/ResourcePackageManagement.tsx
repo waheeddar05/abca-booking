@@ -16,11 +16,14 @@
  */
 
 import { useEffect, useState } from 'react';
-import { Package, Plus, Pencil, Loader2, Trash2, ToggleLeft, ToggleRight } from 'lucide-react';
+import { Package, Plus, Pencil, Loader2, Trash2, ToggleLeft, ToggleRight, Sun, Moon, Clock, Calendar, Zap } from 'lucide-react';
 import { useToast } from '@/components/ui/Toast';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { useCenter } from '@/lib/center-context';
-import { PACKAGE_WICKET_LABEL } from '@/lib/package-admin-labels';
+import { PACKAGE_WICKET_LABEL, PACKAGE_CATEGORY_LABEL } from '@/lib/package-admin-labels';
+import { LABEL_MAP } from '@/lib/client-constants';
+
+const labelMap = LABEL_MAP;
 
 const CATEGORY_OPTIONS = [
   { id: 'MACHINE', label: 'Bowling Machine' },
@@ -131,6 +134,7 @@ export function ResourcePackageManagement() {
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState({ ...emptyForm });
 
   const reload = async () => {
@@ -159,6 +163,7 @@ export function ResourcePackageManagement() {
 
   const reset = () => {
     setEditingId(null);
+    setShowForm(false);
     setForm({ ...emptyForm });
   };
 
@@ -279,6 +284,7 @@ export function ResourcePackageManagement() {
     // the inputs.
     const rules = p.extraChargeRules ?? null;
     setEditingId(p.id);
+    setShowForm(true);
     setForm({
       name: p.name,
       category: (p.category ?? 'MACHINE') as string,
@@ -324,383 +330,388 @@ export function ResourcePackageManagement() {
 
   return (
     <div className="space-y-5">
+      <div className="flex items-center justify-between gap-3">
+        <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider">
+          {packages.length} {packages.length === 1 ? 'Package' : 'Packages'}
+        </h3>
+        <button
+          onClick={() => {
+            if (showForm) reset();
+            else setShowForm(true);
+          }}
+          className="inline-flex items-center gap-2 bg-accent hover:bg-accent-light text-primary px-4 py-2 rounded-lg text-sm font-bold transition-all cursor-pointer shadow-lg shadow-accent/10 active:scale-95"
+        >
+          {showForm && !editingId ? (
+            <>Cancel</>
+          ) : (
+            <>
+              <Plus className="w-4 h-4" />
+              Create Package
+            </>
+          )}
+        </button>
+      </div>
+
       {/* Add / edit form */}
-      <div className={`bg-white/[0.03] border rounded-xl p-4 ${
-        editingId ? 'border-accent/40 ring-1 ring-accent/20' : 'border-white/[0.07]'
-      }`}>
-        <div className="flex items-center justify-between gap-2 mb-3">
-          <div className="flex items-center gap-2">
-            <Package className="w-4 h-4 text-accent" />
-            <h3 className="text-xs font-bold text-white uppercase tracking-wider">
-              {editingId ? 'Edit Package' : 'Create Package'}
-            </h3>
+      {showForm && (
+        <div className={`bg-white/[0.03] border rounded-xl p-4 animate-in fade-in slide-in-from-top-2 duration-300 ${
+          editingId ? 'border-accent/40 ring-1 ring-accent/20' : 'border-white/[0.07]'
+        }`}>
+          <div className="flex items-center justify-between gap-2 mb-3">
+            <div className="flex items-center gap-2">
+              <Package className="w-4 h-4 text-accent" />
+              <h3 className="text-xs font-bold text-white uppercase tracking-wider">
+                {editingId ? 'Edit Package' : 'Create Package'}
+              </h3>
+              {editingId && (
+                <span className="text-[10px] px-2 py-0.5 rounded-full bg-accent/15 text-accent font-semibold uppercase tracking-wider">
+                  Editing
+                </span>
+              )}
+            </div>
             {editingId && (
-              <span className="text-[10px] px-2 py-0.5 rounded-full bg-accent/15 text-accent font-semibold uppercase tracking-wider">
-                Editing
-              </span>
+              <button
+                type="button"
+                onClick={reset}
+                className="text-[11px] text-slate-400 hover:text-white underline cursor-pointer"
+                title="Discard changes and start fresh"
+              >
+                Cancel edit
+              </button>
             )}
           </div>
-          {editingId && (
-            <button
-              type="button"
-              onClick={reset}
-              className="text-[11px] text-slate-400 hover:text-white underline cursor-pointer"
-              title="Discard changes and start fresh"
-            >
-              Cancel edit
-            </button>
-          )}
-        </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          <div>
-            <label className="block text-[11px] font-medium text-slate-400 mb-1">Name *</label>
-            <input
-              type="text"
-              value={form.name}
-              placeholder="e.g. 10 sessions of bowling machine"
-              onChange={(e) => setForm({ ...form, name: e.target.value })}
-              className={inputClass}
-            />
-          </div>
-          <div>
-            <label className="block text-[11px] font-medium text-slate-400 mb-1">Category *</label>
-            <select
-              value={form.category}
-              onChange={(e) => setForm({ ...form, category: e.target.value, machineRowId: '' })}
-              className={inputClass}
-            >
-              {CATEGORY_OPTIONS.map((c) => (
-                <option key={c.id} value={c.id} className="bg-[#1a2a40]">
-                  {c.label}
-                </option>
-              ))}
-            </select>
-          </div>
-        </div>
-
-        {form.category === 'MACHINE' && machines.length > 0 && (
-          <div className="mt-3">
-            <label className="block text-[11px] font-medium text-slate-400 mb-1">
-              Machine (optional) <span className="text-slate-600">— pin redemption to one machine</span>
-            </label>
-            <select
-              value={form.machineRowId}
-              onChange={(e) => setForm({ ...form, machineRowId: e.target.value })}
-              className={inputClass}
-            >
-              <option value="" className="bg-[#1a2a40]">Any machine of this category</option>
-              {machines.map((m) => (
-                <option key={m.id} value={m.id} className="bg-[#1a2a40]">
-                  {m.shortName ?? m.name}
-                </option>
-              ))}
-            </select>
-          </div>
-        )}
-
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mt-3">
-          <div>
-            <label className="block text-[11px] font-medium text-slate-400 mb-1">Sessions *</label>
-            <input
-              type="number"
-              min={1}
-              value={form.totalSessions}
-              onChange={(e) => setForm({ ...form, totalSessions: parseInt(e.target.value, 10) || 0 })}
-              className={inputClass}
-            />
-          </div>
-          <div>
-            <label className="block text-[11px] font-medium text-slate-400 mb-1">Validity (days) *</label>
-            <input
-              type="number"
-              min={1}
-              value={form.validityDays}
-              onChange={(e) => setForm({ ...form, validityDays: parseInt(e.target.value, 10) || 0 })}
-              className={inputClass}
-            />
-          </div>
-          <div>
-            <label className="block text-[11px] font-medium text-slate-400 mb-1">Price (₹) *</label>
-            <input
-              type="number"
-              min={0}
-              value={form.price}
-              onChange={(e) => setForm({ ...form, price: parseInt(e.target.value, 10) || 0 })}
-              className={inputClass}
-            />
-          </div>
-        </div>
-
-        {/* Ball type — only meaningful for MACHINE category packages.
-            Determines which ball types this package covers (same model
-            as ABCA's `Package.ballType`):
-              MACHINE → machine-balls only (cheaper)
-              LEATHER → leather-balls only (premium)
-              BOTH    → either, no upgrade fee ever
-            Hidden for SIDEARM/COACHING/etc. where there's no bowling
-            machine and ballType doesn't apply. */}
-        {form.category === 'MACHINE' && (
-          <div className="mt-3">
-            <label className="block text-[11px] font-medium text-slate-400 mb-1">Ball type</label>
-            <select
-              value={form.ballType}
-              onChange={(e) => setForm({ ...form, ballType: e.target.value })}
-              className={inputClass}
-            >
-              {/* Standardized ball-type labels — no "Only" suffix; the
-                  Bowling Machine category implies the axis. BOTH stays
-                  available so a package can cover either ball. */}
-              <option value="BOTH" className="bg-[#1a2a40]">Leather + Machine</option>
-              <option value="MACHINE" className="bg-[#1a2a40]">Machine</option>
-              <option value="LEATHER" className="bg-[#1a2a40]">Leather</option>
-            </select>
-          </div>
-        )}
-
-        {/* Leather upgrade fee — only relevant when the package is
-            machine-ball only. ABCA exposes the same control under
-            `extraChargeRules.ballTypeUpgrade`. Leave at 0 to keep
-            machine-ball packages strictly machine-ball; set > 0 to
-            let users redeem on a leather-ball slot for the fee. */}
-        {form.category === 'MACHINE' && form.ballType === 'MACHINE' && (
-          <div className="mt-3">
-            <label className="block text-[11px] font-medium text-slate-400 mb-1">
-              Leather upgrade (₹ per slot)
-            </label>
-            <input
-              type="number"
-              min={0}
-              value={form.ballTypeUpgrade}
-              onChange={(e) =>
-                setForm({ ...form, ballTypeUpgrade: parseInt(e.target.value, 10) || 0 })
-              }
-              placeholder="0 = no upgrade allowed"
-              className={inputClass}
-            />
-            <p className="mt-1 text-[10px] text-slate-500">
-              Charged per slot when a user with this machine-ball package books a leather-ball
-              session. Set to 0 to disallow leather-ball redemption entirely.
-            </p>
-          </div>
-        )}
-
-        {/* Wicket / pitch type — only meaningful for categories that
-            involve a pitch (MACHINE / SIDEARM / NET). Determines which
-            pitch this package covers; users booking on a higher tier
-            (Astro → Cement → Natural) pay the path-specific upgrade
-            fee below. Mirrors ABCA's `Package.wicketType`. */}
-        {(form.category === 'MACHINE' || form.category === 'SIDEARM' || form.category === 'NET') && (
-          <div className="mt-3">
-            <label className="block text-[11px] font-medium text-slate-400 mb-1">Wicket type</label>
-            <select
-              value={form.wicketType}
-              onChange={(e) => setForm({ ...form, wicketType: e.target.value })}
-              className={inputClass}
-            >
-              {/* Standardized wicket labels — "Astroturf / Cement /
-                  Natural Turf". `BOTH` = any wicket. */}
-              <option value="BOTH"    className="bg-[#1a2a40]">Any wicket</option>
-              <option value="ASTRO"   className="bg-[#1a2a40]">{PACKAGE_WICKET_LABEL.ASTRO}</option>
-              <option value="CEMENT"  className="bg-[#1a2a40]">{PACKAGE_WICKET_LABEL.CEMENT}</option>
-              <option value="NATURAL" className="bg-[#1a2a40]">{PACKAGE_WICKET_LABEL.NATURAL}</option>
-            </select>
-          </div>
-        )}
-
-        {/* Wicket upgrade paths — only when the package pins a specific
-            pitch (not "Any wicket"). Renders only the paths that start
-            at the chosen pitch, since downgrade paths don't apply. Same
-            shape ABCA writes to `extraChargeRules.wicketTypeUpgrades`. */}
-        {(form.category === 'MACHINE' || form.category === 'SIDEARM' || form.category === 'NET')
-          && form.wicketType !== 'BOTH'
-          && WICKET_UPGRADE_PATHS.some((p) => p.from === form.wicketType) && (
-          <div className="mt-3">
-            <label className="block text-[11px] font-medium text-slate-400 mb-1">
-              Wicket upgrade paths (₹ per slot)
-            </label>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-              {WICKET_UPGRADE_PATHS
-                .filter((path) => path.from === form.wicketType)
-                .map((path) => {
-                  const key = `${path.from}_TO_${path.to}`;
-                  return (
-                    <div
-                      key={key}
-                      className="bg-white/[0.02] rounded-lg p-2.5 border border-white/[0.06]"
-                    >
-                      <label className="block text-[10px] text-accent/80 font-medium mb-1">
-                        {path.label}
-                      </label>
-                      <div className="flex items-center gap-2">
-                        <span className="text-[10px] text-slate-500">₹</span>
-                        <input
-                          type="number"
-                          min={0}
-                          value={form.wicketTypeUpgrades?.[key] || 0}
-                          onChange={(e) =>
-                            setForm({
-                              ...form,
-                              wicketTypeUpgrades: {
-                                ...form.wicketTypeUpgrades,
-                                [key]: parseInt(e.target.value, 10) || 0,
-                              },
-                            })
-                          }
-                          placeholder="0"
-                          className={inputClass}
-                        />
-                      </div>
-                    </div>
-                  );
-                })}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label className="block text-[11px] font-medium text-slate-400 mb-1">Name *</label>
+              <input
+                type="text"
+                value={form.name}
+                placeholder="e.g. 10 sessions of bowling machine"
+                onChange={(e) => setForm({ ...form, name: e.target.value })}
+                className={inputClass}
+              />
             </div>
-            <p className="mt-1 text-[10px] text-slate-500">
-              Charged per slot when a user with this {form.wicketType.toLowerCase()} package books
-              a higher-tier pitch. Set 0 on a path to disallow that upgrade entirely.
-            </p>
+            <div>
+              <label className="block text-[11px] font-medium text-slate-400 mb-1">Category *</label>
+              <select
+                value={form.category}
+                onChange={(e) => setForm({ ...form, category: e.target.value, machineRowId: '' })}
+                className={inputClass}
+              >
+                {CATEGORY_OPTIONS.map((c) => (
+                  <option key={c.id} value={c.id} className="bg-[#1a2a40]">
+                    {c.label}
+                  </option>
+                ))}
+              </select>
+            </div>
           </div>
-        )}
 
-        <div className="mt-3">
-          <label className="block text-[11px] font-medium text-slate-400 mb-1">Timing</label>
-          <select
-            value={form.timingType}
-            onChange={(e) => setForm({ ...form, timingType: e.target.value })}
-            className={inputClass}
-          >
-            {TIMING_OPTIONS.map((t) => (
-              <option key={t.id} value={t.id} className="bg-[#1a2a40]">
-                {t.label}
-              </option>
-            ))}
-          </select>
-        </div>
+          {form.category === 'MACHINE' && machines.length > 0 && (
+            <div className="mt-3">
+              <label className="block text-[11px] font-medium text-slate-400 mb-1">
+                Machine (optional) <span className="text-slate-600">— pin redemption to one machine</span>
+              </label>
+              <select
+                value={form.machineRowId}
+                onChange={(e) => setForm({ ...form, machineRowId: e.target.value })}
+                className={inputClass}
+              >
+                <option value="" className="bg-[#1a2a40]">Any machine of this category</option>
+                {machines.map((m) => (
+                  <option key={m.id} value={m.id} className="bg-[#1a2a40]">
+                    {m.shortName ?? m.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
 
-        {/* Evening upgrade fee — only relevant when the package is
-            DAY-only. ABCA exposes the same control under
-            `extraChargeRules.timingUpgrade`. Leave at 0 to keep DAY
-            packages strictly daytime; set > 0 to let users redeem on
-            an evening slot for the extra fee per session. */}
-        {form.timingType === 'DAY' && (
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mt-3">
+            <div>
+              <label className="block text-[11px] font-medium text-slate-400 mb-1">Sessions *</label>
+              <input
+                type="number"
+                min={1}
+                value={form.totalSessions}
+                onChange={(e) => setForm({ ...form, totalSessions: parseInt(e.target.value, 10) || 0 })}
+                className={inputClass}
+              />
+            </div>
+            <div>
+              <label className="block text-[11px] font-medium text-slate-400 mb-1">Validity (days) *</label>
+              <input
+                type="number"
+                min={1}
+                value={form.validityDays}
+                onChange={(e) => setForm({ ...form, validityDays: parseInt(e.target.value, 10) || 0 })}
+                className={inputClass}
+              />
+            </div>
+            <div>
+              <label className="block text-[11px] font-medium text-slate-400 mb-1">Price (₹) *</label>
+              <input
+                type="number"
+                min={0}
+                value={form.price}
+                onChange={(e) => setForm({ ...form, price: parseInt(e.target.value, 10) || 0 })}
+                className={inputClass}
+              />
+            </div>
+          </div>
+
+          {/* Ball type — only meaningful for MACHINE category packages. */}
+          {form.category === 'MACHINE' && (
+            <div className="mt-3">
+              <label className="block text-[11px] font-medium text-slate-400 mb-1">Ball type</label>
+              <select
+                value={form.ballType}
+                onChange={(e) => setForm({ ...form, ballType: e.target.value })}
+                className={inputClass}
+              >
+                <option value="BOTH" className="bg-[#1a2a40]">Leather + Machine</option>
+                <option value="MACHINE" className="bg-[#1a2a40]">Machine</option>
+                <option value="LEATHER" className="bg-[#1a2a40]">Leather</option>
+              </select>
+            </div>
+          )}
+
+          {/* Leather upgrade fee */}
+          {form.category === 'MACHINE' && form.ballType === 'MACHINE' && (
+            <div className="mt-3">
+              <label className="block text-[11px] font-medium text-slate-400 mb-1">
+                Leather upgrade (₹ per slot)
+              </label>
+              <input
+                type="number"
+                min={0}
+                value={form.ballTypeUpgrade}
+                onChange={(e) =>
+                  setForm({ ...form, ballTypeUpgrade: parseInt(e.target.value, 10) || 0 })
+                }
+                placeholder="0 = no upgrade allowed"
+                className={inputClass}
+              />
+              <p className="mt-1 text-[10px] text-slate-500">
+                Charged per slot when a user with this machine-ball package books a leather-ball
+                session. Set to 0 to disallow leather-ball redemption entirely.
+              </p>
+            </div>
+          )}
+
+          {/* Wicket / pitch type */}
+          {(form.category === 'MACHINE' || form.category === 'SIDEARM' || form.category === 'NET') && (
+            <div className="mt-3">
+              <label className="block text-[11px] font-medium text-slate-400 mb-1">Wicket type</label>
+              <select
+                value={form.wicketType}
+                onChange={(e) => setForm({ ...form, wicketType: e.target.value })}
+                className={inputClass}
+              >
+                <option value="BOTH"    className="bg-[#1a2a40]">Any wicket</option>
+                <option value="ASTRO"   className="bg-[#1a2a40]">{PACKAGE_WICKET_LABEL.ASTRO}</option>
+                <option value="CEMENT"  className="bg-[#1a2a40]">{PACKAGE_WICKET_LABEL.CEMENT}</option>
+                <option value="NATURAL" className="bg-[#1a2a40]">{PACKAGE_WICKET_LABEL.NATURAL}</option>
+              </select>
+            </div>
+          )}
+
+          {/* Wicket upgrade paths */}
+          {(form.category === 'MACHINE' || form.category === 'SIDEARM' || form.category === 'NET')
+            && form.wicketType !== 'BOTH'
+            && WICKET_UPGRADE_PATHS.some((p) => p.from === form.wicketType) && (
+            <div className="mt-3">
+              <label className="block text-[11px] font-medium text-slate-400 mb-1">
+                Wicket upgrade paths (₹ per slot)
+              </label>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                {WICKET_UPGRADE_PATHS
+                  .filter((path) => path.from === form.wicketType)
+                  .map((path) => {
+                    const key = `${path.from}_TO_${path.to}`;
+                    return (
+                      <div
+                        key={key}
+                        className="bg-white/[0.02] rounded-lg p-2.5 border border-white/[0.06]"
+                      >
+                        <label className="block text-[10px] text-accent/80 font-medium mb-1">
+                          {path.label}
+                        </label>
+                        <div className="flex items-center gap-2">
+                          <span className="text-[10px] text-slate-500">₹</span>
+                          <input
+                            type="number"
+                            min={0}
+                            value={form.wicketTypeUpgrades?.[key] || 0}
+                            onChange={(e) =>
+                              setForm({
+                                ...form,
+                                wicketTypeUpgrades: {
+                                  ...form.wicketTypeUpgrades,
+                                  [key]: parseInt(e.target.value, 10) || 0,
+                                },
+                              })
+                            }
+                            placeholder="0"
+                            className={inputClass}
+                          />
+                        </div>
+                      </div>
+                    );
+                  })}
+              </div>
+            </div>
+          )}
+
           <div className="mt-3">
-            <label className="block text-[11px] font-medium text-slate-400 mb-1">
-              Evening upgrade (₹ per slot)
-            </label>
-            <input
-              type="number"
-              min={0}
-              value={form.timingUpgrade}
-              onChange={(e) =>
-                setForm({ ...form, timingUpgrade: parseInt(e.target.value, 10) || 0 })
-              }
-              placeholder="0 = no upgrade allowed"
+            <label className="block text-[11px] font-medium text-slate-400 mb-1">Timing</label>
+            <select
+              value={form.timingType}
+              onChange={(e) => setForm({ ...form, timingType: e.target.value })}
               className={inputClass}
-            />
-            <p className="mt-1 text-[10px] text-slate-500">
-              Charged per slot when a user redeems this DAY package on an evening slot.
-              Set to 0 to disallow evening redemption entirely.
-            </p>
+            >
+              {TIMING_OPTIONS.map((t) => (
+                <option key={t.id} value={t.id} className="bg-[#1a2a40]">
+                  {t.label}
+                </option>
+              ))}
+            </select>
           </div>
-        )}
 
-        <div className="flex gap-2 pt-4">
-          <button
-            onClick={submit}
-            disabled={submitting}
-            className="inline-flex items-center gap-2 bg-accent hover:bg-accent-light text-primary px-4 py-2 rounded-lg text-sm font-medium transition-colors cursor-pointer disabled:opacity-50"
-          >
-            {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
-            {editingId ? 'Update' : 'Create'}
-          </button>
-          {editingId && (
+          {/* Evening upgrade fee */}
+          {form.timingType === 'DAY' && (
+            <div className="mt-3">
+              <label className="block text-[11px] font-medium text-slate-400 mb-1">
+                Evening upgrade (₹ per slot)
+              </label>
+              <input
+                type="number"
+                min={0}
+                value={form.timingUpgrade}
+                onChange={(e) =>
+                  setForm({ ...form, timingUpgrade: parseInt(e.target.value, 10) || 0 })
+                }
+                placeholder="0 = no upgrade allowed"
+                className={inputClass}
+              />
+            </div>
+          )}
+
+          <div className="flex gap-2 pt-4">
+            <button
+              onClick={submit}
+              disabled={submitting}
+              className="inline-flex items-center gap-2 bg-accent hover:bg-accent-light text-primary px-6 py-2.5 rounded-xl text-sm font-bold transition-all cursor-pointer disabled:opacity-50 shadow-lg shadow-accent/10 active:scale-95"
+            >
+              {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
+              {editingId ? 'Update Package' : 'Create Package'}
+            </button>
             <button
               onClick={reset}
-              className="px-4 py-2 rounded-lg text-sm font-medium text-slate-400 hover:text-white hover:bg-white/[0.06] transition-colors cursor-pointer"
+              className="px-6 py-2.5 rounded-xl text-sm font-bold text-slate-400 hover:text-white hover:bg-white/[0.06] transition-colors cursor-pointer"
             >
               Cancel
             </button>
-          )}
+          </div>
         </div>
-      </div>
+      )}
 
       {/* List */}
-      <div className="bg-white/[0.03] border border-white/[0.07] rounded-xl p-4">
-        <div className="flex items-center gap-2 mb-3">
-          <Package className="w-4 h-4 text-accent" />
-          <h3 className="text-xs font-bold text-white uppercase tracking-wider">Packages</h3>
+      {packages.length === 0 ? (
+        <div className="bg-white/[0.03] border border-white/[0.07] rounded-xl p-8 text-center">
+          <Package className="w-12 h-12 text-slate-600 mx-auto mb-3" />
+          <p className="text-sm text-slate-500 italic">No packages yet. Click &lsquo;Create Package&rsquo; to start.</p>
         </div>
-        {packages.length === 0 ? (
-          <p className="text-xs text-slate-500 italic py-6 text-center">No packages yet.</p>
-        ) : (
-          <div className="space-y-2">
-            {packages.map((p) => {
-              const machineName = p.machineRowId
-                ? machines.find((m) => m.id === p.machineRowId)?.shortName ?? machines.find((m) => m.id === p.machineRowId)?.name
-                : null;
-              return (
-                <div
-                  key={p.id}
-                  className="flex items-start justify-between gap-3 bg-white/[0.02] border border-white/[0.06] rounded-lg px-3 py-2.5"
-                >
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span className="text-sm font-semibold text-white">{p.name}</span>
-                      {!p.isActive && (
-                        <span className="text-[10px] text-slate-500 px-1.5 py-0.5 rounded bg-slate-500/10">
-                          inactive
+      ) : (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          {packages.map((p) => {
+            const cat = (p.category ?? 'MACHINE') as string;
+            const machineName = p.machineRowId
+              ? machines.find((m) => m.id === p.machineRowId)?.shortName ?? machines.find((m) => m.id === p.machineRowId)?.name
+              : null;
+            const showBallType = cat === 'MACHINE' && !!p.ballType;
+
+            return (
+              <div
+                key={p.id}
+                className="bg-white/[0.04] backdrop-blur-sm rounded-xl border border-white/[0.08] hover:border-white/[0.12] transition-colors"
+              >
+                <div className="p-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <h4 className="text-sm font-semibold text-white leading-tight">{p.name}</h4>
+                        <span className="text-[10px] px-2 py-0.5 rounded-full font-medium bg-purple-500/15 text-purple-300">
+                          {PACKAGE_CATEGORY_LABEL[cat] || cat}
                         </span>
-                      )}
+                        {!p.isActive && (
+                          <span className="text-[10px] text-slate-500 px-1.5 py-0.5 rounded bg-slate-500/10">
+                            inactive
+                          </span>
+                        )}
+                      </div>
+                      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-1.5">
+                        {cat === 'MACHINE' && machineName && (
+                          <span className="text-[10px] text-slate-400 flex items-center gap-1">
+                            <Package className="w-3 h-3 text-slate-500" />
+                            {machineName}
+                          </span>
+                        )}
+                        {showBallType && (
+                          <span className="text-[10px] text-slate-400 flex items-center gap-1">
+                            <Zap className="w-3 h-3 text-slate-500" />
+                            {labelMap[p.ballType!] || p.ballType}
+                          </span>
+                        )}
+                        {p.wicketType && (
+                          <span className="text-[10px] text-slate-400 flex items-center gap-1">
+                            <span className="text-slate-500">Pitch:</span>
+                            <span className="text-slate-300">{PACKAGE_WICKET_LABEL[p.wicketType] || p.wicketType}</span>
+                          </span>
+                        )}
+                        <span className="text-[10px] text-slate-400 flex items-center gap-1">
+                          {p.timingType === 'DAY' ? <Sun className="w-3 h-3 text-slate-500" /> : p.timingType === 'EVENING' ? <Moon className="w-3 h-3 text-slate-500" /> : <Clock className="w-3 h-3 text-slate-500" />}
+                          {TIMING_OPTIONS.find(t => t.id === p.timingType)?.label || p.timingType}
+                        </span>
+                        <span className="text-[10px] text-slate-400 flex items-center gap-1">
+                          <Calendar className="w-3 h-3 text-slate-500" />
+                          {p.totalSessions} Sessions · {p.validityDays} Days Validity
+                        </span>
+                        {p._count && p._count.userPackages > 0 && (
+                          <span className="text-[10px] text-emerald-400 flex items-center gap-1">
+                            <Plus className="w-3 h-3" />
+                            {p._count.userPackages} purchased
+                          </span>
+                        )}
+                      </div>
                     </div>
-                    <div className="flex items-center gap-1.5 flex-wrap mt-1.5">
-                      {p.category && (
-                        <span className="text-[10px] text-purple-300/80 px-1.5 py-0.5 rounded bg-purple-500/10">
-                          {CATEGORY_OPTIONS.find((c) => c.id === p.category)?.label ?? p.category}
-                        </span>
-                      )}
-                      {machineName && (
-                        <span className="text-[10px] text-cyan-300/80 px-1.5 py-0.5 rounded bg-cyan-500/10">
-                          {machineName}
-                        </span>
-                      )}
-                      <span className="text-[10px] text-slate-300 px-1.5 py-0.5 rounded bg-white/[0.04]">
-                        {p.totalSessions} sessions · {p.validityDays}d · ₹{p.price}
-                      </span>
-                      <span className="text-[10px] text-slate-300 px-1.5 py-0.5 rounded bg-white/[0.04]">
-                        {p.timingType.toLowerCase()}
-                      </span>
-                      {p._count && p._count.userPackages > 0 && (
-                        <span className="text-[10px] text-emerald-300/80 px-1.5 py-0.5 rounded bg-emerald-500/10">
-                          {p._count.userPackages} purchased
-                        </span>
-                      )}
+                    <div className="flex flex-col items-end gap-2 flex-shrink-0">
+                      <span className="text-sm font-bold text-accent">₹{p.price}</span>
+                      <div className="flex gap-1">
+                        <button
+                          onClick={() => toggleActive(p)}
+                          className="p-1.5 text-slate-500 hover:text-white hover:bg-white/[0.06] rounded-lg transition-colors cursor-pointer"
+                          title={p.isActive ? 'Deactivate' : 'Activate'}
+                        >
+                          {p.isActive ? <ToggleRight className="w-4 h-4 text-accent" /> : <ToggleLeft className="w-4 h-4" />}
+                        </button>
+                        <button
+                          onClick={() => startEdit(p)}
+                          className="p-1.5 text-accent hover:bg-accent/10 rounded-lg transition-colors cursor-pointer"
+                          title="Edit this package"
+                        >
+                          <Pencil className="w-4 h-4" />
+                        </button>
+                      </div>
                     </div>
-                  </div>
-                  <div className="flex flex-shrink-0 gap-1">
-                    <button
-                      onClick={() => toggleActive(p)}
-                      className="p-1.5 text-slate-500 hover:text-white hover:bg-white/[0.06] rounded-lg transition-colors cursor-pointer"
-                      title={p.isActive ? 'Deactivate' : 'Activate'}
-                    >
-                      {p.isActive ? <ToggleRight className="w-4 h-4 text-accent" /> : <ToggleLeft className="w-4 h-4" />}
-                    </button>
-                    <button
-                      onClick={() => startEdit(p)}
-                      className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold text-accent bg-accent/10 hover:bg-accent/20 border border-accent/30 rounded-lg transition-colors cursor-pointer"
-                      title="Edit this package"
-                    >
-                      <Pencil className="w-3.5 h-3.5" />
-                      Edit
-                    </button>
-                    {/* Delete button removed - packages are permanent records */}
                   </div>
                 </div>
-              );
-            })}
-          </div>
-        )}
-      </div>
-
+              </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }

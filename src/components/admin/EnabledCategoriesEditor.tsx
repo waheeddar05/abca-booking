@@ -31,9 +31,13 @@ const ALL_CATEGORIES: Array<{ id: CategoryId; label: string; sub: string }> = [
 export function EnabledCategoriesEditor({
   scope,
   centerLabel,
+  externalSaveTrigger,
+  onSaveStatus,
 }: {
   scope: 'center' | 'global';
   centerLabel: string;
+  externalSaveTrigger?: number;
+  onSaveStatus?: (status: { saving: boolean; message: { text: string; ok: boolean } | null }) => void;
 }) {
   const [enabled, setEnabled] = useState<Set<CategoryId>>(
     () => new Set(ALL_CATEGORIES.map((c) => c.id)),
@@ -82,6 +86,16 @@ export function EnabledCategoriesEditor({
     });
   };
 
+  useEffect(() => {
+    if (externalSaveTrigger && externalSaveTrigger > 0) {
+      save();
+    }
+  }, [externalSaveTrigger]);
+
+  useEffect(() => {
+    onSaveStatus?.({ saving, message });
+  }, [saving, message, onSaveStatus]);
+
   const save = async () => {
     setSaving(true);
     setMessage(null);
@@ -124,50 +138,52 @@ export function EnabledCategoriesEditor({
         for {centerLabel}. At least one must stay on.
       </div>
 
-      <div className="grid sm:grid-cols-2 gap-2">
+      <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
         {ALL_CATEGORIES.map((c) => {
           const on = enabled.has(c.id);
           return (
             <label
               key={c.id}
-              className={`flex items-start gap-3 p-3 rounded-xl border cursor-pointer transition-all ${
+              className={`flex flex-col items-center text-center gap-2 p-3 rounded-xl border cursor-pointer transition-all ${
                 on
                   ? 'bg-accent/[0.06] border-accent/30'
                   : 'bg-white/[0.02] border-white/[0.06] hover:border-white/[0.12]'
               }`}
             >
-              <input
-                type="checkbox"
-                checked={on}
-                onChange={() => toggle(c.id)}
-                className="mt-0.5 w-4 h-4 accent-accent cursor-pointer"
-              />
-              <div className="min-w-0">
-                <div className={`text-sm font-semibold ${on ? 'text-white' : 'text-slate-400'}`}>
+              <div className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  checked={on}
+                  onChange={() => toggle(c.id)}
+                  className="w-4 h-4 accent-accent cursor-pointer"
+                />
+                <div className={`text-xs font-semibold ${on ? 'text-white' : 'text-slate-400'}`}>
                   {c.label}
                 </div>
-                <div className="text-[11px] text-slate-500">{c.sub}</div>
               </div>
+              <div className="text-[9px] text-slate-500 uppercase tracking-tight">{c.sub}</div>
             </label>
           );
         })}
       </div>
 
-      <div className="flex items-center justify-end gap-2 pt-1">
-        {message && (
-          <span className={`text-xs font-medium ${message.ok ? 'text-green-400' : 'text-red-400'}`}>
-            {message.text}
-          </span>
-        )}
-        <button
-          onClick={save}
-          disabled={saving}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-accent text-black text-xs font-semibold hover:bg-accent/90 active:scale-95 disabled:opacity-60 disabled:cursor-not-allowed cursor-pointer transition-all"
-        >
-          {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
-          Save
-        </button>
-      </div>
+      {!externalSaveTrigger && (
+        <div className="flex items-center justify-end gap-2 pt-1">
+          {message && (
+            <span className={`text-xs font-medium ${message.ok ? 'text-green-400' : 'text-red-400'}`}>
+              {message.text}
+            </span>
+          )}
+          <button
+            onClick={save}
+            disabled={saving}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-accent text-black text-xs font-semibold hover:bg-accent/90 active:scale-95 disabled:opacity-60 disabled:cursor-not-allowed cursor-pointer transition-all"
+          >
+            {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
+            Save
+          </button>
+        </div>
+      )}
     </div>
   );
 }

@@ -30,13 +30,14 @@ const PITCHES: Array<{ id: PitchKey; label: string }> = [
   { id: 'NATURAL', label: 'Natural Turf' },
 ];
 
-type CategoryKey = 'SIDEARM' | 'NET' | 'COACHING';
+type CategoryKey = 'MACHINE' | 'SIDEARM' | 'NET' | 'COACHING';
 const CATEGORIES: Array<{
   id: CategoryKey;
   label: string;
   sub: string;
-  policyKey: 'SIDEARM_PITCH_TYPES' | 'NET_PITCH_TYPES' | 'COACHING_PITCH_TYPES';
+  policyKey: 'MACHINE_PITCH_TYPES' | 'SIDEARM_PITCH_TYPES' | 'NET_PITCH_TYPES' | 'COACHING_PITCH_TYPES';
 }> = [
+  { id: 'MACHINE',  label: 'Bowling Machine',   sub: 'Yantra / Leverage',  policyKey: 'MACHINE_PITCH_TYPES' },
   { id: 'NET',      label: 'Cricket Nets',      sub: 'Bare-net practice',  policyKey: 'NET_PITCH_TYPES' },
   { id: 'SIDEARM',  label: 'Sidearm',           sub: 'Bowled by a specialist', policyKey: 'SIDEARM_PITCH_TYPES' },
   { id: 'COACHING', label: 'Personal Coaching', sub: 'With a coach',        policyKey: 'COACHING_PITCH_TYPES' },
@@ -44,14 +45,19 @@ const CATEGORIES: Array<{
 
 export function EnabledPitchTypesEditor({
   scope,
+  externalSaveTrigger,
+  onSaveStatus,
 }: {
   scope: 'center' | 'global';
+  externalSaveTrigger?: number;
+  onSaveStatus?: (status: { saving: boolean; message: { text: string; ok: boolean } | null }) => void;
 }) {
   // selections[category] is the set of pitches enabled. Empty set = "no
   // pitches at all" — we treat that as falling back to every pitch,
   // same as the engine policy default, so admins can't accidentally
   // remove every option.
   const [selections, setSelections] = useState<Record<CategoryKey, Set<PitchKey>>>({
+    MACHINE:  new Set(['ASTRO', 'CEMENT', 'NATURAL']),
     NET:      new Set(['ASTRO', 'CEMENT', 'NATURAL']),
     SIDEARM:  new Set(['ASTRO', 'CEMENT', 'NATURAL']),
     COACHING: new Set(['ASTRO', 'CEMENT', 'NATURAL']),
@@ -96,6 +102,16 @@ export function EnabledPitchTypesEditor({
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
   }, [scope]);
+
+  useEffect(() => {
+    if (externalSaveTrigger && externalSaveTrigger > 0) {
+      saveAll();
+    }
+  }, [externalSaveTrigger]);
+
+  useEffect(() => {
+    onSaveStatus?.({ saving, message });
+  }, [saving, message, onSaveStatus]);
 
   const saveAll = async () => {
     setSaving(true);
@@ -160,7 +176,7 @@ export function EnabledPitchTypesEditor({
         </p>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {CATEGORIES.map((cat) => (
           <div
             key={cat.id}
@@ -179,20 +195,20 @@ export function EnabledPitchTypesEditor({
                     key={p.id}
                     type="button"
                     onClick={() => togglePitch(cat.id, p.id)}
-                    className={`group relative flex items-center justify-between px-3 py-2.5 rounded-xl text-[11px] font-semibold border transition-all cursor-pointer ${
+                    className={`group relative flex items-center justify-between px-3 py-2 rounded-xl text-[11px] font-semibold border transition-all cursor-pointer ${
                       on
                         ? 'bg-accent/10 text-accent border-accent/20 shadow-sm shadow-accent/5'
                         : 'bg-black/20 text-slate-500 border-white/[0.05] hover:border-white/[0.1] hover:text-slate-400'
                     }`}
                   >
                     <span>{p.label}</span>
-                    <div className={`w-4 h-4 rounded-full border flex items-center justify-center transition-all ${
+                    <div className={`w-3.5 h-3.5 rounded-full border flex items-center justify-center transition-all ${
                       on 
                         ? 'bg-accent border-accent text-primary' 
                         : 'border-white/10 bg-white/5'
                     }`}>
                       {on && (
-                        <svg className="w-2.5 h-2.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <svg className="w-2 h-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={4} d="M5 13l4 4L19 7" />
                         </svg>
                       )}
@@ -205,25 +221,27 @@ export function EnabledPitchTypesEditor({
         ))}
       </div>
 
-      <div className="flex items-center justify-between gap-3 pt-2 px-1">
-        <div className="min-w-0">
-          {message && (
-            <div className={`flex items-center gap-1.5 text-[11px] font-medium animate-in fade-in slide-in-from-left-2 duration-300 ${message.ok ? 'text-emerald-400' : 'text-red-400'}`}>
-              <div className={`w-1.5 h-1.5 rounded-full ${message.ok ? 'bg-emerald-400' : 'bg-red-400'} animate-pulse`} />
-              {message.text}
-            </div>
-          )}
+      {!externalSaveTrigger && (
+        <div className="flex items-center justify-between gap-3 pt-2 px-1">
+          <div className="min-w-0">
+            {message && (
+              <div className={`flex items-center gap-1.5 text-[11px] font-medium animate-in fade-in slide-in-from-left-2 duration-300 ${message.ok ? 'text-emerald-400' : 'text-red-400'}`}>
+                <div className={`w-1.5 h-1.5 rounded-full ${message.ok ? 'bg-emerald-400' : 'bg-red-400'} animate-pulse`} />
+                {message.text}
+              </div>
+            )}
+          </div>
+          <button
+            type="button"
+            onClick={saveAll}
+            disabled={saving}
+            className="flex items-center gap-2 px-6 py-2.5 rounded-xl bg-accent text-primary text-xs font-bold hover:bg-accent-light active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer transition-all shadow-lg shadow-accent/10"
+          >
+            {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
+            Update All Categories
+          </button>
         </div>
-        <button
-          type="button"
-          onClick={saveAll}
-          disabled={saving}
-          className="flex items-center gap-2 px-6 py-2.5 rounded-xl bg-accent text-primary text-xs font-bold hover:bg-accent-light active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer transition-all shadow-lg shadow-accent/10"
-        >
-          {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
-          Update All Categories
-        </button>
-      </div>
+      )}
     </div>
   );
 }
