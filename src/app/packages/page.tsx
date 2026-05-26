@@ -124,15 +124,14 @@ const labelMap = LABEL_MAP;
 const CATEGORY_CARDS: Array<{
   id: BookingCategory;
   label: string;
-  sub: string;
   icon: typeof Settings2;
   dot: string;
 }> = [
-  { id: 'MACHINE',    label: 'Bowling Machine',  sub: 'Yantra / Master 200',        icon: Settings2,  dot: 'bg-red-500' },
-  { id: 'NET',        label: 'Cricket Net',      sub: 'Self practice session',      icon: LayoutGrid, dot: 'bg-cyan-500' },
-  { id: 'SIDEARM',    label: 'Sidearm',          sub: 'Bowled by a specialist',     icon: Users,      dot: 'bg-emerald-500' },
-  { id: 'FULL_COURT', label: 'Full Indoor Court',sub: 'Entire indoor court',        icon: LayoutGrid, dot: 'bg-purple-500' },
-  { id: 'COACHING',   label: 'Personal Coaching',sub: 'Session with a coach',         icon: UserCog,    dot: 'bg-amber-500' },
+  { id: 'MACHINE',    label: 'Bowling Machine',  icon: Settings2,  dot: 'bg-red-500' },
+  { id: 'NET',        label: 'Cricket Net',      icon: LayoutGrid, dot: 'bg-cyan-500' },
+  { id: 'SIDEARM',    label: 'Sidearm',          icon: Users,      dot: 'bg-emerald-500' },
+  { id: 'FULL_COURT', label: 'Full Indoor Court',icon: LayoutGrid, dot: 'bg-purple-500' },
+  { id: 'COACHING',   label: 'Personal Coaching',icon: UserCog,    dot: 'bg-amber-500' },
 ];
 
 /**
@@ -545,24 +544,21 @@ export default function PackagesPage() {
                             // keeping their Day/Evening preference.
                             setCategoryFilter(isSelected ? null : card.id);
                           }}
-                          className={`flex items-center gap-2 px-2.5 py-2 rounded-lg transition-all cursor-pointer text-left ${
+                          className={`flex flex-col items-center justify-center gap-1.5 px-2 py-3 rounded-xl transition-all cursor-pointer text-center h-20 ${
                             isSelected
                               ? 'bg-accent/15 ring-1 ring-accent/50 shadow-sm'
                               : 'bg-white/[0.04] border border-white/[0.08] hover:border-accent/30'
                           }`}
                         >
-                          <div className={`w-7 h-7 rounded-md flex items-center justify-center flex-shrink-0 ${
+                          <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${
                             isSelected ? 'bg-accent/20' : 'bg-white/[0.06]'
                           }`}>
-                            <Icon className={`w-3.5 h-3.5 ${isSelected ? 'text-accent' : 'text-slate-400'}`} />
+                            <Icon className={`w-4 h-4 ${isSelected ? 'text-accent' : 'text-slate-400'}`} />
                           </div>
                           <div className="min-w-0">
                             <span className={`text-[11px] font-bold leading-tight block ${isSelected ? 'text-accent' : 'text-slate-300'}`}>
                               {card.label}
                             </span>
-                            <p className={`text-[9px] truncate ${isSelected ? 'text-accent/70' : 'text-slate-500'}`}>
-                              {card.sub}
-                            </p>
                           </div>
                         </button>
                       );
@@ -594,16 +590,6 @@ export default function PackagesPage() {
                     )}
                   </div>
                   <div className="flex flex-wrap gap-1.5">
-                    <button
-                      onClick={() => setMachineFilter(null)}
-                      className={`px-2.5 py-1 rounded-md text-[11px] font-semibold transition-all cursor-pointer ${
-                        machineFilter === null
-                          ? 'bg-accent/15 text-accent ring-1 ring-accent/50'
-                          : 'bg-white/[0.04] text-slate-300 border border-white/[0.08] hover:border-accent/30'
-                      }`}
-                    >
-                      All machines
-                    </button>
                     {centerMachines.map((m) => {
                       const isActive = machineFilter === m.id;
                       const label = m.shortName ?? m.name;
@@ -645,31 +631,28 @@ export default function PackagesPage() {
                 </div>
                 <div className="grid grid-cols-2 gap-2">
                   {([
-                    { key: 'DAY' as const,     label: 'Day',     sub: PACKAGE_TIMING_DAY_LABEL,  Icon: Sun },
-                    { key: 'EVENING' as const, label: 'Evening', sub: PACKAGE_TIMING_EVENING_LABEL, Icon: Moon },
+                    { key: 'DAY' as const,     label: 'Day',     Icon: Sun },
+                    { key: 'EVENING' as const, label: 'Evening', Icon: Moon },
                   ]).map(t => {
                     const isActive = timingFilter === t.key;
                     return (
                       <button
                         key={t.key}
                         onClick={() => setTimingFilter(isActive ? null : t.key)}
-                        className={`flex items-center gap-2 px-2 py-1.5 rounded-lg transition-all cursor-pointer text-left ${
+                        className={`flex flex-col items-center justify-center gap-1.5 px-2 py-3 rounded-xl transition-all cursor-pointer text-center h-20 ${
                           isActive
                             ? 'bg-accent/15 ring-1 ring-accent/50 shadow-sm'
                             : 'bg-white/[0.04] border border-white/[0.08] hover:border-accent/30'
                         }`}
                       >
-                        <div className={`w-7 h-7 rounded-md flex items-center justify-center flex-shrink-0 ${
+                        <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${
                           isActive ? 'bg-accent/20' : 'bg-white/[0.06]'
                         }`}>
-                          <t.Icon className={`w-3.5 h-3.5 ${isActive ? 'text-accent' : 'text-slate-400'}`} />
+                          <t.Icon className={`w-4 h-4 ${isActive ? 'text-accent' : 'text-slate-400'}`} />
                         </div>
                         <div className="min-w-0">
                           <span className={`text-[10px] font-bold block ${isActive ? 'text-accent' : 'text-slate-300'}`}>
                             {t.label}
-                          </span>
-                          <span className={`text-[9px] ${isActive ? 'text-accent/70' : 'text-slate-500'}`}>
-                            {t.sub}
                           </span>
                         </div>
                       </button>

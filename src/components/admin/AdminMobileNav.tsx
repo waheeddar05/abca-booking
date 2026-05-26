@@ -50,6 +50,8 @@ export function AdminMobileNav() {
         // resources / policies tabs). Hidden for everyone else.
         ...(isSuperAdmin
           ? [{ href: '/admin/centers', label: 'Centers', icon: Building2 }]
+          : isCenterAdmin
+          ? [{ href: `/admin/centers/${currentCenter?.id}`, label: 'My Center', icon: Building2 }]
           : []),
     ];
 

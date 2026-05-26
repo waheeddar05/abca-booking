@@ -885,10 +885,45 @@ function AdminBookingsContent() {
                           Cricket Kit{booking.kitRentalCharge ? ` (₹${booking.kitRentalCharge})` : ''}
                         </span>
                       )}
-                      {booking.packageBooking?.userPackage?.package?.name && (
-                        <span className="text-[10px] px-1.5 py-0.5 rounded font-medium bg-purple-500/10 text-purple-400">
-                          📦 {booking.packageBooking.userPackage.package.name}
-                        </span>
+                      {booking.packageBooking ? (
+                        <div className="flex flex-col">
+                          <span className="text-sm font-medium text-slate-300">Package Session</span>
+                          <span className="text-[10px] text-slate-500">
+                            📦 {booking.packageBooking.userPackage.package.name}
+                          </span>
+                        </div>
+                      ) : (
+                        <div className="flex flex-col">
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-sm font-bold text-white flex items-center">
+                              <IndianRupee className="w-3 h-3" />{booking.price || 0}
+                            </span>
+                            {(() => {
+                              if (booking.paymentMethod === 'CASH') {
+                                return <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-400 font-medium">Cash</span>;
+                              }
+                              const payment = booking.payments?.[0];
+                              if (!payment) {
+                                if (booking.paymentMethod === 'WALLET') return <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-400 font-medium">Wallet</span>;
+                                if (booking.paymentMethod === 'ONLINE') return <span className="text-[10px] px-1.5 py-0.5 rounded bg-purple-500/10 text-purple-400 font-medium">Online</span>;
+                                return booking.paymentMethod ? <span className="text-[10px] px-1.5 py-0.5 rounded bg-white/5 text-slate-400 font-medium">{booking.paymentMethod}</span> : null;
+                              }
+                              const meta = payment.metadata as any;
+                              const wallet = meta?.walletDeduction || 0;
+                              const online = payment.amount || 0;
+                              if (wallet > 0 && online > 0) {
+                                return (
+                                  <div className="flex items-center gap-1">
+                                    <span className="text-[9px] px-1 py-0.5 rounded bg-blue-500/10 text-blue-400 border border-blue-500/20">W: ₹{wallet}</span>
+                                    <span className="text-[9px] px-1 py-0.5 rounded bg-purple-500/10 text-purple-400 border border-purple-500/20">O: ₹{online}</span>
+                                  </div>
+                                );
+                              }
+                              if (wallet > 0) return <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-400 font-medium">Wallet</span>;
+                              return <span className="text-[10px] px-1.5 py-0.5 rounded bg-purple-500/10 text-purple-400 font-medium">Online</span>;
+                            })()}
+                          </div>
+                        </div>
                       )}
                     </div>
 
@@ -1058,7 +1093,12 @@ function AdminBookingsContent() {
                         </td>
                         <td className="px-5 py-3.5">
                           {booking.packageBooking ? (
-                            <span className="text-[10px] text-slate-500">—</span>
+                            <div className="flex flex-col">
+                              <span className="text-xs text-slate-400">Package Session</span>
+                              <span className="text-[10px] text-slate-500 truncate max-w-[120px]">
+                                {booking.packageBooking.userPackage.package.name}
+                              </span>
+                            </div>
                           ) : isEditing ? (
                             <div className="flex items-center gap-1">
                               <span className="text-xs text-slate-400">₹</span>
@@ -1078,20 +1118,43 @@ function AdminBookingsContent() {
                               </button>
                             </div>
                           ) : booking.price != null ? (
-                            <button onClick={() => startEditPrice(booking)} className="text-sm text-white hover:text-accent transition-colors cursor-pointer group">
-                              <span className="flex items-center gap-0.5">
-                                <IndianRupee className="w-3 h-3" />{booking.price}
-                                <Pencil className="w-3 h-3 ml-1 opacity-0 group-hover:opacity-50" />
-                              </span>
+                            <div className="flex flex-col gap-1">
+                              <button onClick={() => startEditPrice(booking)} className="text-sm text-white hover:text-accent transition-colors cursor-pointer group w-fit">
+                                <span className="flex items-center gap-0.5 font-bold">
+                                  <IndianRupee className="w-3 h-3" />{booking.price}
+                                  <Pencil className="w-3 h-3 ml-1 opacity-0 group-hover:opacity-50" />
+                                </span>
+                              </button>
+                              {(() => {
+                                if (booking.paymentMethod === 'CASH') {
+                                  return <span className="text-[9px] px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-400 font-medium w-fit border border-emerald-500/20">Cash Payment</span>;
+                                }
+                                const payment = booking.payments?.[0];
+                                if (!payment) {
+                                  if (booking.paymentMethod === 'WALLET') return <span className="text-[9px] px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-400 font-medium w-fit border border-blue-500/20">Wallet Only</span>;
+                                  if (booking.paymentMethod === 'ONLINE') return <span className="text-[9px] px-1.5 py-0.5 rounded bg-purple-500/10 text-purple-400 font-medium w-fit border border-purple-500/20">Online Only</span>;
+                                  return booking.paymentMethod ? <span className="text-[9px] px-1.5 py-0.5 rounded bg-white/5 text-slate-500 font-medium w-fit border border-white/10">{booking.paymentMethod}</span> : null;
+                                }
+                                const meta = payment.metadata as any;
+                                const wallet = meta?.walletDeduction || 0;
+                                const online = payment.amount || 0;
+                                if (wallet > 0 && online > 0) {
+                                  return (
+                                    <div className="flex flex-col gap-0.5">
+                                      <span className="text-[9px] text-blue-400/80">Wallet: ₹{wallet}</span>
+                                      <span className="text-[9px] text-purple-400/80">Online: ₹{online}</span>
+                                    </div>
+                                  );
+                                }
+                                if (wallet > 0) return <span className="text-[9px] px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-400 font-medium w-fit border border-blue-500/20">Wallet Payment</span>;
+                                return <span className="text-[9px] px-1.5 py-0.5 rounded bg-purple-500/10 text-purple-400 font-medium w-fit border border-purple-500/20">Online Payment</span>;
+                              })()}
                               {booking.discountAmount > 0 && (
-                                <div className="text-[10px] text-green-400">-{booking.discountAmount} discount</div>
+                                <div className="text-[9px] text-green-400/70 italic">₹{booking.discountAmount} discount applied</div>
                               )}
-                              {booking.kitRental && booking.kitRentalCharge && (
-                                <div className="text-[10px] text-teal-400">incl. ₹{booking.kitRentalCharge} kit</div>
-                              )}
-                            </button>
+                            </div>
                           ) : (
-                            <button onClick={() => startEditPrice(booking)} className="text-xs text-slate-500 hover:text-accent cursor-pointer">Set price</button>
+                            <button onClick={() => startEditPrice(booking)} className="text-xs text-slate-500 hover:text-accent cursor-pointer italic">No price set</button>
                           )}
                         </td>
                         <td className="px-5 py-3.5">

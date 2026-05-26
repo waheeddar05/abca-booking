@@ -73,6 +73,7 @@ export default function AdminLayout({
     // and gates destructive actions to super admins; center admins
     // primarily use it to view balances + credit/debit wallets.
     { href: '/admin/user-management', label: 'User Mgmt', icon: UserCog, hidden: !isAdmin },
+    { href: `/admin/centers/${currentCenter?.id}`, label: 'My Center', icon: Building2, hidden: !isCenterAdmin },
     ...(isSuperAdmin
       ? [
           { href: '/admin/centers', label: 'Centers', icon: Building2 },
