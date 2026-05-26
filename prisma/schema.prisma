@@ -166,12 +166,13 @@ model MembershipAvailability {
 // one-off blocks like a tournament weekend.
 //
 // Resolution rule (mirrors slotMatchesAvailability in
-// resource-booking.ts): if a membership has ANY dateAvailability rows,
-// at least one must cover the booking's date AND time window for the
-// specialist to be considered available — date-range entries are
-// ADDITIVE on top of recurring entries (a specialist with both gets
-// matched if the slot fits EITHER table). When the membership has no
-// availability rows at all, they're treated as always-available.
+// resource-booking.ts): date-range availability overrides the recurring
+// schedule for the dates it covers.
+//   - If a membership has dateAvailability rows covering a date, the
+//     weekly recurring schedule is ignored for that date.
+//   - If no dateAvailability row covers the date, the engine falls back
+//     to the recurring MembershipAvailability table.
+//   - If both tables are empty, the specialist is always available.
 model MembershipDateAvailability {
   id           String   @id @default(cuid())
   membershipId String

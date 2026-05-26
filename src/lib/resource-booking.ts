@@ -225,7 +225,15 @@ export function slotMatchesAvailability(
 
 /**
  * Combined check: recurring weekly OR date-range covers the slot.
- * See doc on slotMatchesAvailability for the empty-table rules.
+ *
+ * NEW ALIGNMENT RULE: Date-range availability overrides the recurring
+ * schedule for the dates it covers.
+ *   - If a slot's date falls within any dateRange window: the slot matches
+ *     ONLY if it fits inside one of those dateRange windows. The weekly
+ *     schedule is ignored for that date.
+ *   - If the date is NOT covered by any dateRange: fall back to the
+ *     weekly recurring schedule.
+ *   - If BOTH tables are empty: always available (legacy fallback).
  */
 export function slotMatchesMembershipAvailability(
   slot: BookableSlotWindow,
@@ -234,9 +242,34 @@ export function slotMatchesMembershipAvailability(
 ): boolean {
   const hasWeekly = weekly && weekly.length > 0;
   const hasDateRanges = dateRanges && dateRanges.length > 0;
+
   if (!hasWeekly && !hasDateRanges) return true;
-  if (hasWeekly && slotMatchesAvailability(slot, weekly)) return true;
-  if (hasDateRanges && slotMatchesDateAvailability(slot, dateRanges)) return true;
+
+  // 1. If we have date ranges, check if any of them cover this DATE.
+  if (hasDateRanges) {
+    const slotDate = slot.date.getTime();
+    const rangesForThisDate = dateRanges.filter(
+      (w) => slotDate >= w.fromDate.getTime() && slotDate <= w.toDate.getTime(),
+    );
+
+    if (rangesForThisDate.length > 0) {
+      // OVERRIDE: This date is explicitly managed by date ranges.
+      // Ignore weekly schedule; match only if this slot fits a range.
+      const slotStart = getISTHHMM(slot.startTime);
+      const slotEnd = getISTHHMM(slot.endTime);
+      return rangesForThisDate.some((w) => {
+        const from = w.startTime ?? '00:00';
+        const to = w.endTime ?? '24:00';
+        return slotStart >= from && slotEnd <= to;
+      });
+    }
+  }
+
+  // 2. Fallback to weekly schedule if no date ranges covered this date.
+  if (hasWeekly) {
+    return slotMatchesAvailability(slot, weekly);
+  }
+
   return false;
 }
 
