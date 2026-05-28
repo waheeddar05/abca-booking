@@ -185,6 +185,7 @@ export async function getUserActivePackages(userId: string) {
       userId,
       status: 'ACTIVE',
       OR: [
+        { expiryDate: null },
         { expiryDate: { gte: now } },
         { expiryDate: { gte: farFutureThreshold } }, // Pending activation packages
       ],

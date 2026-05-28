@@ -94,8 +94,8 @@ function formatUserPackage(up: any) {
     0
   ) || 0;
 
-  // Check if package is pending activation (not yet used, far-future dates)
-  const isPendingActivation = up.usedSessions === 0 && up.activationDate && new Date(up.activationDate).getFullYear() >= 2099;
+  // Check if package is pending activation (not yet used, far-future dates or null)
+  const isPendingActivation = up.usedSessions === 0 && (!up.activationDate || new Date(up.activationDate).getFullYear() >= 2099);
 
   return {
     id: up.id,

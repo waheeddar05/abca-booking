@@ -79,8 +79,6 @@ export async function completePackagePurchase(
       packageId: pkg.id,
       totalSessions: pkg.totalSessions,
       usedSessions: 0,
-      activationDate,
-      expiryDate,
       status: 'ACTIVE',
       amountPaid: totalAmountPaid,
     },
