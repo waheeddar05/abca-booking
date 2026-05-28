@@ -493,7 +493,7 @@ function RecurringAvailabilityEditor({
           </button>
           <button
             type="button"
-            onClick={save}
+            onClick={() => save()}
             disabled={saving}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-accent text-black text-xs font-semibold hover:bg-accent/90 active:scale-95 disabled:opacity-60 disabled:cursor-not-allowed cursor-pointer"
           >
@@ -742,7 +742,7 @@ function DateAvailabilityEditor({
           </button>
           <button
             type="button"
-            onClick={save}
+            onClick={() => save()}
             disabled={saving}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-accent text-black text-xs font-semibold hover:bg-accent/90 active:scale-95 disabled:opacity-60 disabled:cursor-not-allowed cursor-pointer"
           >

@@ -265,7 +265,7 @@ export async function GET(req: NextRequest) {
         // the corresponding tabs. Audience is 'ALL' here — the slot
         // grid shows worst case to everyone; the actual booking call
         // re-evaluates with the user's special-status flag.
-        const { availability, blockedCategories, blockedMachineRowIds } = applyBlocksToAvailability(
+        const { availability, blockedCategories, blockedMachineRowIds, blockedByPitch } = applyBlocksToAvailability(
           baseAvailability,
           blocks,
           'ALL',

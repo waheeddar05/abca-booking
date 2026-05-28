@@ -843,6 +843,7 @@ export function applyBlocksToAvailability(
     ASTRO: { categories: new Set(), machineRowIds: new Set() },
     CEMENT: { categories: new Set(), machineRowIds: new Set() },
     NATURAL: { categories: new Set(), machineRowIds: new Set() },
+    TURF: { categories: new Set(), machineRowIds: new Set() },
   };
   const blockedResourceIds = new Set<string>();
   // True when any block at this slot consumes indoor net capacity.
