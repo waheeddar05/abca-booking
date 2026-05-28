@@ -61,8 +61,6 @@ export async function POST(req: NextRequest) {
         packageId: pkg.id,
         totalSessions: pkg.totalSessions,
         usedSessions: 0,
-        activationDate: null,
-        expiryDate: null,
         status: 'ACTIVE',
         amountPaid: pkg.price,
         createdAt: now,
@@ -121,7 +119,7 @@ export async function POST(req: NextRequest) {
     } catch (err) {
     console.error('Outer package purchase error:', err);
     let errorMessage = 'Internal server error';
-    let status = 500;
+    const status = 500;
 
     if (err instanceof Error) {
       errorMessage = err.message;
