@@ -64,6 +64,7 @@ export async function POST(req: NextRequest) {
         expiryDate: null,
         status: 'ACTIVE',
         amountPaid: pkg.price,
+        createdAt: now,
       },
       include: { package: true },
     });

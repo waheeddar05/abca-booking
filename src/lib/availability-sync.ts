@@ -6,6 +6,61 @@ import { notifyBookingCancelled } from '@/lib/notifications';
 import { log } from '@/lib/logger';
 
 /**
+ * Returns the list of future bookings that would be cancelled if the
+ * availability was updated to the provided new schedules.
+ */
+export async function getImpactedBookings(opts: {
+  membershipId: string;
+  centerId: string;
+  newWeekly?: AvailabilityWindow[];
+  newDateRanges?: DateAvailabilityWindow[];
+}) {
+  const { membershipId, centerId, newWeekly, newDateRanges } = opts;
+
+  const membership = await prisma.centerMembership.findUnique({
+    where: { id: membershipId },
+    select: { userId: true },
+  });
+  if (!membership) return [];
+
+  const now = getISTTime();
+  const bookings = await prisma.booking.findMany({
+    where: {
+      centerId,
+      status: 'BOOKED',
+      startTime: { gte: now },
+      OR: [
+        { assignedCoachId: membership.userId },
+        { assignedStaffId: membership.userId },
+      ],
+    },
+    select: {
+      id: true,
+      date: true,
+      startTime: true,
+      endTime: true,
+    },
+  });
+
+  if (bookings.length === 0) return [];
+
+  const impacted = bookings.filter((booking) => {
+    const slot = {
+      date: new Date(booking.date),
+      startTime: new Date(booking.startTime),
+      endTime: new Date(booking.endTime),
+    };
+    return !slotMatchesMembershipAvailability(
+      slot,
+      newWeekly || [],
+      newDateRanges || []
+    );
+  });
+
+  return impacted;
+}
+
+/**
  * Checks for future bookings of a coach/staff member that are no longer
  * compatible with their updated availability, cancels them, and issues
  * a wallet refund.

@@ -559,11 +559,21 @@ export async function GET(req: NextRequest) {
           corporateBatchHolds: availability.corporateBatchNetsHeld,
           prices,
           machinePrices,
-          // Blocks applied at this slot. The client uses these to grey
-          // out blocked categories/machines in the picker without
-          // re-fetching block rows.
-          blockedCategories: Array.from(blockedCategories),
-          blockedMachineRowIds: Array.from(blockedMachineRowIds),
+        // Blocks applied at this slot. The client uses these to grey
+        // out blocked categories/machines in the picker without
+        // re-fetching block rows.
+        blockedCategories: Array.from(blockedCategories),
+        blockedMachineRowIds: Array.from(blockedMachineRowIds),
+        // Per-pitch blocks for granular UI control
+        blockedByPitch: Object.fromEntries(
+          Object.entries(blockedByPitch).map(([p, data]) => [
+            p,
+            {
+              categories: Array.from(data.categories),
+              machineRowIds: Array.from(data.machineRowIds),
+            },
+          ]),
+        ),
           // Operator availability — only meaningful for MACHINE category.
           operatorCount,
           operatorsBusy: busyOperators,

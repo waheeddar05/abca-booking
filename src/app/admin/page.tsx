@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import { CalendarCheck, LayoutDashboard, X, IndianRupee } from 'lucide-react';
 import { AdminPageHeader } from '@/components/admin/AdminPageHeader';
 import { AdminStatCard } from '@/components/admin/AdminStatCard';
-import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, CartesianGrid } from 'recharts';
+import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, CartesianGrid, Legend } from 'recharts';
 
 interface BookingDistributionItem {
   category: string;
@@ -241,7 +241,7 @@ export default function AdminDashboard() {
             </div>
           ) : revenueByCategoryData.length > 0 ? (
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={revenueByCategoryData} margin={{ top: 10, right: 10, left: 30, bottom: 20 }}>
+              <BarChart data={revenueByCategoryData} margin={{ top: 10, right: 10, left: 30, bottom: 40 }}>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="rgba(255,255,255,0.05)" />
                 <XAxis 
                   dataKey="name" 
@@ -249,6 +249,7 @@ export default function AdminDashboard() {
                   tickLine={false} 
                   tick={{ fill: '#94a3b8', fontSize: 11 }}
                   interval={0}
+                  hide
                 />
                 <YAxis 
                   axisLine={false} 
@@ -263,9 +264,10 @@ export default function AdminDashboard() {
                   labelStyle={{ color: '#94a3b8', fontSize: '11px', marginBottom: '4px' }}
                   formatter={(value: any) => [`₹${value.toLocaleString()}`, 'Revenue']}
                 />
-                <Bar dataKey="revenue" radius={[4, 4, 0, 0]} barSize={40}>
+                <Legend verticalAlign="bottom" height={36} wrapperStyle={{ paddingTop: '20px', fontSize: '10px' }} />
+                <Bar dataKey="revenue" radius={[4, 4, 0, 0]} barSize={40} name="Revenue">
                   {revenueByCategoryData.map((_, index) => (
-                    <Cell key={`cell-${index}`} fill={CHART_COLORS[0]} />
+                    <Cell key={`cell-${index}`} fill={CHART_COLORS[index % CHART_COLORS.length]} />
                   ))}
                 </Bar>
               </BarChart>

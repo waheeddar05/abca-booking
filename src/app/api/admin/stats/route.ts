@@ -144,7 +144,7 @@ export async function GET(req: NextRequest) {
               price: true,
               kitRentalCharge: true,
               machineId: true, // Legacy
-              assignedMachine: { select: { machineType: { select: { name: true } } } }, // New
+              assignedMachine: { select: { name: true, machineType: { select: { name: true } } } }, // New
               packageBooking: {
                 select: {
                   sessionsUsed: true,
@@ -164,9 +164,14 @@ export async function GET(req: NextRequest) {
             } else if (b.machineId) {
               // Legacy fallback
               if (b.machineId === 'YANTRA') typeName = 'Yantra';
-              else if (b.machineId === 'LEVERAGE_OUTDOOR') typeName = 'Master 200';
+              else if (b.machineId === 'LEVERAGE_OUTDOOR') typeName = 'Leverage Outdoor';
               else if (b.machineId === 'LEVERAGE_INDOOR') typeName = 'Leverage Indoor';
               else if (b.machineId === 'GRAVITY') typeName = 'Gravity';
+            }
+            
+            // Override with resource name if available
+            if (b.assignedMachine?.name) {
+              typeName = b.assignedMachine.name;
             }
 
             let net = 0;
@@ -296,6 +301,7 @@ export async function GET(req: NextRequest) {
           const ups = await prisma.userPackage.findMany({
             where: {
               ...(centerId ? { package: { centerId } } : {}),
+              status: { not: 'CANCELLED' },
               ...(hasDateFilter ? { activationDate: dateFilter } : {}),
             },
             select: { id: true, amountPaid: true },

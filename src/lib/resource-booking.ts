@@ -233,7 +233,7 @@ export function slotMatchesAvailability(
  *     schedule is ignored for that date.
  *   - If the date is NOT covered by any dateRange: fall back to the
  *     weekly recurring schedule.
- *   - If BOTH tables are empty: always available (legacy fallback).
+ *   - If BOTH tables are empty: unavailable by default (changed from legacy fallback).
  */
 export function slotMatchesMembershipAvailability(
   slot: BookableSlotWindow,
@@ -243,7 +243,7 @@ export function slotMatchesMembershipAvailability(
   const hasWeekly = weekly && weekly.length > 0;
   const hasDateRanges = dateRanges && dateRanges.length > 0;
 
-  if (!hasWeekly && !hasDateRanges) return true;
+  if (!hasWeekly && !hasDateRanges) return false;
 
   // 1. If we have date ranges, check if any of them cover this DATE.
   if (hasDateRanges) {
@@ -831,9 +831,19 @@ export function applyBlocksToAvailability(
   availability: SlotAvailability,
   blocks: ActiveBlock[],
   audience: 'ALL' | 'SPECIAL' | 'NON_SPECIAL' = 'ALL',
-): { availability: SlotAvailability; blockedCategories: Set<BookingCategory>; blockedMachineRowIds: Set<string> } {
+): {
+  availability: SlotAvailability;
+  blockedCategories: Set<BookingCategory>;
+  blockedMachineRowIds: Set<string>;
+  blockedByPitch: Record<PitchType, { categories: Set<BookingCategory>; machineRowIds: Set<string> }>;
+} {
   const blockedCategories = new Set<BookingCategory>();
   const blockedMachineRowIds = new Set<string>();
+  const blockedByPitch: Record<PitchType, { categories: Set<BookingCategory>; machineRowIds: Set<string> }> = {
+    ASTRO: { categories: new Set(), machineRowIds: new Set() },
+    CEMENT: { categories: new Set(), machineRowIds: new Set() },
+    NATURAL: { categories: new Set(), machineRowIds: new Set() },
+  };
   const blockedResourceIds = new Set<string>();
   // True when any block at this slot consumes indoor net capacity.
   // Drives the Full Court "needs every net free" rule and the indoor-
@@ -850,10 +860,28 @@ export function applyBlocksToAvailability(
   // everything anyway).
   let cascadeIndoorCategories = false;
 
+  const INDOOR_PITCES: PitchType[] = ['ASTRO', 'CEMENT'];
+
   for (const b of blocks) {
     if (!appliesToAudience(b.appliesTo, audience)) continue;
-    for (const c of b.categories) blockedCategories.add(c);
-    for (const id of b.machineRowIds) blockedMachineRowIds.add(id);
+
+    // Helper to add to specific pitch or all if null
+    const addToPitch = (
+      p: PitchType | null,
+      cats: BookingCategory[],
+      mIds: string[],
+    ) => {
+      const targets = p ? [p] : (Object.keys(blockedByPitch) as PitchType[]);
+      for (const pitch of targets) {
+        for (const c of cats) blockedByPitch[pitch].categories.add(c);
+        for (const id of mIds) blockedByPitch[pitch].machineRowIds.add(id);
+      }
+      // Also add to global sets for legacy compatibility / fallback
+      for (const c of cats) blockedCategories.add(c);
+      for (const id of mIds) blockedMachineRowIds.add(id);
+    };
+
+    addToPitch(b.pitchType, b.categories, b.machineRowIds);
     for (const id of b.resourceIds) blockedResourceIds.add(id);
 
     // CATCHALL — neither category, machineRow, nor resource targeted +
@@ -870,9 +898,9 @@ export function applyBlocksToAvailability(
     if (!hasAnyAxis) {
       // Block every booking-category we know about. The frontend uses
       // this to grey out every tab in the slot picker.
-      for (const c of ['MACHINE', 'SIDEARM', 'COACHING', 'NET', 'FULL_COURT', 'CORPORATE_BATCH'] as BookingCategory[]) {
-        blockedCategories.add(c);
-      }
+      const ALL_CATS: BookingCategory[] = ['MACHINE', 'SIDEARM', 'COACHING', 'NET', 'FULL_COURT', 'CORPORATE_BATCH'];
+      addToPitch(null, ALL_CATS, []);
+
       // Catchall — claims the whole indoor pool too.
       indoorPoolFullyClaimed = true;
       cascadeIndoorCategories = true;
@@ -888,16 +916,19 @@ export function applyBlocksToAvailability(
     // (Astro, Cement). Natural turf remains bookable if available.
     // We only trigger cascade if the block matches ASTRO/CEMENT or has no pitch.
     if (b.categories.includes('FULL_COURT') && b.resourceIds.length === 0) {
-      if (!b.pitchType || b.pitchType === 'ASTRO' || b.pitchType === 'CEMENT') {
+      if (!b.pitchType || INDOOR_PITCES.includes(b.pitchType)) {
         indoorPoolFullyClaimed = true;
-        cascadeIndoorCategories = true;
-        // Auto-add every indoor category. Admin who tagged only
-        // FULL_COURT clearly intended the cascade (per the spec).
-        blockedCategories.add('NET');
-        blockedCategories.add('SIDEARM');
-        blockedCategories.add('MACHINE');
-        blockedCategories.add('COACHING'); // Also block coaching on Astro
-        // FULL_COURT itself already added above via b.categories.
+        // Auto-add every indoor category to the relevant pitches
+        const CASCADE_CATS: BookingCategory[] = ['NET', 'SIDEARM', 'MACHINE', 'COACHING'];
+        if (b.pitchType) {
+          addToPitch(b.pitchType, CASCADE_CATS, []);
+        } else {
+          // No pitch specified -> cascade to all indoor pitches
+          for (const p of INDOOR_PITCES) {
+            addToPitch(p, CASCADE_CATS, []);
+          }
+        }
+        // FULL_COURT itself already added above via addToPitch(b.pitchType, ...).
       }
     }
 
@@ -906,7 +937,7 @@ export function applyBlocksToAvailability(
     // indoor pool (or all if null).
     // Task adjustment: Only affect indoor pool if the block targets ASTRO/CEMENT or no pitch.
     if (b.categories.includes('NET') && b.resourceIds.length === 0) {
-      if (!b.pitchType || b.pitchType === 'ASTRO' || b.pitchType === 'CEMENT') {
+      if (!b.pitchType || INDOOR_PITCES.includes(b.pitchType)) {
         if (b.netCount == null) {
           indoorPoolFullyClaimed = true;
         } else {
@@ -934,13 +965,14 @@ export function applyBlocksToAvailability(
     freeIndoor = freeIndoor.slice(0, keep);
   }
 
-  // Per-pitch ASTRO list rides on the indoor pool — recompute it from
-  // the now-shrunk freeIndoor list so the user can't book Cricket Net /
-  // Bowling Machine / Sidearm on Astro past the cap. CEMENT and
-  // NATURAL are independent surfaces, only affected by their own
-  // resource pins.
+  // Per-pitch ASTRO/CEMENT list rides on the indoor pool — recompute
+  // it from the now-shrunk freeIndoor list so the user can't book
+  // Cricket Net / Bowling Machine / Sidearm on Astro/Cement past
+  // the cap. NATURAL is an independent surface, only affected by its
+  // own resource pins.
   const stillFreeIndoorIds = new Set(freeIndoor.map((r) => r.id));
   const astroFiltered = availability.freeByPitch.ASTRO.filter((r) => stillFreeIndoorIds.has(r.id));
+  const cementFiltered = availability.freeByPitch.CEMENT.filter((r) => stillFreeIndoorIds.has(r.id));
 
   // Full Court availability now requires every indoor net to be free
   // AND no block consuming indoor capacity (even partial). One blocked
@@ -955,24 +987,22 @@ export function applyBlocksToAvailability(
     freeOutdoorResources: freeOutdoor,
     freeByPitch: {
       ASTRO: astroFiltered,
-      CEMENT: availability.freeByPitch.CEMENT.filter((r) => !blockedResourceIds.has(r.id)),
+      CEMENT: cementFiltered,
       NATURAL: availability.freeByPitch.NATURAL.filter((r) => !blockedResourceIds.has(r.id)),
     },
     fullCourtAvailable: availability.fullCourtAvailable && !fullCourtBlocked,
   };
 
   // Cascade: when a FULL_COURT or catchall block hits, suppress every
-  // indoor-pool dependent category in the picker. This keeps the
-  // user's tab grid honest even when the admin only ticked
-  // FULL_COURT.
-  if (cascadeIndoorCategories) {
-    blockedCategories.add('NET');
-    blockedCategories.add('SIDEARM');
-    blockedCategories.add('MACHINE');
-    blockedCategories.add('FULL_COURT');
-  }
-
-  return { availability: filteredAvailability, blockedCategories, blockedMachineRowIds };
+  // Note: blockedCategories / blockedMachineRowIds / blockedByPitch
+  // are NOT updated here — they only represent categorical blocks.
+  // Resource-level pins are reflected in filteredAvailability.
+  return {
+    availability: filteredAvailability,
+    blockedCategories,
+    blockedMachineRowIds,
+    blockedByPitch,
+  };
 }
 
 /**

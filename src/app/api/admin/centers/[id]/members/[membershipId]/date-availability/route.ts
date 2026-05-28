@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { prisma } from '@/lib/prisma';
 import { getAuthenticatedUser, hasMembershipRole } from '@/lib/auth';
 import { sanitizeApiError } from '@/lib/api-errors';
-import { autoCancelImpactedBookings } from '@/lib/availability-sync';
+import { autoCancelImpactedBookings, getImpactedBookings } from '@/lib/availability-sync';
 
 /**
  * Date-range availability for a coach or sidearm specialist
@@ -117,6 +117,8 @@ export async function PUT(req: NextRequest, ctx: { params: Promise<Params> }) {
       return NextResponse.json({ error: 'Validation failed', issues: parsed.error.issues }, { status: 400 });
     }
 
+    const preview = req.nextUrl.searchParams.get('preview') === 'true';
+
     const newDateRanges = parsed.data.windows.map((w) => ({
       membershipId,
       fromDate: new Date(`${w.fromDate}T00:00:00.000Z`),
@@ -133,6 +135,16 @@ export async function PUT(req: NextRequest, ctx: { params: Promise<Params> }) {
     const existingWeekly = await prisma.membershipAvailability.findMany({
       where: { membershipId, isActive: true },
     });
+
+    if (preview) {
+      const impacted = await getImpactedBookings({
+        membershipId,
+        centerId,
+        newWeekly: existingWeekly,
+        newDateRanges,
+      });
+      return NextResponse.json({ impactedCount: impacted.length, impactedBookings: impacted });
+    }
 
     // Replace-all semantics — same approach as the recurring availability
     // sibling endpoint.

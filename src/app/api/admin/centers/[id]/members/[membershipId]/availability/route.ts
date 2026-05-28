@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { prisma } from '@/lib/prisma';
 import { getAuthenticatedUser, hasMembershipRole } from '@/lib/auth';
 import { sanitizeApiError } from '@/lib/api-errors';
-import { autoCancelImpactedBookings } from '@/lib/availability-sync';
+import { autoCancelImpactedBookings, getImpactedBookings } from '@/lib/availability-sync';
 
 /**
  * Weekly recurring availability schedule for a coach or sidearm
@@ -15,8 +15,8 @@ import { autoCancelImpactedBookings } from '@/lib/availability-sync';
  * GET returns the current rows (sorted by day-of-week then startTime).
  * PUT does a full replace — the body's `windows` array becomes the
  * canonical schedule, all previous rows are deleted, atomic in one
- * transaction. Empty array clears the schedule (which means "always
- * available" per the engine's default).
+ * transaction. Empty array clears the schedule (which means "unavailable by
+ * default" per the engine's default).
  *
  * Auth: must be admin at this center, or super admin. Membership's
  * role must be COACH or SIDEARM_SPECIALIST — availability for ADMIN /
@@ -111,6 +111,8 @@ export async function PUT(req: NextRequest, ctx: { params: Promise<Params> }) {
       return NextResponse.json({ error: 'Validation failed', issues: parsed.error.issues }, { status: 400 });
     }
 
+    const preview = req.nextUrl.searchParams.get('preview') === 'true';
+
     const newWeekly = parsed.data.windows.map((w) => ({
       membershipId,
       dayOfWeek: w.dayOfWeek,
@@ -125,6 +127,16 @@ export async function PUT(req: NextRequest, ctx: { params: Promise<Params> }) {
     const existingDateRanges = await prisma.membershipDateAvailability.findMany({
       where: { membershipId, isActive: true },
     });
+
+    if (preview) {
+      const impacted = await getImpactedBookings({
+        membershipId,
+        centerId,
+        newWeekly,
+        newDateRanges: existingDateRanges,
+      });
+      return NextResponse.json({ impactedCount: impacted.length, impactedBookings: impacted });
+    }
 
     // Replace all rows for this membership in a single transaction.
     await prisma.$transaction([

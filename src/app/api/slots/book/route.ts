@@ -406,7 +406,7 @@ export async function executeSlotBooking(
         // Category axis: ABCA bookings are always MACHINE. If the rule targets categories
         // and doesn't include MACHINE, it shouldn't apply here.
         const ruleCategories = rule.categories as string[] | undefined;
-        if (ruleCategories && ruleCategories.length > 0 && !ruleCategories.includes('MACHINE')) return false;
+        if (ruleCategories && ruleCategories.length > 0 && !ruleCategories.includes(category)) return false;
 
         return true;
       };

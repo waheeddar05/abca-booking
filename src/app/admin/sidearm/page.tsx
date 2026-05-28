@@ -21,6 +21,7 @@ import { useSession } from 'next-auth/react';
 import { useCenter } from '@/lib/center-context';
 import { Loader2, ArrowUp, ArrowDown, CalendarClock, CalendarRange, Save, Plus, Trash2, Users } from 'lucide-react';
 import { AdminPageHeader } from '@/components/admin/AdminPageHeader';
+import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 
 type Specialist = {
   id: string;
@@ -331,16 +332,44 @@ function RecurringAvailabilityEditor({
   );
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState<{ text: string; ok: boolean } | null>(null);
+  const [impactedCount, setImpactedCount] = useState<number | null>(null);
+  const [showConfirm, setShowConfirm] = useState(false);
+  const [pendingDeleteIdx, setPendingDeleteIdx] = useState<number | null>(null);
 
   const add = () => setWindows((prev) => [...prev, { dayOfWeek: 1, startTime: '17:00', endTime: '21:00' }]);
-  const remove = (i: number) => setWindows((prev) => prev.filter((_, idx) => idx !== i));
+  const remove = (i: number) => {
+    setWindows((prev) => prev.filter((_, idx) => idx !== i));
+    setPendingDeleteIdx(null);
+  };
   const update = (i: number, patch: Partial<RecurringWindow>) =>
     setWindows((prev) => prev.map((w, idx) => (idx === i ? { ...w, ...patch } : w)));
 
-  const save = async () => {
+  const save = async (bypassConfirm = false) => {
     setSaving(true);
     setMsg(null);
     try {
+      if (!bypassConfirm) {
+        // Preview first
+        const r = await fetch(
+          `/api/admin/centers/${centerId}/members/${membershipId}/availability?preview=true`,
+          {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ windows }),
+          },
+        );
+        const body = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(body?.error || `HTTP ${r.status}`);
+
+        if (body.impactedCount > 0) {
+          setImpactedCount(body.impactedCount);
+          setShowConfirm(true);
+          setSaving(false);
+          return;
+        }
+      }
+
+      // Proceed with actual save
       const r = await fetch(
         `/api/admin/centers/${centerId}/members/${membershipId}/availability`,
         {
@@ -362,15 +391,46 @@ function RecurringAvailabilityEditor({
 
   return (
     <div className="space-y-2">
+      <ConfirmDialog
+        open={showConfirm}
+        title="Impacted Bookings"
+        message={`Changing the availability will result in ${impactedCount} existing booking(s) being cancelled and refunded to user wallets.`}
+        warning="This action cannot be undone. Impacted users will be notified automatically."
+        confirmLabel="Proceed & Cancel Bookings"
+        cancelLabel="Review Changes"
+        variant="danger"
+        loading={saving}
+        onConfirm={() => {
+          setShowConfirm(false);
+          save(true);
+        }}
+        onCancel={() => {
+          setShowConfirm(false);
+          setImpactedCount(null);
+        }}
+      />
+
+      <ConfirmDialog
+        open={pendingDeleteIdx !== null}
+        title="Delete Window"
+        message="Are you sure you want to delete this availability window? This might impact existing bookings when you save."
+        confirmLabel="Delete"
+        variant="danger"
+        onConfirm={() => {
+          if (pendingDeleteIdx !== null) remove(pendingDeleteIdx);
+        }}
+        onCancel={() => setPendingDeleteIdx(null)}
+      />
+
       <p className="text-[11px] text-slate-500 leading-relaxed">
-        Weekly recurring windows. Empty list = always available. Multiple
+        Weekly recurring windows. Empty list = unavailable by default. Multiple
         rows on the same day stack as a union (e.g. 09:00–12:00 +
         17:00–21:00).
       </p>
       {windows.length === 0 ? (
         <p className="text-[11px] text-slate-600 italic py-2">
           No recurring windows configured. This specialist is treated as
-          always available unless a date range below restricts them.
+          unavailable unless a date range below adds availability.
         </p>
       ) : (
         <div className="space-y-1.5 overflow-x-auto pb-1">
@@ -399,9 +459,7 @@ function RecurringAvailabilityEditor({
               />
               <button
                 type="button"
-                onClick={() => {
-                  if (confirm('Delete this window?')) remove(i);
-                }}
+                onClick={() => setPendingDeleteIdx(i)}
                 className="p-1.5 rounded-lg text-red-400/70 hover:bg-red-500/10 hover:text-red-400 cursor-pointer"
                 title="Delete Window"
               >
@@ -482,16 +540,22 @@ function DateAvailabilityEditor({
   );
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState<{ text: string; ok: boolean } | null>(null);
+  const [impactedCount, setImpactedCount] = useState<number | null>(null);
+  const [showConfirm, setShowConfirm] = useState(false);
+  const [pendingDeleteIdx, setPendingDeleteIdx] = useState<number | null>(null);
 
   const add = () => {
     const today = new Date().toISOString().slice(0, 10);
     setWindows((prev) => [...prev, { fromDate: today, toDate: today, startTime: '', endTime: '', label: '' }]);
   };
-  const remove = (i: number) => setWindows((prev) => prev.filter((_, idx) => idx !== i));
+  const remove = (i: number) => {
+    setWindows((prev) => prev.filter((_, idx) => idx !== i));
+    setPendingDeleteIdx(null);
+  };
   const update = (i: number, patch: Partial<DateWindow>) =>
     setWindows((prev) => prev.map((w, idx) => (idx === i ? { ...w, ...patch } : w)));
 
-  const save = async () => {
+  const save = async (bypassConfirm = false) => {
     setSaving(true);
     setMsg(null);
     try {
@@ -506,6 +570,28 @@ function DateAvailabilityEditor({
           label: w.label || null,
         })),
       };
+
+      if (!bypassConfirm) {
+        // Preview first
+        const r = await fetch(
+          `/api/admin/centers/${centerId}/members/${membershipId}/date-availability?preview=true`,
+          {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+          },
+        );
+        const body = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(body?.error || `HTTP ${r.status}`);
+
+        if (body.impactedCount > 0) {
+          setImpactedCount(body.impactedCount);
+          setShowConfirm(true);
+          setSaving(false);
+          return;
+        }
+      }
+
       const r = await fetch(
         `/api/admin/centers/${centerId}/members/${membershipId}/date-availability`,
         {
@@ -527,11 +613,42 @@ function DateAvailabilityEditor({
 
   return (
     <div className="space-y-2">
+      <ConfirmDialog
+        open={showConfirm}
+        title="Impacted Bookings"
+        message={`Changing the availability will result in ${impactedCount} existing booking(s) being cancelled and refunded to user wallets.`}
+        warning="This action cannot be undone. Impacted users will be notified automatically."
+        confirmLabel="Proceed & Cancel Bookings"
+        cancelLabel="Review Changes"
+        variant="danger"
+        loading={saving}
+        onConfirm={() => {
+          setShowConfirm(false);
+          save(true);
+        }}
+        onCancel={() => {
+          setShowConfirm(false);
+          setImpactedCount(null);
+        }}
+      />
+
+      <ConfirmDialog
+        open={pendingDeleteIdx !== null}
+        title="Delete Range"
+        message="Are you sure you want to delete this date range? This might impact existing bookings when you save."
+        confirmLabel="Delete"
+        variant="danger"
+        onConfirm={() => {
+          if (pendingDeleteIdx !== null) remove(pendingDeleteIdx);
+        }}
+        onCancel={() => setPendingDeleteIdx(null)}
+      />
+
       <p className="text-[11px] text-slate-500 leading-relaxed">
         Custom date ranges. Each row covers a date span (inclusive) plus
         an optional time window inside the day. Leave time fields empty
-        for &ldquo;all day&rdquo;. Combined with the weekly schedule using OR —
-        a slot matches if EITHER table covers it.
+        for &ldquo;all day&rdquo;. Date-range availability overrides the recurring
+        schedule for the dates it covers.
       </p>
       {windows.length === 0 ? (
         <p className="text-[11px] text-slate-600 italic py-2">
@@ -590,9 +707,7 @@ function DateAvailabilityEditor({
               <div className="flex items-end justify-end h-full">
                 <button
                   type="button"
-                  onClick={() => {
-                    if (confirm('Delete this date range?')) remove(i);
-                  }}
+                  onClick={() => setPendingDeleteIdx(i)}
                   className="p-1.5 rounded-lg text-red-400/70 hover:bg-red-500/10 hover:text-red-400 cursor-pointer"
                   title="Delete Range"
                 >

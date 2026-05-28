@@ -145,6 +145,8 @@ interface ResourceSlot {
    *  When the user has pinned a MACHINE booking to one of these rows,
    *  the slot is unbookable for them even if other machines are free. */
   blockedMachineRowIds?: string[];
+  /** Per-pitch granular blocking info. */
+  blockedByPitch?: Record<string, { categories: string[]; machineRowIds: string[] }>;
   /** Machine rows already booked at this slot. Distinct from
    *  `blockedMachineRowIds`: a machine is "busy" when another booking
    *  claimed it; it's "blocked" when an admin policy hides it. Either
@@ -758,8 +760,18 @@ export default function ResourceSlotsPage() {
     // greys out blocked slots up front (without this, the user could
     // tap a slot, get into the booking flow, and only see the 409
     // "Slot blocked" error at submit).
-    const blockedCats = s.blockedCategories ?? [];
-    const blockedRows = s.blockedMachineRowIds ?? [];
+    //
+    // Pitch-aware check: use the per-pitch blocked lists when a pitch
+    // is selected, otherwise fallback to global sets.
+    let blockedCats = s.blockedCategories ?? [];
+    let blockedRows = s.blockedMachineRowIds ?? [];
+
+    if (pitchType && s.blockedByPitch?.[pitchType]) {
+      const perPitch = s.blockedByPitch[pitchType];
+      blockedCats = perPitch.categories;
+      blockedRows = perPitch.machineRowIds;
+    }
+
     if (blockedCats.includes(cat)) {
       return { ok: false, reason: 'Slot blocked by admin' };
     }
@@ -1549,11 +1561,11 @@ export default function ResourceSlotsPage() {
                 <label className="block text-[10px] font-medium text-accent mb-1.5 uppercase tracking-wider">
                   Operation Mode
                 </label>
-                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                <div className="flex flex-wrap gap-2">
                   <button
                     type="button"
                     onClick={() => setOperationMode('WITH_OPERATOR')}
-                    className={`flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg text-xs font-semibold transition-all cursor-pointer border ${
+                    className={`flex items-center justify-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all cursor-pointer border ${
                       operationMode === 'WITH_OPERATOR'
                         ? 'bg-accent text-primary border-accent shadow-sm'
                         : 'bg-white/[0.04] text-slate-400 border-white/[0.08] hover:border-accent/20'
@@ -1564,7 +1576,7 @@ export default function ResourceSlotsPage() {
                   <button
                     type="button"
                     onClick={() => setOperationMode('SELF_OPERATE')}
-                    className={`flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg text-xs font-semibold transition-all cursor-pointer border ${
+                    className={`flex items-center justify-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all cursor-pointer border ${
                       operationMode === 'SELF_OPERATE'
                         ? 'bg-accent text-primary border-accent shadow-sm'
                         : 'bg-white/[0.04] text-slate-400 border-white/[0.08] hover:border-accent/20'
