@@ -465,21 +465,11 @@ export async function executeSlotBooking(
           // Pass centerId so an offer at center A can't accidentally
           // apply to a booking at center B. The helper treats a missing
           // centerId as "any center", which was the pre-multi-center
-          // assumption and not what we want anymore.
-          // Machine filter (only for MACHINE bookings)
-          if (category === 'MACHINE' && offer.machineIds && offer.machineIds.length > 0) {
-            if (!slot.machineId || !offer.machineIds.includes(slot.machineId as MachineId)) {
-              continue;
-            }
-          }
-
-          // Category filter
-          if (offer.categories && offer.categories.length > 0) {
-            if (!offer.categories.includes(category)) {
-              continue;
-            }
-          }
-
+          // assumption and not what we want anymore. Machine / pitch /
+          // category filtering is done inside the helper from the
+          // (machineId, pitchType, category) it's passed — no pre-filter
+          // is needed here, and the booking is always MACHINE on this
+          // legacy MACHINE_PITCH route anyway.
           const allPromos = await getAllApplicablePromoDiscounts(
             slot.date, slot.startTime, slot.machineId, slot.pitchType, userIsSpecial,
             null, null, centerId,
