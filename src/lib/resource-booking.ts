@@ -882,7 +882,24 @@ export function applyBlocksToAvailability(
       for (const id of mIds) blockedMachineRowIds.add(id);
     };
 
-    addToPitch(b.pitchType, b.categories, b.machineRowIds);
+    // A partial cricket-net block (NET + a positive netCount, no pinned
+    // resourceIds) only reserves N nets out of the indoor pool — it does
+    // NOT take the whole Cricket Nets category off the board. Dropping
+    // NET from the categorical sets here keeps the category bookable in
+    // the slot grid; the pool reduction (indoorNetsToHide) below hides
+    // exactly N nets so the remaining ones stay available. Without this,
+    // the client greys out every net at the slot (the "block 2 nets,
+    // lose all 4" bug).
+    const isPartialNetBlock =
+      b.categories.includes('NET')
+      && b.netCount != null
+      && b.netCount > 0
+      && b.resourceIds.length === 0;
+    const categoriesForGrid = isPartialNetBlock
+      ? b.categories.filter((c) => c !== 'NET')
+      : b.categories;
+
+    addToPitch(b.pitchType, categoriesForGrid, b.machineRowIds);
     for (const id of b.resourceIds) blockedResourceIds.add(id);
 
     // CATCHALL — neither category, machineRow, nor resource targeted +
@@ -1241,7 +1258,15 @@ export async function planBooking(
   const audience = context.audience ?? 'ALL';
   const categoryBlock = evaluateBlockForBooking(
     blocks,
-    { category: plan.category, machineRowId: plan.machineId ?? null, resourceIds: plan.resourceIds ?? [] },
+    {
+      category: plan.category,
+      machineRowId: plan.machineId ?? null,
+      resourceIds: plan.resourceIds ?? [],
+      // Pitch axis: a machine+pitch block (e.g. "Yantra on Natural Turf")
+      // must only bite the matching pitch. Without this the pitch axis
+      // could never match and pitch-scoped blocks were silently ignored.
+      pitchType: plan.pitchType ?? null,
+    },
     audience,
   );
   if (categoryBlock) {
@@ -1422,6 +1447,7 @@ export async function planBooking(
       category: resolved.category,
       machineRowId: resolved.machineId,
       resourceIds: resolved.resourceIds,
+      pitchType: plan.pitchType ?? null,
     },
     audience,
   );

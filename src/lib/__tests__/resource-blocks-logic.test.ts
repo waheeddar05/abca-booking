@@ -1,6 +1,6 @@
 
 import { describe, it, expect } from 'vitest';
-import { applyBlocksToAvailability, ActiveBlock } from '../resource-booking';
+import { applyBlocksToAvailability, evaluateBlockForBooking, ActiveBlock } from '../resource-booking';
 import { BookingCategory } from '@prisma/client';
 
 describe('applyBlocksToAvailability', () => {
@@ -94,6 +94,88 @@ describe('applyBlocksToAvailability', () => {
 
     // Full court should be unavailable whenever any net is blocked
     expect(result.availability.fullCourtAvailable).toBe(false);
+
+    // Bug fix: a PARTIAL net block must NOT take the whole Cricket Nets
+    // category off the board. If NET landed in the categorical blocked
+    // sets, the slot grid greys out every net (the "block 2, lose all 4"
+    // bug). Only the pool is reduced — the category stays bookable.
+    expect(result.blockedCategories.has('NET')).toBe(false);
+    expect(result.blockedByPitch.ASTRO.categories.has('NET')).toBe(false);
+    expect(result.blockedByPitch.NATURAL.categories.has('NET')).toBe(false);
+  });
+
+  it('Issue 1b: full (no-count) Net block DOES block the whole category', () => {
+    const blocks: ActiveBlock[] = [
+      {
+        id: 'block1',
+        reason: 'Maintenance',
+        appliesTo: 'ALL',
+        categories: ['NET'],
+        machineRowIds: [],
+        resourceIds: [],
+        pitchType: null,
+        netCount: null, // null = block ALL nets (legacy behaviour)
+        legacyMachineId: null,
+        legacyMachineIds: [],
+        legacyMachineType: null,
+        legacyPitchType: null,
+      },
+    ];
+
+    const result = applyBlocksToAvailability(initialAvailability, blocks);
+
+    // No netCount => whole pool gone AND the category is blocked.
+    expect(result.availability.freeIndoorNets).toHaveLength(0);
+    expect(result.blockedByPitch.ASTRO.categories.has('NET')).toBe(true);
+  });
+
+  it('Issue 3b: machine+pitch block bites ONLY the matching pitch', () => {
+    const blocks: ActiveBlock[] = [
+      {
+        id: 'block1',
+        reason: 'Yantra reserved for Natural',
+        appliesTo: 'ALL',
+        categories: ['MACHINE'],
+        machineRowIds: ['m_yantra'],
+        resourceIds: [],
+        pitchType: 'NATURAL',
+        netCount: null,
+        legacyMachineId: null,
+        legacyMachineIds: [],
+        legacyMachineType: null,
+        legacyPitchType: null,
+      },
+    ];
+
+    // Yantra MACHINE booking on NATURAL → blocked (exact combination).
+    expect(
+      evaluateBlockForBooking(blocks, {
+        category: 'MACHINE',
+        machineRowId: 'm_yantra',
+        resourceIds: [],
+        pitchType: 'NATURAL',
+      }),
+    ).not.toBeNull();
+
+    // Same machine on ASTRO → NOT blocked (different pitch).
+    expect(
+      evaluateBlockForBooking(blocks, {
+        category: 'MACHINE',
+        machineRowId: 'm_yantra',
+        resourceIds: [],
+        pitchType: 'ASTRO',
+      }),
+    ).toBeNull();
+
+    // A different machine on NATURAL → NOT blocked (different machine).
+    expect(
+      evaluateBlockForBooking(blocks, {
+        category: 'MACHINE',
+        machineRowId: 'm_master200',
+        resourceIds: [],
+        pitchType: 'NATURAL',
+      }),
+    ).toBeNull();
   });
 
   it('Issue 3: Machine+Pitch specific blocking', () => {

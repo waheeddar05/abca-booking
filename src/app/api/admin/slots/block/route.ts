@@ -252,7 +252,15 @@ export async function POST(req: NextRequest) {
       || validatedCategories.length > 0;
 
     if (hasResourceBasedTargeting) {
-      const orClauses: Record<string, unknown>[] = [];
+      // Each specified resource-based axis is a REQUIRED condition: a
+      // booking is only a conflict when it matches the category AND the
+      // machine AND the resource AND the pitch the block targets. This
+      // mirrors evaluateBlockForBooking's AND semantics so we never
+      // cancel more than the block actually takes off the board — e.g.
+      // a "Yantra on Natural Turf" block must not cancel Yantra on Astro
+      // (different pitch) nor every machine on Natural (different
+      // machine). The pitch axis is already on `where.pitchType` above.
+      const andClauses: Record<string, unknown>[] = [];
 
       // Effective category set with FULL_COURT cascade applied. Mirrors
       // applyBlocksToAvailability / evaluateBlockForBooking so any
@@ -271,27 +279,25 @@ export async function POST(req: NextRequest) {
         }
       }
       if (effectiveCategories.size > 0) {
-        orClauses.push({ category: { in: Array.from(effectiveCategories) as BookingCategory[] } });
+        andClauses.push({ category: { in: Array.from(effectiveCategories) as BookingCategory[] } });
       }
 
       if (validatedMachineRowIds.length > 0) {
-        orClauses.push({ assignedMachineId: { in: validatedMachineRowIds } });
+        andClauses.push({ assignedMachineId: { in: validatedMachineRowIds } });
       }
 
       if (validatedResourceIds.length > 0) {
-        orClauses.push({
+        andClauses.push({
           resourceAssignments: { some: { resourceId: { in: validatedResourceIds } } },
         });
       }
 
-      if (orClauses.length > 0) {
-        // OR with any legacy axes already on `where` so a multi-model
-        // block still nets the union of conflicts.
-        if (where.OR) {
-          where.OR = [...(where.OR as Record<string, unknown>[]), ...orClauses];
-        } else {
-          where.OR = orClauses;
-        }
+      if (andClauses.length > 0) {
+        // AND the resource-based conditions together. If a legacy OR set
+        // already exists (super-admin authoring a cross-model block), the
+        // resource-based conditions still apply on top via where.AND —
+        // Prisma combines top-level OR and AND with an implicit AND.
+        where.AND = andClauses;
       }
     }
 
