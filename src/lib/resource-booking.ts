@@ -882,6 +882,17 @@ export function applyBlocksToAvailability(
       for (const id of mIds) blockedMachineRowIds.add(id);
     };
 
+    // Categories only act as a *blanket* category block (greying out the
+    // whole tab/pitch) when the block does NOT pin a specific machine or
+    // resource. With a machine/resource pin the category is just an AND
+    // co-constraint: "MACHINE + Yantra + Astro" must block Yantra on
+    // Astro only — every other machine (and every other category) on
+    // Astro stays independently bookable. So when a pin is present we
+    // contribute ONLY the machine pin to the per-pitch sets and leave the
+    // category open. Without this, picking the Bowling Machine category
+    // alongside a single machine greyed out the entire Astro tab.
+    const hasResourcePin = b.machineRowIds.length > 0 || b.resourceIds.length > 0;
+
     // A partial cricket-net block (NET + a positive netCount, no pinned
     // resourceIds) only reserves N nets out of the indoor pool — it does
     // NOT take the whole Cricket Nets category off the board. Dropping
@@ -895,9 +906,11 @@ export function applyBlocksToAvailability(
       && b.netCount != null
       && b.netCount > 0
       && b.resourceIds.length === 0;
-    const categoriesForGrid = isPartialNetBlock
-      ? b.categories.filter((c) => c !== 'NET')
-      : b.categories;
+    const categoriesForGrid = hasResourcePin
+      ? []
+      : isPartialNetBlock
+        ? b.categories.filter((c) => c !== 'NET')
+        : b.categories;
 
     addToPitch(b.pitchType, categoriesForGrid, b.machineRowIds);
     for (const id of b.resourceIds) blockedResourceIds.add(id);

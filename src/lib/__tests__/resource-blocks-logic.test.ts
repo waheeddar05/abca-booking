@@ -205,4 +205,55 @@ describe('applyBlocksToAvailability', () => {
     expect(result.blockedByPitch.NATURAL.machineRowIds.has('m_yantra')).toBe(true);
     expect(result.blockedByPitch.ASTRO.machineRowIds.has('m_yantra')).toBe(false);
   });
+
+  it('Issue 3c: machine+category+pitch block does NOT grey out the whole category', () => {
+    // Real-world report: a block for "Bowling Machine + Yantra + Astro"
+    // should block Yantra on Astro only. Every other machine — and every
+    // other category — on Astro must stay independently bookable. The bug
+    // was that ticking the MACHINE category alongside the Yantra pin
+    // greyed out the entire Astro tab.
+    const blocks: ActiveBlock[] = [
+      {
+        id: 'block1',
+        reason: 'Yantra maintenance on Astro',
+        appliesTo: 'ALL',
+        categories: ['MACHINE'],
+        machineRowIds: ['m_yantra'],
+        resourceIds: [],
+        pitchType: 'ASTRO',
+        netCount: null,
+        legacyMachineId: null,
+        legacyMachineIds: [],
+        legacyMachineType: null,
+        legacyPitchType: null,
+      },
+    ];
+
+    const result = applyBlocksToAvailability(initialAvailability, blocks);
+
+    // The specific machine is blocked on Astro...
+    expect(result.blockedByPitch.ASTRO.machineRowIds.has('m_yantra')).toBe(true);
+    // ...but the MACHINE category is NOT blanket-blocked (other machines
+    // and other categories on Astro remain available).
+    expect(result.blockedByPitch.ASTRO.categories.has('MACHINE')).toBe(false);
+    expect(result.blockedCategories.has('MACHINE')).toBe(false);
+
+    // The net pools are untouched — nothing about a single-machine block
+    // should consume indoor/outdoor net capacity.
+    expect(result.availability.freeIndoorNets).toHaveLength(4);
+    expect(result.availability.freeByPitch.ASTRO).toHaveLength(4);
+    expect(result.availability.fullCourtAvailable).toBe(true);
+
+    // Booking another machine on Astro is allowed; Yantra on Astro is not.
+    expect(
+      evaluateBlockForBooking(blocks, {
+        category: 'MACHINE', machineRowId: 'm_gravity', resourceIds: [], pitchType: 'ASTRO',
+      }),
+    ).toBeNull();
+    expect(
+      evaluateBlockForBooking(blocks, {
+        category: 'MACHINE', machineRowId: 'm_yantra', resourceIds: [], pitchType: 'ASTRO',
+      }),
+    ).not.toBeNull();
+  });
 });
