@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import { CalendarCheck, LayoutDashboard, X, IndianRupee } from 'lucide-react';
 import { AdminPageHeader } from '@/components/admin/AdminPageHeader';
 import { AdminStatCard } from '@/components/admin/AdminStatCard';
-import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, CartesianGrid, Legend } from 'recharts';
+import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, CartesianGrid } from 'recharts';
 
 interface BookingDistributionItem {
   category: string;
@@ -104,6 +104,16 @@ export default function AdminDashboard() {
     }))
     .sort((a, b) => b.revenue - a.revenue);
 
+  // Each bar is a distinct category with its own colour, so the legend is built
+  // manually (a single Bar series would otherwise show just "Revenue"). Rendered
+  // horizontally at the bottom so all category names sit in one row.
+  const categoryLegendPayload = revenueByCategoryData.map((d, index) => ({
+    value: d.name,
+    type: 'square' as const,
+    id: d.name,
+    color: CHART_COLORS[index % CHART_COLORS.length],
+  }));
+
   const revenueByMachineData = (stats?.machineTypeRevenue || [])
     .sort((a, b) => b.revenue - a.revenue);
 
@@ -150,8 +160,8 @@ export default function AdminDashboard() {
         </div>
       </div>
 
-      {/* KPI Summary Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+      {/* KPI Summary Cards — always one row (3 across), tightened on small screens */}
+      <div className="grid grid-cols-3 gap-2 sm:gap-4">
         <AdminStatCard
           label="Total Revenue"
           value={stats?.totalRevenue ? `₹${stats.totalRevenue.toLocaleString()}` : '₹0'}
@@ -241,12 +251,12 @@ export default function AdminDashboard() {
             </div>
           ) : revenueByCategoryData.length > 0 ? (
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={revenueByCategoryData} margin={{ top: 10, right: 10, left: 30, bottom: 40 }}>
+              <BarChart data={revenueByCategoryData} margin={{ top: 10, right: 10, left: 10, bottom: 10 }}>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="rgba(255,255,255,0.05)" />
-                <XAxis 
-                  dataKey="name" 
-                  axisLine={false} 
-                  tickLine={false} 
+                <XAxis
+                  dataKey="name"
+                  axisLine={false}
+                  tickLine={false}
                   tick={{ fill: '#94a3b8', fontSize: 11 }}
                   interval={0}
                   hide
@@ -264,7 +274,6 @@ export default function AdminDashboard() {
                   labelStyle={{ color: '#94a3b8', fontSize: '11px', marginBottom: '4px' }}
                   formatter={(value: any) => [`₹${value.toLocaleString()}`, 'Revenue']}
                 />
-                <Legend verticalAlign="bottom" height={36} wrapperStyle={{ paddingTop: '20px', fontSize: '10px' }} />
                 <Bar dataKey="revenue" radius={[4, 4, 0, 0]} barSize={40} name="Revenue">
                   {revenueByCategoryData.map((_, index) => (
                     <Cell key={`cell-${index}`} fill={CHART_COLORS[index % CHART_COLORS.length]} />
@@ -278,6 +287,21 @@ export default function AdminDashboard() {
             </div>
           )}
         </div>
+        {/* Horizontal legend — each bar is a category, so we render it here in a
+            single wrapping row rather than relying on a single-series chart legend. */}
+        {!loading && revenueByCategoryData.length > 0 && (
+          <div className="mt-3 flex flex-wrap items-center justify-center gap-x-4 gap-y-1.5">
+            {categoryLegendPayload.map((item) => (
+              <div key={item.id} className="flex items-center gap-1.5">
+                <span
+                  className="inline-block w-2.5 h-2.5 rounded-sm flex-shrink-0"
+                  style={{ backgroundColor: item.color }}
+                />
+                <span className="text-[11px] text-slate-300 leading-none">{item.value}</span>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Revenue by Bowling Machine Type Chart */}

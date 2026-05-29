@@ -130,9 +130,23 @@ export async function GET(req: NextRequest) {
           sessions: r._count._all,
         }));
       }).catch(() => []),
-      // Revenue by Machine Type (Yantra vs Master 200). Only for MACHINE category.
+      // Revenue by Machine. Only for MACHINE category.
+      // The label must always be the exact machine name shown in
+      // My Center → Resources, i.e. the Machine instance's `name`. We never
+      // fall back to the MachineType catalog name (e.g. "Leverage Tennis"),
+      // which is the design/category name and is inconsistent with Resources.
       (async () => {
         try {
+          // Resolve legacy enum bookings to the center's actual machine names.
+          const centerMachines = await prisma.machine.findMany({
+            where: { ...centerFilter },
+            select: { name: true, legacyMachineId: true },
+          });
+          const legacyNameMap = new Map<string, string>();
+          for (const m of centerMachines) {
+            if (m.legacyMachineId) legacyNameMap.set(m.legacyMachineId, m.name);
+          }
+
           const bookings = await prisma.booking.findMany({
             where: {
               ...centerFilter,
@@ -159,19 +173,22 @@ export async function GET(req: NextRequest) {
           const revenueByType = new Map<string, number>();
           for (const b of bookings) {
             let typeName = 'Other';
-            if (b.assignedMachine?.machineType?.name) {
-              typeName = b.assignedMachine.machineType.name;
-            } else if (b.machineId) {
-              // Legacy fallback
-              if (b.machineId === 'YANTRA') typeName = 'Yantra';
-              else if (b.machineId === 'LEVERAGE_OUTDOOR') typeName = 'Leverage Outdoor';
-              else if (b.machineId === 'LEVERAGE_INDOOR') typeName = 'Leverage Indoor';
-              else if (b.machineId === 'GRAVITY') typeName = 'Gravity';
-            }
-            
-            // Override with resource name if available
             if (b.assignedMachine?.name) {
+              // Resources display name (authoritative).
               typeName = b.assignedMachine.name;
+            } else if (b.machineId) {
+              // Legacy enum booking — map to this center's machine name,
+              // falling back to a sensible label per enum value.
+              typeName =
+                legacyNameMap.get(b.machineId) ||
+                (b.machineId === 'YANTRA' ? 'Yantra'
+                  : b.machineId === 'LEVERAGE_OUTDOOR' ? 'Leverage Outdoor'
+                  : b.machineId === 'LEVERAGE_INDOOR' ? 'Leverage Indoor'
+                  : b.machineId === 'GRAVITY' ? 'Gravity'
+                  : 'Other');
+            } else if (b.assignedMachine?.machineType?.name) {
+              // Last resort only — should rarely happen.
+              typeName = b.assignedMachine.machineType.name;
             }
 
             let net = 0;
@@ -296,13 +313,18 @@ export async function GET(req: NextRequest) {
         },
       }).then(r => r._sum.discountAmount || 0).catch(() => 0),
       // Package revenue
+      // Mirrors the Packages → Reports total: every package except cancelled
+      // ones counts, net of refunds. We deliberately do NOT scope this by the
+      // dashboard date range — package revenue is recognised at purchase, and
+      // filtering by activationDate would silently drop packages that haven't
+      // had a booking yet (and packages purchased outside the range), which is
+      // exactly the inconsistency this fixes.
       (async () => {
         try {
           const ups = await prisma.userPackage.findMany({
             where: {
               ...(centerId ? { package: { centerId } } : {}),
               status: { not: 'CANCELLED' },
-              ...(hasDateFilter ? { activationDate: dateFilter } : {}),
             },
             select: { id: true, amountPaid: true },
           });
