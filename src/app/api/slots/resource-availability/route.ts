@@ -22,8 +22,7 @@ import {
   filterBlocksForSlotSync,
   applyBlocksToAvailability,
 } from '@/lib/resource-booking';
-import { getResourcePricingConfig, getResourceSlotPrice, pickRate } from '@/lib/resource-pricing';
-import type { ResourcePricingConfig, PerSlabRates, TimeSlab } from '@/lib/resource-pricing';
+import { getResourcePricingConfig, getResourceSlotPrice, representativeCategoryBase } from '@/lib/resource-pricing';
 import { getSidearmPitchTypes, getNetPitchTypes, getCoachingPitchTypes, getEnabledBookingCategories } from '@/lib/pitch-config';
 import { sanitizeApiError } from '@/lib/api-errors';
 import { getOperatorCount } from '@/lib/operatorAssign';
@@ -34,57 +33,6 @@ import {
 } from '@/lib/resource-discounts';
 import { timeToMinutes } from '@/lib/pricing';
 import type { BookingCategory } from '@prisma/client';
-
-/**
- * Best representative single-slot price for a category at a given slab,
- * used ONLY by the discount preview below. The no-pitch category default
- * (`categoryRates[cat]`) is 0 for categories priced purely per-pitch —
- * the pricing editor exposes only per-pitch inputs for SIDEARM / NET /
- * COACHING, so their real prices live in `sidearmPricing[pitch]` /
- * `netPricing[pitch]` / `coachingPricing[pitch]`.
- *
- * Without this fallback the preview's `prices[cat]` was 0 for those
- * categories, the discount loop skipped them (`basePrice <= 0`), and
- * recurring / promotional offers never showed on the grid or in the
- * booking bar — even though the booking endpoint applies them against
- * the real per-pitch price. That made an "all categories" offer look
- * like it only applied to bowling-machine bookings (MACHINE keeps a
- * non-zero category default + per-machine rates, so it was never
- * skipped). We return the max configured per-pitch / pair rate so the
- * preview shows the discount; the client caps the flat discount against
- * the user's actual pitch price once they pick one.
- */
-function representativeCategoryBase(
-  cat: BookingCategory,
-  pricing: ResourcePricingConfig,
-  slab: TimeSlab,
-): number {
-  const maxOverPitch = (rec?: Record<string, PerSlabRates>): number => {
-    if (!rec) return 0;
-    let best = 0;
-    for (const pitch of Object.keys(rec)) {
-      const r = pickRate(rec[pitch]?.[slab], false);
-      if (r != null && r > best) best = r;
-    }
-    return best;
-  };
-
-  switch (cat) {
-    case 'SIDEARM':
-      return maxOverPitch(pricing.sidearmPricing);
-    case 'NET':
-      return maxOverPitch(pricing.netPricing);
-    case 'COACHING': {
-      const perPitch = maxOverPitch(pricing.coachingPricing);
-      const pair = pickRate(pricing.coachingRate?.[slab], false) ?? 0;
-      return Math.max(perPitch, pair);
-    }
-    case 'FULL_COURT':
-      return pickRate(pricing.fullCourtRate?.[slab], false) ?? 0;
-    default:
-      return 0;
-  }
-}
 
 /** IST day-of-week (0=Sun..6=Sat). */
 function getDayOfWeekIST(d: Date): number {
