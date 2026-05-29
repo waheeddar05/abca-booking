@@ -395,14 +395,17 @@ export async function GET(req: NextRequest) {
               // Category gate — non-empty list means "only these
               // categories". Empty list means "any category".
               if (offer.categories && offer.categories.length > 0
-                && !offer.categories.includes(cat)) continue;
+                && !offer.categories.includes(cat as any)) continue;
               // Resource-row gate: machine-row-pinned offers are
               // handled below in `machineDiscounts` (per machineId)
               // so the user can see them when they pick that specific
               // machine. The category-level preview here intentionally
-              // ignores them so the discount doesn't appear for the
-              // wrong machine.
-              if (offer.machineRowIds && offer.machineRowIds.length > 0) continue;
+              // ignores them for MACHINE category so the discount
+              // doesn't appear for the wrong machine. For other
+              // categories (SIDEARM, etc.), we ignore this gate so an
+              // "All Categories" offer can apply even if some machines
+              // are pinned.
+              if (cat === 'MACHINE' && offer.machineRowIds && offer.machineRowIds.length > 0) continue;
 
               const d = offer.discountType === 'PERCENTAGE'
                 ? Math.min(remaining, Math.floor((remaining * offer.discountValue) / 100))
