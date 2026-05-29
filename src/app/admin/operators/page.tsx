@@ -187,12 +187,18 @@ export default function AdminOperators() {
   const [bookingModel, setBookingModel] = useState<'MACHINE_PITCH' | 'RESOURCE_BASED'>('MACHINE_PITCH');
 
   // ─── Date Overrides tab state ──────
-  interface OverrideRange { from: string; to: string; morning: number; evening: number; recurringDays?: number[] }
+  // A range is either slab-based (morning/evening counts) or a time window
+  // (startTime/endTime + a single count applied to slots in that window).
+  interface OverrideRange { from: string; to: string; morning?: number; evening?: number; recurringDays?: number[]; startTime?: string; endTime?: string; count?: number }
   const [dateOverrides, setDateOverrides] = useState<OverrideRange[]>([]);
+  const [newOverrideMode, setNewOverrideMode] = useState<'slab' | 'time'>('slab');
   const [newOverrideFromDate, setNewOverrideFromDate] = useState('');
   const [newOverrideToDate, setNewOverrideToDate] = useState('');
   const [newOverrideMorning, setNewOverrideMorning] = useState(1);
   const [newOverrideEvening, setNewOverrideEvening] = useState(1);
+  const [newOverrideStartTime, setNewOverrideStartTime] = useState('');
+  const [newOverrideEndTime, setNewOverrideEndTime] = useState('');
+  const [newOverrideCount, setNewOverrideCount] = useState(1);
   const [newOverrideRecurringDays, setNewOverrideRecurringDays] = useState<number[]>([]);
   const [savingOverrides, setSavingOverrides] = useState(false);
   const [pendingOverrides, setPendingOverrides] = useState<OverrideRange[] | null>(null);
@@ -328,7 +334,7 @@ export default function AdminOperators() {
         toast.success('Date overrides saved');
 
         // Auto-cancel bookings for zero-operator slots
-        const hasZeroSlots = overrides.some(r => r.morning === 0 || r.evening === 0);
+        const hasZeroSlots = overrides.some(r => r.morning === 0 || r.evening === 0 || r.count === 0);
         if (hasZeroSlots) {
           try {
             const cancelRes = await fetch('/api/admin/override-cancellations', {
@@ -357,7 +363,7 @@ export default function AdminOperators() {
   };
 
   const confirmAndSaveOverrides = (updated: OverrideRange[]) => {
-    const hasZeroSlots = updated.some(r => r.morning === 0 || r.evening === 0);
+    const hasZeroSlots = updated.some(r => r.morning === 0 || r.evening === 0 || r.count === 0);
     if (hasZeroSlots) {
       setPendingOverrides(updated);
     } else {
@@ -366,10 +372,14 @@ export default function AdminOperators() {
   };
 
   const resetOverrideForm = () => {
+    setNewOverrideMode('slab');
     setNewOverrideFromDate('');
     setNewOverrideToDate('');
     setNewOverrideMorning(1);
     setNewOverrideEvening(1);
+    setNewOverrideStartTime('');
+    setNewOverrideEndTime('');
+    setNewOverrideCount(1);
     setNewOverrideRecurringDays([]);
     setEditingOverrideIndex(null);
   };
@@ -377,10 +387,15 @@ export default function AdminOperators() {
   const startEditOverride = (index: number) => {
     const r = dateOverrides[index];
     if (!r) return;
+    const isTimeWindow = !!r.startTime && !!r.endTime;
+    setNewOverrideMode(isTimeWindow ? 'time' : 'slab');
     setNewOverrideFromDate(r.from);
     setNewOverrideToDate(r.to);
-    setNewOverrideMorning(r.morning);
-    setNewOverrideEvening(r.evening);
+    setNewOverrideMorning(r.morning ?? 1);
+    setNewOverrideEvening(r.evening ?? 1);
+    setNewOverrideStartTime(r.startTime ?? '');
+    setNewOverrideEndTime(r.endTime ?? '');
+    setNewOverrideCount(r.count ?? 1);
     setNewOverrideRecurringDays(r.recurringDays ? [...r.recurringDays] : []);
     setEditingOverrideIndex(index);
   };
@@ -400,13 +415,35 @@ export default function AdminOperators() {
       toast.error('To date must be on or after from date');
       return;
     }
-    const newRange: OverrideRange = {
-      from: newOverrideFromDate,
-      to: toDate,
-      morning: newOverrideMorning,
-      evening: newOverrideEvening,
-      ...(newOverrideRecurringDays.length > 0 ? { recurringDays: [...newOverrideRecurringDays].sort((a, b) => a - b) } : {}),
-    };
+    if (newOverrideMode === 'time') {
+      if (!newOverrideStartTime || !newOverrideEndTime) {
+        toast.error('Please select start and end times');
+        return;
+      }
+      if (newOverrideEndTime <= newOverrideStartTime) {
+        toast.error('End time must be after start time');
+        return;
+      }
+    }
+    const recurring = newOverrideRecurringDays.length > 0
+      ? { recurringDays: [...newOverrideRecurringDays].sort((a, b) => a - b) }
+      : {};
+    const newRange: OverrideRange = newOverrideMode === 'time'
+      ? {
+          from: newOverrideFromDate,
+          to: toDate,
+          startTime: newOverrideStartTime,
+          endTime: newOverrideEndTime,
+          count: newOverrideCount,
+          ...recurring,
+        }
+      : {
+          from: newOverrideFromDate,
+          to: toDate,
+          morning: newOverrideMorning,
+          evening: newOverrideEvening,
+          ...recurring,
+        };
     const base = editingOverrideIndex !== null
       ? dateOverrides.filter((_, i) => i !== editingOverrideIndex)
       : dateOverrides;
@@ -1007,9 +1044,25 @@ export default function AdminOperators() {
                 </button>
               )}
             </div>
-            <p className="text-[11px] text-slate-400 mb-4">
-              Set operator count to <strong className="text-amber-400">0</strong> for a slab to make leather machines unavailable and tennis machines self-operate. Select a date range to apply across multiple days.
+            <p className="text-[11px] text-slate-400 mb-3">
+              Set operator count to <strong className="text-amber-400">0</strong> to make leather machines unavailable and tennis machines self-operate. Apply it to a whole slab (Morning / Evening) or to a specific time window. Select a date range to apply across multiple days.
             </p>
+            {/* Mode toggle: whole-slab vs specific time window */}
+            <div className="inline-flex items-center gap-1 p-0.5 mb-4 bg-white/[0.04] border border-white/[0.08] rounded-lg">
+              {([['slab', 'Morning / Evening'], ['time', 'Time Slot']] as const).map(([mode, modeLabel]) => (
+                <button
+                  key={mode}
+                  type="button"
+                  onClick={() => setNewOverrideMode(mode)}
+                  className={`px-3 py-1 rounded-md text-[10px] font-semibold transition-colors cursor-pointer ${newOverrideMode === mode
+                      ? 'bg-accent/20 text-accent'
+                      : 'text-slate-400 hover:text-slate-200'
+                    }`}
+                >
+                  {modeLabel}
+                </button>
+              ))}
+            </div>
             <div className="grid grid-cols-1 sm:grid-cols-5 gap-3 items-end">
               <div>
                 <label className="block text-[9px] font-medium text-slate-400 mb-0.5">From Date</label>
@@ -1031,29 +1084,65 @@ export default function AdminOperators() {
                   className="w-full bg-white/[0.04] border border-white/[0.1] text-white rounded-lg px-2 py-1.5 text-[11px] outline-none focus:border-accent"
                 />
               </div>
-              <OperatorNumberField
-                label="Morning Operators"
-                value={newOverrideMorning}
-                onChange={setNewOverrideMorning}
-                placeholder="0"
-                labelColor="text-amber-400/70"
-              />
-              <OperatorNumberField
-                label="Evening Operators"
-                value={newOverrideEvening}
-                onChange={setNewOverrideEvening}
-                placeholder="0"
-                labelColor="text-blue-400/70"
-              />
+              {newOverrideMode === 'slab' ? (
+                <>
+                  <OperatorNumberField
+                    label="Morning Operators"
+                    value={newOverrideMorning}
+                    onChange={setNewOverrideMorning}
+                    placeholder="0"
+                    labelColor="text-amber-400/70"
+                  />
+                  <OperatorNumberField
+                    label="Evening Operators"
+                    value={newOverrideEvening}
+                    onChange={setNewOverrideEvening}
+                    placeholder="0"
+                    labelColor="text-blue-400/70"
+                  />
+                </>
+              ) : (
+                <>
+                  <div>
+                    <label className="block text-[9px] font-medium text-slate-400 mb-0.5">Start Time</label>
+                    <input
+                      type="time"
+                      value={newOverrideStartTime}
+                      onChange={e => setNewOverrideStartTime(e.target.value)}
+                      className="w-full bg-white/[0.04] border border-white/[0.1] text-white rounded-lg px-2 py-1.5 text-[11px] outline-none focus:border-accent"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[9px] font-medium text-slate-400 mb-0.5">End Time</label>
+                    <input
+                      type="time"
+                      value={newOverrideEndTime}
+                      onChange={e => setNewOverrideEndTime(e.target.value)}
+                      className="w-full bg-white/[0.04] border border-white/[0.1] text-white rounded-lg px-2 py-1.5 text-[11px] outline-none focus:border-accent"
+                    />
+                  </div>
+                </>
+              )}
               <button
                 onClick={addDateOverride}
                 disabled={savingOverrides || !newOverrideFromDate}
                 className="flex items-center justify-center gap-1.5 px-3 py-1.5 bg-accent hover:bg-accent-light text-primary text-[11px] font-semibold rounded-lg transition-colors cursor-pointer disabled:opacity-50"
               >
                 {savingOverrides ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />}
-                Add
+                {editingOverrideIndex !== null ? 'Save' : 'Add'}
               </button>
             </div>
+            {newOverrideMode === 'time' && (
+              <div className="grid grid-cols-1 sm:grid-cols-5 gap-3 items-end mt-3">
+                <OperatorNumberField
+                  label="Operators (in window)"
+                  value={newOverrideCount}
+                  onChange={setNewOverrideCount}
+                  placeholder="0"
+                  labelColor="text-blue-400/70"
+                />
+              </div>
+            )}
             {/* Recurring day-of-week filter (optional) */}
             <div className="mt-4">
               <label className="block text-[9px] font-medium text-slate-400 mb-1.5 uppercase tracking-wider">
@@ -1095,13 +1184,21 @@ export default function AdminOperators() {
                         <span className="text-sm font-medium text-white">
                           {range.from === range.to ? range.from : `${range.from} → ${range.to}`}
                         </span>
-                        <div className="flex gap-3">
-                          <span className={`text-[11px] px-2 py-0.5 rounded-md ${range.morning === 0 ? 'bg-red-500/15 text-red-400' : 'bg-amber-500/10 text-amber-400'}`}>
-                            Morning: {range.morning}
-                          </span>
-                          <span className={`text-[11px] px-2 py-0.5 rounded-md ${range.evening === 0 ? 'bg-red-500/15 text-red-400' : 'bg-blue-500/10 text-blue-400'}`}>
-                            Evening: {range.evening}
-                          </span>
+                        <div className="flex gap-3 flex-wrap">
+                          {range.startTime && range.endTime ? (
+                            <span className={`text-[11px] px-2 py-0.5 rounded-md ${range.count === 0 ? 'bg-red-500/15 text-red-400' : 'bg-blue-500/10 text-blue-400'}`}>
+                              {range.startTime}–{range.endTime}: {range.count} operator{range.count === 1 ? '' : 's'}
+                            </span>
+                          ) : (
+                            <>
+                              <span className={`text-[11px] px-2 py-0.5 rounded-md ${range.morning === 0 ? 'bg-red-500/15 text-red-400' : 'bg-amber-500/10 text-amber-400'}`}>
+                                Morning: {range.morning}
+                              </span>
+                              <span className={`text-[11px] px-2 py-0.5 rounded-md ${range.evening === 0 ? 'bg-red-500/15 text-red-400' : 'bg-blue-500/10 text-blue-400'}`}>
+                                Evening: {range.evening}
+                              </span>
+                            </>
+                          )}
                           {range.recurringDays && range.recurringDays.length > 0 && (
                             <span className="text-[11px] px-2 py-0.5 rounded-md bg-accent/10 text-accent">
                               {[...range.recurringDays].sort((a, b) => a - b).map(d => DAY_LABELS[d]).join(', ')}

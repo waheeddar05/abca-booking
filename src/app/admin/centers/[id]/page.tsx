@@ -4,7 +4,7 @@ import { useEffect, useState, use } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useSession } from 'next-auth/react';
-import { Building2, ArrowLeft, Loader2, Trash2, MapPin, CreditCard, Users, Settings2, UserCog } from 'lucide-react';
+import { Building2, ArrowLeft, Loader2, Trash2, MapPin, CreditCard, Users, Settings2 } from 'lucide-react';
 import { AdminPageHeader } from '@/components/admin/AdminPageHeader';
 import { AdminCard } from '@/components/admin/AdminCard';
 import { CenterGeneralTab, type CenterDetail } from '@/components/admin/centers/CenterGeneralTab';
@@ -12,12 +12,11 @@ import { CenterPaymentTab } from '@/components/admin/centers/CenterPaymentTab';
 import { CenterMachinesTab } from '@/components/admin/centers/CenterMachinesTab';
 import { CenterResourcesTab } from '@/components/admin/centers/CenterResourcesTab';
 import { CenterMembersTab } from '@/components/admin/centers/CenterMembersTab';
-import { CenterSidearmTab } from '@/components/admin/centers/CenterSidearmTab';
 
 // Policies tab is intentionally not rendered here — center policies are
 // managed elsewhere (and most are global). The CenterPoliciesTab
 // component is left on disk in case other surfaces want to mount it.
-type TabKey = 'general' | 'payment' | 'machines' | 'resources' | 'members' | 'sidearm';
+type TabKey = 'general' | 'payment' | 'machines' | 'resources' | 'members';
 
 type TabDef = {
   key: TabKey;
@@ -35,7 +34,6 @@ const TABS: Array<TabDef> = [
   { key: 'machines', label: 'Machines', icon: Settings2 },
   { key: 'resources', label: 'Resources', icon: Building2 },
   { key: 'members', label: 'Members', icon: Users },
-  { key: 'sidearm', label: 'Sidearm Availability', icon: UserCog },
 ];
 
 type DetailWithCounts = CenterDetail & {
@@ -196,7 +194,6 @@ export default function CenterEditPage({ params }: { params: Promise<{ id: strin
           {tab === 'machines' && <CenterMachinesTab centerId={id} />}
           {tab === 'resources' && <CenterResourcesTab centerId={id} />}
           {tab === 'members' && <CenterMembersTab centerId={id} />}
-          {tab === 'sidearm' && <CenterSidearmTab centerId={id} />}
         </div>
       </AdminCard>
 

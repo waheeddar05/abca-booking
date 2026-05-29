@@ -1,17 +1,32 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { requireCenterAdmin } from '@/lib/adminAuth';
-import { getTimeSlab, getTimeSlabConfig } from '@/lib/pricing';
+import { getTimeSlab, getTimeSlabConfig, timeToMinutes } from '@/lib/pricing';
 import { creditWallet } from '@/lib/wallet';
 import { notifyBookingCancelled, notifyWalletCredit, notifyOperatorBookingCancelled } from '@/lib/notifications';
 
 interface OverrideRange {
   from: string;
   to: string;
-  morning: number;
-  evening: number;
+  morning?: number;
+  evening?: number;
   recurringDays?: number[]; // 0=Sun..6=Sat; empty/undefined = every day in range
+  startTime?: string;       // "HH:MM" IST — time-window override start (inclusive)
+  endTime?: string;         // "HH:MM" IST — time-window override end (exclusive)
+  count?: number;           // operator count for the time window
 }
+
+// A zero-operator range to cancel against — either a whole slab or a
+// specific time window within the date range.
+type ZeroRange = {
+  from: string;
+  to: string;
+  recurringDays?: number[];
+  label: string;
+} & (
+  | { kind: 'slab'; slab: 'morning' | 'evening' }
+  | { kind: 'window'; startMin: number; endMin: number }
+);
 
 /**
  * POST /api/admin/override-cancellations
@@ -42,18 +57,33 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Invalid overrides format' }, { status: 400 });
     }
 
-    // Find ranges where morning=0 or evening=0
-    const zeroSlabRanges: Array<{ from: string; to: string; slab: 'morning' | 'evening'; recurringDays?: number[] }> = [];
+    // Collect zero-operator ranges — slab-wide or time-window.
+    const zeroRanges: ZeroRange[] = [];
     for (const range of overrides) {
+      const isWindow = range.startTime && range.endTime && typeof range.count === 'number';
+      if (isWindow) {
+        if (range.count === 0) {
+          zeroRanges.push({
+            from: range.from,
+            to: range.to,
+            recurringDays: range.recurringDays,
+            kind: 'window',
+            startMin: timeToMinutes(range.startTime!),
+            endMin: timeToMinutes(range.endTime!),
+            label: `${range.startTime}–${range.endTime}`,
+          });
+        }
+        continue;
+      }
       if (range.morning === 0) {
-        zeroSlabRanges.push({ from: range.from, to: range.to, slab: 'morning', recurringDays: range.recurringDays });
+        zeroRanges.push({ from: range.from, to: range.to, recurringDays: range.recurringDays, kind: 'slab', slab: 'morning', label: 'morning' });
       }
       if (range.evening === 0) {
-        zeroSlabRanges.push({ from: range.from, to: range.to, slab: 'evening', recurringDays: range.recurringDays });
+        zeroRanges.push({ from: range.from, to: range.to, recurringDays: range.recurringDays, kind: 'slab', slab: 'evening', label: 'evening' });
       }
     }
 
-    if (zeroSlabRanges.length === 0) {
+    if (zeroRanges.length === 0) {
       return NextResponse.json({ cancelled: 0, refunded: 0, message: 'No zero-operator slots found' });
     }
 
@@ -62,7 +92,8 @@ export async function POST(req: NextRequest) {
     let totalCancelled = 0;
     let totalRefunded = 0;
 
-    for (const { from, to, slab, recurringDays } of zeroSlabRanges) {
+    for (const zr of zeroRanges) {
+      const { from, to, recurringDays, label } = zr;
       // Build date range — expand from..to into individual UTC dates
       // If recurringDays is set, only include dates matching those days of week
       const dates: Date[] = [];
@@ -91,10 +122,15 @@ export async function POST(req: NextRequest) {
         },
       });
 
-      // Filter bookings that belong to the affected slab
+      // Filter bookings that belong to the affected slab / time window
       const affectedBookings = bookings.filter(booking => {
-        const bookingSlab = getTimeSlab(booking.startTime, timeSlabs);
-        return bookingSlab === slab;
+        if (zr.kind === 'slab') {
+          return getTimeSlab(booking.startTime, timeSlabs) === zr.slab;
+        }
+        const mins = timeToMinutes(
+          booking.startTime.toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour12: false, hour: '2-digit', minute: '2-digit' }),
+        );
+        return mins >= zr.startMin && mins < zr.endMin;
       });
 
       if (affectedBookings.length === 0) continue;
@@ -111,7 +147,7 @@ export async function POST(req: NextRequest) {
             data: {
               status: 'CANCELLED',
               cancelledBy: 'ADMIN',
-              cancellationReason: `Operator unavailable — ${slab} slot cancelled due to operator schedule override`,
+              cancellationReason: `Operator unavailable — ${label} slot cancelled due to operator schedule override`,
             },
           });
 
@@ -125,7 +161,7 @@ export async function POST(req: NextRequest) {
               booking.centerId,
               refundAmount,
               'CREDIT_REFUND',
-              `Refund for cancelled ${slab} booking on ${booking.date.toISOString().split('T')[0]} — operator unavailable`,
+              `Refund for cancelled ${label} booking on ${booking.date.toISOString().split('T')[0]} — operator unavailable`,
               booking.id,
             );
 
@@ -163,7 +199,7 @@ export async function POST(req: NextRequest) {
           });
 
           await notifyBookingCancelled(userId, {
-            message: `Your booking on ${dateStr} at ${timeStr} has been cancelled as no operator is available for the ${slab} slot.${refundAmount > 0 ? ` ₹${refundAmount} has been refunded to your wallet.` : ''}`,
+            message: `Your booking on ${dateStr} at ${timeStr} has been cancelled as no operator is available for the ${label} slot.${refundAmount > 0 ? ` ₹${refundAmount} has been refunded to your wallet.` : ''}`,
             mobileNumber: user.mobileNumber,
             refundInfo: refundAmount > 0 ? `₹${refundAmount} refunded to wallet` : undefined,
           }).catch(err => console.warn('[OverrideCancel] Cancellation notification failed:', err));

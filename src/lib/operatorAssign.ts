@@ -2,7 +2,7 @@ import { PrismaClient, MachineId } from '@prisma/client';
 import { prisma as defaultPrisma } from './prisma';
 import { getPolicyValue } from './policy';
 import type { TimeSlabConfig } from './pricing';
-import { getTimeSlab } from './pricing';
+import { getTimeSlab, timeToMinutes } from './pricing';
 
 type PrismaTransaction = Omit<PrismaClient, '$connect' | '$disconnect' | '$on' | '$transaction' | '$use' | '$extends'>;
 
@@ -34,12 +34,21 @@ function getDateStringIST(date: Date): string {
 
 // ─── Operator Date Override Config ────────────────────────
 // New range format: [{ from: "2026-04-10", to: "2026-04-15", morning: 0, evening: 2 }, ...]
+//
+// A range is either:
+//   - slab-based  → morning/evening operator counts (legacy behaviour), or
+//   - time-window → startTime/endTime ("HH:MM", IST) + a single `count`
+//     applied only to slots whose start falls within [startTime, endTime).
+// Time-window ranges take precedence over slab ranges for matching slots.
 export interface OperatorDateOverrideRange {
   from: string;
   to: string;
-  morning: number;
-  evening: number;
+  morning?: number;
+  evening?: number;
   recurringDays?: number[]; // 0=Sun..6=Sat; empty/undefined = every day in range
+  startTime?: string;       // "HH:MM" IST — time-window override start (inclusive)
+  endTime?: string;         // "HH:MM" IST — time-window override end (exclusive)
+  count?: number;           // operator count for the time window
 }
 
 // Legacy format (individual dates): { "2026-04-10": { morning: 0, evening: 2 } }
@@ -51,23 +60,55 @@ function dayOfWeekFromDateKey(dateKey: string): number {
   return new Date(Date.UTC(y, (m || 1) - 1, d || 1)).getUTCDay();
 }
 
-/** Check if a YYYY-MM-DD date key falls within any override range */
-function findOverrideForDate(
+/** Minutes-since-midnight (IST) for a slot's start time. */
+function getMinutesIST(date: Date): number {
+  const istStr = date.toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour12: false, hour: '2-digit', minute: '2-digit' });
+  return timeToMinutes(istStr);
+}
+
+/** True when a range carries a usable time-window definition. */
+function isTimeWindow(range: OperatorDateOverrideRange): range is OperatorDateOverrideRange & { startTime: string; endTime: string; count: number } {
+  return !!range.startTime && !!range.endTime && typeof range.count === 'number';
+}
+
+/**
+ * Resolve the operator count for a date + slab + slot start time from the
+ * override config. Time-window overrides win over slab overrides; within each
+ * pass the first matching range wins. Returns undefined when nothing matches.
+ */
+function findOverrideCount(
   overrides: OperatorDateOverrideRange[] | LegacyOverrides,
-  dateKey: string
-): { morning: number; evening: number } | undefined {
+  dateKey: string,
+  slab: 'morning' | 'evening',
+  slotMinutes: number,
+): number | undefined {
   // Support new range format (array)
   if (Array.isArray(overrides)) {
     const dow = dayOfWeekFromDateKey(dateKey);
+    const inRange = (range: OperatorDateOverrideRange) =>
+      dateKey >= range.from && dateKey <= range.to &&
+      !(range.recurringDays && range.recurringDays.length > 0 && !range.recurringDays.includes(dow));
+
+    // Pass 1: time-window overrides take precedence
     for (const range of overrides) {
-      if (dateKey < range.from || dateKey > range.to) continue;
-      if (range.recurringDays && range.recurringDays.length > 0 && !range.recurringDays.includes(dow)) continue;
-      return { morning: range.morning, evening: range.evening };
+      if (!isTimeWindow(range) || !inRange(range)) continue;
+      const start = timeToMinutes(range.startTime);
+      const end = timeToMinutes(range.endTime);
+      if (slotMinutes >= start && slotMinutes < end) return Math.max(0, range.count);
+    }
+
+    // Pass 2: slab-based overrides
+    for (const range of overrides) {
+      if (isTimeWindow(range) || !inRange(range)) continue;
+      const count = slab === 'morning' ? range.morning : range.evening;
+      if (typeof count === 'number') return Math.max(0, count);
     }
     return undefined;
   }
   // Legacy format (object with date keys)
-  return overrides[dateKey];
+  const match = overrides[dateKey];
+  if (match) return Math.max(0, slab === 'morning' ? match.morning : match.evening);
+  return undefined;
 }
 
 /**
@@ -87,6 +128,7 @@ export async function getOperatorCount(
   centerId: string | null = null,
 ): Promise<number> {
   const slab = getTimeSlab(startTime, timeSlabs);
+  const slotMinutes = getMinutesIST(startTime);
 
   // 1. Check date-specific overrides first (highest priority)
   try {
@@ -94,11 +136,8 @@ export async function getOperatorCount(
     if (overridesStr) {
       const overrides = JSON.parse(overridesStr);
       const dateKey = getDateStringIST(date);
-      const match = findOverrideForDate(overrides, dateKey);
-      if (match !== undefined) {
-        const count = match[slab];
-        if (count !== undefined) return Math.max(0, count);
-      }
+      const count = findOverrideCount(overrides, dateKey, slab, slotMinutes);
+      if (count !== undefined) return count;
     }
   } catch (e) {
     console.warn('[OperatorAssign] Error parsing OPERATOR_DATE_OVERRIDES:', e);
