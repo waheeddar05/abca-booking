@@ -109,10 +109,11 @@ export async function getAllApplicablePromoDiscounts(
       }
 
       // Check Machine row IDs (RESOURCE_BASED). If the offer targets a
-      // specific machine row but the booking didn't supply one (e.g.
-      // SIDEARM/COACHING bookings have no machineRowId), the offer
-      // doesn't apply — the admin meant a machine-specific offer.
-      if (offer.machineRowIds && offer.machineRowIds.length > 0) {
+      // specific machine row, it only applies to MACHINE bookings
+      // that use that machine. Non-machine bookings (SIDEARM, etc.)
+      // skip this check so an "All Categories" offer can apply
+      // even if some machines are pinned.
+      if (category === 'MACHINE' && offer.machineRowIds && offer.machineRowIds.length > 0) {
         if (!machineRowId || !offer.machineRowIds.includes(machineRowId)) {
           return false;
         }

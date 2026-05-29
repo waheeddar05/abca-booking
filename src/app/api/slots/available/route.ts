@@ -229,7 +229,14 @@ export async function GET(req: NextRequest) {
         const ruleEndTime = (rule.slotEndTime || rule.slotStartTime).padStart(5, '0');
         // Check if slot falls within the rule's time range [start, end)
         if (istTimeStr < ruleStartTime || istTimeStr >= ruleEndTime) continue;
-        if (rule.machineIds && rule.machineIds.length > 0 && machineId && !rule.machineIds.includes(machineId)) continue;
+        
+        // Category filter
+        const ruleCategories = (rule.categories || []) as string[];
+        if (ruleCategories.length > 0 && !ruleCategories.includes(category)) continue;
+
+        // Machine filter (only for MACHINE bookings)
+        if (category === 'MACHINE' && rule.machineIds && rule.machineIds.length > 0 && machineId && !rule.machineIds.includes(machineId)) continue;
+        
         return { oneSlotDiscount: rule.oneSlotDiscount, twoSlotDiscount: rule.twoSlotDiscount };
       }
       return null;
@@ -260,11 +267,15 @@ export async function GET(req: NextRequest) {
           if (slotMinutes < offerStart || slotMinutes >= offerEnd) continue;
         }
 
-        // Machine filter
-        if (offer.machineIds && offer.machineIds.length > 0 && machineId && !offer.machineIds.includes(machineId)) continue;
+        // Machine filter (only for MACHINE bookings)
+        if (category === 'MACHINE' && offer.machineIds && offer.machineIds.length > 0 && machineId && !offer.machineIds.includes(machineId)) continue;
 
         // Pitch type filter
         if (offer.pitchTypes && offer.pitchTypes.length > 0 && validatedPitchType && !offer.pitchTypes.includes(validatedPitchType)) continue;
+
+        // Category filter
+        const offerCategories = (offer.categories || []) as string[];
+        if (offerCategories.length > 0 && !offerCategories.includes(category)) continue;
 
         // Calculate discount amount
         const amount = offer.discountType === 'PERCENTAGE'

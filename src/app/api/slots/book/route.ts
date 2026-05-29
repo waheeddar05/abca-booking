@@ -399,7 +399,10 @@ export async function executeSlotBooking(
         const ruleStartTime = rule.slotStartTime.padStart(5, '0');
         const ruleEndTime = (rule.slotEndTime || rule.slotStartTime).padStart(5, '0');
         if (istTimeStr < ruleStartTime || istTimeStr >= ruleEndTime) return false;
-        if (rule.machineIds && rule.machineIds.length > 0 && firstMachineId && !rule.machineIds.includes(firstMachineId)) return false;
+        
+        // Machine filter (only for MACHINE bookings)
+        if (category === 'MACHINE' && rule.machineIds && rule.machineIds.length > 0 && firstMachineId && !rule.machineIds.includes(firstMachineId)) return false;
+        
         const rulePitchTypes = rule.pitchTypes as string[] | undefined;
         if (rulePitchTypes && rulePitchTypes.length > 0 && slotPitchType && !rulePitchTypes.includes(slotPitchType)) return false;
 
@@ -463,6 +466,20 @@ export async function executeSlotBooking(
           // apply to a booking at center B. The helper treats a missing
           // centerId as "any center", which was the pre-multi-center
           // assumption and not what we want anymore.
+          // Machine filter (only for MACHINE bookings)
+          if (category === 'MACHINE' && offer.machineIds && offer.machineIds.length > 0) {
+            if (!slot.machineId || !offer.machineIds.includes(slot.machineId as MachineId)) {
+              continue;
+            }
+          }
+
+          // Category filter
+          if (offer.categories && offer.categories.length > 0) {
+            if (!offer.categories.includes(category)) {
+              continue;
+            }
+          }
+
           const allPromos = await getAllApplicablePromoDiscounts(
             slot.date, slot.startTime, slot.machineId, slot.pitchType, userIsSpecial,
             null, null, centerId,
