@@ -13,7 +13,13 @@ export async function GET() {
   if (process.env.MAINTENANCE_MODE === 'true') {
         return NextResponse.json({
                 enabled: true,
-                message: 'We are currently undergoing scheduled maintenance. Please check back soon.',
+                // Message is overridable via env so it can be tailored at flip
+                // time (e.g. a planned-upgrade notice with an ETA) without a
+                // code change or redeploy.
+                message:
+                        process.env.MAINTENANCE_MESSAGE ||
+                        'We are currently undergoing scheduled maintenance. Please check back soon.',
+                eta: process.env.MAINTENANCE_ETA || null,
                 allowAllAdmins: false,
                 allowedEmails: [],
         });
