@@ -855,12 +855,6 @@ export function applyBlocksToAvailability(
   // (and the ASTRO sub-pool) below.
   let indoorNetsToHide = 0;
 
-  // True when the engine should also kill the indoor categories (NET /
-  // SIDEARM / MACHINE / FULL_COURT). Only triggered by FULL_COURT
-  // blocks (which intentionally cascade) and catchalls (which block
-  // everything anyway).
-  let cascadeIndoorCategories = false;
-
   const INDOOR_PITCES: PitchType[] = ['ASTRO', 'CEMENT'];
 
   for (const b of blocks) {
@@ -922,6 +916,7 @@ export function applyBlocksToAvailability(
         b.machineRowIds.length +
         b.resourceIds.length +
         b.legacyMachineIds.length +
+        (b.pitchType ? 1 : 0) +
         (b.legacyMachineId ? 1 : 0) +
         (b.legacyMachineType ? 1 : 0) +
         (b.legacyPitchType ? 1 : 0) >
@@ -934,34 +929,32 @@ export function applyBlocksToAvailability(
 
       // Catchall — claims the whole indoor pool too.
       indoorPoolFullyClaimed = true;
-      cascadeIndoorCategories = true;
       continue;
     }
 
-    // FULL_COURT block (cascade to every indoor category + pool). Only
-    // when this block doesn't already pin specific resourceIds — a
-    // FULL_COURT-tagged row that explicitly lists, say, "outdoor turf
-    // 3" wouldn't be a sensible "full indoor court" reservation, so we
-    // leave it as a per-resource block.
-    // Task adjustment: Full-court block only restricts indoor pitches
-    // (Astro, Cement). Natural turf remains bookable if available.
-    // We only trigger cascade if the block matches ASTRO/CEMENT or has no pitch.
-    if (b.categories.includes('FULL_COURT') && b.resourceIds.length === 0) {
-      if (!b.pitchType || INDOOR_PITCES.includes(b.pitchType)) {
-        indoorPoolFullyClaimed = true;
-        // Auto-add every indoor category to the relevant pitches
-        const CASCADE_CATS: BookingCategory[] = ['NET', 'SIDEARM', 'MACHINE', 'COACHING'];
-        if (b.pitchType) {
-          addToPitch(b.pitchType, CASCADE_CATS, []);
-        } else {
-          // No pitch specified -> cascade to all indoor pitches
-          for (const p of INDOOR_PITCES) {
-            addToPitch(p, CASCADE_CATS, []);
-          }
-        }
-        // FULL_COURT itself already added above via addToPitch(b.pitchType, ...).
-      }
+    // Pitch-only block: a block that names ONLY a pitch (no category,
+    // machine, or resource) blocks every booking on that pitch. Mirror it
+    // in the per-pitch categories set so the slot grid greys out that
+    // pitch's tabs, matching evaluateBlockForBooking (which blocks any
+    // booking whose pitch matches). Kept to the per-pitch set so a
+    // NATURAL-only block doesn't leak into the indoor/global fallback.
+    const isPitchOnlyBlock =
+      !!b.pitchType
+      && b.categories.length === 0
+      && b.machineRowIds.length === 0
+      && b.resourceIds.length === 0;
+    if (isPitchOnlyBlock && b.pitchType) {
+      const ALL_CATS: BookingCategory[] = ['MACHINE', 'SIDEARM', 'COACHING', 'NET', 'FULL_COURT', 'CORPORATE_BATCH'];
+      for (const c of ALL_CATS) blockedByPitch[b.pitchType].categories.add(c);
     }
+
+    // FULL_COURT is an INDEPENDENT category. Blocking it takes only the
+    // "Full Indoor Court" option off the board (via blockedCategories →
+    // fullCourtAvailable below). It does NOT cascade to the individual
+    // Cricket Net / Bowling Machine / Sidearm / Coaching bookings — those
+    // stay available unless their own net pool is exhausted. (A real
+    // full-court *booking* still physically claims every net; that
+    // coupling lives in computeSlotAvailability, not in block handling.)
 
     // Cricket Nets block with partial capacity. NET in categories AND
     // no specific resourceIds pinned → consume `netCount` from the
@@ -1074,30 +1067,12 @@ export function evaluateBlockForBooking(
   },
   audience: 'ALL' | 'SPECIAL' | 'NON_SPECIAL' = 'ALL',
 ): string | null {
-  // Indoor-pool dependent categories. A FULL_COURT-cascade block hits
-  // every one of these even when the admin only ticked FULL_COURT.
-  const INDOOR_CASCADE: BookingCategory[] = ['NET', 'SIDEARM', 'MACHINE', 'FULL_COURT'];
+  // FULL_COURT is an independent category — a block on it blocks only
+  // FULL_COURT bookings, handled by the normal axis matching below. It
+  // does NOT cascade to Cricket Net / Sidearm / Bowling Machine bookings.
 
   for (const b of blocks) {
     if (!appliesToAudience(b.appliesTo, audience)) continue;
-
-    // FULL_COURT cascade. A pool-wide Full Court block (no resourceIds
-    // pin) blocks every indoor-pool booking; otherwise the cascade
-    // wouldn't bite the Cricket Net / Sidearm / Bowling Machine
-    // booking the user is trying to make.
-    if (
-      b.categories.includes('FULL_COURT')
-      && b.resourceIds.length === 0
-      && INDOOR_CASCADE.includes(booking.category)
-    ) {
-      // Machine bookings can still escape the cascade if the machine
-      // doesn't consume an indoor net (outdoor cement/turf pitch).
-      // Pitch-specific cascade: FULL_COURT block only cascades to
-      // ASTRO/CEMENT or if no pitch specified.
-      if (!b.pitchType || b.pitchType === 'ASTRO' || b.pitchType === 'CEMENT') {
-        return formatBlockReason(b.reason, 'This slot is held for a full-court reservation');
-      }
-    }
 
     // Determine if this block matches this booking. A block matches if
     // EVERY non-empty axis it specifies matches the booking.

@@ -26,7 +26,7 @@ describe('applyBlocksToAvailability', () => {
     corporateBatchNetsHeld: 0,
   };
 
-  it('Issue 1: Full-court block should not block Natural Turf', () => {
+  it('Issue 1: Full-court block is independent — blocks ONLY full court', () => {
     const blocks: ActiveBlock[] = [
       {
         id: 'block1',
@@ -46,19 +46,62 @@ describe('applyBlocksToAvailability', () => {
 
     const result = applyBlocksToAvailability(initialAvailability, blocks);
 
-    // Indoor pool should be empty
-    expect(result.availability.freeIndoorNets).toHaveLength(0);
-    // ASTRO and CEMENT (indoor) should be empty
-    expect(result.availability.freeByPitch.ASTRO).toHaveLength(0);
-    expect(result.availability.freeByPitch.CEMENT).toHaveLength(0);
-    
-    // NATURAL turf should still be available
+    // Individual net pools are UNTOUCHED — a full-court block no longer
+    // cascades to the individual Cricket Net / Machine / Sidearm bookings.
+    expect(result.availability.freeIndoorNets).toHaveLength(4);
+    expect(result.availability.freeByPitch.ASTRO).toHaveLength(4);
     expect(result.availability.freeByPitch.NATURAL).toHaveLength(1);
-    expect(result.availability.freeByPitch.NATURAL[0].id).toBe('natural1');
 
-    // Categorical blocking in blockedByPitch
+    // Only the Full Indoor Court option is taken off the board.
+    expect(result.availability.fullCourtAvailable).toBe(false);
+    expect(result.blockedCategories.has('FULL_COURT')).toBe(true);
+    expect(result.blockedByPitch.ASTRO.categories.has('MACHINE')).toBe(false);
+    expect(result.blockedByPitch.ASTRO.categories.has('NET')).toBe(false);
+
+    // Booking-level: a Machine / Net booking is fine, full court is not.
+    expect(
+      evaluateBlockForBooking(blocks, { category: 'MACHINE', resourceIds: [], pitchType: 'ASTRO' }),
+    ).toBeNull();
+    expect(
+      evaluateBlockForBooking(blocks, { category: 'NET', resourceIds: [], pitchType: 'ASTRO' }),
+    ).toBeNull();
+    expect(
+      evaluateBlockForBooking(blocks, { category: 'FULL_COURT', resourceIds: [] }),
+    ).not.toBeNull();
+  });
+
+  it('Issue 1c: pitch-only block scopes to that pitch (all categories)', () => {
+    const blocks: ActiveBlock[] = [
+      {
+        id: 'block1',
+        reason: 'Astro resurfacing',
+        appliesTo: 'ALL',
+        categories: [],
+        machineRowIds: [],
+        resourceIds: [],
+        pitchType: 'ASTRO',
+        netCount: null,
+        legacyMachineId: null,
+        legacyMachineIds: [],
+        legacyMachineType: null,
+        legacyPitchType: null,
+      },
+    ];
+
+    const result = applyBlocksToAvailability(initialAvailability, blocks);
+
+    // Every category on ASTRO is greyed out; NATURAL is untouched.
     expect(result.blockedByPitch.ASTRO.categories.has('MACHINE')).toBe(true);
+    expect(result.blockedByPitch.ASTRO.categories.has('NET')).toBe(true);
     expect(result.blockedByPitch.NATURAL.categories.has('MACHINE')).toBe(false);
+
+    // Booking-level: any booking on ASTRO blocked, NATURAL allowed.
+    expect(
+      evaluateBlockForBooking(blocks, { category: 'NET', resourceIds: [], pitchType: 'ASTRO' }),
+    ).not.toBeNull();
+    expect(
+      evaluateBlockForBooking(blocks, { category: 'NET', resourceIds: [], pitchType: 'NATURAL' }),
+    ).toBeNull();
   });
 
   it('Issue 2: Partial Net blocking (netCount) should work and reflect in pitch lists', () => {

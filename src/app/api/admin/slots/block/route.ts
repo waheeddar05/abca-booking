@@ -262,22 +262,12 @@ export async function POST(req: NextRequest) {
       // machine). The pitch axis is already on `where.pitchType` above.
       const andClauses: Record<string, unknown>[] = [];
 
-      // Effective category set with FULL_COURT cascade applied. Mirrors
-      // applyBlocksToAvailability / evaluateBlockForBooking so any
-      // booking the user can't make is the same set we cancel here.
+      // Each category is independent — a FULL_COURT block cancels only
+      // FULL_COURT bookings, a SIDEARM block only SIDEARM, etc. No
+      // cascade: mirrors applyBlocksToAvailability / evaluateBlockForBooking
+      // so the set we cancel matches exactly what the engine now refuses
+      // to book.
       const effectiveCategories = new Set<string>(validatedCategories);
-      if (effectiveCategories.has('FULL_COURT') && validatedResourceIds.length === 0) {
-        effectiveCategories.add('NET');
-        effectiveCategories.add('SIDEARM');
-        effectiveCategories.add('MACHINE');
-        effectiveCategories.add('COACHING');
-
-        // Full-court blocks ONLY restrict indoor wickets (Astro/Cement).
-        // Natural turf bookings are NOT cancelled by this block.
-        if (!pitchType && !where.pitchType) {
-          where.pitchType = { in: ['ASTRO', 'CEMENT'] };
-        }
-      }
       if (effectiveCategories.size > 0) {
         andClauses.push({ category: { in: Array.from(effectiveCategories) as BookingCategory[] } });
       }

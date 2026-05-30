@@ -95,22 +95,17 @@ interface BlockedSlotRow {
   pitchType: string | null;
 }
 
-/**
- * User-facing label for each Resource.type. Mirrors CenterResourcesTab
- * so admins see the same surface name everywhere (the booking screen,
- * the resource manager, and this block-slot UI). Avoids drift between
- * "Indoor Net" / "Outdoor Net" admin labels and "Indoor Astro Turf /
- * Natural Turf / Cement Wicket" user labels.
- */
-const RESOURCE_TYPE_LABELS: Record<string, string> = {
-  NET: 'Indoor Astro Turf',
-  TURF_WICKET: 'Natural Turf',
-  CEMENT_WICKET: 'Cement Wicket',
-  COURT: 'Full Court',
-};
 
-function resourceTypeLabel(type: string): string {
-  return RESOURCE_TYPE_LABELS[type] ?? type;
+// User-facing label for a pitch type. Matches the chips in the Pitch
+// Type picker so the active-block card reads the same way the admin
+// selected it.
+const PITCH_LABELS: Record<string, string> = {
+  ASTRO: 'Astro Turf',
+  NATURAL: 'Natural Turf',
+  CEMENT: 'Cement Wicket',
+};
+function pitchLabel(p: string): string {
+  return PITCH_LABELS[p] ?? p;
 }
 
 interface EditForm {
@@ -462,7 +457,7 @@ export function ResourceBlockManagement() {
           </div>
           <p className="text-[11px] text-slate-500 mb-4 leading-relaxed">
             Block bookings at this center for a date range. Leave time empty for an all-day block.
-            Pick specific machines, resources, or categories to scope the block — empty axes mean
+            Scope the block by pitch type, machine, or category — empty axes mean
             &ldquo;no filter on that axis&rdquo;. A block with no axes set blocks every booking in
             the time window.
           </p>
@@ -632,54 +627,10 @@ export function ResourceBlockManagement() {
             </div>
           )}
 
-          {/* Resources — grouped by type so admins see the standardized
-              "Indoor Astro Turf / Natural Turf / Cement Wicket" labels
-              instead of just the raw resource name. Scopes a machine
-              block to a specific surface (the "Yantra at Outdoor Net"
-              case from task 6). */}
-          {resources.length > 0 && (
-            <div className="mb-4 space-y-2">
-              <label className="block text-[10px] font-medium text-slate-400 mb-0.5 uppercase tracking-wider">
-                Resources (optional)
-              </label>
-              <p className="text-[10px] text-slate-500">
-                Pin specific nets/wickets to scope this block. A machine
-                block without a resource pin will apply to every pitch
-                the machine could land on.
-              </p>
-              {Object.entries(
-                resources.reduce<Record<string, CenterResource[]>>((acc, r) => {
-                  const key = r.type;
-                  if (!acc[key]) acc[key] = [];
-                  acc[key].push(r);
-                  return acc;
-                }, {}),
-              ).map(([type, list]) => (
-                <div key={type}>
-                  <p className="text-[10px] font-semibold text-slate-500 mb-1">{resourceTypeLabel(type)}</p>
-                  <div className="flex flex-wrap gap-1.5">
-                    {list.map((r) => {
-                      const selected = pickedResourceIds.includes(r.id);
-                      return (
-                        <button
-                          key={r.id}
-                          type="button"
-                          onClick={() => setPickedResourceIds((prev) => toggleInArray(prev, r.id))}
-                          className={`px-2.5 py-1.5 rounded-lg text-[11px] font-medium transition-all cursor-pointer ${
-                            selected
-                              ? 'bg-accent/20 text-accent ring-1 ring-accent/30'
-                              : 'bg-white/[0.04] text-slate-400 hover:bg-white/[0.06]'
-                          }`}
-                        >
-                          {r.name}
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
+          {/* Resource pinning was removed in favour of the Pitch Type
+              picker above — admins scope a block by surface (Astro /
+              Natural / Cement) rather than by individual net rows, and
+              "Full Indoor Court" is a Category, not a resource. */}
 
           {/* Partial Cricket-Net cap. Only meaningful when Cricket Nets
               category is selected without a specific resource pin —
@@ -828,8 +779,16 @@ export function ResourceBlockManagement() {
                         </span>
                       </div>
 
-                      {(b.categories.length > 0 || machineNames.length > 0 || resourceNames.length > 0 || b.netCount != null) && (
+                      {(b.categories.length > 0 || machineNames.length > 0 || resourceNames.length > 0 || b.netCount != null || !!b.pitchType) && (
                         <div className="flex flex-wrap items-center gap-1.5 mt-1">
+                          {/* Pitch chip — the surface this block is scoped
+                              to (Astro / Natural / Cement). Shown as a
+                              first-class chip, not buried in a warning. */}
+                          {b.pitchType && (
+                            <span className="text-[10px] text-amber-300/90 px-2 py-0.5 rounded-md bg-amber-500/10">
+                              {pitchLabel(b.pitchType)}
+                            </span>
+                          )}
                           {b.categories.map((c) => (
                             <span
                               key={c}
@@ -869,10 +828,10 @@ export function ResourceBlockManagement() {
                       {b.reason && (
                         <p className="text-[11px] text-slate-400 italic mt-1.5">{b.reason}</p>
                       )}
-                      {(b.machineId || b.machineIds.length > 0 || b.machineType || b.pitchType) && (
+                      {(b.machineId || b.machineIds.length > 0 || b.machineType) && (
                         <p className="text-[10px] text-slate-600 mt-1 flex items-center gap-1">
                           <AlertTriangle className="w-3 h-3" />
-                          Includes legacy ABCA targeting (machineId / pitchType) — edit here re-saves with
+                          Includes legacy ABCA machine targeting — edit here re-saves with
                           resource-based axes only.
                         </p>
                       )}
@@ -1098,51 +1057,7 @@ export function ResourceBlockManagement() {
                 </div>
               )}
 
-              {/* Resources — grouped by type, same shape as the create
-                  form so admins see consistent surface labels. */}
-              {resources.length > 0 && (
-                <div className="space-y-2">
-                  <label className="block text-[10px] font-medium text-slate-500 mb-0.5 uppercase tracking-wider">
-                    Resources (optional)
-                  </label>
-                  {Object.entries(
-                    resources.reduce<Record<string, CenterResource[]>>((acc, r) => {
-                      const key = r.type;
-                      if (!acc[key]) acc[key] = [];
-                      acc[key].push(r);
-                      return acc;
-                    }, {}),
-                  ).map(([type, list]) => (
-                    <div key={type}>
-                      <p className="text-[10px] font-semibold text-slate-500 mb-1">{resourceTypeLabel(type)}</p>
-                      <div className="flex flex-wrap gap-1.5">
-                        {list.map((r) => {
-                          const selected = editForm.pickedResourceIds.includes(r.id);
-                          return (
-                            <button
-                              key={r.id}
-                              type="button"
-                              onClick={() =>
-                                setEditForm((f) => ({
-                                  ...f,
-                                  pickedResourceIds: toggleInArray(f.pickedResourceIds, r.id),
-                                }))
-                              }
-                              className={`px-2.5 py-1.5 rounded-lg text-[11px] font-medium transition-all cursor-pointer ${
-                                selected
-                                  ? 'bg-accent/20 text-accent ring-1 ring-accent/30'
-                                  : 'bg-white/[0.04] text-slate-400 hover:bg-white/[0.06]'
-                              }`}
-                            >
-                              {r.name}
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
+              {/* Resource pinning removed — scope by Pitch Type instead. */}
 
               {/* Partial Cricket-Net cap in the edit dialog. */}
               {editForm.pickedCategories.includes('NET') && editForm.pickedResourceIds.length === 0 && (
