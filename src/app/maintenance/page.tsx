@@ -5,10 +5,15 @@ import { Wrench, RefreshCw } from 'lucide-react';
 
 export default function MaintenancePage() {
   const [message, setMessage] = useState('We are currently undergoing scheduled maintenance. Please check back soon.');
+  const [eta, setEta] = useState<string | null>(null);
   const [checking, setChecking] = useState(false);
 
   useEffect(() => {
     fetchStatus();
+    // Auto-poll so users are redirected back automatically once the
+    // maintenance switch is lifted — no manual refresh needed.
+    const interval = setInterval(fetchStatus, 30000);
+    return () => clearInterval(interval);
   }, []);
 
   async function fetchStatus() {
@@ -24,6 +29,7 @@ export default function MaintenancePage() {
         if (data.message) {
           setMessage(data.message);
         }
+        setEta(data.eta || null);
       }
     } catch {
       // ignore
@@ -60,6 +66,12 @@ export default function MaintenancePage() {
           <p className="text-slate-400 text-sm leading-relaxed mb-6">
             {message}
           </p>
+
+          {eta && (
+            <p className="text-amber-300/90 text-xs font-medium mb-6 -mt-3">
+              Expected back: {eta}
+            </p>
+          )}
 
           <button
             onClick={handleRetry}
