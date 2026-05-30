@@ -21,6 +21,7 @@ import {
   getDayCandidateBlocks,
   filterBlocksForSlotSync,
   applyBlocksToAvailability,
+  applyPitchReservations,
 } from '@/lib/resource-booking';
 import { getResourcePricingConfig, getResourceSlotPrice, representativeCategoryBase } from '@/lib/resource-pricing';
 import { getSidearmPitchTypes, getNetPitchTypes, getCoachingPitchTypes, getEnabledBookingCategories } from '@/lib/pitch-config';
@@ -243,6 +244,11 @@ export async function GET(req: NextRequest) {
           return batchConfig.netsConsumed;
         })();
         const blocks = filterBlocksForSlotSync(candidateBlocks, slotWindow);
+        // Hold admin "count blocks" (block N units of a pitch) as virtual
+        // load before availability is computed, so the pool reflects the
+        // reserved units exactly like real bookings. Grid view uses 'ALL'
+        // (worst case); booking re-evaluates with the user's audience.
+        applyPitchReservations(resourceLoad, resources, blocks, 'ALL');
         const baseAvailability = computeSlotAvailability({
           resources,
           coaches,

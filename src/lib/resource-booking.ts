@@ -827,6 +827,61 @@ export async function getActiveBlocksForSlot(
  *     a partial NET block with netCount=1) flips fullCourtAvailable
  *     to false — full court needs every net free.
  */
+
+/**
+ * Apply admin "count blocks" to a slot's occupancy as virtual load.
+ *
+ * A count block reserves N units of a pitch's pool (e.g. "block 3 of 4
+ * Astro Turf units") without pinning a specific machine or resource. We
+ * model that by consuming N units of capacity on the matching pitch's
+ * resources here — BEFORE computeSlotAvailability runs — so every
+ * downstream capacity rule (claimedResourceIds, freeByPitch, pickNetFor,
+ * fullCourtAvailable) treats the reservation exactly like real bookings.
+ * Mutates `resourceLoad` in place.
+ *
+ *   - pitch comes from the block's pitchType; a legacy count block with
+ *     no pitch defaults to ASTRO (the indoor net pool).
+ *   - netCount is the number of units to hold; null means "not a count
+ *     block" (handled elsewhere as a category / pitch / catchall block).
+ *   - blocks that pin a machine or resource are skipped — those are
+ *     machine/resource-scoped, not pool-unit reservations.
+ */
+export function applyPitchReservations(
+  resourceLoad: Map<string, number>,
+  resources: ResourceLite[],
+  blocks: ActiveBlock[],
+  audience: 'ALL' | 'SPECIAL' | 'NON_SPECIAL' = 'ALL',
+): void {
+  const reserved: Record<'ASTRO' | 'CEMENT' | 'NATURAL', number> = { ASTRO: 0, CEMENT: 0, NATURAL: 0 };
+  for (const b of blocks) {
+    if (!appliesToAudience(b.appliesTo, audience)) continue;
+    if (b.netCount == null || b.netCount <= 0) continue;
+    if (b.machineRowIds.length > 0 || b.resourceIds.length > 0) continue;
+    const pitch = (b.pitchType ?? 'ASTRO');
+    if (pitch === 'ASTRO' || pitch === 'CEMENT' || pitch === 'NATURAL') {
+      reserved[pitch] += b.netCount;
+    }
+  }
+
+  (['ASTRO', 'CEMENT', 'NATURAL'] as const).forEach((pitch) => {
+    let remaining = reserved[pitch];
+    if (remaining <= 0) return;
+    // Fill the pitch's resources up to capacity, in order, so the held
+    // units behave like bookings against real capacity.
+    for (const r of resources) {
+      if (remaining <= 0) break;
+      if (!resourceMatchesPitch(r, pitch)) continue;
+      const cap = r.capacity ?? 1;
+      const cur = resourceLoad.get(r.id) ?? 0;
+      const take = Math.min(Math.max(0, cap - cur), remaining);
+      if (take > 0) {
+        resourceLoad.set(r.id, cur + take);
+        remaining -= take;
+      }
+    }
+  });
+}
+
 export function applyBlocksToAvailability(
   availability: SlotAvailability,
   blocks: ActiveBlock[],
@@ -846,16 +901,8 @@ export function applyBlocksToAvailability(
     TURF: { categories: new Set(), machineRowIds: new Set() },
   };
   const blockedResourceIds = new Set<string>();
-  // True when any block at this slot consumes indoor net capacity.
-  // Drives the Full Court "needs every net free" rule and the indoor-
-  // category cascade (NET / SIDEARM / MACHINE on Astro).
+  // True when a catchall block (no axes) claims every pool at this slot.
   let indoorPoolFullyClaimed = false;
-  // Number of indoor nets consumed by NET / catchall blocks that use
-  // `netCount` for partial blocking. Subtracted from freeIndoorNets
-  // (and the ASTRO sub-pool) below.
-  let indoorNetsToHide = 0;
-
-  const INDOOR_PITCES: PitchType[] = ['ASTRO', 'CEMENT'];
 
   for (const b of blocks) {
     if (!appliesToAudience(b.appliesTo, audience)) continue;
@@ -887,24 +934,18 @@ export function applyBlocksToAvailability(
     // alongside a single machine greyed out the entire Astro tab.
     const hasResourcePin = b.machineRowIds.length > 0 || b.resourceIds.length > 0;
 
-    // A partial cricket-net block (NET + a positive netCount, no pinned
-    // resourceIds) only reserves N nets out of the indoor pool — it does
-    // NOT take the whole Cricket Nets category off the board. Dropping
-    // NET from the categorical sets here keeps the category bookable in
-    // the slot grid; the pool reduction (indoorNetsToHide) below hides
-    // exactly N nets so the remaining ones stay available. Without this,
-    // the client greys out every net at the slot (the "block 2 nets,
-    // lose all 4" bug).
-    const isPartialNetBlock =
-      b.categories.includes('NET')
-      && b.netCount != null
+    // A "count block" (netCount set, no machine/resource pin) reserves N
+    // units of a pitch's pool capacity — it's applied as virtual load by
+    // applyPitchReservations BEFORE availability is computed, so the pool
+    // here already reflects it. It must NOT also contribute its categories
+    // (that would hard-block the whole category instead of just reserving
+    // units), so we contribute no categories — same as a pinned block.
+    const isCountBlock =
+      b.netCount != null
       && b.netCount > 0
+      && b.machineRowIds.length === 0
       && b.resourceIds.length === 0;
-    const categoriesForGrid = hasResourcePin
-      ? []
-      : isPartialNetBlock
-        ? b.categories.filter((c) => c !== 'NET')
-        : b.categories;
+    const categoriesForGrid = (hasResourcePin || isCountBlock) ? [] : b.categories;
 
     addToPitch(b.pitchType, categoriesForGrid, b.machineRowIds);
     for (const id of b.resourceIds) blockedResourceIds.add(id);
@@ -942,7 +983,8 @@ export function applyBlocksToAvailability(
       !!b.pitchType
       && b.categories.length === 0
       && b.machineRowIds.length === 0
-      && b.resourceIds.length === 0;
+      && b.resourceIds.length === 0
+      && b.netCount == null; // a count block reserves units, it isn't a full-pitch block
     if (isPitchOnlyBlock && b.pitchType) {
       const ALL_CATS: BookingCategory[] = ['MACHINE', 'SIDEARM', 'COACHING', 'NET', 'FULL_COURT', 'CORPORATE_BATCH'];
       for (const c of ALL_CATS) blockedByPitch[b.pitchType].categories.add(c);
@@ -956,54 +998,38 @@ export function applyBlocksToAvailability(
     // full-court *booking* still physically claims every net; that
     // coupling lives in computeSlotAvailability, not in block handling.)
 
-    // Cricket Nets block with partial capacity. NET in categories AND
-    // no specific resourceIds pinned → consume `netCount` from the
-    // indoor pool (or all if null).
-    // Task adjustment: Only affect indoor pool if the block targets ASTRO/CEMENT or no pitch.
-    if (b.categories.includes('NET') && b.resourceIds.length === 0) {
-      if (!b.pitchType || INDOOR_PITCES.includes(b.pitchType)) {
-        if (b.netCount == null) {
-          indoorPoolFullyClaimed = true;
-        } else {
-          indoorNetsToHide += b.netCount;
-        }
-      }
-    }
+    // Count-based unit reservations (block N units of a pitch) are NOT
+    // handled here — they're applied as virtual load by
+    // applyPitchReservations before computeSlotAvailability runs, so the
+    // pool we receive already reflects them. This keeps the per-category
+    // independence intact: a "Cricket Nets" category block only blocks
+    // NET bookings; reserving units is a separate, pool-level concept.
   }
 
   // Apply per-resource pins first.
   let freeIndoor = availability.freeIndoorNets.filter((r) => !blockedResourceIds.has(r.id));
   const freeOutdoor = availability.freeOutdoorResources.filter((r) => !blockedResourceIds.has(r.id));
 
-  // If any block fully claims the indoor pool, empty it out.
-  // Full-court blocks only target ASTRO/CEMENT pitches (the indoor
-  // pool). NATURAL turf resources (outdoor) are not affected unless
-  // they were explicitly pinned via blockedResourceIds.
+  // A catchall block claims the whole indoor pool.
   if (indoorPoolFullyClaimed) {
     freeIndoor = [];
-  } else if (indoorNetsToHide > 0) {
-    // Hide the LAST `indoorNetsToHide` nets so the user-facing list
-    // still presents nets 1, 2, … as preferred. Mirrors the same
-    // strategy used by corporate-batch reservations.
-    const keep = Math.max(0, freeIndoor.length - indoorNetsToHide);
-    freeIndoor = freeIndoor.slice(0, keep);
   }
 
-  // Per-pitch ASTRO/CEMENT list rides on the indoor pool — recompute
-  // it from the now-shrunk freeIndoor list so the user can't book
-  // Cricket Net / Bowling Machine / Sidearm on Astro/Cement past
-  // the cap. NATURAL is an independent surface, only affected by its
-  // own resource pins.
+  // Per-pitch lists ride on the now-filtered pools. ASTRO uses the indoor
+  // net pool; CEMENT and NATURAL are independent outdoor surfaces only
+  // affected by their own resource pins (and the catchall, which empties
+  // every pool).
   const stillFreeIndoorIds = new Set(freeIndoor.map((r) => r.id));
   const astroFiltered = availability.freeByPitch.ASTRO.filter((r) => stillFreeIndoorIds.has(r.id));
-  const cementFiltered = availability.freeByPitch.CEMENT.filter((r) => stillFreeIndoorIds.has(r.id));
+  const cementFiltered = indoorPoolFullyClaimed
+    ? []
+    : availability.freeByPitch.CEMENT.filter((r) => !blockedResourceIds.has(r.id));
 
-  // Full Court availability now requires every indoor net to be free
-  // AND no block consuming indoor capacity (even partial). One blocked
-  // net is enough to flip this false — matches the spec for task 5.
+  // Full Court is unavailable when a full-court block is set or a catchall
+  // claims the pool. Capacity consumed by unit reservations / live
+  // bookings already flips availability.fullCourtAvailable false upstream.
   const fullCourtBlocked = blockedCategories.has('FULL_COURT')
-    || indoorPoolFullyClaimed
-    || indoorNetsToHide > 0;
+    || indoorPoolFullyClaimed;
 
   const filteredAvailability: SlotAvailability = {
     ...availability,
@@ -1012,7 +1038,9 @@ export function applyBlocksToAvailability(
     freeByPitch: {
       ASTRO: astroFiltered,
       CEMENT: cementFiltered,
-      NATURAL: availability.freeByPitch.NATURAL.filter((r) => !blockedResourceIds.has(r.id)),
+      NATURAL: indoorPoolFullyClaimed
+        ? []
+        : availability.freeByPitch.NATURAL.filter((r) => !blockedResourceIds.has(r.id)),
     },
     fullCourtAvailable: availability.fullCourtAvailable && !fullCourtBlocked,
   };
@@ -1099,20 +1127,16 @@ export function evaluateBlockForBooking(
       if (booking.pitchType === b.pitchType) axisMatched++;
     }
 
-    // Partial NET block with capacity remaining: don't bounce the
-    // booking here — the resource pool emptiness check downstream
-    // already enforces that we can find a free net. A partial NET
-    // block leaves N nets reserved, so as long as we can pick one of
-    // the other nets we're fine. Skip the category-only match for
-    // NET when netCount is set (it's partial capacity, not a hard
-    // category-wide block).
+    // Count block (reserve N units of a pitch pool): never a hard block.
+    // The reservation is applied as virtual load before availability is
+    // computed, so the pool-emptiness check in pickNetFor enforces the
+    // remaining capacity. Bouncing the booking here would wrongly block
+    // EVERY booking on the pitch instead of just the reserved N units.
     if (
-      b.categories.includes('NET')
-      && b.netCount != null
+      b.netCount != null
       && b.netCount > 0
       && b.machineRowIds.length === 0
       && b.resourceIds.length === 0
-      && axisCount === 1 // category was the only axis
     ) {
       continue;
     }
@@ -1238,12 +1262,16 @@ export async function planBooking(
     getCorporateBatchNetsForSlot(plan.centerId, slot),
     getActiveBlocksForSlot(plan.centerId, slot),
   ]);
+  const audience = context.audience ?? 'ALL';
+  // Hold admin "count blocks" (block N units of a pitch) as virtual load
+  // before computing availability so this booking respects the reserved
+  // units — pool emptiness in pickNetFor enforces the remaining capacity.
+  applyPitchReservations(occupancy.resourceLoad, resources, blocks, audience);
   const availability = computeSlotAvailability({ resources, coaches, staff, occupancy, batchNets, slot });
 
   // Pre-flight category-level block check. Refuses early when an
   // entire category is blocked at this slot — the resource-specific
   // checks downstream catch the more granular cases.
-  const audience = context.audience ?? 'ALL';
   const categoryBlock = evaluateBlockForBooking(
     blocks,
     {

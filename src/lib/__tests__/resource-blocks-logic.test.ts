@@ -1,7 +1,32 @@
 
 import { describe, it, expect } from 'vitest';
-import { applyBlocksToAvailability, evaluateBlockForBooking, ActiveBlock } from '../resource-booking';
+import {
+  applyBlocksToAvailability,
+  applyPitchReservations,
+  computeSlotAvailability,
+  evaluateBlockForBooking,
+  ActiveBlock,
+} from '../resource-booking';
 import { BookingCategory } from '@prisma/client';
+
+// Minimal occupancy snapshot with an empty load map.
+const emptyOccupancy = () => ({
+  resourceLoad: new Map<string, number>(),
+  claimedResourceIds: new Set<string>(),
+  busyCoachIds: new Set<string>(),
+  busyStaffIds: new Set<string>(),
+  busyMachineIds: new Set<string>(),
+  hasFullCourtBooking: false,
+});
+
+// A block with all axes empty except the ones passed in.
+const makeBlock = (over: Partial<ActiveBlock>): ActiveBlock => ({
+  id: 'b', reason: null, appliesTo: 'ALL',
+  machineRowIds: [], resourceIds: [], categories: [],
+  pitchType: null, netCount: null,
+  legacyMachineId: null, legacyMachineIds: [], legacyMachineType: null, legacyPitchType: null,
+  ...over,
+});
 
 describe('applyBlocksToAvailability', () => {
   const mockResources = [
@@ -104,72 +129,65 @@ describe('applyBlocksToAvailability', () => {
     ).toBeNull();
   });
 
-  it('Issue 2: Partial Net blocking (netCount) should work and reflect in pitch lists', () => {
-    const blocks: ActiveBlock[] = [
-      {
-        id: 'block1',
-        reason: 'Maintenance',
-        appliesTo: 'ALL',
-        categories: ['NET'],
-        machineRowIds: [],
-        resourceIds: [],
-        pitchType: null,
-        netCount: 2, // Block 2 out of 4 nets
-        legacyMachineId: null,
-        legacyMachineIds: [],
-        legacyMachineType: null,
-        legacyPitchType: null,
-      },
-    ];
+  it('Issue 2: count block reserves N units of a pitch (capacity-aware)', () => {
+    // One Astro Turf resource with capacity 4 (= "4 astro turfs").
+    const resources = [
+      { id: 'astro', name: 'Astro Turf', type: 'NET', category: 'INDOOR', capacity: 4, displayOrder: 1 },
+      { id: 'natural', name: 'Natural Turf', type: 'TURF_WICKET', category: 'OUTDOOR', capacity: 2, displayOrder: 2 },
+    ] as any[];
 
-    const result = applyBlocksToAvailability(initialAvailability, blocks);
+    // Block 3 of the 4 Astro units.
+    const block = makeBlock({ pitchType: 'ASTRO', netCount: 3 });
+    const occ = emptyOccupancy();
+    applyPitchReservations(occ.resourceLoad, resources, [block], 'ALL');
+    // 3 units held as virtual load on the cap-4 resource.
+    expect(occ.resourceLoad.get('astro')).toBe(3);
 
-    // Should have 2 nets left in freeIndoorNets (it slices from end)
-    expect(result.availability.freeIndoorNets).toHaveLength(2);
-    expect(result.availability.freeIndoorNets.map(r => r.id)).toEqual(['net1', 'net2']);
+    const avail = computeSlotAvailability({ resources, coaches: [], staff: [], occupancy: occ, batchNets: 0 });
+    // 1 unit still bookable on Astro; Natural untouched; full court gone.
+    expect(avail.freeByPitch.ASTRO).toHaveLength(1);
+    expect(avail.freeByPitch.NATURAL).toHaveLength(1);
+    expect(avail.fullCourtAvailable).toBe(false);
 
-    // ASTRO and CEMENT should also be shrunk
-    expect(result.availability.freeByPitch.ASTRO).toHaveLength(2);
-    expect(result.availability.freeByPitch.ASTRO.map(r => r.id)).toEqual(['net1', 'net2']);
+    // Blocking ALL 4 empties the pool.
+    const occAll = emptyOccupancy();
+    applyPitchReservations(occAll.resourceLoad, resources, [makeBlock({ pitchType: 'ASTRO', netCount: 4 })], 'ALL');
+    const availAll = computeSlotAvailability({ resources, coaches: [], staff: [], occupancy: occAll, batchNets: 0 });
+    expect(availAll.freeByPitch.ASTRO).toHaveLength(0);
 
-    // NATURAL turf unaffected
-    expect(result.availability.freeByPitch.NATURAL).toHaveLength(1);
-
-    // Full court should be unavailable whenever any net is blocked
-    expect(result.availability.fullCourtAvailable).toBe(false);
-
-    // Bug fix: a PARTIAL net block must NOT take the whole Cricket Nets
-    // category off the board. If NET landed in the categorical blocked
-    // sets, the slot grid greys out every net (the "block 2, lose all 4"
-    // bug). Only the pool is reduced — the category stays bookable.
-    expect(result.blockedCategories.has('NET')).toBe(false);
-    expect(result.blockedByPitch.ASTRO.categories.has('NET')).toBe(false);
-    expect(result.blockedByPitch.NATURAL.categories.has('NET')).toBe(false);
+    // A count block is NOT a hard block: bookings are gated by pool
+    // capacity, not bounced outright by evaluateBlockForBooking.
+    expect(
+      evaluateBlockForBooking([block], { category: 'NET', resourceIds: [], pitchType: 'ASTRO' }),
+    ).toBeNull();
   });
 
-  it('Issue 1b: full (no-count) Net block DOES block the whole category', () => {
-    const blocks: ActiveBlock[] = [
-      {
-        id: 'block1',
-        reason: 'Maintenance',
-        appliesTo: 'ALL',
-        categories: ['NET'],
-        machineRowIds: [],
-        resourceIds: [],
-        pitchType: null,
-        netCount: null, // null = block ALL nets (legacy behaviour)
-        legacyMachineId: null,
-        legacyMachineIds: [],
-        legacyMachineType: null,
-        legacyPitchType: null,
-      },
-    ];
+  it('Issue 2b: count block on a 4-net pool reserves whole resources', () => {
+    // Four separate cap-1 nets — reserving 2 leaves exactly 2 bookable.
+    const resources = [
+      { id: 'net1', name: 'Net 1', type: 'NET', category: 'INDOOR', capacity: 1, displayOrder: 1 },
+      { id: 'net2', name: 'Net 2', type: 'NET', category: 'INDOOR', capacity: 1, displayOrder: 2 },
+      { id: 'net3', name: 'Net 3', type: 'NET', category: 'INDOOR', capacity: 1, displayOrder: 3 },
+      { id: 'net4', name: 'Net 4', type: 'NET', category: 'INDOOR', capacity: 1, displayOrder: 4 },
+    ] as any[];
+    const occ = emptyOccupancy();
+    applyPitchReservations(occ.resourceLoad, resources, [makeBlock({ pitchType: 'ASTRO', netCount: 2 })], 'ALL');
+    const avail = computeSlotAvailability({ resources, coaches: [], staff: [], occupancy: occ, batchNets: 0 });
+    expect(avail.freeByPitch.ASTRO).toHaveLength(2);
+  });
+
+  it('Issue 1b: a NET category block is independent — blocks only NET', () => {
+    // A Cricket Nets category block (no count) blocks NET bookings only;
+    // the shared pool stays open for Machine / Sidearm bookings.
+    const blocks: ActiveBlock[] = [makeBlock({ categories: ['NET'] })];
 
     const result = applyBlocksToAvailability(initialAvailability, blocks);
 
-    // No netCount => whole pool gone AND the category is blocked.
-    expect(result.availability.freeIndoorNets).toHaveLength(0);
+    // Pool is untouched (machine/sidearm can still consume nets)...
+    expect(result.availability.freeIndoorNets).toHaveLength(4);
+    // ...but the NET category itself is blocked.
     expect(result.blockedByPitch.ASTRO.categories.has('NET')).toBe(true);
+    expect(result.blockedByPitch.ASTRO.categories.has('MACHINE')).toBe(false);
   });
 
   it('Issue 3b: machine+pitch block bites ONLY the matching pitch', () => {

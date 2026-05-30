@@ -11,6 +11,21 @@ import {
 } from '@/lib/booking-cancellation';
 import type { Booking, MachineId, BookingCategory } from '@prisma/client';
 
+// Total bookable capacity (sum of unit capacities) of a pitch's surface
+// at a center. ASTRO → indoor nets (NET); NATURAL → TURF_WICKET; CEMENT →
+// CEMENT_WICKET. Used to clamp count blocks so "block N of M units" can't
+// exceed the pitch's real capacity — and so a single high-capacity row
+// (one "Astro Turf" with capacity 4) still allows blocking up to 4.
+async function pitchPoolCapacity(centerId: string, pitchType: unknown): Promise<number> {
+  const pitch = typeof pitchType === 'string' ? pitchType : 'ASTRO';
+  const type = pitch === 'NATURAL' ? 'TURF_WICKET' : pitch === 'CEMENT' ? 'CEMENT_WICKET' : 'NET';
+  const agg = await prisma.resource.aggregate({
+    where: { centerId, type: type as 'NET' | 'TURF_WICKET' | 'CEMENT_WICKET', isActive: true },
+    _sum: { capacity: true },
+  });
+  return agg._sum.capacity ?? 0;
+}
+
 // GET /api/admin/slots/block - List blocked slots at the admin's current center
 export async function GET(req: NextRequest) {
   try {
@@ -163,17 +178,17 @@ export async function POST(req: NextRequest) {
       ? categories.filter((c) => typeof c === 'string' && validBookingCategories.includes(c))
       : [];
 
-    // Validate the partial cricket-net cap. Coerce non-numeric / non-
-    // positive values to null so legacy clients that send `0` or `""`
-    // get the "block all nets" behaviour. Positive integers are clamped
-    // to the indoor-net pool size to keep the engine's bookkeeping
-    // consistent.
+    // Validate the count block (reserve N units of a pitch pool). Coerce
+    // non-numeric / non-positive values to null ("block all"). Positive
+    // integers are clamped to the selected pitch's TOTAL CAPACITY (sum of
+    // unit capacities), not the resource row count — one "Astro Turf" row
+    // with capacity 4 must allow blocking up to 4 units.
     let validatedNetCount: number | null = null;
     if (typeof netCount === 'number' && Number.isFinite(netCount) && netCount > 0) {
-      const indoorTotal = await prisma.resource.count({
-        where: { centerId: center.id, type: 'NET', category: 'INDOOR', isActive: true },
-      });
-      validatedNetCount = Math.min(Math.floor(netCount), Math.max(1, indoorTotal));
+      validatedNetCount = Math.min(
+        Math.floor(netCount),
+        Math.max(1, await pitchPoolCapacity(center.id, pitchType)),
+      );
     }
 
     // 1. Create a single BlockedSlot record
@@ -315,26 +330,24 @@ export async function POST(req: NextRequest) {
       return bookingStartMin < blockEndMin && bookingEndMin > blockStartMin;
     });
 
-    // Partial cricket-net block: only cancel the OLDEST `netCount`
-    // bookings that overlap. The newer ones stay — they'll fit into
-    // the remaining capacity. Without this gate, a "block 1 net at
-    // 9 AM" command would cancel every Cricket Net booking at 9 AM,
-    // which is the bug task 5 is fixing.
+    // Count block (reserve N units of a pitch pool): only cancel the
+    // OLDEST `netCount` overlapping bookings — the rest fit within the
+    // remaining capacity. The conflict query above is already scoped to
+    // the block's pitch, so these are the bookings competing for the
+    // reserved units. Without this gate a "block 1 unit" command would
+    // cancel every booking on the pitch.
     let bookingsToReallyCancel = bookingsToCancel;
-    if (
+    const isCountBlock =
       validatedNetCount != null
       && validatedNetCount > 0
-      && validatedCategories.includes('NET')
-      && validatedResourceIds.length === 0
-    ) {
+      && validatedMachineRowIds.length === 0
+      && validatedResourceIds.length === 0;
+    if (isCountBlock) {
       // Sort oldest-first so the deterministic pick is the historical one.
       const sorted = [...bookingsToCancel].sort(
         (a, b) => a.createdAt.getTime() - b.createdAt.getTime(),
       );
-      // Only NET bookings consume the partial-net cap.
-      const netBookings = sorted.filter((b) => b.category === 'NET');
-      const others = sorted.filter((b) => b.category !== 'NET');
-      bookingsToReallyCancel = [...netBookings.slice(0, validatedNetCount), ...others];
+      bookingsToReallyCancel = sorted.slice(0, validatedNetCount!);
     }
 
     // 3. Cancel each conflicting booking via the shared refund helper.
@@ -584,10 +597,13 @@ export async function PUT(req: NextRequest) {
     if (netCount === null) {
       updateData.netCount = null;
     } else if (typeof netCount === 'number' && Number.isFinite(netCount) && netCount > 0) {
-      const indoorTotal = await prisma.resource.count({
-        where: { centerId: existing.centerId, type: 'NET', category: 'INDOOR', isActive: true },
-      });
-      updateData.netCount = Math.min(Math.floor(netCount), Math.max(1, indoorTotal));
+      // Clamp to the selected pitch's total capacity (body pitch wins,
+      // else the block's existing pitch).
+      const pitchForCount = pitchType !== undefined ? pitchType : existing.pitchType;
+      updateData.netCount = Math.min(
+        Math.floor(netCount),
+        Math.max(1, await pitchPoolCapacity(existing.centerId, pitchForCount)),
+      );
     }
 
     const updated = await prisma.blockedSlot.update({
