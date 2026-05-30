@@ -7,19 +7,44 @@ export async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
 
   // Maintenance kill switch — env-var based so it works without a DB read.
-  // Allow the maintenance page itself and its status endpoint through.
-  if (
-    process.env.MAINTENANCE_MODE === 'true' &&
-    pathname !== '/maintenance' &&
-    !pathname.startsWith('/api/maintenance') &&
-    !pathname.startsWith('/_next') &&
-    !pathname.startsWith('/images/') &&
-    !pathname.startsWith('/icons/') &&
-    pathname !== '/favicon.ico' &&
-    pathname !== '/sw.js' &&
-    pathname !== '/manifest.json'
-  ) {
-    return NextResponse.rewrite(new URL('/maintenance', req.url));
+  if (process.env.MAINTENANCE_MODE === 'true') {
+    const bypassKey = process.env.MAINTENANCE_BYPASS_KEY;
+
+    // Verification bypass: visiting any URL with ?mbk=<key> drops a cookie
+    // that lets THIS browser through while everyone else keeps seeing the
+    // maintenance page. Auth-free and DB-free, so it works even while the
+    // database is mid-migration. The secret is then stripped from the URL.
+    if (bypassKey && req.nextUrl.searchParams.get('mbk') === bypassKey) {
+      const cleanUrl = req.nextUrl.clone();
+      cleanUrl.searchParams.delete('mbk');
+      const res = NextResponse.redirect(cleanUrl);
+      res.cookies.set('mb', bypassKey, {
+        httpOnly: true,
+        secure: true,
+        sameSite: 'lax',
+        path: '/',
+        maxAge: 60 * 60 * 8, // 8-hour verification window
+      });
+      return res;
+    }
+
+    const hasBypass = !!bypassKey && req.cookies.get('mb')?.value === bypassKey;
+
+    // Allow the maintenance page itself, its status endpoint, and assets.
+    const isMaintenanceAllowed =
+      pathname === '/maintenance' ||
+      pathname.startsWith('/api/maintenance') ||
+      pathname.startsWith('/_next') ||
+      pathname.startsWith('/images/') ||
+      pathname.startsWith('/icons/') ||
+      pathname === '/favicon.ico' ||
+      pathname === '/sw.js' ||
+      pathname === '/manifest.json';
+
+    if (!hasBypass && !isMaintenanceAllowed) {
+      return NextResponse.rewrite(new URL('/maintenance', req.url));
+    }
+    // Bypass holders fall through to normal routing below.
   }
 
   // Define public paths
