@@ -1398,7 +1398,7 @@ export default function ResourceSlotsPage() {
           have up to six categories. */}
       <div className="mb-4">
         <label className="block text-[10px] font-medium text-accent mb-1 uppercase tracking-wider">
-          Session Type
+          Booking Category
         </label>
         {/* Session category tiles. Icon + label are left-aligned so the
             row reads like a list of options, not a row of centered
@@ -1561,28 +1561,28 @@ export default function ResourceSlotsPage() {
                 <label className="block text-[10px] font-medium text-accent mb-1.5 uppercase tracking-wider">
                   Operation Mode
                 </label>
-                <div className="flex flex-wrap gap-2">
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                   <button
                     type="button"
                     onClick={() => setOperationMode('WITH_OPERATOR')}
-                    className={`flex items-center justify-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all cursor-pointer border ${
+                    className={`flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-xs font-semibold transition-all cursor-pointer border min-w-0 text-center ${
                       operationMode === 'WITH_OPERATOR'
                         ? 'bg-accent text-primary border-accent shadow-sm'
                         : 'bg-white/[0.04] text-slate-400 border-white/[0.08] hover:border-accent/20'
                     }`}
                   >
-                    With Operator
+                    <span className="truncate">With Operator</span>
                   </button>
                   <button
                     type="button"
                     onClick={() => setOperationMode('SELF_OPERATE')}
-                    className={`flex items-center justify-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all cursor-pointer border ${
+                    className={`flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-xs font-semibold transition-all cursor-pointer border min-w-0 text-center ${
                       operationMode === 'SELF_OPERATE'
                         ? 'bg-accent text-primary border-accent shadow-sm'
                         : 'bg-white/[0.04] text-slate-400 border-white/[0.08] hover:border-accent/20'
                     }`}
                   >
-                    Self Operate
+                    <span className="truncate">Self Operate</span>
                   </button>
                 </div>
                 {operationMode === 'SELF_OPERATE' && (
@@ -2317,7 +2317,7 @@ function ChipSelector({
             <button
               key={opt.id}
               onClick={() => onChange(opt.id)}
-              className={`flex-1 flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg text-xs font-semibold transition-all cursor-pointer border min-w-0 text-center ${
+              className={`flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-xs font-semibold transition-all cursor-pointer border min-w-0 text-center ${
                 active
                   ? 'bg-accent text-primary border-accent shadow-sm'
                   : 'bg-white/[0.04] text-slate-400 border-white/[0.08] hover:border-accent/20'
