@@ -3,12 +3,13 @@
 import { useState, useEffect } from 'react';
 import Image from 'next/image';
 import { useSession } from 'next-auth/react';
-import { UserPlus, Trash2, Loader2, Search, Users, ChevronDown, ChevronUp, CalendarCheck, Mail, Phone, Clock, X, XCircle, Check, CalendarPlus, History } from 'lucide-react';
+import { UserPlus, Trash2, Loader2, Search, Users, ChevronDown, ChevronUp, CalendarCheck, Mail, Phone, Clock, X, XCircle, Check, CalendarPlus, History, Wallet } from 'lucide-react';
 import Link from 'next/link';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { AdminPageHeader } from '@/components/admin/AdminPageHeader';
 import { useToast } from '@/components/ui/Toast';
 import { useCenter } from '@/lib/center-context';
+import { formatCurrency } from '@/lib/format';
 
 interface UserCenterMembership {
   centerId: string;
@@ -33,6 +34,7 @@ interface UserData {
   createdAt: string;
   lastSeen: string | null;
   centerMemberships?: UserCenterMembership[];
+  walletBalance: number;
   _count: { bookings: number };
 }
 
@@ -302,6 +304,13 @@ export default function AdminUsers() {
   const operatorCount = users.filter(u => u.role === 'OPERATOR').length;
   const userCount = users.filter(u => u.role === 'USER').length;
   const specialCount = users.filter(u => u.isSpecialUser).length;
+  // Total wallet liability across every user in the current scope. Blocked
+  // users are excluded so the figure reflects funds owed to active users.
+  const totalWalletBalance = users.reduce(
+    (sum, u) => sum + (u.isBlacklisted ? 0 : (u.walletBalance || 0)),
+    0,
+  );
+  const usersWithBalance = users.filter(u => !u.isBlacklisted && (u.walletBalance || 0) > 0).length;
 
   // Apply client-side sorting
   const sortedUsers = [...users].sort((a, b) => {
@@ -358,6 +367,26 @@ export default function AdminUsers() {
           <span className="hidden sm:inline">{showAddForm ? 'Close' : 'Add User'}</span>
         </button>
       </AdminPageHeader>
+
+      {/* Total wallet balance — surfaces the platform's outstanding wallet
+          liability at a glance so admins don't have to open each user. */}
+      <div className="mb-4 flex items-center justify-between gap-3 rounded-xl sm:rounded-2xl border border-emerald-500/20 bg-emerald-500/[0.07] p-3.5 sm:p-4">
+        <div className="flex items-center gap-3 min-w-0">
+          <div className="w-10 h-10 rounded-full bg-emerald-500/15 flex items-center justify-center flex-shrink-0">
+            <Wallet className="w-5 h-5 text-emerald-400" />
+          </div>
+          <div className="min-w-0">
+            <div className="text-[10px] font-medium text-emerald-300/80 uppercase tracking-wider">Total Wallet Balance</div>
+            <div className="text-xs text-slate-400 truncate">
+              {usersWithBalance} {usersWithBalance === 1 ? 'user has' : 'users have'} a balance
+              {allCenters ? ' across all centers' : currentCenter ? ` at ${currentCenter.name}` : ''}
+            </div>
+          </div>
+        </div>
+        <div className="text-xl sm:text-2xl font-bold text-emerald-400 flex-shrink-0">
+          {formatCurrency(totalWalletBalance)}
+        </div>
+      </div>
 
       <div className="flex gap-1.5 mb-4 overflow-x-auto pb-1 scrollbar-none">
         <button
@@ -546,6 +575,12 @@ export default function AdminUsers() {
                   </div>
 
                   <div className="text-right flex-shrink-0 mr-1">
+                    <div className={`text-sm font-bold ${user.walletBalance > 0 ? 'text-emerald-400' : 'text-slate-500'}`}>
+                      {formatCurrency(user.walletBalance)}
+                    </div>
+                    <div className="text-[10px] text-slate-500">wallet</div>
+                  </div>
+                  <div className="text-right flex-shrink-0 mr-1">
                     <div className="text-sm font-bold text-white">{user._count.bookings}</div>
                     <div className="text-[10px] text-slate-500">bookings</div>
                   </div>
@@ -583,6 +618,12 @@ export default function AdminUsers() {
                       <div className="flex items-center gap-2 text-xs text-slate-400 min-w-0">
                         <CalendarCheck className="w-3.5 h-3.5 text-slate-500 flex-shrink-0" />
                         <span className="truncate">{user._count.bookings} total bookings</span>
+                      </div>
+                      <div className="flex items-center gap-2 text-xs min-w-0">
+                        <Wallet className="w-3.5 h-3.5 text-slate-500 flex-shrink-0" />
+                        <span className={`truncate ${user.walletBalance > 0 ? 'text-emerald-400 font-medium' : 'text-slate-400'}`}>
+                          Wallet balance: {formatCurrency(user.walletBalance)}
+                        </span>
                       </div>
                     </div>
                     <div className="text-[11px] text-slate-500 mb-3">
