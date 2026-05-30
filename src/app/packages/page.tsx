@@ -530,7 +530,11 @@ export default function PackagesPage() {
                     No booking categories enabled for {currentCenter?.name || 'this center'}.
                   </p>
                 ) : (
-                  <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+                  // Category tiles reuse the exact layout/styling from the
+                  // "Book Your Slot" page (ResourceSlotsPage) — icon-left,
+                  // accent-solid active state — so both flows share one UI
+                  // standard.
+                  <div className="grid grid-cols-2 md:grid-cols-3 gap-1.5">
                     {visibleCategoryCards.map((card) => {
                       const isSelected = categoryFilter === card.id;
                       const Icon = card.icon;
@@ -544,22 +548,18 @@ export default function PackagesPage() {
                             // keeping their Day/Evening preference.
                             setCategoryFilter(isSelected ? null : card.id);
                           }}
-                          className={`flex flex-col items-center justify-center gap-1.5 px-2 py-3 rounded-xl transition-all cursor-pointer text-center h-20 ${
+                          className={`flex items-center justify-start gap-1.5 px-2 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer min-w-0 text-left ${
                             isSelected
-                              ? 'bg-accent/15 ring-1 ring-accent/50 shadow-sm'
-                              : 'bg-white/[0.04] border border-white/[0.08] hover:border-accent/30'
+                              ? 'bg-accent text-primary shadow-sm'
+                              : 'bg-white/[0.04] text-slate-400 border border-white/[0.08] hover:border-accent/20'
                           }`}
                         >
-                          <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${
-                            isSelected ? 'bg-accent/20' : 'bg-white/[0.06]'
+                          <div className={`w-6 h-6 rounded-md flex items-center justify-center flex-shrink-0 ${
+                            isSelected ? 'bg-primary/15' : 'bg-white/[0.04]'
                           }`}>
-                            <Icon className={`w-4 h-4 ${isSelected ? 'text-accent' : 'text-slate-400'}`} />
+                            <Icon className={`w-3.5 h-3.5 ${isSelected ? 'text-primary' : 'text-accent'}`} />
                           </div>
-                          <div className="min-w-0">
-                            <span className={`text-[11px] font-bold leading-tight block ${isSelected ? 'text-accent' : 'text-slate-300'}`}>
-                              {card.label}
-                            </span>
-                          </div>
+                          <span className="truncate">{card.label}</span>
                         </button>
                       );
                     })}
@@ -577,7 +577,7 @@ export default function PackagesPage() {
                 <div className="mb-4">
                   <div className="flex items-center justify-between mb-2">
                     <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider">
-                      Machine
+                      Machine Type
                     </label>
                     {machineFilter && (
                       <button
@@ -589,7 +589,10 @@ export default function PackagesPage() {
                       </button>
                     )}
                   </div>
-                  <div className="flex flex-wrap gap-1.5">
+                  {/* Machine boxes mirror the "Book Your Slot" machine
+                      picker — equal-width grid cells with an icon badge and
+                      accent-solid selection — for a single UI standard. */}
+                  <div className="grid grid-cols-2 gap-1.5">
                     {centerMachines.map((m) => {
                       const isActive = machineFilter === m.id;
                       const label = m.shortName ?? m.name;
@@ -597,13 +600,18 @@ export default function PackagesPage() {
                         <button
                           key={m.id}
                           onClick={() => setMachineFilter(isActive ? null : m.id)}
-                          className={`px-2.5 py-1 rounded-md text-[11px] font-semibold transition-all cursor-pointer ${
+                          className={`flex items-center gap-1.5 pl-1.5 pr-2 py-1 rounded-lg text-xs font-semibold border cursor-pointer transition-all min-w-0 text-left ${
                             isActive
-                              ? 'bg-accent/15 text-accent ring-1 ring-accent/50'
-                              : 'bg-white/[0.04] text-slate-300 border border-white/[0.08] hover:border-accent/30'
+                              ? 'bg-accent text-primary border-accent shadow-sm'
+                              : 'bg-white/[0.04] text-slate-300 border-white/[0.08] hover:border-accent/30'
                           }`}
                         >
-                          {label}
+                          <div className={`w-7 h-7 rounded-md flex items-center justify-center flex-shrink-0 ${
+                            isActive ? 'bg-primary/15' : 'bg-white/5'
+                          }`}>
+                            <Settings2 className={`w-3.5 h-3.5 ${isActive ? 'text-primary/70' : 'text-slate-500'}`} />
+                          </div>
+                          <span className="truncate">{label}</span>
                         </button>
                       );
                     })}
@@ -629,7 +637,10 @@ export default function PackagesPage() {
                     </button>
                   )}
                 </div>
-                <div className="grid grid-cols-2 gap-2">
+                {/* Timing boxes share the machine-box pattern (icon-left,
+                    accent-solid active) so machine and timing selectors are
+                    visually identical, matching the Book Your Slot flow. */}
+                <div className="grid grid-cols-2 gap-1.5">
                   {([
                     { key: 'DAY' as const,     label: 'Day',     Icon: Sun },
                     { key: 'EVENING' as const, label: 'Evening', Icon: Moon },
@@ -639,22 +650,18 @@ export default function PackagesPage() {
                       <button
                         key={t.key}
                         onClick={() => setTimingFilter(isActive ? null : t.key)}
-                        className={`flex flex-col items-center justify-center gap-1.5 px-2 py-3 rounded-xl transition-all cursor-pointer text-center h-20 ${
+                        className={`flex items-center justify-start gap-1.5 px-2 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer min-w-0 text-left ${
                           isActive
-                            ? 'bg-accent/15 ring-1 ring-accent/50 shadow-sm'
-                            : 'bg-white/[0.04] border border-white/[0.08] hover:border-accent/30'
+                            ? 'bg-accent text-primary shadow-sm'
+                            : 'bg-white/[0.04] text-slate-400 border border-white/[0.08] hover:border-accent/20'
                         }`}
                       >
-                        <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${
-                          isActive ? 'bg-accent/20' : 'bg-white/[0.06]'
+                        <div className={`w-6 h-6 rounded-md flex items-center justify-center flex-shrink-0 ${
+                          isActive ? 'bg-primary/15' : 'bg-white/[0.04]'
                         }`}>
-                          <t.Icon className={`w-4 h-4 ${isActive ? 'text-accent' : 'text-slate-400'}`} />
+                          <t.Icon className={`w-3.5 h-3.5 ${isActive ? 'text-primary' : 'text-accent'}`} />
                         </div>
-                        <div className="min-w-0">
-                          <span className={`text-[10px] font-bold block ${isActive ? 'text-accent' : 'text-slate-300'}`}>
-                            {t.label}
-                          </span>
-                        </div>
+                        <span className="truncate">{t.label}</span>
                       </button>
                     );
                   })}

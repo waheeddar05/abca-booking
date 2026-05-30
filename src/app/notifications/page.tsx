@@ -14,6 +14,45 @@ interface Notification {
   createdAt: string;
 }
 
+/**
+ * Renders a notification message as a list of clearly-labelled lines.
+ *
+ * Messages are composed server-side from several fields joined with ` | `
+ * or newline separators (e.g. `Reason: …`, `Cancelled by: …`, `Refund: …`).
+ * Presenting them as one paragraph makes alerts hard to scan, so we split
+ * the message back into its segments and put each on its own line. When a
+ * segment is in `Label: value` form we highlight the label so the key
+ * details (Reason, Refund, Balance, Date) stand out at a glance.
+ */
+function AlertMessage({ message, isRead }: { message: string; isRead: boolean }) {
+  const segments = message
+    .split(/\n|\s\|\s/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+
+  return (
+    <div className={`text-xs leading-relaxed space-y-1 ${isRead ? 'text-slate-500' : 'text-slate-300'}`}>
+      {segments.map((seg, i) => {
+        // Treat an early "Label: value" colon as a field label. The colon
+        // must be followed by a space so clock times like `04:30 PM` are
+        // never mistaken for labels, and the label must be short.
+        const idx = seg.indexOf(': ');
+        if (idx >= 1 && idx <= 24) {
+          const label = seg.slice(0, idx);
+          const value = seg.slice(idx + 2);
+          return (
+            <p key={i}>
+              <span className={`font-semibold ${isRead ? 'text-slate-400' : 'text-white'}`}>{label}:</span>{' '}
+              {value}
+            </p>
+          );
+        }
+        return <p key={i}>{seg}</p>;
+      })}
+    </div>
+  );
+}
+
 export default function NotificationsPage() {
   const { data: session } = useSession();
   const [notifications, setNotifications] = useState<Notification[]>([]);
@@ -103,7 +142,7 @@ export default function NotificationsPage() {
         <div className="text-center py-20 bg-white/[0.02] rounded-2xl border border-white/[0.05]">
           <BellOff className="w-12 h-12 text-slate-600 mx-auto mb-4 opacity-20" />
           <p className="text-sm text-slate-400 font-medium">No notifications yet</p>
-          <p className="text-xs text-slate-500 mt-1">We'll notify you here about your bookings.</p>
+          <p className="text-xs text-slate-500 mt-1">We&apos;ll notify you here about your bookings.</p>
         </div>
       ) : (
         <div className="space-y-3">
@@ -137,9 +176,7 @@ export default function NotificationsPage() {
                       {format(new Date(n.createdAt), 'MMM d, h:mm a')}
                     </div>
                   </div>
-                  <p className={`text-xs leading-relaxed whitespace-pre-line ${n.isRead ? 'text-slate-500' : 'text-slate-300'}`}>
-                    {n.message}
-                  </p>
+                  <AlertMessage message={n.message} isRead={n.isRead} />
                   <div className="flex items-center gap-2 mt-1.5">
                     <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${
                       n.type === 'ALERT' ? 'bg-red-500/10 text-red-400' :
