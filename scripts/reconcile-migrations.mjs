@@ -21,7 +21,7 @@
  * This script detects, per migration, whether its schema objects already
  * exist. For any migration whose objects exist but isn't recorded, it marks
  * it applied (`prisma migrate resolve --applied`) so the subsequent
- * `migrate deploy` is a clean forward-only run.
+ * `prisma migrate deploy` is a clean forward-only run.
  *
  * SAFETY
  * ──────
@@ -81,43 +81,81 @@ async function columnIsNullable(table, col) {
 }
 
 // ── the 13 uat-only migrations, each with a sentinel that is true iff
-//    the migration's schema changes are present ────────────────────────
+//    the migration's schema changes are present. Sentinels are verified
+//    against each migration's actual SQL. ───────────────────────────────
 const MIGRATIONS = [
   {
     name: '20260427000000_multi_center_foundation',
-    // foundational — checked separately for PARTIAL state below
+    // foundational — classified separately for PARTIAL detection below
     foundational: true,
   },
   {
     name: '20260427100000_resource_based_bookings',
+    // CREATE TYPE BookingCategory; Booking.category; BookingResourceAssignment
     check: async () => (await tableExists('BookingResourceAssignment'))
       && (await typeExists('BookingCategory'))
       && (await columnExists('Booking', 'category')),
   },
-  { name: '20260428060000_machine_type_image_url',
-    check: () => columnExists('MachineType', 'imageUrl') },
-  { name: '20260428070000_machine_supported_pitch_ball_types',
-    check: () => columnExists('Machine', 'supportedPitchTypes') },
-  { name: '20260428080000_booking_category_net',
-    check: () => enumValueExists('BookingCategory', 'NET') },
-  { name: '20260429000000_rename_sidearm_specialist',
-    check: () => enumValueExists('MembershipRole', 'SIDEARM_SPECIALIST') },
-  { name: '20260430000000_add_membership_availability',
-    check: () => columnExists('CenterMembership', 'availability') },
-  { name: '20260507000000_operator_assignment_machine_row',
-    check: () => columnExists('OperatorAssignment', 'machineId') },
-  { name: '20260507100000_resource_blocks_offers_packages',
-    check: () => columnExists('BlockedSlot', 'category') },
-  { name: '20260519041233_center_contact_phones',
-    check: () => columnExists('Center', 'contactPhones') },
-  { name: '20260519140000_sidearm_priority_and_date_availability',
-    check: () => columnExists('CenterMembership', 'priority') },
-  { name: '20260519160000_add_ground_staff_role',
-    check: () => enumValueExists('MembershipRole', 'GROUND_STAFF') },
-  { name: '20260520000000_add_netcount_to_blocked_slot',
-    check: () => columnExists('BlockedSlot', 'netCount') },
-  { name: '20260528000000_make_userpackage_dates_nullable',
-    check: () => columnIsNullable('UserPackage', 'startDate') },
+  {
+    name: '20260428060000_machine_type_image_url',
+    // ADD COLUMN MachineType.imageUrl
+    check: () => columnExists('MachineType', 'imageUrl'),
+  },
+  {
+    name: '20260428070000_machine_supported_pitch_ball_types',
+    // ADD COLUMN Machine.supportedPitchTypes / supportedBallTypes
+    check: () => columnExists('Machine', 'supportedPitchTypes'),
+  },
+  {
+    name: '20260428080000_booking_category_net',
+    // ALTER TYPE BookingCategory ADD VALUE 'NET'
+    check: () => enumValueExists('BookingCategory', 'NET'),
+  },
+  {
+    name: '20260429000000_rename_sidearm_specialist',
+    // RENAME enum value SIDEARM_STAFF -> SIDEARM_SPECIALIST (MembershipRole)
+    check: () => enumValueExists('MembershipRole', 'SIDEARM_SPECIALIST'),
+  },
+  {
+    name: '20260430000000_add_membership_availability',
+    // CREATE TABLE MembershipAvailability
+    check: () => tableExists('MembershipAvailability'),
+  },
+  {
+    name: '20260507000000_operator_assignment_machine_row',
+    // ADD COLUMN OperatorAssignment.machineRowId (machineId pre-existed)
+    check: () => columnExists('OperatorAssignment', 'machineRowId'),
+  },
+  {
+    name: '20260507100000_resource_blocks_offers_packages',
+    // ADD COLUMN BlockedSlot.categories (plural) + others
+    check: () => columnExists('BlockedSlot', 'categories'),
+  },
+  {
+    name: '20260519041233_center_contact_phones',
+    // ADD COLUMN Center.contactPhones
+    check: () => columnExists('Center', 'contactPhones'),
+  },
+  {
+    name: '20260519140000_sidearm_priority_and_date_availability',
+    // ADD COLUMN CenterMembership.priority + MembershipDateAvailability table
+    check: () => columnExists('CenterMembership', 'priority'),
+  },
+  {
+    name: '20260519160000_add_ground_staff_role',
+    // ALTER TYPE MembershipRole ADD VALUE 'GROUND_STAFF'
+    check: () => enumValueExists('MembershipRole', 'GROUND_STAFF'),
+  },
+  {
+    name: '20260520000000_add_netcount_to_blocked_slot',
+    // ADD COLUMN BlockedSlot.netCount
+    check: () => columnExists('BlockedSlot', 'netCount'),
+  },
+  {
+    name: '20260528000000_make_userpackage_dates_nullable',
+    // DROP NOT NULL on UserPackage.activationDate / expiryDate
+    check: () => columnIsNullable('UserPackage', 'activationDate'),
+  },
 ];
 
 // objects created by multi_center_foundation — for all-or-nothing detection
@@ -191,8 +229,7 @@ async function main() {
     console.log('✅ Nothing to reconcile — migrate deploy will be clean as-is.');
   } else {
     console.log(`${APPLY ? 'Resolving' : 'WOULD resolve'} ${toResolve.length} migration(s) as applied (schema already present):\n`);
-    // keep chronological order
-    toResolve.sort();
+    toResolve.sort(); // chronological (names are timestamp-prefixed)
     for (const name of toResolve) resolveApplied(name);
     if (!APPLY) {
       console.log('\n(DRY RUN — re-run with --apply to execute the above.)');
