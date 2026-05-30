@@ -19,7 +19,7 @@
 import { useEffect, useState } from 'react';
 import { useSession } from 'next-auth/react';
 import { useCenter } from '@/lib/center-context';
-import { Loader2, ArrowUp, ArrowDown, CalendarClock, CalendarRange, Save, Plus, Trash2, Users } from 'lucide-react';
+import { Loader2, ArrowUp, ArrowDown, CalendarClock, CalendarRange, Save, Plus, Trash2, Users, Mail, Phone, Pencil } from 'lucide-react';
 import { AdminPageHeader } from '@/components/admin/AdminPageHeader';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 
@@ -39,6 +39,68 @@ type Specialist = {
 };
 
 const DAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+// ─── Availability summary helpers ───────────────────────────────────────
+// These let the main listing show a specialist's schedule at a glance,
+// so admins don't have to open each editor to understand availability.
+
+/** "17:00" -> "5:00 PM". Falls back to the raw value if unparseable. */
+function formatTime(t: string | null | undefined): string {
+  if (!t) return '';
+  const [hStr, mStr] = t.split(':');
+  const h = Number(hStr);
+  const m = Number(mStr);
+  if (Number.isNaN(h) || Number.isNaN(m)) return t;
+  const period = h >= 12 ? 'PM' : 'AM';
+  const hh = h % 12 === 0 ? 12 : h % 12;
+  return `${hh}:${String(m).padStart(2, '0')} ${period}`;
+}
+
+/** ISO date -> "10 Jun 2026" in IST. */
+function formatDate(iso: string): string {
+  return new Date(iso).toLocaleDateString('en-IN', {
+    timeZone: 'Asia/Kolkata',
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+  });
+}
+
+/** Collapse a list of weekday numbers (0=Sun..6=Sat) into runs, e.g.
+ *  [1,2,3,4,5] -> "Mon–Fri", [1,3,5] -> "Mon, Wed, Fri". */
+function formatDayList(days: number[]): string {
+  const sorted = [...new Set(days)].sort((a, b) => a - b);
+  const runs: string[] = [];
+  let i = 0;
+  while (i < sorted.length) {
+    let j = i;
+    while (j + 1 < sorted.length && sorted[j + 1] === sorted[j] + 1) j++;
+    runs.push(j > i ? `${DAY_LABELS[sorted[i]]}–${DAY_LABELS[sorted[j]]}` : DAY_LABELS[sorted[i]]);
+    i = j + 1;
+  }
+  return runs.join(', ');
+}
+
+/** Group weekly windows that share the same time span so the summary
+ *  reads "Mon–Fri · 5:00 PM – 9:00 PM" instead of one line per day. */
+function summarizeWeekly(
+  availability: Array<{ dayOfWeek: number; startTime: string; endTime: string }>,
+): Array<{ days: number[]; start: string; end: string }> {
+  const byWindow = new Map<string, number[]>();
+  for (const w of availability) {
+    const key = `${w.startTime}-${w.endTime}`;
+    const arr = byWindow.get(key);
+    if (arr) arr.push(w.dayOfWeek);
+    else byWindow.set(key, [w.dayOfWeek]);
+  }
+  return [...byWindow.entries()]
+    .map(([key, days]) => {
+      const [start, end] = key.split('-');
+      return { days, start, end };
+    })
+    // Sort by the earliest day in each window for a stable, readable order.
+    .sort((a, b) => Math.min(...a.days) - Math.min(...b.days));
+}
 
 export default function AdminSidearmPage() {
   const { data: session } = useSession();
@@ -237,16 +299,94 @@ export default function AdminSidearmPage() {
                   </button>
                 </div>
 
-                <div className="min-w-0 flex-1">
-                  <div className="text-sm font-semibold text-white truncate">
-                    {s.user.name || '(no name)'}
+                <div className="min-w-0 flex-1 space-y-2.5">
+                  {/* Identity + status */}
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-sm font-semibold text-white truncate">
+                          {s.user.name || '(no name)'}
+                        </span>
+                        {(() => {
+                          const hasAvailability = s.availability.length > 0 || s.dateAvailability.length > 0;
+                          return (
+                            <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider ${
+                              hasAvailability ? 'bg-emerald-500/10 text-emerald-400' : 'bg-amber-500/10 text-amber-400'
+                            }`}>
+                              {hasAvailability ? 'Active' : 'No availability'}
+                            </span>
+                          );
+                        })()}
+                      </div>
+                      {/* Contact info */}
+                      <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] text-slate-500">
+                        {s.user.email && (
+                          <span className="inline-flex items-center gap-1 min-w-0">
+                            <Mail className="w-3 h-3 flex-shrink-0" />
+                            <span className="truncate">{s.user.email}</span>
+                          </span>
+                        )}
+                        {s.user.mobileNumber && (
+                          <span className="inline-flex items-center gap-1">
+                            <Phone className="w-3 h-3 flex-shrink-0" />
+                            {s.user.mobileNumber}
+                          </span>
+                        )}
+                        {!s.user.email && !s.user.mobileNumber && (
+                          <span className="truncate">{s.user.id}</span>
+                        )}
+                      </div>
+                    </div>
                   </div>
-                  <div className="text-[11px] text-slate-500 truncate">
-                    {s.user.email || s.user.mobileNumber || s.user.id}
+
+                  {/* Weekly availability summary — visible without opening
+                      the editor. */}
+                  <div>
+                    <div className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wider text-slate-500 mb-1">
+                      <CalendarClock className="w-3 h-3" /> Weekly availability
+                    </div>
+                    {s.availability.length === 0 ? (
+                      <p className="text-[11px] text-slate-600 italic">Not configured</p>
+                    ) : (
+                      <div className="space-y-0.5">
+                        {summarizeWeekly(s.availability).map((w, wi) => (
+                          <div key={wi} className="text-[11px] text-slate-300">
+                            <span className="font-medium text-slate-200">{formatDayList(w.days)}</span>
+                            <span className="text-slate-500"> · </span>
+                            {formatTime(w.start)} – {formatTime(w.end)}
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
-                  {/* Availability summaries — collapsed in the row, expand
-                      to edit by clicking the chip's pencil icon. */}
-                  <div className="mt-2 flex flex-wrap gap-1.5">
+
+                  {/* Date-range availability summary. */}
+                  <div>
+                    <div className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wider text-slate-500 mb-1">
+                      <CalendarRange className="w-3 h-3" /> Date overrides
+                    </div>
+                    {s.dateAvailability.length === 0 ? (
+                      <p className="text-[11px] text-slate-600 italic">None</p>
+                    ) : (
+                      <div className="space-y-0.5">
+                        {s.dateAvailability.map((d) => (
+                          <div key={d.id} className="text-[11px] text-slate-300">
+                            <span className="font-medium text-slate-200">
+                              {formatDate(d.fromDate)} – {formatDate(d.toDate)}
+                            </span>
+                            <span className="text-slate-500"> · </span>
+                            {d.startTime && d.endTime
+                              ? `${formatTime(d.startTime)} – ${formatTime(d.endTime)}`
+                              : 'all day'}
+                            {d.label && <span className="text-slate-500"> · {d.label}</span>}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Edit actions */}
+                  <div className="flex flex-wrap gap-1.5 pt-0.5">
                     <button
                       type="button"
                       onClick={() => { setEditingId(editingId === s.id ? null : s.id); setEditingDateId(null); }}
@@ -256,8 +396,8 @@ export default function AdminSidearmPage() {
                           : 'bg-white/[0.04] text-slate-300 border-white/[0.08] hover:bg-white/[0.08]'
                       }`}
                     >
-                      <CalendarClock className="w-3 h-3" />
-                      {s.availability.length > 0 ? `Weekly schedule (${s.availability.length})` : 'Weekly schedule — empty'}
+                      <Pencil className="w-3 h-3" />
+                      Edit weekly
                     </button>
                     <button
                       type="button"
@@ -268,8 +408,8 @@ export default function AdminSidearmPage() {
                           : 'bg-white/[0.04] text-slate-300 border-white/[0.08] hover:bg-white/[0.08]'
                       }`}
                     >
-                      <CalendarRange className="w-3 h-3" />
-                      {s.dateAvailability.length > 0 ? `Date ranges (${s.dateAvailability.length})` : 'Date ranges — none'}
+                      <Pencil className="w-3 h-3" />
+                      Edit date overrides
                     </button>
                   </div>
                 </div>

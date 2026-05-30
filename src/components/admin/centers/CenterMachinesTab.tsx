@@ -88,11 +88,14 @@ export function CenterMachinesTab({ centerId }: { centerId: string }) {
   return (
     <div className="space-y-4">
       <div className="flex justify-between items-center gap-4">
-        <p className="text-[11px] text-slate-500 leading-tight flex-1">
-          Instances of machines at this center.
-        </p>
-        <PrimaryButton onClick={() => setShowNew(true)} className="!px-1.5 !py-1 !text-[9px] rounded-md shrink-0">
-          <Plus className="w-2.5 h-2.5" /> Add machine
+        <div className="min-w-0">
+          <h3 className="text-sm font-semibold text-white">Machines</h3>
+          <p className="text-[11px] text-slate-500 leading-tight">
+            {machines.length} {machines.length === 1 ? 'machine' : 'machines'} at this center
+          </p>
+        </div>
+        <PrimaryButton onClick={() => setShowNew(true)} className="shrink-0">
+          <Plus className="w-4 h-4" /> Add machine
         </PrimaryButton>
       </div>
 
@@ -123,22 +126,26 @@ export function CenterMachinesTab({ centerId }: { centerId: string }) {
                 <div className="flex items-center justify-between gap-2">
                   <div className="min-w-0">
                     <div className="flex items-center gap-1.5 flex-wrap">
-                      <span className="text-xs font-semibold text-white">{m.name}</span>
-                      {!m.isActive && <span className="text-[9px] px-1 py-0.5 rounded bg-red-500/10 text-red-400 uppercase tracking-wide">inactive</span>}
+                      <span className="text-sm font-semibold text-white">{m.name}</span>
+                      <span className={`inline-flex items-center gap-1 text-[9px] px-1.5 py-0.5 rounded uppercase tracking-wide ${m.isActive ? 'bg-emerald-500/10 text-emerald-400' : 'bg-red-500/10 text-red-400'}`}>
+                        {m.isActive ? 'Active' : 'Inactive'}
+                      </span>
                     </div>
-                    <div className="text-[10px] text-slate-500 mt-0.5">
-                      {m.machineType.name} ({m.machineType.ballType.toLowerCase()})
+                    <div className="text-[11px] text-slate-500 mt-0.5">
+                      {m.machineType.name} · {m.machineType.ballType.toLowerCase()} ball
                     </div>
-                    <div className="flex flex-wrap gap-1 mt-1">
-                      {m.supportedPitchTypes.length > 0 && m.supportedPitchTypes.map((p) => (
-                        <span
-                          key={`p-${p}`}
-                          className="text-[8px] uppercase tracking-wide px-1 py-0.5 rounded bg-blue-500/10 text-blue-300 border border-blue-500/15"
-                        >
-                          {PITCH_TYPE_OPTIONS.find((o) => o.id === p)?.label ?? p}
-                        </span>
-                      ))}
-                    </div>
+                    {m.supportedPitchTypes.length > 0 && (
+                      <div className="flex flex-wrap gap-1 mt-1.5">
+                        {m.supportedPitchTypes.map((p) => (
+                          <span
+                            key={`p-${p}`}
+                            className="text-[9px] uppercase tracking-wide px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-300 border border-blue-500/15"
+                          >
+                            {PITCH_TYPE_OPTIONS.find((o) => o.id === p)?.label ?? p}
+                          </span>
+                        ))}
+                      </div>
+                    )}
                   </div>
                   <div className="flex gap-0.5 flex-shrink-0">
                     <button
