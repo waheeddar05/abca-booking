@@ -939,7 +939,7 @@ function AdminPackagesLegacy() {
                     value={assignSearch}
                     onChange={e => setAssignSearch(e.target.value)}
                     placeholder="Search by name, mobile, or email..."
-                    className="w-full bg-white/[0.04] border border-white/[0.1] text-white text-sm rounded-xl px-4 py-3 outline-none focus:border-accent placeholder:text-slate-500"
+                    className="w-full bg-white/[0.04] border border-white/[0.1] text-white text-sm rounded-lg px-3 py-2.5 outline-none focus:border-accent placeholder:text-slate-500"
                   />
                   {assignSearching && <Loader2 className="w-4 h-4 animate-spin text-slate-400 absolute right-3 top-3.5" />}
                 </div>
@@ -976,7 +976,7 @@ function AdminPackagesLegacy() {
                 value={assignForm.name}
                 onChange={e => setAssignForm(prev => ({ ...prev, name: e.target.value }))}
                 placeholder="e.g. Custom 10 Sessions for John"
-                className="w-full bg-white/[0.04] border border-white/[0.1] text-white text-sm rounded-xl px-4 py-3 outline-none focus:border-accent placeholder:text-slate-500"
+                className="w-full bg-white/[0.04] border border-white/[0.1] text-white text-sm rounded-lg px-3 py-2.5 outline-none focus:border-accent placeholder:text-slate-500"
                 required
               />
             </div>
@@ -999,7 +999,7 @@ function AdminPackagesLegacy() {
                       ballType: m?.machineType.ballType === 'TENNIS' ? 'MACHINE' : prev.ballType,
                     }));
                   }}
-                  className="w-full bg-white/[0.04] border border-white/[0.1] text-white text-sm rounded-xl px-3 py-3 outline-none focus:border-accent"
+                  className="w-full bg-white/[0.04] border border-white/[0.1] text-white text-sm rounded-lg px-3 py-2.5 outline-none focus:border-accent"
                   required
                 >
                   {/* No "Any Bowling Machine" option — admin must pick a
@@ -1020,7 +1020,7 @@ function AdminPackagesLegacy() {
                   <select
                     value={assignForm.ballType}
                     onChange={e => setAssignForm(prev => ({ ...prev, ballType: e.target.value }))}
-                    className="w-full bg-white/[0.04] border border-white/[0.1] text-white text-sm rounded-xl px-3 py-3 outline-none focus:border-accent"
+                    className="w-full bg-white/[0.04] border border-white/[0.1] text-white text-sm rounded-lg px-3 py-2.5 outline-none focus:border-accent"
                   >
                     {PACKAGE_BALL_OPTIONS.map(b => (
                       <option key={b.value} value={b.value}>{b.label}</option>
@@ -1036,7 +1036,7 @@ function AdminPackagesLegacy() {
                 <select
                   value={assignForm.wicketType}
                   onChange={e => setAssignForm(prev => ({ ...prev, wicketType: e.target.value }))}
-                  className="w-full bg-white/[0.04] border border-white/[0.1] text-white text-sm rounded-xl px-3 py-3 outline-none focus:border-accent"
+                  className="w-full bg-white/[0.04] border border-white/[0.1] text-white text-sm rounded-lg px-3 py-2.5 outline-none focus:border-accent"
                 >
                   {PACKAGE_WICKET_OPTIONS.map(w => (
                     <option key={w.value} value={w.value}>{w.label}</option>
@@ -1050,7 +1050,7 @@ function AdminPackagesLegacy() {
                 <select
                   value={assignForm.timingType}
                   onChange={e => setAssignForm(prev => ({ ...prev, timingType: e.target.value }))}
-                  className="w-full bg-white/[0.04] border border-white/[0.1] text-white text-sm rounded-xl px-3 py-3 outline-none focus:border-accent"
+                  className="w-full bg-white/[0.04] border border-white/[0.1] text-white text-sm rounded-lg px-3 py-2.5 outline-none focus:border-accent"
                   required
                 >
                   {/* Only Day / Evening — "Anytime" / "Both" intentionally
@@ -1142,7 +1142,7 @@ function AdminPackagesLegacy() {
                   <select
                     value={csvFilters.status}
                     onChange={e => setCsvFilters(prev => ({ ...prev, status: e.target.value }))}
-                    className="w-full bg-white/[0.04] border border-white/[0.1] text-white text-sm rounded-lg px-2 py-2 outline-none focus:border-accent"
+                    className="w-full bg-white/[0.04] border border-white/[0.1] text-white text-sm rounded-lg px-3 py-2.5 outline-none focus:border-accent"
                   >
                     <option value="">All</option>
                     <option value="ACTIVE">Active</option>
@@ -1155,7 +1155,7 @@ function AdminPackagesLegacy() {
                   <select
                     value={csvFilters.packageId}
                     onChange={e => setCsvFilters(prev => ({ ...prev, packageId: e.target.value }))}
-                    className="w-full bg-white/[0.04] border border-white/[0.1] text-white text-sm rounded-lg px-2 py-2 outline-none focus:border-accent"
+                    className="w-full bg-white/[0.04] border border-white/[0.1] text-white text-sm rounded-lg px-3 py-2.5 outline-none focus:border-accent"
                   >
                     <option value="">All Packages</option>
                     {packages.map(p => (
@@ -1169,7 +1169,7 @@ function AdminPackagesLegacy() {
                     type="date"
                     value={csvFilters.fromDate}
                     onChange={e => setCsvFilters(prev => ({ ...prev, fromDate: e.target.value }))}
-                    className="w-full bg-white/[0.04] border border-white/[0.1] text-white text-sm rounded-lg px-2 py-2 outline-none focus:border-accent"
+                    className="w-full bg-white/[0.04] border border-white/[0.1] text-white text-sm rounded-lg px-3 py-2.5 outline-none focus:border-accent"
                   />
                 </div>
                 <div>
@@ -1178,7 +1178,7 @@ function AdminPackagesLegacy() {
                     type="date"
                     value={csvFilters.toDate}
                     onChange={e => setCsvFilters(prev => ({ ...prev, toDate: e.target.value }))}
-                    className="w-full bg-white/[0.04] border border-white/[0.1] text-white text-sm rounded-lg px-2 py-2 outline-none focus:border-accent"
+                    className="w-full bg-white/[0.04] border border-white/[0.1] text-white text-sm rounded-lg px-3 py-2.5 outline-none focus:border-accent"
                   />
                 </div>
               </div>
@@ -1186,7 +1186,7 @@ function AdminPackagesLegacy() {
                 <button
                   onClick={handleDownloadCsv}
                   disabled={downloadingCsv}
-                  className="inline-flex items-center gap-2 bg-accent hover:bg-accent-light text-primary px-4 py-2 rounded-xl text-sm font-semibold transition-all cursor-pointer disabled:opacity-50"
+                  className="inline-flex items-center gap-2 bg-accent hover:bg-accent-light text-primary px-4 py-2.5 rounded-lg text-sm font-semibold transition-all cursor-pointer disabled:opacity-50"
                 >
                   {downloadingCsv ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
                   Download CSV
