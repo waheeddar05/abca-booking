@@ -156,22 +156,24 @@ export default function CenterEditPage({ params }: { params: Promise<{ id: strin
         )}
       </AdminPageHeader>
 
-      {/* Tabs */}
-      <div className="flex gap-0.5 overflow-x-auto -mx-1 px-1 pb-2 mb-4 border-b border-white/[0.06] no-scrollbar">
+      {/* Tabs — sized to match the app-wide tab standard (text-xs, inline
+          icon + label) so the labels stay legible instead of shrinking to
+          an 8px caption on mobile. Scrolls horizontally when they overflow. */}
+      <div className="flex gap-1 overflow-x-auto -mx-1 px-1 pb-2 mb-4 border-b border-white/[0.06] no-scrollbar">
         {visibleTabs.map(({ key, label, icon: Icon }) => {
           const active = tab === key;
           return (
             <button
               key={key}
               onClick={() => setTab(key)}
-              className={`flex flex-col sm:flex-row items-center justify-center gap-0.5 sm:gap-1 px-1 sm:px-2 py-2 rounded-t-lg text-[8px] sm:text-xs font-medium whitespace-nowrap transition-colors cursor-pointer flex-1 min-w-0 ${
+              className={`flex items-center justify-center gap-1.5 px-3 py-2 rounded-t-lg text-xs font-medium whitespace-nowrap transition-colors cursor-pointer ${
                 active
                   ? 'bg-accent/10 text-accent border-b-2 border-accent'
                   : 'text-slate-400 hover:text-slate-200 hover:bg-white/[0.04]'
               }`}
             >
-              <Icon className="w-3.5 h-3.5" />
-              <span className="truncate w-full text-center sm:text-left">{label}</span>
+              <Icon className="w-3.5 h-3.5 flex-shrink-0" />
+              <span>{label}</span>
             </button>
           );
         })}

@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { Gift, Plus, Pencil, Loader2, Trash2, Repeat, Tag } from 'lucide-react';
 import { AdminPageHeader } from '@/components/admin/AdminPageHeader';
+import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { useCenter } from '@/lib/center-context';
 
 interface OfferData {
@@ -855,17 +856,6 @@ function AdminOffersLegacy({ isResourceBased, centerMachines }: AdminOffersInjec
                       </button>
                     </div>
                   </div>
-
-                  {/* Delete confirm */}
-                  {deleteConfirm?.id === rule.id && (
-                    <div className="mt-3 p-2.5 bg-red-500/10 border border-red-500/20 rounded-lg flex items-center justify-between">
-                      <span className="text-xs text-red-200">Delete this rule?</span>
-                      <div className="flex gap-1.5">
-                        <button onClick={() => setDeleteConfirm(null)} className="px-2.5 py-1 rounded text-xs text-slate-400 hover:text-white cursor-pointer">Cancel</button>
-                        <button onClick={() => deleteRecurring(rule.id)} className="px-2.5 py-1 rounded text-xs bg-red-500/20 text-red-300 hover:bg-red-500/30 cursor-pointer">Delete</button>
-                      </div>
-                    </div>
-                  )}
                 </div>
 
                 {/* Edit form directly below card */}
@@ -967,17 +957,6 @@ function AdminOffersLegacy({ isResourceBased, centerMachines }: AdminOffersInjec
                       </button>
                     </div>
                   </div>
-
-                  {/* Delete confirm */}
-                  {deleteConfirm?.id === offer.id && (
-                    <div className="mt-3 p-2.5 bg-red-500/10 border border-red-500/20 rounded-lg flex items-center justify-between">
-                      <span className="text-xs text-red-200">Delete this offer?</span>
-                      <div className="flex gap-1.5">
-                        <button onClick={() => setDeleteConfirm(null)} className="px-2.5 py-1 rounded text-xs text-slate-400 hover:text-white cursor-pointer">Cancel</button>
-                        <button onClick={() => deletePromo(offer.id)} className="px-2.5 py-1 rounded text-xs bg-red-500/20 text-red-300 hover:bg-red-500/30 cursor-pointer">Delete</button>
-                      </div>
-                    </div>
-                  )}
                 </div>
 
                 {/* Edit form directly below card */}
@@ -992,6 +971,26 @@ function AdminOffersLegacy({ isResourceBased, centerMachines }: AdminOffersInjec
           </div>
         )}
       </section>
+
+      {/* Standard delete confirmation — shared ConfirmDialog so the Offers
+          section matches every other delete/confirm popup in the app. */}
+      <ConfirmDialog
+        open={!!deleteConfirm}
+        title={deleteConfirm?.type === 'RECURRING' ? 'Delete Recurring Discount' : 'Delete Offer'}
+        message={
+          deleteConfirm?.type === 'RECURRING'
+            ? 'Are you sure you want to delete this recurring discount rule? This action cannot be undone.'
+            : 'Are you sure you want to delete this offer? This action cannot be undone.'
+        }
+        confirmLabel="Delete"
+        variant="danger"
+        onConfirm={() => {
+          if (!deleteConfirm) return;
+          if (deleteConfirm.type === 'RECURRING') deleteRecurring(deleteConfirm.id);
+          else deletePromo(deleteConfirm.id);
+        }}
+        onCancel={() => setDeleteConfirm(null)}
+      />
     </div>
   );
 }

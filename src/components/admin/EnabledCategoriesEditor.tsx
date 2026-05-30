@@ -138,31 +138,38 @@ export function EnabledCategoriesEditor({
         for {centerLabel}. At least one must stay on.
       </div>
 
-      <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
+      {/* Selection tiles match the "Pitch Types Per Category" control
+          (label + circular check indicator) so every selectable option
+          across Settings uses one consistent, readable pattern instead of
+          a mix of native checkboxes and boxes. */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
         {ALL_CATEGORIES.map((c) => {
           const on = enabled.has(c.id);
           return (
-            <label
+            <button
               key={c.id}
-              className={`flex flex-col items-center text-center gap-2 p-3 rounded-xl border cursor-pointer transition-all ${
+              type="button"
+              onClick={() => toggle(c.id)}
+              className={`group relative flex flex-col gap-1 px-3 py-2.5 rounded-xl text-left border transition-all cursor-pointer ${
                 on
-                  ? 'bg-accent/[0.06] border-accent/30'
-                  : 'bg-white/[0.02] border-white/[0.06] hover:border-white/[0.12]'
+                  ? 'bg-accent/10 text-accent border-accent/20 shadow-sm shadow-accent/5'
+                  : 'bg-black/20 text-slate-500 border-white/[0.05] hover:border-white/[0.1] hover:text-slate-400'
               }`}
             >
-              <div className="flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  checked={on}
-                  onChange={() => toggle(c.id)}
-                  className="w-4 h-4 accent-accent cursor-pointer"
-                />
-                <div className={`text-xs font-semibold ${on ? 'text-white' : 'text-slate-400'}`}>
-                  {c.label}
+              <div className="flex items-center justify-between gap-2">
+                <span className={`text-xs font-semibold ${on ? 'text-white' : 'text-slate-400'}`}>{c.label}</span>
+                <div className={`w-3.5 h-3.5 flex-shrink-0 rounded-full border flex items-center justify-center transition-all ${
+                  on ? 'bg-accent border-accent text-primary' : 'border-white/10 bg-white/5'
+                }`}>
+                  {on && (
+                    <svg className="w-2 h-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={4} d="M5 13l4 4L19 7" />
+                    </svg>
+                  )}
                 </div>
               </div>
               <div className="text-[9px] text-slate-500 uppercase tracking-tight">{c.sub}</div>
-            </label>
+            </button>
           );
         })}
       </div>
