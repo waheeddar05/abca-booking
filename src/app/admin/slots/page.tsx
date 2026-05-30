@@ -89,6 +89,12 @@ function SlotManagementLegacy() {
   const [appliesTo, setAppliesTo] = useState<'ALL' | 'SPECIAL' | 'NON_SPECIAL'>('ALL');
   const [blockLoading, setBlockLoading] = useState(false);
 
+  // Confirmation popup for blocks that overlap existing bookings. We
+  // resolve the affected count via a dry-run before committing, then
+  // hold the pending request body until the admin confirms.
+  const [pendingBlockBody, setPendingBlockBody] = useState<Record<string, unknown> | null>(null);
+  const [pendingCancelCount, setPendingCancelCount] = useState(0);
+
   // Active blocks state
   const [blockedSlots, setBlockedSlots] = useState<BlockedSlot[]>([]);
   const [blockedLoading, setBlockedLoading] = useState(false);
@@ -210,38 +216,72 @@ function SlotManagementLegacy() {
 
     const machineIdsToSend = allMachines ? [] : selectedMachines;
 
+    // Build a single block request
+    const body: Record<string, unknown> = {
+      startDate,
+      endDate,
+      reason: reason || null,
+      appliesTo,
+    };
+    if (!isFullDay) {
+      body.startTime = startTime;
+      body.endTime = endTime;
+    }
+    if (machineIdsToSend.length > 0) {
+      body.machineIds = machineIdsToSend;
+    }
+    if (pitchType) {
+      body.pitchType = pitchType;
+    }
+
+    if (scheduleType === 'recurring') {
+      const dates = getDatesToBlock();
+      if (dates.length === 0) {
+        setMessage({ text: 'No matching days found in the selected range', type: 'error' });
+        return;
+      }
+      body.recurringDays = recurringDays;
+    }
+
     setBlockLoading(true);
     setMessage({ text: '', type: '' });
 
     try {
-      // Build a single block request
-      const body: Record<string, unknown> = {
-        startDate,
-        endDate,
-        reason: reason || null,
-        appliesTo,
-      };
-      if (!isFullDay) {
-        body.startTime = startTime;
-        body.endTime = endTime;
-      }
-      if (machineIdsToSend.length > 0) {
-        body.machineIds = machineIdsToSend;
-      }
-      if (pitchType) {
-        body.pitchType = pitchType;
+      // First ask the API how many existing bookings this block would
+      // cancel (dry run — nothing is created or cancelled yet).
+      const previewRes = await fetch('/api/admin/slots/block', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...body, dryRun: true }),
+      });
+      const preview = await previewRes.json();
+      if (!previewRes.ok) {
+        setMessage({ text: preview.error || 'Failed to block slots', type: 'error' });
+        setBlockLoading(false);
+        return;
       }
 
-      if (scheduleType === 'recurring') {
-        const dates = getDatesToBlock();
-        if (dates.length === 0) {
-          setMessage({ text: 'No matching days found in the selected range', type: 'error' });
-          setBlockLoading(false);
-          return;
-        }
-        body.recurringDays = recurringDays;
+      // If bookings would be cancelled, hold the request and surface a
+      // confirmation popup with the count. Otherwise commit immediately.
+      if (preview.cancelledBookingsCount > 0) {
+        setPendingBlockBody(body);
+        setPendingCancelCount(preview.cancelledBookingsCount);
+        setBlockLoading(false);
+        return;
       }
 
+      await performBlock(body);
+    } catch {
+      setMessage({ text: 'Failed to block slots', type: 'error' });
+      setBlockLoading(false);
+    }
+  };
+
+  // ─── Commit the block (after dry-run / confirmation) ────
+  const performBlock = async (body: Record<string, unknown>) => {
+    setBlockLoading(true);
+    setMessage({ text: '', type: '' });
+    try {
       const res = await fetch('/api/admin/slots/block', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -264,6 +304,13 @@ function SlotManagementLegacy() {
     } finally {
       setBlockLoading(false);
     }
+  };
+
+  const confirmPendingBlock = async () => {
+    const body = pendingBlockBody;
+    setPendingBlockBody(null);
+    setPendingCancelCount(0);
+    if (body) await performBlock(body);
   };
 
   // ─── Unblock ────────────────────────────────────────────
@@ -961,6 +1008,20 @@ function SlotManagementLegacy() {
         variant="danger"
         onConfirm={handleUnblockConfirm}
         onCancel={() => setUnblockId(null)}
+      />
+
+      {/* Overlapping-bookings confirmation */}
+      <ConfirmDialog
+        open={!!pendingBlockBody}
+        title="Cancel existing bookings?"
+        message={`This block overlaps ${pendingCancelCount} existing booking${pendingCancelCount === 1 ? '' : 's'}. Proceeding will cancel ${pendingCancelCount === 1 ? 'it' : 'them'} and notify the affected user${pendingCancelCount === 1 ? '' : 's'}.`}
+        warning="Cancelled bookings are refunded to the user's wallet. This cannot be undone."
+        confirmLabel={`Block & cancel ${pendingCancelCount}`}
+        cancelLabel="Keep bookings"
+        variant="danger"
+        loading={blockLoading}
+        onConfirm={confirmPendingBlock}
+        onCancel={() => { setPendingBlockBody(null); setPendingCancelCount(0); }}
       />
     </div>
   );

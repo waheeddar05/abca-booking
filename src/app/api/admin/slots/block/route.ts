@@ -105,6 +105,12 @@ export async function POST(req: NextRequest) {
       resourceIds,   // Resource.id FKs (block specific nets/wickets)
       categories,    // BookingCategory[] (block all SIDEARM, etc.)
       netCount,      // Partial cricket-net cap (positive int or null)
+      // Preview/confirmation flag. When true the route resolves the set
+      // of bookings this block WOULD cancel and returns the count (plus a
+      // short summary of each) WITHOUT creating the block or cancelling
+      // anything. The admin UI calls this first so it can show a
+      // confirmation popup before committing an overlapping block.
+      dryRun,
     } = body;
 
     if (!startDate || !endDate) {
@@ -191,30 +197,8 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // 1. Create a single BlockedSlot record
-    const blockedSlot = await prisma.blockedSlot.create({
-      data: {
-        centerId: center.id,
-        startDate: start,
-        endDate: end,
-        startTime: startT,
-        endTime: endT,
-        machineType: (validatedMachineId || validatedMachineIds.length > 0) ? null : machineType,
-        machineId: validatedMachineId,
-        machineIds: validatedMachineIds,
-        recurringDays: validatedRecurringDays,
-        pitchType,
-        reason,
-        blockedBy: admin.id,
-        appliesTo: ['ALL', 'SPECIAL', 'NON_SPECIAL'].includes(appliesTo) ? appliesTo : 'ALL',
-        machineRowIds: validatedMachineRowIds,
-        resourceIds: validatedResourceIds,
-        categories: validatedCategories as any,
-        netCount: validatedNetCount,
-      },
-    });
-
-    // 2. Find conflicting bookings. The query is scoped to the block's
+    // 1. Find conflicting bookings BEFORE creating anything. The query is
+    // scoped to the block's
     // center so we never accidentally cancel bookings from a sibling
     // center the admin doesn't own. Targeting follows two paths in
     // parallel:
@@ -350,7 +334,51 @@ export async function POST(req: NextRequest) {
       bookingsToReallyCancel = sorted.slice(0, validatedNetCount!);
     }
 
-    // 3. Cancel each conflicting booking via the shared refund helper.
+    // 2. Dry run: the caller only wants to know what this block WOULD
+    // cancel so it can show a confirmation popup. Report the count and a
+    // short summary of each affected booking, then bail out without
+    // creating the block or cancelling anything.
+    if (dryRun) {
+      return NextResponse.json({
+        dryRun: true,
+        cancelledBookingsCount: bookingsToReallyCancel.length,
+        bookings: bookingsToReallyCancel.map((b) => ({
+          id: b.id,
+          playerName: b.playerName,
+          date: b.date,
+          startTime: b.startTime,
+          endTime: b.endTime,
+          machineId: b.machineId,
+          category: b.category,
+        })),
+      });
+    }
+
+    // 3. Commit the block. Persisted only after conflict detection so a
+    // dry-run preview never leaves a row behind.
+    const blockedSlot = await prisma.blockedSlot.create({
+      data: {
+        centerId: center.id,
+        startDate: start,
+        endDate: end,
+        startTime: startT,
+        endTime: endT,
+        machineType: (validatedMachineId || validatedMachineIds.length > 0) ? null : machineType,
+        machineId: validatedMachineId,
+        machineIds: validatedMachineIds,
+        recurringDays: validatedRecurringDays,
+        pitchType,
+        reason,
+        blockedBy: admin.id,
+        appliesTo: ['ALL', 'SPECIAL', 'NON_SPECIAL'].includes(appliesTo) ? appliesTo : 'ALL',
+        machineRowIds: validatedMachineRowIds,
+        resourceIds: validatedResourceIds,
+        categories: validatedCategories as any,
+        netCount: validatedNetCount,
+      },
+    });
+
+    // 4. Cancel each conflicting booking via the shared refund helper.
     // The helper handles every payment flavour:
     //   - WALLET-paid → wallet credit
     //   - ONLINE-paid → wallet credit or Razorpay refund per center policy

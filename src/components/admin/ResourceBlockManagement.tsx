@@ -153,6 +153,12 @@ export function ResourceBlockManagement() {
   const [creating, setCreating] = useState(false);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
 
+  // Confirmation popup for blocks that overlap existing bookings. The
+  // dry-run resolves how many bookings would be cancelled; we hold the
+  // pending request body until the admin confirms.
+  const [pendingBlockBody, setPendingBlockBody] = useState<Record<string, unknown> | null>(null);
+  const [pendingCancelCount, setPendingCancelCount] = useState(0);
+
   // Create-form state
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
@@ -256,43 +262,82 @@ export function ResourceBlockManagement() {
         return;
       }
     }
+    // netCount is a count block: reserve N units of the selected pitch.
+    // Only sent for a pure pitch block (a pitch chosen, no machine, no
+    // category). Empty = block the whole pitch (null → engine blocks
+    // all). Non-positive falls back to "all".
+    const netCountParsed =
+      !!pitchType
+      && pickedMachineIds.length === 0
+      && pickedCategories.length === 0
+      && netCount.trim().length > 0
+        ? Math.max(1, Math.floor(Number(netCount)))
+        : null;
+
+    const body: Record<string, unknown> = {
+      startDate,
+      endDate: effectiveEnd,
+      startTime: isFullDay ? null : startTime,
+      endTime: isFullDay ? null : endTime,
+      recurringDays,
+      machineRowIds: pickedMachineIds,
+      resourceIds: pickedResourceIds,
+      categories: pickedCategories,
+      pitchType: pitchType || null,
+      reason: reason || null,
+      appliesTo,
+      netCount: netCountParsed,
+    };
+
     setCreating(true);
     try {
-      // netCount is a count block: reserve N units of the selected pitch.
-      // Only sent for a pure pitch block (a pitch chosen, no machine, no
-      // category). Empty = block the whole pitch (null → engine blocks
-      // all). Non-positive falls back to "all".
-      const netCountParsed =
-        !!pitchType
-        && pickedMachineIds.length === 0
-        && pickedCategories.length === 0
-        && netCount.trim().length > 0
-          ? Math.max(1, Math.floor(Number(netCount)))
-          : null;
+      // Ask the API how many existing bookings this block would cancel
+      // (dry run — nothing is created or cancelled yet).
+      const previewRes = await fetch('/api/admin/slots/block', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...body, dryRun: true }),
+      });
+      const preview = await previewRes.json();
+      if (!previewRes.ok) {
+        throw new Error(preview.error || 'Failed to create block');
+      }
 
+      // If bookings would be cancelled, surface a confirmation popup with
+      // the count. Otherwise commit immediately.
+      if (preview.cancelledBookingsCount > 0) {
+        setPendingBlockBody(body);
+        setPendingCancelCount(preview.cancelledBookingsCount);
+        setCreating(false);
+        return;
+      }
+
+      await performBlock(body);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to create block');
+      setCreating(false);
+    }
+  };
+
+  // Commit the block (after dry-run / confirmation).
+  const performBlock = async (body: Record<string, unknown>) => {
+    setCreating(true);
+    try {
       const res = await fetch('/api/admin/slots/block', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          startDate,
-          endDate: effectiveEnd,
-          startTime: isFullDay ? null : startTime,
-          endTime: isFullDay ? null : endTime,
-          recurringDays,
-          machineRowIds: pickedMachineIds,
-          resourceIds: pickedResourceIds,
-          categories: pickedCategories,
-          pitchType: pitchType || null,
-          reason: reason || null,
-          appliesTo,
-          netCount: netCountParsed,
-        }),
+        body: JSON.stringify(body),
       });
       if (!res.ok) {
         const data = await res.json();
         throw new Error(data.error || 'Failed to create block');
       }
-      toast.success('Block created');
+      const data = await res.json();
+      toast.success(
+        data.cancelledBookingsCount > 0
+          ? `Block created · ${data.cancelledBookingsCount} booking(s) cancelled`
+          : 'Block created',
+      );
       resetForm();
       await fetchAll();
       setActiveTab('active');
@@ -301,6 +346,13 @@ export function ResourceBlockManagement() {
     } finally {
       setCreating(false);
     }
+  };
+
+  const confirmPendingBlock = async () => {
+    const body = pendingBlockBody;
+    setPendingBlockBody(null);
+    setPendingCancelCount(0);
+    if (body) await performBlock(body);
   };
 
   const deleteBlock = async (id: string) => {
@@ -1153,6 +1205,20 @@ export function ResourceBlockManagement() {
         confirmLabel="Remove"
         onCancel={() => setConfirmDeleteId(null)}
         onConfirm={() => confirmDeleteId && deleteBlock(confirmDeleteId)}
+      />
+
+      {/* Overlapping-bookings confirmation */}
+      <ConfirmDialog
+        open={pendingBlockBody !== null}
+        title="Cancel existing bookings?"
+        message={`This block overlaps ${pendingCancelCount} existing booking${pendingCancelCount === 1 ? '' : 's'}. Proceeding will cancel ${pendingCancelCount === 1 ? 'it' : 'them'} and notify the affected user${pendingCancelCount === 1 ? '' : 's'}.`}
+        warning="Cancelled bookings are refunded to the user's wallet. This cannot be undone."
+        confirmLabel={`Block & cancel ${pendingCancelCount}`}
+        cancelLabel="Keep bookings"
+        variant="danger"
+        loading={creating}
+        onConfirm={confirmPendingBlock}
+        onCancel={() => { setPendingBlockBody(null); setPendingCancelCount(0); }}
       />
     </div>
   );
