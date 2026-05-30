@@ -16,16 +16,25 @@ type ResourceRow = {
 };
 
 const TYPE_LABELS: Record<ResourceRow['type'], string> = {
-  NET: 'Net',
-  // "Natural Turf" is the user-facing label even though the DB enum
-  // value is TURF_WICKET — keeps the admin UI in sync with what the
-  // pitch picker says on the booking screen ("Astro Turf / Cement /
-  // Natural Turf"). The legacy "Turf wicket" label confused admins
-  // into thinking turf wickets and natural turf were distinct.
+  // The TYPE enum is a physical surface; the admin UI presents it purely
+  // as a "Pitch Type" so it matches the booking screen's pitch picker
+  // (Astro Turf / Natural Turf / Cement). NET is the indoor synthetic
+  // turf → "Astro Turf"; TURF_WICKET → "Natural Turf"; CEMENT_WICKET →
+  // "Cement". COURT is legacy/unused (Full Indoor Court is a booking
+  // category, not a surface) — kept only so any old row still renders.
+  NET: 'Astro Turf',
   TURF_WICKET: 'Natural Turf',
-  CEMENT_WICKET: 'Cement wicket',
-  COURT: 'Full court',
+  CEMENT_WICKET: 'Cement',
+  COURT: 'Full court (legacy)',
 };
+
+// Maps a pitch-type selection to the Resource.category the engine
+// expects: Astro Turf is the INDOOR net pool; Natural Turf and Cement
+// are OUTDOOR surfaces. Keeps freeIndoorNets / freeOutdoorResources and
+// the per-pitch pools correct without exposing a separate category field.
+function categoryForType(type: ResourceRow['type']): ResourceRow['category'] {
+  return type === 'NET' ? 'INDOOR' : 'OUTDOOR';
+}
 
 export function CenterResourcesTab({ centerId }: { centerId: string }) {
   const [resources, setResources] = useState<ResourceRow[]>([]);
@@ -51,7 +60,7 @@ export function CenterResourcesTab({ centerId }: { centerId: string }) {
   // BookingResourceAssignment refs intact; the resource just stops
   // appearing in pickers and counting toward live capacity.
   const deactivate = async (id: string) => {
-    if (!confirm('Deactivate this resource? Existing bookings retain their reference; new bookings cannot use it.')) return;
+    if (!confirm('Deactivate this pitch type? Existing bookings retain their reference; new bookings cannot use it.')) return;
     setActionError(null);
     const res = await fetch(`/api/admin/centers/${centerId}/resources/${id}`, { method: 'DELETE' });
     if (res.ok) refresh();
@@ -90,7 +99,7 @@ export function CenterResourcesTab({ centerId }: { centerId: string }) {
     <div className="space-y-4">
       <div className="flex justify-between items-center gap-3 flex-wrap">
         <p className="text-[11px] text-slate-500 leading-tight flex-1">
-          Bookable units (nets, courts, turf). Used by the resource-based engine.
+          Pitch types (Astro Turf, Natural Turf, Cement) and their capacity. Used by the resource-based engine.
         </p>
         <div className="flex items-center gap-1.5 shrink-0">
           {inactiveCount > 0 && (
@@ -100,7 +109,7 @@ export function CenterResourcesTab({ centerId }: { centerId: string }) {
             </SecondaryButton>
           )}
           <PrimaryButton onClick={() => setShowNew(true)} className="!px-1.5 !py-1 !text-[9px] rounded-md">
-            <Plus className="w-2.5 h-2.5" /> Add resource
+            <Plus className="w-2.5 h-2.5" /> Add pitch type
           </PrimaryButton>
         </div>
       </div>
@@ -118,8 +127,8 @@ export function CenterResourcesTab({ centerId }: { centerId: string }) {
       {visibleResources.length === 0 ? (
         <div className="text-center text-slate-500 py-6 text-sm">
           {resources.length === 0
-            ? 'No resources configured.'
-            : 'No active resources.'}
+            ? 'No pitch types configured.'
+            : 'No active pitch types.'}
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
@@ -194,10 +203,9 @@ function ResourceEditor({
   const [name, setName] = useState(initial?.name || '');
   const [type, setType] = useState<ResourceRow['type']>(initial?.type || 'NET');
   const [capacity, setCapacity] = useState<number>(initial?.capacity ?? 1);
-  // Preserved from `initial` so an edit doesn't silently clobber these
-  // back to defaults — but no longer exposed as form fields. New rows
-  // default to INDOOR / order 0 / active.
-  const category: ResourceRow['category'] = initial?.category ?? 'INDOOR';
+  // Category is derived from the pitch type on save (Astro → INDOOR,
+  // Natural/Cement → OUTDOOR) so the engine's pools stay correct without
+  // a separate field. displayOrder / isActive are preserved from the row.
   const displayOrder: number = initial?.displayOrder ?? 0;
   const isActive: boolean = initial?.isActive ?? true;
   const [saving, setSaving] = useState(false);
@@ -214,7 +222,7 @@ function ResourceEditor({
       const res = await fetch(url, {
         method: isEdit ? 'PATCH' : 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, type, category, capacity, displayOrder, isActive }),
+        body: JSON.stringify({ name, type, category: categoryForType(type), capacity, displayOrder, isActive }),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -231,14 +239,17 @@ function ResourceEditor({
     <form onSubmit={save} className="space-y-3 rounded-xl bg-white/[0.02] border border-white/[0.06] p-3">
       <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
         <Field label="Name" required>
-          <TextInput required value={name} onChange={(e) => setName(e.target.value)} placeholder="Indoor Net 1" className="!py-1.5 !text-xs" />
+          <TextInput required value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Astro Turf" className="!py-1.5 !text-xs" />
         </Field>
-        <Field label="Type" required>
+        <Field label="Pitch Type" required>
           <SelectInput value={type} onChange={(e) => setType(e.target.value as ResourceRow['type'])} className="!py-1.5 !text-xs">
-            <option value="NET">Net</option>
+            <option value="NET">Astro Turf</option>
             <option value="TURF_WICKET">Natural Turf</option>
-            <option value="CEMENT_WICKET">Cement wicket</option>
-            <option value="COURT">Full court (composed of nets)</option>
+            <option value="CEMENT_WICKET">Cement</option>
+            {/* Legacy fallback: only shown when editing an old "Full court"
+                row so saving it doesn't silently change its type. New rows
+                can't pick it. */}
+            {initial?.type === 'COURT' && <option value="COURT">Full court (legacy)</option>}
           </SelectInput>
         </Field>
         <div className="col-span-2 sm:col-span-1">
@@ -247,10 +258,9 @@ function ResourceEditor({
           </Field>
         </div>
       </div>
-      {/* Category / displayOrder / active are kept in state so edits
-          don't accidentally clear them on save, but they're no longer
-          surfaced as form fields — they were near-never used by admins.
-          New resources default to INDOOR + active + order 0. */}
+      {/* Category is derived from the pitch type on save (see
+          categoryForType); displayOrder / isActive are preserved from the
+          row. None are surfaced as fields — they were near-never used. */}
 
       {err && <Banner kind="error">{err}</Banner>}
 

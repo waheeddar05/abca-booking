@@ -32,7 +32,7 @@ const TABS: Array<TabDef> = [
   { key: 'general', label: 'General', icon: MapPin },
   { key: 'payment', label: 'Payment', icon: CreditCard, superOnly: true },
   { key: 'machines', label: 'Machines', icon: Settings2 },
-  { key: 'resources', label: 'Resources', icon: Building2 },
+  { key: 'resources', label: 'Pitch Types', icon: Building2 },
   { key: 'members', label: 'Members', icon: Users },
 ];
 
@@ -142,7 +142,7 @@ export default function CenterEditPage({ params }: { params: Promise<{ id: strin
       <AdminPageHeader
         icon={Building2}
         title={center.name}
-        description={`Slug: ${center.slug} · ${center.bookingModel === 'RESOURCE_BASED' ? 'Resource-based' : 'Machine/Pitch'} · ${center._count.memberships} member(s) · ${center._count.machines} machine(s) · ${center._count.resources} resource(s)`}
+        description={`Slug: ${center.slug} · ${center.bookingModel === 'RESOURCE_BASED' ? 'Resource-based' : 'Machine/Pitch'} · ${center._count.memberships} member(s) · ${center._count.machines} machine(s) · ${center._count.resources} pitch type(s)`}
       >
         {/* Deactivate hits DELETE /api/admin/centers/[id] which is still
             super-admin-only. */}
