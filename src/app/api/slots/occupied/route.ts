@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { isValid } from 'date-fns';
 import { dateStringToUTC } from '@/lib/time';
+import { getAuthenticatedUser } from '@/lib/auth';
+import { resolveCurrentCenter } from '@/lib/centers';
 
 export async function GET(req: NextRequest) {
   try {
@@ -17,15 +19,22 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: 'Invalid date' }, { status: 400 });
     }
 
+    const user = await getAuthenticatedUser(req);
+    const center = await resolveCurrentCenter(req, user);
+    if (!center) {
+      return NextResponse.json({ error: 'No center available' }, { status: 503 });
+    }
+
     const occupiedBookings = await prisma.booking.findMany({
       where: {
+        centerId: center.id,
         date: dateUTC,
         status: 'BOOKED',
       },
       select: {
         startTime: true,
         endTime: true,
-      }
+      },
     });
 
     return NextResponse.json(occupiedBookings);

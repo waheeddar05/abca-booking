@@ -11,6 +11,7 @@ import {
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { AdminPageHeader } from '@/components/admin/AdminPageHeader';
 import { useToast } from '@/components/ui/Toast';
+import { useCenter } from '@/lib/center-context';
 
 const SUPER_ADMIN_EMAIL = 'waheeddar8@gmail.com';
 
@@ -25,6 +26,9 @@ interface UserResult {
   isBlacklisted: boolean;
   isFreeUser: boolean;
   createdAt: string;
+  /** Wallet balance — center-scoped for center admins, summed across
+   *  every center for the super-admin allCenters view. */
+  walletBalance?: number;
   _count: { bookings: number };
 }
 
@@ -54,8 +58,19 @@ export default function UserManagementPage() {
   const { data: session } = useSession();
   const router = useRouter();
   const toast = useToast();
+  const { currentCenter } = useCenter();
 
-  const isSuperAdmin = session?.user?.email === SUPER_ADMIN_EMAIL;
+  // Session is typed loosely (`as any`-ish on the auth side). Read both
+  // the boolean column AND the email fallback so a stale token doesn't
+  // lock the project owner out. Center admins land here too — they
+  // see the same UI minus the destructive sections.
+  const sessionUser = session?.user as {
+    email?: string | null;
+    isSuperAdmin?: boolean;
+    role?: string;
+  } | undefined;
+  const isSuperAdmin = sessionUser?.isSuperAdmin === true || sessionUser?.email === SUPER_ADMIN_EMAIL;
+  const isAdmin = isSuperAdmin || sessionUser?.role === 'ADMIN';
 
   // Search state
   const [search, setSearch] = useState('');
@@ -82,23 +97,26 @@ export default function UserManagementPage() {
     onConfirm: () => void;
   } | null>(null);
 
-  // Redirect if not super admin
+  // Redirect away only if the user has no admin access at all. Center
+  // admins stay — they get a trimmed view with wallet ops but without
+  // destructive cleanup.
   useEffect(() => {
-    if (session && !isSuperAdmin) {
+    if (session && !isAdmin) {
       router.push('/admin');
     }
-  }, [session, isSuperAdmin, router]);
+  }, [session, isAdmin, router]);
 
-  // Search users
+  // Search users. When the search field is empty we still pull the
+  // full user list so admins can see wallet balances at a glance — the
+  // backend already scopes the list to the current center for non-
+  // super admins, so the payload is bounded.
   useEffect(() => {
-    if (!search.trim()) {
-      setUsers([]);
-      return;
-    }
+    if (!isAdmin) return;
     const timer = setTimeout(async () => {
       setSearchLoading(true);
       try {
-        const res = await fetch(`/api/admin/users?search=${encodeURIComponent(search)}`);
+        const qs = search.trim() ? `?search=${encodeURIComponent(search)}` : '';
+        const res = await fetch(`/api/admin/users${qs}`);
         if (res.ok) {
           const data = await res.json();
           setUsers(data);
@@ -108,9 +126,9 @@ export default function UserManagementPage() {
       } finally {
         setSearchLoading(false);
       }
-    }, 300);
+    }, search.trim() ? 300 : 0);
     return () => clearTimeout(timer);
-  }, [search]);
+  }, [search, isAdmin, currentCenter?.id]);
 
   // Fetch cleanup summary for selected user
   const fetchSummary = async (userId: string) => {
@@ -187,11 +205,11 @@ export default function UserManagementPage() {
 
   const userName = selectedUser?.name || selectedUser?.email || 'this user';
 
-  if (!isSuperAdmin) {
+  if (!isAdmin) {
     return (
       <div className="flex items-center justify-center py-20 text-slate-400">
         <AlertTriangle className="w-5 h-5 mr-2" />
-        <span className="text-sm">Super admin access required</span>
+        <span className="text-sm">Admin access required</span>
       </div>
     );
   }
@@ -201,7 +219,9 @@ export default function UserManagementPage() {
       <AdminPageHeader
         icon={UserCog}
         title="User Management"
-        description="Cleanup bookings, manage wallets, and more"
+        description={isSuperAdmin
+          ? 'Cleanup bookings, manage wallets, and more'
+          : `Manage wallets and view bookings${currentCenter ? ` at ${currentCenter.shortName || currentCenter.name}` : ''}`}
         iconColor="text-orange-400"
         iconBg="bg-orange-500/10"
       />
@@ -224,11 +244,16 @@ export default function UserManagementPage() {
 
         {/* User list */}
         {users.length > 0 && (
-          <div className="mt-2 bg-white/[0.03] border border-white/[0.07] rounded-xl max-h-60 overflow-y-auto">
+          <div className="mt-2 bg-white/[0.03] border border-white/[0.07] rounded-xl max-h-[28rem] overflow-y-auto">
             {users
               .filter((u) => u.email !== SUPER_ADMIN_EMAIL)
               .map((user) => {
                 const isSelected = selectedUser?.id === user.id;
+                // Wallet balance is shown right in the list so admins
+                // don't have to click into each user to see who has
+                // funds. The backend has already scoped this to the
+                // current center for non-super admins.
+                const wb = user.walletBalance ?? 0;
                 return (
                   <button
                     key={user.id}
@@ -248,22 +273,35 @@ export default function UserManagementPage() {
                       <p className="text-sm font-medium text-white truncate">{user.name || 'Unnamed'}</p>
                       <p className="text-xs text-slate-400 truncate">{user.email || user.mobileNumber}</p>
                     </div>
-                    <div className="text-right flex-shrink-0">
-                      <span className={`text-[9px] px-1.5 py-0.5 rounded font-bold uppercase ${
-                        user.role === 'ADMIN'
-                          ? 'bg-blue-500/10 text-blue-400'
-                          : user.role === 'OPERATOR'
-                          ? 'bg-purple-500/10 text-purple-400'
-                          : 'bg-white/[0.04] text-slate-400'
+                    <div className="text-right flex-shrink-0 flex flex-col items-end gap-0.5">
+                      <span className={`inline-flex items-center gap-1 text-[11px] font-semibold ${
+                        wb > 0 ? 'text-emerald-400' : 'text-slate-500'
                       }`}>
-                        {user.role}
+                        <Wallet className="w-3 h-3" />
+                        ₹{wb.toLocaleString('en-IN')}
                       </span>
-                      <p className="text-[10px] text-slate-500 mt-0.5">{user._count.bookings} bookings</p>
+                      <div className="flex items-center gap-1">
+                        <span className={`text-[9px] px-1.5 py-0.5 rounded font-bold uppercase ${
+                          user.role === 'ADMIN'
+                            ? 'bg-blue-500/10 text-blue-400'
+                            : user.role === 'OPERATOR'
+                            ? 'bg-purple-500/10 text-purple-400'
+                            : 'bg-white/[0.04] text-slate-400'
+                        }`}>
+                          {user.role}
+                        </span>
+                        <span className="text-[10px] text-slate-500">{user._count.bookings}b</span>
+                      </div>
                     </div>
                   </button>
                 );
               })}
           </div>
+        )}
+        {!searchLoading && users.length === 0 && (
+          <p className="mt-3 text-xs text-slate-500 text-center py-4">
+            {search.trim() ? 'No users match this search.' : 'No users found at this center yet.'}
+          </p>
         )}
       </div>
 
@@ -309,7 +347,10 @@ export default function UserManagementPage() {
                 <SummaryCard label="Notifications" value={summary.notifications} color="text-slate-400" />
               </div>
 
-              {/* Booking Cleanup Actions */}
+              {/* Booking Cleanup Actions — super-admin only. Center
+                  admins shouldn't be able to delete other admins'
+                  bookings cross-system; the API enforces the same gate. */}
+              {isSuperAdmin && (
               <div className="bg-white/[0.03] border border-white/[0.07] rounded-xl p-4">
                 <h3 className="text-sm font-semibold text-white mb-3 flex items-center gap-2">
                   <CalendarX className="w-4 h-4 text-red-400" />
@@ -380,8 +421,10 @@ export default function UserManagementPage() {
                   />
                 </div>
               </div>
+              )}
 
-              {/* Other Cleanup Actions */}
+              {/* Other Cleanup Actions — super-admin only. */}
+              {isSuperAdmin && (
               <div className="bg-white/[0.03] border border-white/[0.07] rounded-xl p-4">
                 <h3 className="text-sm font-semibold text-white mb-3 flex items-center gap-2">
                   <Eraser className="w-4 h-4 text-purple-400" />
@@ -421,6 +464,7 @@ export default function UserManagementPage() {
                   />
                 </div>
               </div>
+              )}
 
               {/* Wallet Operations */}
               <div className="bg-white/[0.03] border border-white/[0.07] rounded-xl p-4">
@@ -435,7 +479,10 @@ export default function UserManagementPage() {
                   )}
                 </p>
 
-                {/* Clean Wallet */}
+                {/* Clean Wallet — super-admin only. Center admins use
+                    Subtract / Set to zero a balance instead, which
+                    preserves the transaction trail. */}
+                {isSuperAdmin && (
                 <div className="mb-3">
                   <ActionButton
                     icon={Eraser}
@@ -454,6 +501,7 @@ export default function UserManagementPage() {
                     }
                   />
                 </div>
+                )}
 
                 {/* Wallet amount input */}
                 <div className="space-y-2">
@@ -534,7 +582,8 @@ export default function UserManagementPage() {
                 </div>
               </div>
 
-              {/* Nuclear Option */}
+              {/* Nuclear Option — super-admin only. */}
+              {isSuperAdmin && (
               <div className="bg-red-500/5 border border-red-500/20 rounded-xl p-4">
                 <h3 className="text-sm font-semibold text-red-400 mb-3 flex items-center gap-2">
                   <Zap className="w-4 h-4" />
@@ -560,6 +609,7 @@ export default function UserManagementPage() {
                   }
                 />
               </div>
+              )}
             </>
           ) : null}
         </div>

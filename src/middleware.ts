@@ -53,6 +53,10 @@ export async function middleware(req: NextRequest) {
     pathname === "/login" ||
     pathname === "/otp" ||
     pathname === "/maintenance" ||
+    // /centers and the related read-only API are part of the multi-center
+    // public surface so a brand-new visitor can pick a center before sign-in.
+    pathname === "/centers" ||
+    pathname.startsWith("/api/centers") ||
     pathname.startsWith("/api/auth") ||
     pathname.startsWith("/api/webhooks/") ||
     pathname.startsWith("/api/maintenance") ||
@@ -77,8 +81,11 @@ export async function middleware(req: NextRequest) {
 
       if (token || otpToken) {
         const role = (token?.role || otpToken?.role) as string | undefined;
+        // OPERATOR users land on the merged staff dashboard. The page
+        // surfaces tabs for whatever roles they hold (operator + coach
+        // + sidearm). /operator stays as a redirect for old PWA installs.
         if (role === 'OPERATOR') {
-          return NextResponse.redirect(new URL("/operator", req.url));
+          return NextResponse.redirect(new URL("/staff", req.url));
         }
         // Check if mobile is verified — redirect to verify-mobile if not
         const mobileVerified = token?.mobileVerified as boolean | undefined;
@@ -107,11 +114,13 @@ export async function middleware(req: NextRequest) {
   const userRole = (token?.role || otpToken?.role) as string | undefined;
 
   // Mobile verification gate: if user has a NextAuth session but hasn't verified
-  // their mobile number, redirect them to /verify-mobile (except for admin/operator/API)
+  // their mobile number, redirect them to /verify-mobile (except for
+  // admin/operator + the unified /staff dashboard / API).
   if (
     token &&
     !isVerifyMobilePath &&
     !pathname.startsWith("/api/") &&
+    !pathname.startsWith("/staff") &&
     userRole !== "ADMIN" &&
     userRole !== "OPERATOR"
   ) {
@@ -128,17 +137,29 @@ export async function middleware(req: NextRequest) {
 
   // Protect Admin routes
   if (pathname.startsWith("/admin")) {
-    if (userRole !== "ADMIN") {
+    if (userRole !== "ADMIN" && userRole !== "SIDEARM_SPECIALIST") {
       return NextResponse.redirect(new URL("/", req.url));
     }
   }
 
-  // Protect Operator routes
+  // Legacy /operator routes — the dashboard moved to /staff so any
+  // authenticated user (operator, coach, sidearm specialist, admin)
+  // should land on the unified page. Forwarding here keeps old PWA
+  // installs and bookmarks working for non-operator staff that the
+  // /operator page-level redirect can't reach because middleware
+  // bounces them first.
   if (pathname.startsWith("/operator")) {
-    if (userRole !== "OPERATOR" && userRole !== "ADMIN") {
-      return NextResponse.redirect(new URL("/", req.url));
-    }
+    const dest = new URL("/staff", req.url);
+    dest.search = req.nextUrl.search;
+    return NextResponse.redirect(dest);
   }
+
+  // Protect Staff routes — any signed-in user can land here; the
+  // page itself shows a "no role" notice when the user has no
+  // OPERATOR / COACH / SIDEARM_SPECIALIST membership at the active
+  // center, so we don't need a hard role check at the edge. Mobile
+  // verification is bypassed so an unverified-mobile coach can still
+  // see their assigned sessions.
 
   return NextResponse.next();
 }

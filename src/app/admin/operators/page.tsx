@@ -2,17 +2,30 @@
 
 import { useState, useEffect } from 'react';
 import { useSession } from 'next-auth/react';
-import { Users, Loader2, Save, ChevronUp, ChevronDown, Check, Calendar, ListOrdered, Wrench, CalendarClock, Trash2, Plus } from 'lucide-react';
+import { Users, Loader2, Save, ChevronUp, ChevronDown, Check, Calendar, ListOrdered, Wrench, CalendarClock, Trash2, Plus, Pencil } from 'lucide-react';
 import { AdminPageHeader } from '@/components/admin/AdminPageHeader';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { useToast } from '@/components/ui/Toast';
+import { useCenter } from '@/lib/center-context';
+import { getISTDateString } from '@/lib/time';
 
 // ─── Types ───────────────────────────────────────────────
+// An assignment row from the API. ABCA-style centers populate
+// `machineId` (legacy enum); resource-based centers (Toplay) populate
+// `machineRowId` (FK to Machine table). Exactly one is non-null.
 interface OperatorAssignment {
   id: string;
-  machineId: string;
+  machineId: string | null;
+  machineRowId: string | null;
   days: number[];
   createdAt: string;
+  machineRow?: {
+    id: string;
+    name: string;
+    shortName: string | null;
+    isActive: boolean;
+    machineType: { code: string; name: string };
+  } | null;
 }
 
 interface DayPriority {
@@ -33,17 +46,45 @@ interface Operator {
 }
 
 // ─── Constants ───────────────────────────────────────────
-const VALID_MACHINES = ['GRAVITY', 'YANTRA', 'LEVERAGE_INDOOR', 'LEVERAGE_OUTDOOR'];
+// Legacy enum machines for MACHINE_PITCH centers (ABCA).
+// RESOURCE_BASED centers (Toplay) build their assignables list from
+// the center's `Machine` rows at runtime.
+const LEGACY_MACHINE_IDS = ['GRAVITY', 'YANTRA', 'LEVERAGE_INDOOR', 'LEVERAGE_OUTDOOR'];
 const DAYS_OF_WEEK = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 const DAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const DAY_NUMBERS = [0, 1, 2, 3, 4, 5, 6];
 
-const MACHINE_LABELS: Record<string, { name: string; short: string }> = {
+const LEGACY_MACHINE_LABELS: Record<string, { name: string; short: string }> = {
   GRAVITY: { name: 'Gravity', short: 'Gravity' },
   YANTRA: { name: 'Yantra', short: 'Yantra' },
   LEVERAGE_INDOOR: { name: 'Leverage Tennis', short: 'Tennis In' },
   LEVERAGE_OUTDOOR: { name: 'Leverage Tennis', short: 'Tennis Out' },
 };
+
+/**
+ * A booking-model-agnostic "assignable unit" — what an operator can be
+ * assigned to. For ABCA this is the legacy MachineId enum value; for
+ * Toplay, a specific Machine row.
+ *
+ * `refKey` is the local React key (stable across renders).
+ * `payload` is exactly the API body shape — pass it straight to POST/
+ * DELETE on /api/admin/operators.
+ */
+interface MachineAssignable {
+  refKey: string;
+  name: string;
+  short: string;
+  payload: { machineId?: string; machineRowId?: string };
+}
+
+/** Center machine list (matches /api/centers/[id]/machines). */
+interface CenterMachine {
+  id: string;
+  name: string;
+  shortName?: string | null;
+  isActive: boolean;
+  machineType: { code: string; name: string };
+}
 
 type TabKey = 'schedule' | 'priority' | 'dateOverrides';
 
@@ -109,9 +150,15 @@ function OperatorNumberField({ label, value, onChange, placeholder, labelColor, 
 }
 
 // ─── Main Component ──────────────────────────────────────
+// Center-aware operator management. The backbone (priority order,
+// schedule, date overrides) is the same for both booking models; the
+// only piece that varies is the "Machine Assignments" grid — its
+// columns come from the legacy enum for MACHINE_PITCH centers and
+// from the center's Machine[] rows for RESOURCE_BASED centers.
 export default function AdminOperators() {
   useSession();
   const toast = useToast();
+  const { currentCenter } = useCenter();
 
   // ─── Shared state ──────────────────
   const [operators, setOperators] = useState<Operator[]>([]);
@@ -132,16 +179,30 @@ export default function AdminOperators() {
   const [togglingAssignment, setTogglingAssignment] = useState<string | null>(null);
   const [confirmAction, setConfirmAction] = useState<'schedule' | 'priority' | null>(null);
 
+  // ─── Center machines (RESOURCE_BASED only) ──────
+  // For Toplay-style centers, this is the live list of Machine rows
+  // we surface as assignment columns in the Priority tab. ABCA centers
+  // ignore this and use the legacy 4-enum list.
+  const [centerMachines, setCenterMachines] = useState<CenterMachine[]>([]);
+  const [bookingModel, setBookingModel] = useState<'MACHINE_PITCH' | 'RESOURCE_BASED'>('MACHINE_PITCH');
+
   // ─── Date Overrides tab state ──────
-  interface OverrideRange { from: string; to: string; morning: number; evening: number; recurringDays?: number[] }
+  // A range is either slab-based (morning/evening counts) or a time window
+  // (startTime/endTime + a single count applied to slots in that window).
+  interface OverrideRange { from: string; to: string; morning?: number; evening?: number; recurringDays?: number[]; startTime?: string; endTime?: string; count?: number }
   const [dateOverrides, setDateOverrides] = useState<OverrideRange[]>([]);
+  const [newOverrideMode, setNewOverrideMode] = useState<'slab' | 'time'>('slab');
   const [newOverrideFromDate, setNewOverrideFromDate] = useState('');
   const [newOverrideToDate, setNewOverrideToDate] = useState('');
   const [newOverrideMorning, setNewOverrideMorning] = useState(1);
   const [newOverrideEvening, setNewOverrideEvening] = useState(1);
+  const [newOverrideStartTime, setNewOverrideStartTime] = useState('');
+  const [newOverrideEndTime, setNewOverrideEndTime] = useState('');
+  const [newOverrideCount, setNewOverrideCount] = useState(1);
   const [newOverrideRecurringDays, setNewOverrideRecurringDays] = useState<number[]>([]);
   const [savingOverrides, setSavingOverrides] = useState(false);
   const [pendingOverrides, setPendingOverrides] = useState<OverrideRange[] | null>(null);
+  const [editingOverrideIndex, setEditingOverrideIndex] = useState<number | null>(null);
 
 
   // ═══════════════════════════════════════════════════════
@@ -152,7 +213,28 @@ export default function AdminOperators() {
     fetchOperators();
     fetchOperatorSchedule();
     fetchDateOverrides();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Refetch machines whenever the active center changes — operator
+  // assignments are scoped to the center, and the column list of
+  // assignables is the center's Machine rows. ABCA gets an empty
+  // response from the public machines endpoint (its 4 are seeded with
+  // legacyMachineId set), so the legacy fallback kicks in.
+  useEffect(() => {
+    if (!currentCenter) return;
+    let cancelled = false;
+    fetch(`/api/centers/${currentCenter.id}/machines`)
+      .then((r) => (r.ok ? r.json() : []))
+      .then((rows: CenterMachine[]) => {
+        if (cancelled) return;
+        setCenterMachines(Array.isArray(rows) ? rows : []);
+      })
+      .catch(() => setCenterMachines([]));
+    return () => {
+      cancelled = true;
+    };
+  }, [currentCenter]);
 
   const fetchOperators = async () => {
     setLoading(true);
@@ -161,6 +243,9 @@ export default function AdminOperators() {
       if (res.ok) {
         const data = await res.json();
         setOperators(data.operators || []);
+        if (data.bookingModel === 'RESOURCE_BASED' || data.bookingModel === 'MACHINE_PITCH') {
+          setBookingModel(data.bookingModel);
+        }
       } else {
         toast.error('Failed to fetch operators');
       }
@@ -249,7 +334,7 @@ export default function AdminOperators() {
         toast.success('Date overrides saved');
 
         // Auto-cancel bookings for zero-operator slots
-        const hasZeroSlots = overrides.some(r => r.morning === 0 || r.evening === 0);
+        const hasZeroSlots = overrides.some(r => r.morning === 0 || r.evening === 0 || r.count === 0);
         if (hasZeroSlots) {
           try {
             const cancelRes = await fetch('/api/admin/override-cancellations', {
@@ -278,7 +363,7 @@ export default function AdminOperators() {
   };
 
   const confirmAndSaveOverrides = (updated: OverrideRange[]) => {
-    const hasZeroSlots = updated.some(r => r.morning === 0 || r.evening === 0);
+    const hasZeroSlots = updated.some(r => r.morning === 0 || r.evening === 0 || r.count === 0);
     if (hasZeroSlots) {
       setPendingOverrides(updated);
     } else {
@@ -286,9 +371,43 @@ export default function AdminOperators() {
     }
   };
 
+  const resetOverrideForm = () => {
+    setNewOverrideMode('slab');
+    setNewOverrideFromDate('');
+    setNewOverrideToDate('');
+    setNewOverrideMorning(1);
+    setNewOverrideEvening(1);
+    setNewOverrideStartTime('');
+    setNewOverrideEndTime('');
+    setNewOverrideCount(1);
+    setNewOverrideRecurringDays([]);
+    setEditingOverrideIndex(null);
+  };
+
+  const startEditOverride = (index: number) => {
+    const r = dateOverrides[index];
+    if (!r) return;
+    const isTimeWindow = !!r.startTime && !!r.endTime;
+    setNewOverrideMode(isTimeWindow ? 'time' : 'slab');
+    setNewOverrideFromDate(r.from);
+    setNewOverrideToDate(r.to);
+    setNewOverrideMorning(r.morning ?? 1);
+    setNewOverrideEvening(r.evening ?? 1);
+    setNewOverrideStartTime(r.startTime ?? '');
+    setNewOverrideEndTime(r.endTime ?? '');
+    setNewOverrideCount(r.count ?? 1);
+    setNewOverrideRecurringDays(r.recurringDays ? [...r.recurringDays] : []);
+    setEditingOverrideIndex(index);
+  };
+
   const addDateOverride = () => {
     if (!newOverrideFromDate) {
       toast.error('Please select a from date');
+      return;
+    }
+    const todayISO = getISTDateString();
+    if (newOverrideFromDate < todayISO) {
+      toast.error('From date cannot be before today');
       return;
     }
     const toDate = newOverrideToDate || newOverrideFromDate;
@@ -296,23 +415,45 @@ export default function AdminOperators() {
       toast.error('To date must be on or after from date');
       return;
     }
-    const newRange: OverrideRange = {
-      from: newOverrideFromDate,
-      to: toDate,
-      morning: newOverrideMorning,
-      evening: newOverrideEvening,
-      ...(newOverrideRecurringDays.length > 0 ? { recurringDays: [...newOverrideRecurringDays].sort((a, b) => a - b) } : {}),
-    };
-    const updated = [...dateOverrides, newRange].sort((a, b) => a.from.localeCompare(b.from));
+    if (newOverrideMode === 'time') {
+      if (!newOverrideStartTime || !newOverrideEndTime) {
+        toast.error('Please select start and end times');
+        return;
+      }
+      if (newOverrideEndTime <= newOverrideStartTime) {
+        toast.error('End time must be after start time');
+        return;
+      }
+    }
+    const recurring = newOverrideRecurringDays.length > 0
+      ? { recurringDays: [...newOverrideRecurringDays].sort((a, b) => a - b) }
+      : {};
+    const newRange: OverrideRange = newOverrideMode === 'time'
+      ? {
+          from: newOverrideFromDate,
+          to: toDate,
+          startTime: newOverrideStartTime,
+          endTime: newOverrideEndTime,
+          count: newOverrideCount,
+          ...recurring,
+        }
+      : {
+          from: newOverrideFromDate,
+          to: toDate,
+          morning: newOverrideMorning,
+          evening: newOverrideEvening,
+          ...recurring,
+        };
+    const base = editingOverrideIndex !== null
+      ? dateOverrides.filter((_, i) => i !== editingOverrideIndex)
+      : dateOverrides;
+    const updated = [...base, newRange].sort((a, b) => a.from.localeCompare(b.from));
     confirmAndSaveOverrides(updated);
-    setNewOverrideFromDate('');
-    setNewOverrideToDate('');
-    setNewOverrideMorning(1);
-    setNewOverrideEvening(1);
-    setNewOverrideRecurringDays([]);
+    resetOverrideForm();
   };
 
   const removeDateOverride = (index: number) => {
+    if (editingOverrideIndex === index) resetOverrideForm();
     const updated = dateOverrides.filter((_, i) => i !== index);
     saveDateOverrides(updated);
   };
@@ -464,30 +605,56 @@ export default function AdminOperators() {
     }
   };
 
-  const toggleMachineAssignment = async (operatorId: string, machineId: string, isCurrentlyAssigned: boolean) => {
-    const key = `${operatorId}-${machineId}`;
+  // The list of assignable units shown as columns in the priority
+  // tab's machine grid. ABCA → 4 hardcoded enum values. Toplay → the
+  // center's active Machine rows. The `payload` field is exactly what
+  // we send to the operators API, so the grid stays model-agnostic.
+  const assignables: MachineAssignable[] =
+    bookingModel === 'RESOURCE_BASED'
+      ? centerMachines
+          .filter((m) => m.isActive)
+          .map((m) => ({
+            refKey: m.id,
+            name: m.name,
+            short: m.shortName ?? m.name,
+            payload: { machineRowId: m.id },
+          }))
+      : LEGACY_MACHINE_IDS.map((mid) => ({
+          refKey: mid,
+          name: LEGACY_MACHINE_LABELS[mid]?.name ?? mid,
+          short: LEGACY_MACHINE_LABELS[mid]?.short ?? mid,
+          payload: { machineId: mid },
+        }));
+
+  // Match an OperatorAssignment row to one of our `assignables`. Since
+  // exactly one of (machineId, machineRowId) is set per row, the test
+  // is straightforward.
+  const matchesAssignment = (a: OperatorAssignment, unit: MachineAssignable): boolean => {
+    if (unit.payload.machineId) return a.machineId === unit.payload.machineId;
+    if (unit.payload.machineRowId) return a.machineRowId === unit.payload.machineRowId;
+    return false;
+  };
+
+  const toggleMachineAssignment = async (
+    operatorId: string,
+    unit: MachineAssignable,
+    isCurrentlyAssigned: boolean,
+  ) => {
+    const key = `${operatorId}-${unit.refKey}`;
     setTogglingAssignment(key);
     try {
-      if (isCurrentlyAssigned) {
-        const res = await fetch('/api/admin/operators', {
-          method: 'DELETE',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ userId: operatorId, machineId }),
-        });
-        if (!res.ok) {
-          const data = await res.json();
-          throw new Error(data.error || 'Failed to remove assignment');
-        }
-      } else {
-        const res = await fetch('/api/admin/operators', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ userId: operatorId, machineId }),
-        });
-        if (!res.ok) {
-          const data = await res.json();
-          throw new Error(data.error || 'Failed to assign machine');
-        }
+      const body = { userId: operatorId, ...unit.payload };
+      const method = isCurrentlyAssigned ? 'DELETE' : 'POST';
+      const res = await fetch('/api/admin/operators', {
+        method,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(
+          data.error || (isCurrentlyAssigned ? 'Failed to remove assignment' : 'Failed to assign machine'),
+        );
       }
       const refreshRes = await fetch('/api/admin/operators');
       if (refreshRes.ok) {
@@ -695,9 +862,21 @@ export default function AdminOperators() {
             ) : (
               <div className="space-y-2">
                 {orderedOperators.map((op, index) => {
-                  const assignedMachines = new Set(
-                    (op.operatorAssignments || []).map(a => a.machineId)
-                  );
+                  // Render the assignment summary off the resolved
+                  // assignables list so RESOURCE_BASED centers see
+                  // their Machine row names ("Yantra 1") instead of the
+                  // raw FK.
+                  const assignedShorts = (op.operatorAssignments || [])
+                    .map((a) => {
+                      const unit = assignables.find((u) => matchesAssignment(a, u));
+                      if (unit) return unit.short;
+                      // Best-effort fallback (legacy enum row whose
+                      // assignable list hasn't loaded yet).
+                      if (a.machineRow) return a.machineRow.shortName ?? a.machineRow.name;
+                      if (a.machineId) return LEGACY_MACHINE_LABELS[a.machineId]?.short ?? a.machineId;
+                      return '';
+                    })
+                    .filter((s) => s.length > 0);
 
                   return (
                     <div
@@ -716,9 +895,9 @@ export default function AdminOperators() {
                         <p className="text-sm text-white truncate">{op.name || 'Unnamed'}</p>
                         <div className="flex items-center gap-1.5 mt-0.5">
                           <p className="text-[10px] text-slate-500 truncate">{op.email || op.mobileNumber || ''}</p>
-                          {assignedMachines.size > 0 && (
+                          {assignedShorts.length > 0 && (
                             <span className="text-[9px] text-accent/60">
-                              {Array.from(assignedMachines).map(m => MACHINE_LABELS[m]?.short || m).join(', ')}
+                              {assignedShorts.join(', ')}
                             </span>
                           )}
                         </div>
@@ -762,65 +941,84 @@ export default function AdminOperators() {
             )}
           </div>
 
-          {/* Machine Assignments (compact grid) */}
+          {/* Machine Assignments (compact grid) — columns are the
+              center's assignables: 4 hardcoded enums for ABCA, the
+              center's active Machine rows for Toplay et al. */}
           <div className="bg-white/[0.03] border border-white/[0.07] rounded-xl p-4">
             <div className="flex items-center gap-2 mb-3">
               <Wrench className="w-4 h-4 text-accent" />
               <h3 className="text-xs font-bold text-white uppercase tracking-wider">Machine Assignments</h3>
             </div>
 
-            {/* Header row */}
-            <div className="grid items-center gap-1.5 mb-1" style={{ gridTemplateColumns: 'minmax(80px, 1fr) repeat(4, 44px)' }}>
-              <span className="text-[9px] text-slate-500 font-medium uppercase">Operator</span>
-              {VALID_MACHINES.map(mid => {
-                const abbr: Record<string, string[]> = {
-                  GRAVITY: ['Gravity'],
-                  YANTRA: ['Yantra'],
-                  LEVERAGE_INDOOR: ['Tennis', 'In'],
-                  LEVERAGE_OUTDOOR: ['Tennis', 'Out'],
-                };
-                return (
-                  <span key={mid} className="text-[8px] text-slate-500 font-medium text-center leading-tight">
-                    {(abbr[mid] || [mid]).map((w, i) => <span key={i} className="block">{w}</span>)}
-                  </span>
-                );
-              })}
-            </div>
+            {assignables.length === 0 ? (
+              <p className="text-xs text-slate-500 italic py-6 text-center">
+                No machines configured at this center yet. Add machines on the
+                <span className="text-accent"> Centers → Machines </span> tab to enable assignment.
+              </p>
+            ) : (
+              <>
+                {/* Column widths scale with the assignable count so the
+                    grid doesn't overflow on a 6-machine center. */}
+                {(() => {
+                  const colTemplate = `minmax(80px, 1fr) repeat(${assignables.length}, 44px)`;
+                  return (
+                    <>
+                      {/* Header row */}
+                      <div className="grid items-center gap-1.5 mb-1" style={{ gridTemplateColumns: colTemplate }}>
+                        <span className="text-[9px] text-slate-500 font-medium uppercase">Operator</span>
+                        {assignables.map((unit) => (
+                          <span
+                            key={unit.refKey}
+                            className="text-[8px] text-slate-500 font-medium text-center leading-tight truncate"
+                            title={unit.name}
+                          >
+                            {unit.short}
+                          </span>
+                        ))}
+                      </div>
 
-            {/* Operator rows */}
-            {operators.map(op => {
-              const assignedMachines = new Set(
-                (op.operatorAssignments || []).map(a => a.machineId)
-              );
-              return (
-                <div key={op.id} className="grid items-center gap-1.5 py-1.5 border-t border-white/[0.04]" style={{ gridTemplateColumns: 'minmax(80px, 1fr) repeat(4, 44px)' }}>
-                  <p className="text-[11px] text-white truncate" title={op.name || 'Unnamed'}>{op.name || 'Unnamed'}</p>
-                  {VALID_MACHINES.map(mid => {
-                    const isAssigned = assignedMachines.has(mid);
-                    const isToggling = togglingAssignment === `${op.id}-${mid}`;
-                    return (
-                      <button
-                        key={mid}
-                        onClick={() => toggleMachineAssignment(op.id, mid, isAssigned)}
-                        disabled={!!togglingAssignment}
-                        className={`mx-auto flex items-center justify-center w-7 h-7 rounded-lg transition-all cursor-pointer disabled:opacity-60 ${
-                          isAssigned
-                            ? 'bg-accent/15 text-accent border border-accent/30'
-                            : 'bg-white/[0.04] text-slate-600 border border-white/[0.06] hover:bg-white/[0.08]'
-                        }`}
-                        title={`${isAssigned ? 'Remove' : 'Assign'} ${MACHINE_LABELS[mid]?.name}`}
-                      >
-                        {isToggling ? (
-                          <Loader2 className="w-3 h-3 animate-spin" />
-                        ) : isAssigned ? (
-                          <Check className="w-3.5 h-3.5" />
-                        ) : null}
-                      </button>
-                    );
-                  })}
-                </div>
-              );
-            })}
+                      {/* Operator rows */}
+                      {operators.map((op) => (
+                        <div
+                          key={op.id}
+                          className="grid items-center gap-1.5 py-1.5 border-t border-white/[0.04]"
+                          style={{ gridTemplateColumns: colTemplate }}
+                        >
+                          <p className="text-[11px] text-white truncate" title={op.name || 'Unnamed'}>
+                            {op.name || 'Unnamed'}
+                          </p>
+                          {assignables.map((unit) => {
+                            const isAssigned = (op.operatorAssignments || []).some((a) =>
+                              matchesAssignment(a, unit),
+                            );
+                            const isToggling = togglingAssignment === `${op.id}-${unit.refKey}`;
+                            return (
+                              <button
+                                key={unit.refKey}
+                                onClick={() => toggleMachineAssignment(op.id, unit, isAssigned)}
+                                disabled={!!togglingAssignment}
+                                className={`mx-auto flex items-center justify-center w-7 h-7 rounded-lg transition-all cursor-pointer disabled:opacity-60 ${
+                                  isAssigned
+                                    ? 'bg-accent/15 text-accent border border-accent/30'
+                                    : 'bg-white/[0.04] text-slate-600 border border-white/[0.06] hover:bg-white/[0.08]'
+                                }`}
+                                title={`${isAssigned ? 'Remove' : 'Assign'} ${unit.name}`}
+                              >
+                                {isToggling ? (
+                                  <Loader2 className="w-3 h-3 animate-spin" />
+                                ) : isAssigned ? (
+                                  <Check className="w-3.5 h-3.5" />
+                                ) : null}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      ))}
+                    </>
+                  );
+                })()}
+              </>
+            )}
           </div>
         </div>
       )}
@@ -832,16 +1030,46 @@ export default function AdminOperators() {
         <div className="space-y-4">
           {/* Add new override */}
           <div className="bg-white/[0.03] border border-white/[0.07] rounded-xl p-4">
-            <h3 className="text-xs font-bold text-white uppercase tracking-wider mb-3">Add Date Override</h3>
-            <p className="text-[11px] text-slate-400 mb-4">
-              Set operator count to <strong className="text-amber-400">0</strong> for a slab to make leather machines unavailable and tennis machines self-operate. Select a date range to apply across multiple days.
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-xs font-bold text-white uppercase tracking-wider">
+                {editingOverrideIndex !== null ? 'Edit Date Override' : 'Add Date Override'}
+              </h3>
+              {editingOverrideIndex !== null && (
+                <button
+                  type="button"
+                  onClick={resetOverrideForm}
+                  className="text-[10px] font-medium text-slate-400 hover:text-white px-2 py-1 rounded transition-colors cursor-pointer"
+                >
+                  Cancel edit
+                </button>
+              )}
+            </div>
+            <p className="text-[11px] text-slate-400 mb-3">
+              Set operator count to <strong className="text-amber-400">0</strong> to make leather machines unavailable and tennis machines self-operate. Apply it to a whole slab (Morning / Evening) or to a specific time window. Select a date range to apply across multiple days.
             </p>
+            {/* Mode toggle: whole-slab vs specific time window */}
+            <div className="inline-flex items-center gap-1 p-0.5 mb-4 bg-white/[0.04] border border-white/[0.08] rounded-lg">
+              {([['slab', 'Morning / Evening'], ['time', 'Time Slot']] as const).map(([mode, modeLabel]) => (
+                <button
+                  key={mode}
+                  type="button"
+                  onClick={() => setNewOverrideMode(mode)}
+                  className={`px-3 py-1 rounded-md text-[10px] font-semibold transition-colors cursor-pointer ${newOverrideMode === mode
+                      ? 'bg-accent/20 text-accent'
+                      : 'text-slate-400 hover:text-slate-200'
+                    }`}
+                >
+                  {modeLabel}
+                </button>
+              ))}
+            </div>
             <div className="grid grid-cols-1 sm:grid-cols-5 gap-3 items-end">
               <div>
                 <label className="block text-[9px] font-medium text-slate-400 mb-0.5">From Date</label>
                 <input
                   type="date"
                   value={newOverrideFromDate}
+                  min={getISTDateString()}
                   onChange={e => setNewOverrideFromDate(e.target.value)}
                   className="w-full bg-white/[0.04] border border-white/[0.1] text-white rounded-lg px-2 py-1.5 text-[11px] outline-none focus:border-accent"
                 />
@@ -851,34 +1079,70 @@ export default function AdminOperators() {
                 <input
                   type="date"
                   value={newOverrideToDate}
-                  min={newOverrideFromDate}
+                  min={newOverrideFromDate || getISTDateString()}
                   onChange={e => setNewOverrideToDate(e.target.value)}
                   className="w-full bg-white/[0.04] border border-white/[0.1] text-white rounded-lg px-2 py-1.5 text-[11px] outline-none focus:border-accent"
                 />
               </div>
-              <OperatorNumberField
-                label="Morning Operators"
-                value={newOverrideMorning}
-                onChange={setNewOverrideMorning}
-                placeholder="0"
-                labelColor="text-amber-400/70"
-              />
-              <OperatorNumberField
-                label="Evening Operators"
-                value={newOverrideEvening}
-                onChange={setNewOverrideEvening}
-                placeholder="0"
-                labelColor="text-blue-400/70"
-              />
+              {newOverrideMode === 'slab' ? (
+                <>
+                  <OperatorNumberField
+                    label="Morning Operators"
+                    value={newOverrideMorning}
+                    onChange={setNewOverrideMorning}
+                    placeholder="0"
+                    labelColor="text-amber-400/70"
+                  />
+                  <OperatorNumberField
+                    label="Evening Operators"
+                    value={newOverrideEvening}
+                    onChange={setNewOverrideEvening}
+                    placeholder="0"
+                    labelColor="text-blue-400/70"
+                  />
+                </>
+              ) : (
+                <>
+                  <div>
+                    <label className="block text-[9px] font-medium text-slate-400 mb-0.5">Start Time</label>
+                    <input
+                      type="time"
+                      value={newOverrideStartTime}
+                      onChange={e => setNewOverrideStartTime(e.target.value)}
+                      className="w-full bg-white/[0.04] border border-white/[0.1] text-white rounded-lg px-2 py-1.5 text-[11px] outline-none focus:border-accent"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[9px] font-medium text-slate-400 mb-0.5">End Time</label>
+                    <input
+                      type="time"
+                      value={newOverrideEndTime}
+                      onChange={e => setNewOverrideEndTime(e.target.value)}
+                      className="w-full bg-white/[0.04] border border-white/[0.1] text-white rounded-lg px-2 py-1.5 text-[11px] outline-none focus:border-accent"
+                    />
+                  </div>
+                </>
+              )}
               <button
                 onClick={addDateOverride}
                 disabled={savingOverrides || !newOverrideFromDate}
                 className="flex items-center justify-center gap-1.5 px-3 py-1.5 bg-accent hover:bg-accent-light text-primary text-[11px] font-semibold rounded-lg transition-colors cursor-pointer disabled:opacity-50"
               >
                 {savingOverrides ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />}
-                Add
+                {editingOverrideIndex !== null ? 'Save' : 'Add'}
               </button>
             </div>
+            {newOverrideMode === 'time' && (
+              <div className="grid grid-cols-1 sm:grid-cols-5 gap-3 items-end mt-3">
+                <OperatorNumberField
+                  label="Operators (in window)"
+                  value={newOverrideCount}
+                  onChange={setNewOverrideCount}
+                  placeholder="0"
+                  labelColor="text-blue-400/70"
+                />
+              </div>
+            )}
             {/* Recurring day-of-week filter (optional) */}
             <div className="mt-4">
               <label className="block text-[9px] font-medium text-slate-400 mb-1.5 uppercase tracking-wider">
@@ -920,13 +1184,21 @@ export default function AdminOperators() {
                         <span className="text-sm font-medium text-white">
                           {range.from === range.to ? range.from : `${range.from} → ${range.to}`}
                         </span>
-                        <div className="flex gap-3">
-                          <span className={`text-[11px] px-2 py-0.5 rounded-md ${range.morning === 0 ? 'bg-red-500/15 text-red-400' : 'bg-amber-500/10 text-amber-400'}`}>
-                            Morning: {range.morning}
-                          </span>
-                          <span className={`text-[11px] px-2 py-0.5 rounded-md ${range.evening === 0 ? 'bg-red-500/15 text-red-400' : 'bg-blue-500/10 text-blue-400'}`}>
-                            Evening: {range.evening}
-                          </span>
+                        <div className="flex gap-3 flex-wrap">
+                          {range.startTime && range.endTime ? (
+                            <span className={`text-[11px] px-2 py-0.5 rounded-md ${range.count === 0 ? 'bg-red-500/15 text-red-400' : 'bg-blue-500/10 text-blue-400'}`}>
+                              {range.startTime}–{range.endTime}: {range.count} operator{range.count === 1 ? '' : 's'}
+                            </span>
+                          ) : (
+                            <>
+                              <span className={`text-[11px] px-2 py-0.5 rounded-md ${range.morning === 0 ? 'bg-red-500/15 text-red-400' : 'bg-amber-500/10 text-amber-400'}`}>
+                                Morning: {range.morning}
+                              </span>
+                              <span className={`text-[11px] px-2 py-0.5 rounded-md ${range.evening === 0 ? 'bg-red-500/15 text-red-400' : 'bg-blue-500/10 text-blue-400'}`}>
+                                Evening: {range.evening}
+                              </span>
+                            </>
+                          )}
                           {range.recurringDays && range.recurringDays.length > 0 && (
                             <span className="text-[11px] px-2 py-0.5 rounded-md bg-accent/10 text-accent">
                               {[...range.recurringDays].sort((a, b) => a - b).map(d => DAY_LABELS[d]).join(', ')}
@@ -934,14 +1206,24 @@ export default function AdminOperators() {
                           )}
                         </div>
                       </div>
-                      <button
-                        onClick={() => removeDateOverride(idx)}
-                        disabled={savingOverrides}
-                        className="p-1.5 text-slate-500 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-colors cursor-pointer disabled:opacity-50"
-                        title="Remove override"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
+                      <div className="flex items-center gap-1">
+                        <button
+                          onClick={() => startEditOverride(idx)}
+                          disabled={savingOverrides}
+                          className="p-1.5 text-slate-500 hover:text-accent hover:bg-accent/10 rounded-lg transition-colors cursor-pointer disabled:opacity-50"
+                          title="Edit override"
+                        >
+                          <Pencil className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          onClick={() => removeDateOverride(idx)}
+                          disabled={savingOverrides}
+                          className="p-1.5 text-slate-500 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-colors cursor-pointer disabled:opacity-50"
+                          title="Remove override"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
                     </div>
                   ))}
               </div>
@@ -988,3 +1270,4 @@ export default function AdminOperators() {
     </div>
   );
 }
+

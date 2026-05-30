@@ -1,10 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { requireAdmin } from '@/lib/adminAuth';
+import { requireCenterAdmin } from '@/lib/adminAuth';
 import { DiscountType, MachineId, PitchType } from '@prisma/client';
 import { z } from 'zod';
+import { getAuthenticatedUser } from '@/lib/auth';
+import { resolveCurrentCenter } from '@/lib/centers';
 
-// Validation schema
+// Validation schema. The legacy machineIds + pitchTypes enums target
+// ABCA-style centers; the new machineRowIds + categories arrays
+// target RESOURCE_BASED bookings. Both axes can co-exist on a single
+// offer (same row, different fields used by different engines), so an
+// admin can author one offer that targets both kinds of centers if
+// they happen to share a /admin/offers page (super-admin context).
 const CreateOfferSchema = z.object({
   name: z.string().min(1, 'Name is required'),
   startDate: z.string().refine(d => !isNaN(Date.parse(d)), 'Invalid start date'),
@@ -14,10 +21,16 @@ const CreateOfferSchema = z.object({
   days: z.array(z.number().min(0).max(6)).optional().default([]),
   machineIds: z.array(z.enum(['GRAVITY', 'YANTRA', 'LEVERAGE_INDOOR', 'LEVERAGE_OUTDOOR'])).optional().default([]),
   pitchTypes: z.array(z.enum(['ASTRO', 'CEMENT', 'NATURAL'])).optional().default([]),
+  // RESOURCE_BASED targeting (Toplay et al.).
+  machineRowIds: z.array(z.string()).optional().default([]),
+  categories: z.array(z.enum(['MACHINE', 'SIDEARM', 'COACHING', 'NET', 'FULL_COURT', 'CORPORATE_BATCH'])).optional().default([]),
   discountType: z.enum(['PERCENTAGE', 'FIXED']),
   discountValue: z.number().positive('Discount value must be positive'),
   isActive: z.boolean().optional().default(true),
-  appliesTo: z.enum(['ALL', 'SPECIAL']).optional().default('ALL'),
+  // ALL = both special and generic users
+  // SPECIAL = special users only
+  // NON_SPECIAL = generic (non-special) users only
+  appliesTo: z.enum(['ALL', 'SPECIAL', 'NON_SPECIAL']).optional().default('ALL'),
 });
 
 const OFFER_SELECT = {
@@ -30,6 +43,8 @@ const OFFER_SELECT = {
   days: true,
   machineIds: true,
   pitchTypes: true,
+  machineRowIds: true,
+  categories: true,
   discountType: true,
   discountValue: true,
   isActive: true,
@@ -38,14 +53,29 @@ const OFFER_SELECT = {
   updatedAt: true,
 } as const;
 
-// GET: List all offers
+// GET: List offers at the admin's current center
 export async function GET(req: NextRequest) {
   try {
-    if (!(await requireAdmin(req))) {
+    if (!(await requireCenterAdmin(req))) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 403 });
     }
 
+    const { searchParams } = new URL(req.url);
+    const allCenters = searchParams.get('allCenters') === 'true';
+    const adminUser = await getAuthenticatedUser(req);
+    const center = adminUser ? await resolveCurrentCenter(req, adminUser) : null;
+
+    const where: { centerId?: string } = {};
+    if (!allCenters && center) {
+      where.centerId = center.id;
+    } else if (!allCenters && !center) {
+      return NextResponse.json({ error: 'No center selected' }, { status: 400 });
+    } else if (allCenters && !adminUser?.isSuperAdmin) {
+      return NextResponse.json({ error: 'allCenters requires super admin' }, { status: 403 });
+    }
+
     const offers = await prisma.promotionalOffer.findMany({
+      where,
       select: OFFER_SELECT,
       orderBy: { createdAt: 'desc' },
     });
@@ -61,8 +91,15 @@ export async function GET(req: NextRequest) {
 // POST: Create a new offer
 export async function POST(req: NextRequest) {
   try {
-    if (!(await requireAdmin(req))) {
+    if (!(await requireCenterAdmin(req))) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 403 });
+    }
+
+    // Promotional offers are center-scoped — bind to admin's current center.
+    const admin = await getAuthenticatedUser(req);
+    const center = admin ? await resolveCurrentCenter(req, admin) : null;
+    if (!center) {
+      return NextResponse.json({ error: 'No center selected' }, { status: 400 });
     }
 
     const body = await req.json();
@@ -88,8 +125,20 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    // Validate that machineRowIds reference real machines at this
+    // center. Strip any that don't (super-admin authoring tools etc).
+    let validatedMachineRowIds: string[] = [];
+    if (parsed.machineRowIds && parsed.machineRowIds.length > 0) {
+      const rows = await prisma.machine.findMany({
+        where: { id: { in: parsed.machineRowIds }, centerId: center.id },
+        select: { id: true },
+      });
+      validatedMachineRowIds = rows.map((r) => r.id);
+    }
+
     const offer = await prisma.promotionalOffer.create({
       data: {
+        centerId: center.id,
         name: parsed.name,
         startDate: new Date(parsed.startDate),
         endDate: new Date(parsed.endDate),
@@ -98,6 +147,8 @@ export async function POST(req: NextRequest) {
         days: parsed.days || [],
         machineIds: (parsed.machineIds || []) as MachineId[],
         pitchTypes: (parsed.pitchTypes || []) as PitchType[],
+        machineRowIds: validatedMachineRowIds,
+        categories: (parsed.categories || []) as never,
         discountType: parsed.discountType as DiscountType,
         discountValue: parsed.discountValue,
         isActive: parsed.isActive ?? true,
@@ -121,7 +172,7 @@ export async function POST(req: NextRequest) {
 // PATCH: Update an offer by id
 export async function PATCH(req: NextRequest) {
   try {
-    if (!(await requireAdmin(req))) {
+    if (!(await requireCenterAdmin(req))) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 403 });
     }
 
@@ -173,6 +224,14 @@ export async function PATCH(req: NextRequest) {
       dataToUpdate.appliesTo = updates.appliesTo;
     }
 
+    // Ensure resource-based targeting axes are preserved if sent
+    if (updates.categories !== undefined) {
+      dataToUpdate.categories = (updates.categories || []) as any;
+    }
+    if (updates.machineRowIds !== undefined) {
+      dataToUpdate.machineRowIds = (updates.machineRowIds || []) as any;
+    }
+
     const offer = await prisma.promotionalOffer.update({
       where: { id },
       data: dataToUpdate,
@@ -193,7 +252,7 @@ export async function PATCH(req: NextRequest) {
 // DELETE: Delete an offer by id
 export async function DELETE(req: NextRequest) {
   try {
-    if (!(await requireAdmin(req))) {
+    if (!(await requireCenterAdmin(req))) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 403 });
     }
 

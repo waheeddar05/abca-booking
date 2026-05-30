@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { requireAdmin, getAdminSession } from '@/lib/adminAuth';
+import { requireSuperAdmin, getAdminSession } from '@/lib/adminAuth';
 import { executeSlotBooking } from '@/app/api/slots/book/route';
 import { initiateRefund } from '@/lib/razorpay';
+import { sanitizeApiError } from '@/lib/api-errors';
 
 /**
  * POST /api/admin/payments/[id]/recover
@@ -17,15 +18,15 @@ import { initiateRefund } from '@/lib/razorpay';
  *                   REFUNDED. Use when the slot is no longer
  *                   available or the user has moved on.
  *
- * Admin-only. Both paths log the actor for audit.
+ * Super-admin only. Both paths log the actor for audit.
  */
 type Params = { id: string };
 
 export async function POST(req: NextRequest, ctx: { params: Promise<Params> }) {
   try {
-    const session = await requireAdmin(req);
+    const session = await requireSuperAdmin(req);
     if (!session) {
-      return NextResponse.json({ error: 'Admin required' }, { status: 403 });
+      return NextResponse.json({ error: 'Super admin required' }, { status: 403 });
     }
     const adminSession = await getAdminSession(req);
     const adminLabel = adminSession?.email ?? 'unknown-admin';
@@ -36,12 +37,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<Params> }) {
     const payment = await prisma.payment.findUnique({
       where: { id },
       include: {
-        user: {
-          select: {
-            id: true, name: true, role: true, email: true,
-            isFreeUser: true, isSpecialUser: true, mobileVerified: true,
-          },
-        },
+        user: { select: { id: true, name: true, role: true, email: true, isFreeUser: true, isSpecialUser: true, mobileVerified: true } },
       },
     });
     if (!payment) {
@@ -63,6 +59,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<Params> }) {
       }
       console.log(`[Recover] admin=${adminLabel} refunding payment ${payment.id}`);
       const refund = await initiateRefund({
+        centerId: payment.centerId,
         paymentId: payment.razorpayPaymentId,
         amount: payment.amount,
         notes: { recoveredBy: adminLabel, paymentRowId: payment.id },
@@ -127,6 +124,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<Params> }) {
         mobileVerified: payment.user.mobileVerified,
       },
       bookingPayload.map((slot) => ({ ...slot, paymentId: payment.id })),
+      payment.centerId,
       { onlinePaymentId: payment.id },
     );
 
@@ -142,9 +140,12 @@ export async function POST(req: NextRequest, ctx: { params: Promise<Params> }) {
       bookingIds: bookings.map((b) => b.id),
     });
   } catch (error) {
-    console.error('[admin.payments.recover]', error);
-    const message = error instanceof Error ? error.message : 'Recovery failed';
-    return NextResponse.json({ error: message }, { status: 500 });
+    const { message, status } = sanitizeApiError(
+      error,
+      'admin.payments.recover',
+      'Could not recover this payment.',
+    );
+    return NextResponse.json({ error: message }, { status });
   }
 }
 

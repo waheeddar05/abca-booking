@@ -3,11 +3,20 @@
 import { useState, useEffect } from 'react';
 import Image from 'next/image';
 import { useSession } from 'next-auth/react';
-import { UserPlus, Trash2, Loader2, Search, Shield, Users, ChevronDown, ChevronUp, CalendarCheck, Mail, Phone, Clock, X, XCircle, Check, CalendarPlus, History } from 'lucide-react';
+import { UserPlus, Trash2, Loader2, Search, Users, ChevronDown, ChevronUp, CalendarCheck, Mail, Phone, Clock, X, XCircle, Check, CalendarPlus, History, Wallet } from 'lucide-react';
 import Link from 'next/link';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { AdminPageHeader } from '@/components/admin/AdminPageHeader';
 import { useToast } from '@/components/ui/Toast';
+import { useCenter } from '@/lib/center-context';
+import { formatCurrency } from '@/lib/format';
+
+interface UserCenterMembership {
+  centerId: string;
+  role: string;
+  isActive: boolean;
+  center: { id: string; name: string; slug: string };
+}
 
 interface UserData {
   id: string;
@@ -24,6 +33,8 @@ interface UserData {
   specialDiscountValue: number | null;
   createdAt: string;
   lastSeen: string | null;
+  centerMemberships?: UserCenterMembership[];
+  walletBalance: number;
   _count: { bookings: number };
 }
 
@@ -55,13 +66,22 @@ export default function AdminUsers() {
   const [historyLoading, setHistoryLoading] = useState(false);
   const [cancellingId, setCancellingId] = useState<string | null>(null);
 
-  const isSuperAdmin = (session?.user as any)?.isSuperAdmin === true;
+  const isSuperAdmin = (session?.user as { isSuperAdmin?: boolean })?.isSuperAdmin === true;
+  const { currentCenter } = useCenter();
+  // Super admins get an "all centers" toggle so they can flip back to the
+  // legacy global user list when they need to manage cross-center accounts.
+  // Regular admins are always scoped to their resolved center.
+  const [allCenters, setAllCenters] = useState(false);
 
   const fetchBookingHistory = async (user: UserData) => {
     setHistoryUser(user);
     setHistoryLoading(true);
     try {
-      const res = await fetch(`/api/admin/bookings?userId=${user.id}&limit=100&sortOrder=desc`);
+      // `userInvolvement=any` includes bookings where this user was the
+      // customer, operator, coach, OR sidearm specialist — so an admin
+      // reviewing an operator/coach/staff member can see their full
+      // schedule, not just sessions they personally booked.
+      const res = await fetch(`/api/admin/bookings?userId=${user.id}&userInvolvement=any&limit=100&sortOrder=desc`);
       if (res.ok) {
         const data = await res.json();
         setHistoryBookings(data.bookings || []);
@@ -118,6 +138,9 @@ export default function AdminUsers() {
       if (search) params.set('search', search);
       // SPECIAL is client-side filter, don't send to server
       if (roleFilter && roleFilter !== 'SPECIAL') params.set('role', roleFilter);
+      // Super admin can flip the all-centers toggle to bypass the
+      // per-center scope; the server enforces the gate.
+      if (allCenters && isSuperAdmin) params.set('allCenters', 'true');
       const res = await fetch(`/api/admin/users?${params.toString()}`);
       if (res.ok) {
         const data = await res.json();
@@ -132,7 +155,10 @@ export default function AdminUsers() {
 
   useEffect(() => {
     fetchUsers();
-  }, [search, roleFilter]);
+    // Re-fetch when the admin switches centers or flips the all-centers
+    // toggle so the list always reflects the active scope.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [search, roleFilter, currentCenter?.id, allCenters]);
 
   const handleAddUser = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -273,40 +299,18 @@ export default function AdminUsers() {
     });
   };
 
-  const handleChangeRole = (user: UserData, newRole: string) => {
-    if (newRole === user.role) return;
-    const roleLabel = newRole === 'ADMIN' ? 'Admin' : newRole === 'OPERATOR' ? 'Operator' : 'User';
-    setPendingConfirm({
-      title: `Change Role to ${roleLabel}`,
-      message: `Are you sure you want to change ${user.name || user.email}'s role to ${roleLabel}?`,
-      variant: 'danger',
-      confirmLabel: `Set ${roleLabel}`,
-      onConfirm: async () => {
-        try {
-          const res = await fetch('/api/admin/users', {
-            method: 'PATCH',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ id: user.id, role: newRole }),
-          });
-          const data = await res.json();
-          if (res.ok) {
-            toast.success(`User role changed to ${roleLabel}`);
-            fetchUsers();
-          } else {
-            toast.error(data.error || 'Failed to update user');
-          }
-        } catch {
-          toast.error('Internal server error');
-        }
-      },
-    });
-  };
-
   const totalUsers = users.length;
   const adminCount = users.filter(u => u.role === 'ADMIN').length;
   const operatorCount = users.filter(u => u.role === 'OPERATOR').length;
   const userCount = users.filter(u => u.role === 'USER').length;
   const specialCount = users.filter(u => u.isSpecialUser).length;
+  // Total wallet liability across every user in the current scope. Blocked
+  // users are excluded so the figure reflects funds owed to active users.
+  const totalWalletBalance = users.reduce(
+    (sum, u) => sum + (u.isBlacklisted ? 0 : (u.walletBalance || 0)),
+    0,
+  );
+  const usersWithBalance = users.filter(u => !u.isBlacklisted && (u.walletBalance || 0) > 0).length;
 
   // Apply client-side sorting
   const sortedUsers = [...users].sort((a, b) => {
@@ -328,9 +332,33 @@ export default function AdminUsers() {
     ? sortedUsers.filter(u => u.isSpecialUser)
     : sortedUsers;
 
+  // Description tells the admin exactly which slice of users they're
+  // looking at. Without this label admins on multi-center setups had no
+  // way to know whether the list was scoped or global.
+  const scopeDescription = allCenters
+    ? `${totalUsers} users across all centers`
+    : currentCenter
+      ? `${totalUsers} users at ${currentCenter.name}`
+      : `${totalUsers} users`;
+
   return (
     <div>
-      <AdminPageHeader icon={Users} title="Manage Users" description={`${totalUsers} total users`}>
+      <AdminPageHeader icon={Users} title="Manage Users" description={scopeDescription}>
+        {isSuperAdmin && (
+          <button
+            onClick={() => setAllCenters((prev) => !prev)}
+            className={`inline-flex items-center gap-2 px-3 py-2.5 rounded-xl text-xs font-semibold transition-all cursor-pointer border ${
+              allCenters
+                ? 'bg-purple-500/15 text-purple-200 border-purple-400/40'
+                : 'bg-white/[0.04] text-slate-300 border-white/[0.08] hover:border-white/[0.16]'
+            }`}
+            title={allCenters
+              ? 'Showing every user in the system. Click to scope back to the current center.'
+              : 'Currently scoped to the active center. Click to show every user in the system.'}
+          >
+            {allCenters ? 'All centers' : 'This center'}
+          </button>
+        )}
         <button
           onClick={() => setShowAddForm(!showAddForm)}
           className="inline-flex items-center gap-2 bg-accent hover:bg-accent-light text-primary px-4 py-2.5 rounded-xl text-sm font-semibold transition-all cursor-pointer shadow-sm shadow-accent/20"
@@ -339,6 +367,26 @@ export default function AdminUsers() {
           <span className="hidden sm:inline">{showAddForm ? 'Close' : 'Add User'}</span>
         </button>
       </AdminPageHeader>
+
+      {/* Total wallet balance — surfaces the platform's outstanding wallet
+          liability at a glance so admins don't have to open each user. */}
+      <div className="mb-4 flex items-center justify-between gap-3 rounded-xl sm:rounded-2xl border border-emerald-500/20 bg-emerald-500/[0.07] p-3.5 sm:p-4">
+        <div className="flex items-center gap-3 min-w-0">
+          <div className="w-10 h-10 rounded-full bg-emerald-500/15 flex items-center justify-center flex-shrink-0">
+            <Wallet className="w-5 h-5 text-emerald-400" />
+          </div>
+          <div className="min-w-0">
+            <div className="text-[10px] font-medium text-emerald-300/80 uppercase tracking-wider">Total Wallet Balance</div>
+            <div className="text-xs text-slate-400 truncate">
+              {usersWithBalance} {usersWithBalance === 1 ? 'user has' : 'users have'} a balance
+              {allCenters ? ' across all centers' : currentCenter ? ` at ${currentCenter.name}` : ''}
+            </div>
+          </div>
+        </div>
+        <div className="text-xl sm:text-2xl font-bold text-emerald-400 flex-shrink-0">
+          {formatCurrency(totalWalletBalance)}
+        </div>
+      </div>
 
       <div className="flex gap-1.5 mb-4 overflow-x-auto pb-1 scrollbar-none">
         <button
@@ -406,20 +454,22 @@ export default function AdminUsers() {
               </div>
             </div>
             <div className="flex items-center gap-3">
-              {isSuperAdmin && (
-                <div>
-                  <label className="block text-[11px] font-medium text-slate-400 mb-1">Role</label>
-                  <select
-                    value={addRole}
-                    onChange={(e) => setAddRole(e.target.value)}
-                    className="bg-white/[0.04] border border-white/[0.1] rounded-lg px-3 py-2.5 text-sm text-white outline-none focus:border-accent focus:ring-1 focus:ring-accent/20 cursor-pointer"
-                  >
-                    <option value="USER">User</option>
-                    <option value="OPERATOR">Operator</option>
-                    <option value="ADMIN">Admin</option>
-                  </select>
-                </div>
-              )}
+              {/* Role picker. ADMIN remains super-admin-only; center
+                  admins can grant the other staff roles at THEIR center. */}
+              <div>
+                <label className="block text-[11px] font-medium text-slate-400 mb-1">Role</label>
+                <select
+                  value={addRole}
+                  onChange={(e) => setAddRole(e.target.value)}
+                  className="bg-white/[0.04] border border-white/[0.1] rounded-lg px-3 py-2.5 text-sm text-white outline-none focus:border-accent focus:ring-1 focus:ring-accent/20 cursor-pointer"
+                >
+                  <option value="USER">User</option>
+                  <option value="OPERATOR">Operator</option>
+                  <option value="COACH">Coach</option>
+                  <option value="SIDEARM_SPECIALIST">Sidearm Specialist</option>
+                  {isSuperAdmin && <option value="ADMIN">Admin</option>}
+                </select>
+              </div>
               <div className="flex-1 flex justify-end items-end">
                 <button
                   type="submit"
@@ -525,6 +575,12 @@ export default function AdminUsers() {
                   </div>
 
                   <div className="text-right flex-shrink-0 mr-1">
+                    <div className={`text-sm font-bold ${user.walletBalance > 0 ? 'text-emerald-400' : 'text-slate-500'}`}>
+                      {formatCurrency(user.walletBalance)}
+                    </div>
+                    <div className="text-[10px] text-slate-500">wallet</div>
+                  </div>
+                  <div className="text-right flex-shrink-0 mr-1">
                     <div className="text-sm font-bold text-white">{user._count.bookings}</div>
                     <div className="text-[10px] text-slate-500">bookings</div>
                   </div>
@@ -563,10 +619,38 @@ export default function AdminUsers() {
                         <CalendarCheck className="w-3.5 h-3.5 text-slate-500 flex-shrink-0" />
                         <span className="truncate">{user._count.bookings} total bookings</span>
                       </div>
+                      <div className="flex items-center gap-2 text-xs min-w-0">
+                        <Wallet className="w-3.5 h-3.5 text-slate-500 flex-shrink-0" />
+                        <span className={`truncate ${user.walletBalance > 0 ? 'text-emerald-400 font-medium' : 'text-slate-400'}`}>
+                          Wallet balance: {formatCurrency(user.walletBalance)}
+                        </span>
+                      </div>
                     </div>
                     <div className="text-[11px] text-slate-500 mb-3">
                       Auth: {user.authProvider} &middot; ID: {user.id.slice(0, 8)}...
                     </div>
+
+                    {/* Center memberships — visible in the all-centers
+                        view so the super admin can tell which centers
+                        a staff user belongs to. Hidden when the list is
+                        already scoped to a single center (would just be
+                        repeating the same name on every row). */}
+                    {allCenters && user.centerMemberships && user.centerMemberships.length > 0 && (
+                      <div className="flex flex-wrap items-center gap-1.5 mb-3">
+                        <span className="text-[10px] text-slate-500 uppercase tracking-wider">Centers:</span>
+                        {user.centerMemberships
+                          .filter((m) => m.isActive)
+                          .map((m) => (
+                            <span
+                              key={`${m.centerId}-${m.role}`}
+                              className="text-[10px] px-1.5 py-0.5 rounded font-medium bg-indigo-500/10 text-indigo-300"
+                              title={`${m.role} at ${m.center.name}`}
+                            >
+                              {m.center.name} · {m.role}
+                            </span>
+                          ))}
+                      </div>
+                    )}
 
                     {user.email !== 'waheeddar8@gmail.com' && (
                       <div className="flex flex-col gap-2">
@@ -605,29 +689,15 @@ export default function AdminUsers() {
                             </>
                           )}
                         </button>
-                        <div className="grid grid-cols-2 gap-2">
-                          <div className="flex items-center gap-1.5">
-                            <Shield className="w-3.5 h-3.5 text-slate-400 flex-shrink-0" />
-                            <select
-                              value={user.role}
-                              onChange={(e) => handleChangeRole(user, e.target.value)}
-                              className="flex-1 bg-white/[0.04] border border-white/[0.1] text-slate-300 rounded-lg px-2 py-2 text-xs outline-none focus:border-accent focus:ring-1 focus:ring-accent/20 cursor-pointer"
-                            >
-                              <option value="USER">User</option>
-                              <option value="OPERATOR">Operator</option>
-                              {isSuperAdmin && <option value="ADMIN">Admin</option>}
-                            </select>
-                          </div>
-                          {isSuperAdmin && (
-                            <button
-                              onClick={() => handleDeleteUser(user)}
-                              className="flex items-center justify-center gap-1 py-2 text-xs font-medium text-red-400 bg-red-500/10 rounded-lg hover:bg-red-500/20 transition-colors cursor-pointer"
-                            >
-                              <Trash2 className="w-3.5 h-3.5 flex-shrink-0" />
-                              <span className="truncate">Delete</span>
-                            </button>
-                          )}
-                        </div>
+                        {isSuperAdmin && (
+                          <button
+                            onClick={() => handleDeleteUser(user)}
+                            className="flex items-center justify-center gap-1 py-2 text-xs font-medium text-red-400 bg-red-500/10 rounded-lg hover:bg-red-500/20 transition-colors cursor-pointer"
+                          >
+                            <Trash2 className="w-3.5 h-3.5 flex-shrink-0" />
+                            <span className="truncate">Delete</span>
+                          </button>
+                        )}
                         <button
                           onClick={() => handleToggleSpecialUser(user)}
                           className={`flex items-center justify-center gap-1.5 py-2 text-xs font-medium rounded-lg transition-colors cursor-pointer ${user.isSpecialUser
@@ -711,6 +781,50 @@ export default function AdminUsers() {
                     const isDone = booking.status === 'DONE';
                     const hasPackage = !!booking.packageBooking;
 
+                    // Decide which role this user played in the booking
+                    // — drives the small role pill at the top so an admin
+                    // can tell at a glance whether they were the customer,
+                    // operator, coach, or sidearm specialist.
+                    const involvedUserId = historyUser?.id;
+                    let involvementRole: 'customer' | 'operator' | 'coach' | 'staff' | null = null;
+                    if (involvedUserId) {
+                      if (booking.userId === involvedUserId) involvementRole = 'customer';
+                      else if (booking.operatorId === involvedUserId) involvementRole = 'operator';
+                      else if (booking.assignedCoachId === involvedUserId) involvementRole = 'coach';
+                      else if (booking.assignedStaffId === involvedUserId) involvementRole = 'staff';
+                    }
+                    const involvementLabel =
+                      involvementRole === 'operator' ? 'As Operator'
+                      : involvementRole === 'coach' ? 'As Coach'
+                      : involvementRole === 'staff' ? 'As Sidearm'
+                      : involvementRole === 'customer' ? 'As Customer'
+                      : null;
+                    const involvementColor =
+                      involvementRole === 'operator' ? 'bg-purple-500/15 text-purple-300'
+                      : involvementRole === 'coach' ? 'bg-amber-500/15 text-amber-300'
+                      : involvementRole === 'staff' ? 'bg-cyan-500/15 text-cyan-300'
+                      : 'bg-white/[0.06] text-slate-300';
+
+                    // Resource-based machine label falls back to short
+                    // name then full name; ABCA rows keep their legacy
+                    // enum label.
+                    const machineLabel = booking.assignedMachine
+                      ? (booking.assignedMachine.shortName || booking.assignedMachine.name)
+                      : booking.machineId
+                        ? (booking.machineId === 'GRAVITY' ? 'Gravity'
+                          : booking.machineId === 'YANTRA' ? 'Yantra'
+                          : booking.machineId === 'LEVERAGE_INDOOR' ? 'Tennis Indoor'
+                          : booking.machineId === 'LEVERAGE_OUTDOOR' ? 'Tennis Outdoor'
+                          : booking.machineId)
+                        : null;
+
+                    // Center label — short name if available, else full
+                    // name. Hidden on single-center setups where the
+                    // admin already knows the context.
+                    const centerLabel = booking.center
+                      ? (booking.center.shortName || booking.center.name)
+                      : null;
+
                     return (
                       <div
                         key={booking.id}
@@ -721,7 +835,7 @@ export default function AdminUsers() {
                       >
                         <div className="flex items-start justify-between gap-2">
                           <div className="min-w-0 flex-1">
-                            <div className="flex items-center gap-2 mb-1">
+                            <div className="flex items-center gap-2 mb-1 flex-wrap">
                               <span className="text-xs font-semibold text-white">
                                 {new Date(booking.date).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', day: '2-digit', month: 'short', year: 'numeric' })}
                               </span>
@@ -734,15 +848,31 @@ export default function AdminUsers() {
                                 }`}>
                                 {booking.status}
                               </span>
+                              {involvementLabel && (
+                                <span className={`text-[9px] px-1.5 py-0.5 rounded-full font-semibold ${involvementColor}`}>
+                                  {involvementLabel}
+                                </span>
+                              )}
                             </div>
                             <div className="flex flex-wrap items-center gap-2 text-[10px] text-slate-400">
-                              {booking.machineId && (
+                              {centerLabel && (
+                                <span className="bg-indigo-500/10 text-indigo-300 px-1.5 py-0.5 rounded font-medium">
+                                  {centerLabel}
+                                </span>
+                              )}
+                              {machineLabel && (
                                 <span className="bg-white/[0.06] px-1.5 py-0.5 rounded">
-                                  {booking.machineId === 'GRAVITY' ? 'Gravity' :
-                                    booking.machineId === 'YANTRA' ? 'Yantra' :
-                                      booking.machineId === 'LEVERAGE_INDOOR' ? 'Tennis Indoor' :
-                                        booking.machineId === 'LEVERAGE_OUTDOOR' ? 'Tennis Outdoor' :
-                                          booking.machineId}
+                                  {machineLabel}
+                                </span>
+                              )}
+                              {booking.category && booking.category !== 'MACHINE' && (
+                                <span className="bg-indigo-500/10 text-indigo-300 px-1.5 py-0.5 rounded font-medium">
+                                  {booking.category === 'SIDEARM' ? 'Sidearm'
+                                    : booking.category === 'COACHING' ? 'Coaching'
+                                    : booking.category === 'FULL_COURT' ? 'Full Court'
+                                    : booking.category === 'CORPORATE_BATCH' ? 'Corporate'
+                                    : booking.category === 'NET' ? 'Net only'
+                                    : booking.category}
                                 </span>
                               )}
                               {booking.ballType && (

@@ -1,47 +1,102 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { CalendarCheck, Activity, CalendarDays, TrendingUp, IndianRupee, LayoutDashboard, X } from 'lucide-react';
+import { CalendarCheck, LayoutDashboard, X, IndianRupee } from 'lucide-react';
 import { AdminPageHeader } from '@/components/admin/AdminPageHeader';
 import { AdminStatCard } from '@/components/admin/AdminStatCard';
-import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend } from 'recharts';
-import { MACHINES } from '@/lib/constants';
+import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, CartesianGrid } from 'recharts';
 
-interface MachineRevenueItem {
-  machineId: string;
-  _sum: { price: number };
+interface BookingDistributionItem {
+  category: string;
+  today: number;
+  upcoming: number;
 }
 
-interface OperatorSummaryItem {
+interface RevenueItem {
+  name: string;
+  revenue: number;
+}
+
+interface StaffSessionItem {
   id: string;
-  name: string | null;
-  bookings: number;
+  name: string;
+  sessions: number;
 }
 
 interface Stats {
   totalBookings: number;
-  activeAdmins: number;
-  todayBookings: number;
-  upcomingBookings: number;
-  lastMonthBookings: number;
   totalRevenue: number;
   bookingRevenue: number;
   packageRevenue: number;
-  totalDiscount: number;
-  machineRevenue: MachineRevenueItem[];
-  selfOperatedBookings: number;
-  unassignedBookings: number;
-  operatorSummary: OperatorSummaryItem[];
-  systemStatus: string;
+  bookingDistribution: BookingDistributionItem[];
+  revenueBreakdown: {
+    entries: Array<{
+      key: string;
+      _sum: { price: number };
+    }>;
+  };
+  machineTypeRevenue: RevenueItem[];
+  operatorSummary: StaffSessionItem[];
+  sidearmSummary: StaffSessionItem[];
+  coachSummary: StaffSessionItem[];
 }
 
-const CHART_BAR_COLOR = '#38bdf8';
+const CHART_COLORS = ['#38bdf8', '#818cf8', '#fb7185', '#34d399', '#fbbf24', '#a78bfa'];
+
+function istYMD(d: Date): string {
+  const ist = new Date(d.getTime() + (5 * 60 + 30) * 60 * 1000);
+  const y = ist.getUTCFullYear();
+  const m = String(ist.getUTCMonth() + 1).padStart(2, '0');
+  const day = String(ist.getUTCDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+function defaultDashboardRange(): { from: string; to: string } {
+  const now = new Date();
+  const ist = new Date(now.getTime() + (5 * 60 + 30) * 60 * 1000);
+  const firstOfMonth = new Date(Date.UTC(ist.getUTCFullYear(), ist.getUTCMonth(), 1));
+  return { from: istYMD(firstOfMonth), to: istYMD(now) };
+}
+
+const CATEGORY_LABELS: Record<string, string> = {
+  MACHINE: 'Bowling Machine',
+  SIDEARM: 'Sidearm',
+  NET: 'Cricket Net',
+  FULL_COURT: 'Full Indoor Court',
+  COACHING: 'Personal Coaching',
+  CORPORATE_BATCH: 'Corporate Batch',
+};
+
+interface AxisTickProps {
+  x?: number;
+  y?: number;
+  payload?: { value?: string | number };
+}
+
+// X-axis tick that wraps multi-word labels onto separate lines, so the name
+// sits directly under its bar and stays readable on narrow mobile columns
+// (e.g. "Full Indoor Court" stacks into three lines instead of overflowing).
+function WrappedAxisTick({ x = 0, y = 0, payload }: AxisTickProps) {
+  const words = String(payload?.value ?? '').split(' ');
+  return (
+    <g transform={`translate(${x},${y})`}>
+      <text textAnchor="middle" fill="#94a3b8" fontSize={10}>
+        {words.map((word, i) => (
+          <tspan key={i} x={0} dy={i === 0 ? 12 : 11}>
+            {word}
+          </tspan>
+        ))}
+      </text>
+    </g>
+  );
+}
 
 export default function AdminDashboard() {
   const [stats, setStats] = useState<Stats | null>(null);
   const [loading, setLoading] = useState(true);
-  const [from, setFrom] = useState('');
-  const [to, setTo] = useState('');
+  const [defaultRange] = useState(defaultDashboardRange);
+  const [from, setFrom] = useState(defaultRange.from);
+  const [to, setTo] = useState(defaultRange.to);
 
   useEffect(() => {
     async function fetchStats() {
@@ -65,191 +120,350 @@ export default function AdminDashboard() {
     fetchStats();
   }, [from, to]);
 
-  const statCards = [
-    { label: 'Total Bookings', value: stats?.totalBookings ?? 0, icon: CalendarCheck, gradient: 'bg-gradient-to-br from-accent/15 to-accent/5', iconColor: 'text-accent', href: '/admin/bookings' },
-    { label: 'Today', value: stats?.todayBookings ?? 0, icon: CalendarDays, gradient: 'bg-gradient-to-br from-orange-500/15 to-orange-500/5', iconColor: 'text-orange-400', href: '/admin/bookings?category=today' },
-    { label: 'Upcoming', value: stats?.upcomingBookings ?? 0, icon: TrendingUp, gradient: 'bg-gradient-to-br from-blue-500/15 to-blue-500/5', iconColor: 'text-blue-400', href: '/admin/bookings?category=upcoming' },
-    { label: 'Revenue', value: stats?.totalRevenue ? `₹${stats.totalRevenue.toLocaleString()}` : '₹0', icon: IndianRupee, gradient: 'bg-gradient-to-br from-emerald-500/15 to-emerald-500/5', iconColor: 'text-emerald-400', isText: true, prefix: '', href: '/admin/bookings' },
-    { label: 'Status', value: stats?.systemStatus ?? 'Healthy', icon: Activity, gradient: 'bg-gradient-to-br from-green-500/15 to-green-500/5', iconColor: 'text-green-400', isText: true, href: '/admin/policies' },
-  ];
-
-  const CHART_SHORT_NAMES: Record<string, string> = {
-    GRAVITY: 'Gravity',
-    YANTRA: 'Yantra',
-    LEVERAGE_INDOOR: 'Tennis In',
-    LEVERAGE_OUTDOOR: 'Tennis Out',
-  };
-
-  const machineChartData = (stats?.machineRevenue || [])
-    .map(item => ({
-      name: CHART_SHORT_NAMES[item.machineId] || MACHINES[item.machineId as keyof typeof MACHINES]?.shortName || item.machineId,
-      revenue: item._sum.price || 0,
+  const revenueByCategoryData = (stats?.revenueBreakdown?.entries || [])
+    .filter(entry => ['MACHINE', 'NET', 'SIDEARM', 'FULL_COURT'].includes(entry.key))
+    .map(entry => ({
+      name: CATEGORY_LABELS[entry.key] || entry.key,
+      revenue: entry._sum.price || 0,
     }))
     .sort((a, b) => b.revenue - a.revenue);
 
-  const activeOperators = (stats?.operatorSummary || [])
-    .filter(op => op.bookings > 0)
-    .sort((a, b) => b.bookings - a.bookings);
-
-  type DistributionRow = { key: string; label: string; value: number; color: string };
-  const distributionRows: DistributionRow[] = [
-    { key: 'self', label: 'Self-operated', value: stats?.selfOperatedBookings ?? 0, color: 'text-emerald-400' },
-    { key: 'unassigned', label: 'Unassigned', value: stats?.unassignedBookings ?? 0, color: 'text-amber-400' },
-    ...activeOperators.map(op => ({
-      key: op.id,
-      label: op.name || 'Unnamed',
-      value: op.bookings,
-      color: 'text-purple-400',
-    })),
-  ].sort((a, b) => b.value - a.value);
+  const revenueByMachineData = (stats?.machineTypeRevenue || [])
+    .sort((a, b) => b.revenue - a.revenue);
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-6 pb-10">
       <AdminPageHeader
         icon={LayoutDashboard}
-        title="Dashboard"
-        description="Overview & quick actions"
+        title="Admin Dashboard"
+        description="Business metrics & performance"
       />
 
-      {/* Date Range Filter */}
-      <div className="flex items-end gap-2 flex-wrap">
-        <div className="grid grid-cols-2 gap-2 flex-1 min-w-0 max-w-sm">
-          <div>
-            <label className="block text-[11px] font-semibold text-slate-300 mb-1.5">From</label>
-            <input
-              type="date"
-              value={from}
-              onChange={e => setFrom(e.target.value)}
-              className="w-full bg-white/[0.06] border border-white/[0.15] text-white rounded-lg px-3 py-2.5 text-sm outline-none focus:border-accent focus:ring-1 focus:ring-accent/20 [color-scheme:dark]"
-            />
+      {/* Global Date Filter Section */}
+      <div className="bg-white/[0.03] backdrop-blur-sm rounded-xl border border-white/[0.07] p-4">
+        <div className="flex flex-col sm:flex-row items-end gap-4">
+          <div className="grid grid-cols-2 gap-4 flex-1 w-full max-w-md">
+            <div>
+              <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1.5 ml-1">From Date</label>
+              <input
+                type="date"
+                value={from}
+                onChange={e => setFrom(e.target.value)}
+                className="w-full bg-slate-900/50 border border-white/[0.1] text-white rounded-lg px-3 py-2 text-sm outline-none focus:border-accent focus:ring-1 focus:ring-accent/20 [color-scheme:dark]"
+              />
+            </div>
+            <div>
+              <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1.5 ml-1">To Date</label>
+              <input
+                type="date"
+                value={to}
+                onChange={e => setTo(e.target.value)}
+                className="w-full bg-slate-900/50 border border-white/[0.1] text-white rounded-lg px-3 py-2 text-sm outline-none focus:border-accent focus:ring-1 focus:ring-accent/20 [color-scheme:dark]"
+              />
+            </div>
           </div>
-          <div>
-            <label className="block text-[11px] font-semibold text-slate-300 mb-1.5">To</label>
-            <input
-              type="date"
-              value={to}
-              onChange={e => setTo(e.target.value)}
-              className="w-full bg-white/[0.06] border border-white/[0.15] text-white rounded-lg px-3 py-2.5 text-sm outline-none focus:border-accent focus:ring-1 focus:ring-accent/20 [color-scheme:dark]"
-            />
-          </div>
+          {(from !== defaultRange.from || to !== defaultRange.to) && (
+            <button
+              onClick={() => { setFrom(defaultRange.from); setTo(defaultRange.to); }}
+              className="flex items-center gap-1.5 text-xs font-medium text-slate-400 hover:text-white transition-colors px-3 py-2 bg-white/[0.05] rounded-lg border border-white/[0.05] mb-0.5"
+            >
+              <X className="w-3.5 h-3.5" />
+              Reset
+            </button>
+          )}
         </div>
-        {(from || to) && (
-          <button
-            onClick={() => { setFrom(''); setTo(''); }}
-            className="flex items-center gap-1 text-xs text-slate-400 hover:text-white transition-colors px-2 py-2.5 cursor-pointer"
-          >
-            <X className="w-3.5 h-3.5" />
-            Clear
-          </button>
-        )}
       </div>
 
-      {/* Stats Grid */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2.5">
-        {statCards.map((card, idx) => (
-          <AdminStatCard
-            key={card.label}
-            label={card.label}
-            value={card.isText ? (card.value as string) : (card.value as number)}
-            icon={card.icon}
-            href={card.href}
-            gradient={card.gradient}
-            iconColor={card.iconColor}
-            loading={loading}
-            isText={card.isText}
-            prefix={card.prefix}
-            delay={idx * 60}
-          />
-        ))}
+      {/* KPI Summary Cards — always one row (3 across), tightened on small screens */}
+      <div className="grid grid-cols-3 gap-2 sm:gap-4">
+        <AdminStatCard
+          label="Total Revenue"
+          value={stats?.totalRevenue ? `₹${stats.totalRevenue.toLocaleString()}` : '₹0'}
+          icon={IndianRupee}
+          href="/admin/bookings"
+          gradient="bg-gradient-to-br from-emerald-500/20 to-emerald-500/5"
+          iconColor="text-emerald-400"
+          isText
+          loading={loading}
+          delay={0}
+        />
+        <AdminStatCard
+          label="Bookings Revenue"
+          value={stats?.bookingRevenue ? `₹${stats.bookingRevenue.toLocaleString()}` : '₹0'}
+          icon={CalendarCheck}
+          href="/admin/bookings"
+          gradient="bg-gradient-to-br from-blue-500/20 to-blue-500/5"
+          iconColor="text-blue-400"
+          isText
+          loading={loading}
+          delay={100}
+        />
+        <AdminStatCard
+          label="Package Revenue"
+          value={stats?.packageRevenue ? `₹${stats.packageRevenue.toLocaleString()}` : '₹0'}
+          icon={IndianRupee}
+          href="/admin/packages"
+          gradient="bg-gradient-to-br from-amber-500/20 to-amber-500/5"
+          iconColor="text-amber-400"
+          isText
+          loading={loading}
+          delay={200}
+        />
       </div>
 
-      {/* Revenue Breakdown */}
-      {stats && (stats.bookingRevenue > 0 || stats.packageRevenue > 0) && (
-        <div className="grid grid-cols-2 gap-2.5">
-          <div className="bg-white/[0.03] backdrop-blur-sm rounded-xl border border-white/[0.07] p-3.5">
-            <div className="text-[10px] font-medium text-slate-400 uppercase tracking-wider mb-1">Booking Revenue</div>
-            <div className="text-lg font-bold text-emerald-400">₹{stats.bookingRevenue.toLocaleString()}</div>
-          </div>
-          <div className="bg-white/[0.03] backdrop-blur-sm rounded-xl border border-white/[0.07] p-3.5">
-            <div className="text-[10px] font-medium text-slate-400 uppercase tracking-wider mb-1">Package Revenue</div>
-            <div className="text-lg font-bold text-orange-400">₹{stats.packageRevenue.toLocaleString()}</div>
-          </div>
+      {/* Booking Distribution Table */}
+      <div className="bg-white/[0.03] backdrop-blur-sm rounded-xl border border-white/[0.07] overflow-hidden">
+        <div className="px-4 py-3 border-b border-white/[0.07]">
+          <h2 className="text-sm font-bold text-white uppercase tracking-wider">Booking Distribution</h2>
         </div>
-      )}
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm text-left border-collapse">
+            <thead>
+              <tr className="bg-white/[0.02]">
+                <th className="px-4 py-3 font-semibold text-slate-400 border-b border-white/[0.07] border-r border-white/[0.07]">Category</th>
+                <th className="px-4 py-3 font-semibold text-slate-400 border-b border-white/[0.07] text-center border-r border-white/[0.07]">Today</th>
+                <th className="px-4 py-3 font-semibold text-slate-400 border-b border-white/[0.07] text-center">Upcoming</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-white/[0.05]">
+              {loading ? (
+                ['MACHINE', 'SIDEARM', 'NET', 'FULL_COURT'].map((cat) => (
+                  <tr key={cat} className="animate-pulse">
+                    <td className="px-4 py-4 border-r border-white/[0.07]"><div className="h-4 bg-white/10 rounded w-24" /></td>
+                    <td className="px-4 py-4 border-r border-white/[0.07]"><div className="h-4 bg-white/10 rounded w-12 mx-auto" /></td>
+                    <td className="px-4 py-4"><div className="h-4 bg-white/10 rounded w-12 mx-auto" /></td>
+                  </tr>
+                ))
+              ) : stats?.bookingDistribution && stats.bookingDistribution.length > 0 ? (
+                ['MACHINE', 'SIDEARM', 'NET', 'FULL_COURT'].map(cat => {
+                  const item = stats.bookingDistribution.find(d => d.category === cat) || { category: cat, today: 0, upcoming: 0 };
+                  return (
+                    <tr key={cat} className="hover:bg-white/[0.02] transition-colors">
+                      <td className="px-4 py-3.5 font-medium text-slate-200 border-r border-white/[0.07]">{CATEGORY_LABELS[cat] || cat}</td>
+                      <td className="px-4 py-3.5 text-center text-slate-300 border-r border-white/[0.07]">{item.today}</td>
+                      <td className="px-4 py-3.5 text-center text-slate-300">{item.upcoming}</td>
+                    </tr>
+                  );
+                })
+              ) : (
+                <tr>
+                  <td colSpan={3} className="px-4 py-10 text-center text-slate-500 italic">No data available for selected dates</td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
 
-      {/* Machine-wise Revenue Chart */}
-      <div className="bg-white/[0.03] backdrop-blur-sm rounded-xl sm:rounded-2xl border border-white/[0.07] p-4">
-        <h2 className="text-sm font-semibold text-slate-400 mb-3 px-1">Revenue by Machine</h2>
-        {!loading && machineChartData.length > 0 ? (
-          <div className="h-64">
+      {/* Revenue by Category Chart */}
+      <div className="bg-white/[0.03] backdrop-blur-sm rounded-xl border border-white/[0.07] p-5">
+        <h2 className="text-sm font-bold text-white uppercase tracking-wider mb-6">Revenue by Category</h2>
+        <div className="h-72 w-full">
+          {loading ? (
+            <div className="h-full w-full bg-white/[0.03] rounded-lg animate-pulse flex items-center justify-center">
+              <div className="w-8 h-8 border-2 border-accent/20 border-t-accent rounded-full animate-spin" />
+            </div>
+          ) : revenueByCategoryData.length > 0 ? (
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={machineChartData} margin={{ top: 5, right: 10, left: 10, bottom: 5 }}>
+              <BarChart data={revenueByCategoryData} margin={{ top: 10, right: 10, left: 10, bottom: 28 }}>
+                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="rgba(255,255,255,0.05)" />
                 <XAxis
                   dataKey="name"
-                  tick={{ fill: '#cbd5e1', fontSize: 10, fontWeight: 500 }}
                   axisLine={false}
                   tickLine={false}
+                  tick={<WrappedAxisTick />}
                   interval={0}
                 />
-                <YAxis
-                  tick={{ fill: '#94a3b8', fontSize: 11 }}
-                  axisLine={false}
-                  tickLine={false}
-                  tickFormatter={v => `₹${(v / 1000).toFixed(0)}k`}
+                <YAxis 
+                  axisLine={false} 
+                  tickLine={false} 
+                  tick={{ fill: '#64748b', fontSize: 10 }}
+                  tickFormatter={(v) => `₹${v >= 1000 ? (v/1000).toFixed(0) + 'k' : v}`}
                 />
-                <Tooltip
-                  formatter={(value) => [`₹${Number(value).toLocaleString()}`, 'Revenue']}
-                  contentStyle={{
-                    backgroundColor: '#0f1d2f',
-                    border: '1px solid rgba(255,255,255,0.1)',
-                    borderRadius: '8px',
-                    color: '#e2e8f0',
-                  }}
-                  labelStyle={{ color: '#e2e8f0' }}
-                  itemStyle={{ color: '#e2e8f0' }}
+                <Tooltip 
                   cursor={{ fill: 'rgba(255,255,255,0.05)' }}
+                  contentStyle={{ backgroundColor: '#0f172a', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px' }}
+                  itemStyle={{ color: '#fff', fontSize: '12px' }}
+                  labelStyle={{ color: '#94a3b8', fontSize: '11px', marginBottom: '4px' }}
+                  formatter={(value: any) => [`₹${value.toLocaleString()}`, 'Revenue']}
                 />
-                <Legend
-                  wrapperStyle={{ color: '#94a3b8', fontSize: 12 }}
-                  formatter={() => 'Revenue'}
-                />
-                <Bar dataKey="revenue" name="Revenue" fill={CHART_BAR_COLOR} radius={[6, 6, 0, 0]} />
+                <Bar dataKey="revenue" radius={[4, 4, 0, 0]} barSize={40} name="Revenue">
+                  {revenueByCategoryData.map((_, index) => (
+                    <Cell key={`cell-${index}`} fill={CHART_COLORS[index % CHART_COLORS.length]} />
+                  ))}
+                </Bar>
               </BarChart>
             </ResponsiveContainer>
-          </div>
-        ) : !loading ? (
-          <p className="text-sm text-slate-500 text-center py-8">No machine revenue data available</p>
-        ) : (
-          <div className="h-64 flex items-center justify-center">
-            <div className="w-6 h-6 border-2 border-accent/30 border-t-accent rounded-full animate-spin" />
-          </div>
-        )}
+          ) : (
+            <div className="h-full flex flex-col items-center justify-center text-slate-500 italic">
+              No revenue data available for selected dates
+            </div>
+          )}
+        </div>
       </div>
 
-      {/* Booking Distribution */}
-      <div className="bg-white/[0.03] backdrop-blur-sm rounded-xl sm:rounded-2xl border border-white/[0.07] p-4">
-        <h2 className="text-sm font-semibold text-slate-400 mb-3 px-1">Booking Distribution</h2>
-        {!loading ? (
-          <div className="space-y-2">
-            {/* Total */}
-            <div className="flex items-center justify-between py-2.5 px-3 bg-white/[0.06] rounded-lg border border-white/[0.08]">
-              <span className="text-sm text-white font-semibold">Total Bookings</span>
-              <span className="text-sm font-bold text-white">{stats?.totalBookings ?? 0}</span>
+      {/* Revenue by Bowling Machine Type Chart */}
+      <div className="bg-white/[0.03] backdrop-blur-sm rounded-xl border border-white/[0.07] p-5">
+        <h2 className="text-sm font-bold text-white uppercase tracking-wider mb-6">Revenue by Bowling Machine Type</h2>
+        <div className="h-72 w-full">
+          {loading ? (
+            <div className="h-full w-full bg-white/[0.03] rounded-lg animate-pulse flex items-center justify-center">
+              <div className="w-8 h-8 border-2 border-accent/20 border-t-accent rounded-full animate-spin" />
             </div>
+          ) : revenueByMachineData.length > 0 ? (
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={revenueByMachineData} margin={{ top: 10, right: 10, left: 10, bottom: 28 }}>
+                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="rgba(255,255,255,0.05)" />
+                <XAxis
+                  dataKey="name"
+                  axisLine={false}
+                  tickLine={false}
+                  tick={<WrappedAxisTick />}
+                  interval={0}
+                />
+                <YAxis 
+                  axisLine={false} 
+                  tickLine={false} 
+                  tick={{ fill: '#64748b', fontSize: 10 }}
+                  tickFormatter={(v) => `₹${v >= 1000 ? (v/1000).toFixed(0) + 'k' : v}`}
+                />
+                <Tooltip 
+                  cursor={{ fill: 'rgba(255,255,255,0.05)' }}
+                  contentStyle={{ backgroundColor: '#0f172a', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px' }}
+                  itemStyle={{ color: '#fff', fontSize: '12px' }}
+                  labelStyle={{ color: '#94a3b8', fontSize: '11px', marginBottom: '4px' }}
+                  formatter={(value: any) => [`₹${value.toLocaleString()}`, 'Revenue']}
+                />
+                <Bar dataKey="revenue" radius={[4, 4, 0, 0]} barSize={40}>
+                  {revenueByMachineData.map((_, index) => (
+                    <Cell key={`cell-${index}`} fill={CHART_COLORS[0]} />
+                  ))}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          ) : (
+            <div className="h-full flex flex-col items-center justify-center text-slate-500 italic">
+              No machine revenue data available for selected dates
+            </div>
+          )}
+        </div>
+      </div>
 
-            {/* Distribution rows sorted by count descending */}
-            {distributionRows.map(row => (
-              <div key={row.key} className="flex items-center justify-between py-2.5 px-3 bg-white/[0.03] rounded-lg border border-white/[0.06]">
-                <span className="text-sm text-slate-300 font-medium">{row.label}</span>
-                <span className={`text-sm font-bold ${row.color}`}>{row.value}</span>
-              </div>
-            ))}
+      {/* Staff Session Distribution Tables */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Table A — Operators */}
+        <div className="bg-white/[0.03] backdrop-blur-sm rounded-xl border border-white/[0.07] overflow-hidden h-fit">
+          <div className="px-4 py-3 bg-white/[0.02] border-b border-white/[0.07]">
+            <h3 className="text-[11px] font-bold text-slate-400 uppercase tracking-widest">Operator Sessions</h3>
           </div>
-        ) : (
-          <div className="flex items-center justify-center py-8">
-            <div className="w-6 h-6 border-2 border-accent/30 border-t-accent rounded-full animate-spin" />
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm text-left">
+              <thead>
+                <tr className="text-[10px] text-slate-500 uppercase">
+                  <th className="px-4 py-2 font-bold border-b border-white/[0.05]">Operator Name</th>
+                  <th className="px-4 py-2 font-bold border-b border-white/[0.05] text-right">Sessions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-white/[0.05]">
+                {loading ? (
+                  [...Array(3)].map((_, i) => (
+                    <tr key={i} className="animate-pulse">
+                      <td className="px-4 py-3"><div className="h-3 bg-white/10 rounded w-20" /></td>
+                      <td className="px-4 py-3 text-right"><div className="h-3 bg-white/10 rounded w-6 ml-auto" /></td>
+                    </tr>
+                  ))
+                ) : stats?.operatorSummary && stats.operatorSummary.length > 0 ? (
+                  stats.operatorSummary.map(op => (
+                    <tr key={op.id} className="hover:bg-white/[0.02]">
+                      <td className="px-4 py-3 text-slate-300 truncate max-w-[140px]">{op.name}</td>
+                      <td className="px-4 py-3 text-right font-bold text-white">{op.sessions}</td>
+                    </tr>
+                  ))
+                ) : (
+                  <tr>
+                    <td colSpan={2} className="px-4 py-6 text-center text-slate-500 text-xs italic">No operator data</td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
           </div>
-        )}
+        </div>
+
+        {/* Table B — Sidearm */}
+        <div className="bg-white/[0.03] backdrop-blur-sm rounded-xl border border-white/[0.07] overflow-hidden h-fit">
+          <div className="px-4 py-3 bg-white/[0.02] border-b border-white/[0.07]">
+            <h3 className="text-[11px] font-bold text-slate-400 uppercase tracking-widest">Sidearm Sessions</h3>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm text-left">
+              <thead>
+                <tr className="text-[10px] text-slate-500 uppercase">
+                  <th className="px-4 py-2 font-bold border-b border-white/[0.05]">Specialist Name</th>
+                  <th className="px-4 py-2 font-bold border-b border-white/[0.05] text-right">Sessions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-white/[0.05]">
+                {loading ? (
+                  [...Array(3)].map((_, i) => (
+                    <tr key={i} className="animate-pulse">
+                      <td className="px-4 py-3"><div className="h-3 bg-white/10 rounded w-20" /></td>
+                      <td className="px-4 py-3 text-right"><div className="h-3 bg-white/10 rounded w-6 ml-auto" /></td>
+                    </tr>
+                  ))
+                ) : stats?.sidearmSummary && stats.sidearmSummary.length > 0 ? (
+                  stats.sidearmSummary.map(sp => (
+                    <tr key={sp.id} className="hover:bg-white/[0.02]">
+                      <td className="px-4 py-3 text-slate-300 truncate max-w-[140px]">{sp.name}</td>
+                      <td className="px-4 py-3 text-right font-bold text-white">{sp.sessions}</td>
+                    </tr>
+                  ))
+                ) : (
+                  <tr>
+                    <td colSpan={2} className="px-4 py-6 text-center text-slate-500 text-xs italic">No sidearm data</td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        {/* Table C — Coaches */}
+        <div className="bg-white/[0.03] backdrop-blur-sm rounded-xl border border-white/[0.07] overflow-hidden h-fit">
+          <div className="px-4 py-3 bg-white/[0.02] border-b border-white/[0.07]">
+            <h3 className="text-[11px] font-bold text-slate-400 uppercase tracking-widest">Personal Coach Sessions</h3>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm text-left">
+              <thead>
+                <tr className="text-[10px] text-slate-500 uppercase">
+                  <th className="px-4 py-2 font-bold border-b border-white/[0.05]">Coach Name</th>
+                  <th className="px-4 py-2 font-bold border-b border-white/[0.05] text-right">Sessions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-white/[0.05]">
+                {loading ? (
+                  [...Array(3)].map((_, i) => (
+                    <tr key={i} className="animate-pulse">
+                      <td className="px-4 py-3"><div className="h-3 bg-white/10 rounded w-20" /></td>
+                      <td className="px-4 py-3 text-right"><div className="h-3 bg-white/10 rounded w-6 ml-auto" /></td>
+                    </tr>
+                  ))
+                ) : stats?.coachSummary && stats.coachSummary.length > 0 ? (
+                  stats.coachSummary.map(ch => (
+                    <tr key={ch.id} className="hover:bg-white/[0.02]">
+                      <td className="px-4 py-3 text-slate-300 truncate max-w-[140px]">{ch.name}</td>
+                      <td className="px-4 py-3 text-right font-bold text-white">{ch.sessions}</td>
+                    </tr>
+                  ))
+                ) : (
+                  <tr>
+                    <td colSpan={2} className="px-4 py-6 text-center text-slate-500 text-xs italic">No coaching data</td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
       </div>
     </div>
   );

@@ -12,6 +12,7 @@ import type { MachinePitchConfig } from '@/lib/constants';
 import { getPricingConfig, getTimeSlabConfig, getSlotPrice, getTimeSlab, timeToMinutes } from '@/lib/pricing';
 import { getCachedPolicies } from '@/lib/policy-cache';
 import { getAuthenticatedUser } from '@/lib/auth';
+import { resolveCurrentCenter } from '@/lib/centers';
 import { getOperatorCount } from '@/lib/operatorAssign';
 
 function isValidPitchTypeValue(val: string): val is PitchType {
@@ -34,13 +35,22 @@ export async function GET(req: NextRequest) {
 
     let isAdmin = false;
     let isSpecialUser = false;
+    let authedUser: Awaited<ReturnType<typeof getAuthenticatedUser>> = null;
     try {
-      const user = await getAuthenticatedUser(req);
-      isAdmin = user?.role === 'ADMIN';
-      isSpecialUser = !!user?.isSpecialUser;
+      authedUser = await getAuthenticatedUser(req);
+      isAdmin = authedUser?.role === 'ADMIN';
+      isSpecialUser = !!authedUser?.isSpecialUser;
     } catch (e) {
       console.error('Error authenticating user in available slots:', e);
     }
+
+    // Resolve the center the slot list applies to. Anonymous public visitors
+    // get the default active center; authed users get their cookie/membership.
+    const center = await resolveCurrentCenter(req, authedUser);
+    if (!center) {
+      return NextResponse.json({ error: 'No center available' }, { status: 503 });
+    }
+    const centerId = center.id;
 
     // Determine the machine and ball type
     let machineId: MachineId | null = null;
@@ -80,10 +90,13 @@ export async function GET(req: NextRequest) {
     // Fetch all data in parallel: policies (cached), pricing, time slabs, blocked slots, ALL bookings, discounts, and promo offers
     const [policyMap, pricingConfig, timeSlabConfig, blockedSlots, allBookings, recurringDiscounts, activePromoOffers] = await Promise.all([
       getCachedPolicies(['SLOT_DURATION', 'DISABLED_DATES', 'NUMBER_OF_OPERATORS', 'MACHINE_PITCH_CONFIG']),
-      getPricingConfig(),
-      getTimeSlabConfig(),
+      // centerId routed through both lookups so ABCA-style centers can
+      // override PRICING_CONFIG / TIME_SLAB_CONFIG per-center.
+      getPricingConfig(centerId),
+      getTimeSlabConfig(centerId),
       prisma.blockedSlot.findMany({
         where: {
+          centerId,
           startDate: { lte: dateUTC },
           endDate: { gte: dateUTC },
         },
@@ -94,18 +107,20 @@ export async function GET(req: NextRequest) {
       // Single booking query for both occupancy and operator usage (replaces two separate queries)
       prisma.booking.findMany({
         where: {
+          centerId,
           date: dateUTC,
           status: 'BOOKED',
         },
         select: { startTime: true, ballType: true, operationMode: true, machineId: true, pitchType: true },
       }),
-      // Fetch active recurring slot discounts for badge display
+      // Fetch active recurring slot discounts at this center
       prisma.recurringSlotDiscount.findMany({
-        where: { enabled: true },
+        where: { centerId, enabled: true },
       }).catch(() => []),
-      // Fetch active promotional offers for the selected date
+      // Fetch active promotional offers for the selected date at this center
       prisma.promotionalOffer.findMany({
         where: {
+          centerId,
           isActive: true,
           startDate: { lte: dateUTC },
           endDate: { gte: dateUTC },
@@ -187,7 +202,7 @@ export async function GET(req: NextRequest) {
     for (const slot of slots) {
       const timeKey = slot.startTime.getTime();
       if (!operatorCountsMap.has(timeKey)) {
-        const count = await getOperatorCount(dateUTC, slot.startTime, timeSlabConfig);
+        const count = await getOperatorCount(dateUTC, slot.startTime, timeSlabConfig, centerId);
         operatorCountsMap.set(timeKey, count);
       }
     }
@@ -214,7 +229,14 @@ export async function GET(req: NextRequest) {
         const ruleEndTime = (rule.slotEndTime || rule.slotStartTime).padStart(5, '0');
         // Check if slot falls within the rule's time range [start, end)
         if (istTimeStr < ruleStartTime || istTimeStr >= ruleEndTime) continue;
-        if (rule.machineIds && rule.machineIds.length > 0 && machineId && !rule.machineIds.includes(machineId)) continue;
+        
+        // Category filter
+        const ruleCategories = (rule.categories || []) as string[];
+        if (ruleCategories.length > 0 && !ruleCategories.includes(category)) continue;
+
+        // Machine filter (only for MACHINE bookings)
+        if (category === 'MACHINE' && rule.machineIds && rule.machineIds.length > 0 && machineId && !rule.machineIds.includes(machineId)) continue;
+        
         return { oneSlotDiscount: rule.oneSlotDiscount, twoSlotDiscount: rule.twoSlotDiscount };
       }
       return null;
@@ -230,8 +252,10 @@ export async function GET(req: NextRequest) {
       let bestAmount = 0;
 
       for (const offer of activePromoOffers) {
-        // appliesTo filter
+        // appliesTo filter — SPECIAL only for special users, NON_SPECIAL
+        // only for generic (non-special) users, ALL for everyone.
         if (offer.appliesTo === 'SPECIAL' && !isSpecialUser) continue;
+        if (offer.appliesTo === 'NON_SPECIAL' && isSpecialUser) continue;
 
         // Day of week filter
         if (offer.days && offer.days.length > 0 && !offer.days.includes(dayOfWeek)) continue;
@@ -243,11 +267,15 @@ export async function GET(req: NextRequest) {
           if (slotMinutes < offerStart || slotMinutes >= offerEnd) continue;
         }
 
-        // Machine filter
-        if (offer.machineIds && offer.machineIds.length > 0 && machineId && !offer.machineIds.includes(machineId)) continue;
+        // Machine filter (only for MACHINE bookings)
+        if (category === 'MACHINE' && offer.machineIds && offer.machineIds.length > 0 && machineId && !offer.machineIds.includes(machineId)) continue;
 
         // Pitch type filter
         if (offer.pitchTypes && offer.pitchTypes.length > 0 && validatedPitchType && !offer.pitchTypes.includes(validatedPitchType)) continue;
+
+        // Category filter
+        const offerCategories = (offer.categories || []) as string[];
+        if (offerCategories.length > 0 && !offerCategories.includes(category)) continue;
 
         // Calculate discount amount
         const amount = offer.discountType === 'PERCENTAGE'

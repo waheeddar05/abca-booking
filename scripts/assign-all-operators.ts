@@ -8,6 +8,9 @@ import { PrismaClient } from '@prisma/client';
 const prisma = new PrismaClient();
 
 const ALL_MACHINES = ['GRAVITY', 'YANTRA', 'LEVERAGE_INDOOR', 'LEVERAGE_OUTDOOR'] as const;
+// OperatorAssignment is center-scoped. This script is ABCA-only by design;
+// per-center assignment will be handled by the phase-2 admin UI.
+const TARGET_CENTER_ID = 'ctr_abca';
 
 async function main() {
   const operators = await prisma.user.findMany({
@@ -31,7 +34,7 @@ async function main() {
     for (const machineId of ALL_MACHINES) {
       try {
         await prisma.operatorAssignment.create({
-          data: { userId: op.id, machineId },
+          data: { centerId: TARGET_CENTER_ID, userId: op.id, machineId },
         });
         console.log(`  ✓ ${op.name || op.email} → ${machineId}`);
         created++;

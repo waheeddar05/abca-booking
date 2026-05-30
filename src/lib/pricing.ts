@@ -1,4 +1,5 @@
 import { getCachedPolicy } from '@/lib/policy-cache';
+import { getPolicyValue, getCenterOnlyPolicy } from '@/lib/policy';
 
 export interface SlabPricing {
   single: number;
@@ -97,9 +98,18 @@ export const DEFAULT_PRICING_CONFIG: PricingConfig = {
   },
 };
 
+// Continuous default — morning slab ends exactly where the evening
+// slab begins so the generated slot grid has no holes. The previous
+// default (evening start = 19:00) cut a 2-hour gap out of the daily
+// timetable, leaving 17:00–19:00 with no bookable slots on any
+// center that hadn't overridden TIME_SLAB_CONFIG. ABCA worked around
+// that by setting its global Policy at install time; resource-based
+// centers (Toplay) inherited the gap because they read CenterPolicy
+// only and there was nothing to override. Closing the default avoids
+// the per-center configuration step entirely.
 export const DEFAULT_TIME_SLABS: TimeSlabConfig = {
   morning: { start: '07:00', end: '17:00' },
-  evening: { start: '19:00', end: '22:30' },
+  evening: { start: '17:00', end: '22:30' },
 };
 
 /**
@@ -216,10 +226,19 @@ export function getConsecutivePrice(
 
 /**
  * Fetch pricing config from database Policy table, falling back to defaults.
+ *
+ * - `centerId` omitted → legacy global `Policy.PRICING_CONFIG` lookup
+ *   (kept so untouched ABCA callers behave identically).
+ * - `centerId` supplied → cascade through `getPolicyValue`: per-center
+ *   `CenterPolicy.PRICING_CONFIG` wins, then global `Policy`, then
+ *   `DEFAULT_PRICING_CONFIG`. This lets each ABCA-style center publish
+ *   its own pricing without touching the global row.
  */
-export async function getPricingConfig(): Promise<PricingConfig> {
+export async function getPricingConfig(centerId: string | null = null): Promise<PricingConfig> {
   try {
-    const value = await getCachedPolicy('PRICING_CONFIG');
+    const value = centerId
+      ? await getPolicyValue('PRICING_CONFIG', centerId, null)
+      : await getCachedPolicy('PRICING_CONFIG');
     if (value) {
       const config = JSON.parse(value);
       return normalizePricingConfig(config);
@@ -301,11 +320,33 @@ export function normalizePricingConfig(config: any): PricingConfig {
 }
 
 /**
- * Fetch time slab config from database Policy table, falling back to defaults.
+ * Fetch time slab config from the database, falling back to defaults.
+ *
+ * Resolution rules:
+ *   - `centerId` omitted → legacy global `Policy.TIME_SLAB_CONFIG`. Kept for
+ *     ABCA's untouched MACHINE_PITCH path.
+ *   - `centerId` provided + `centerOnly=true` → ONLY read `CenterPolicy`
+ *     for that center. No global fallback. Used for centers (Toplay, et al.)
+ *     where every booking knob must live at the center level.
+ *   - `centerId` provided + `centerOnly=false` → center → global → default
+ *     cascade (the same as `getPolicyJson`).
  */
-export async function getTimeSlabConfig(): Promise<TimeSlabConfig> {
+export async function getTimeSlabConfig(
+  centerId?: string | null,
+  centerOnly: boolean = false,
+): Promise<TimeSlabConfig> {
   try {
-    const value = await getCachedPolicy('TIME_SLAB_CONFIG');
+    if (centerId && centerOnly) {
+      const value = await getCenterOnlyPolicy('TIME_SLAB_CONFIG', centerId, null);
+      if (value) return JSON.parse(value) as TimeSlabConfig;
+      return DEFAULT_TIME_SLABS;
+    }
+    // Cascade when a centerId is supplied without centerOnly so any
+    // ABCA-style center can override the global value via CenterPolicy.
+    // No-centerId callers still hit the legacy global cache untouched.
+    const value = centerId
+      ? await getPolicyValue('TIME_SLAB_CONFIG', centerId, null)
+      : await getCachedPolicy('TIME_SLAB_CONFIG');
     if (value) {
       return JSON.parse(value) as TimeSlabConfig;
     }

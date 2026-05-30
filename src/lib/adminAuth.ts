@@ -2,6 +2,10 @@ import { NextRequest } from 'next/server';
 import { getToken } from 'next-auth/jwt';
 import { verifyToken } from '@/lib/jwt';
 import { prisma } from '@/lib/prisma';
+import { getAuthenticatedUser, hasMembershipRole } from '@/lib/auth';
+import { resolveCurrentCenter } from '@/lib/centers';
+
+const SUPER_ADMIN_EMAIL = process.env.SUPER_ADMIN_EMAIL || process.env.INITIAL_ADMIN_EMAIL || '';
 
 export async function getAdminSession(req: NextRequest) {
   let email: string | null = null;
@@ -26,17 +30,90 @@ export async function getAdminSession(req: NextRequest) {
   // Always fetch the current role from DB so admin-promoted roles take effect immediately
   const dbUser = await prisma.user.findUnique({
     where: { email },
-    select: { role: true },
+    select: { id: true, role: true, isSuperAdmin: true },
   });
   if (!dbUser) return null;
 
-  return { role: dbUser.role, email };
+  // Compute super-admin from DB column with bootstrap email fallback.
+  const isSuperAdmin =
+    dbUser.isSuperAdmin || (!!SUPER_ADMIN_EMAIL && email === SUPER_ADMIN_EMAIL);
+
+  return { id: dbUser.id, role: dbUser.role, email, isSuperAdmin };
 }
 
 export async function requireAdmin(req: NextRequest) {
   const session = await getAdminSession(req);
   if (session?.role !== 'ADMIN') return null;
   return session;
+}
+
+/**
+ * Stricter than `requireAdmin`. Resolves the currently-active center
+ * (cookie / membership) and only succeeds if the caller is either:
+ *   - a super admin (cross-center), or
+ *   - a center-level admin with an active CenterMembership(role=ADMIN)
+ *     at the resolved center.
+ *
+ * Returns `{ user, center }` on success or `null` on failure. Callers
+ * turn null into a 401/403 response of their choice.
+ *
+ * Use this for every day-to-day admin endpoint that operates on a
+ * specific center (bookings, slots, packages, offers, operators,
+ * refunds, …). The legacy `requireAdmin` only checks the global
+ * `User.role` flag, which lets a global admin who isn't a member of
+ * Center B switch the cookie to Center B and act as if they were an
+ * admin there — exactly what we don't want when each center is run
+ * by an independent operator.
+ */
+export async function requireCenterAdmin(req: NextRequest) {
+  const user = await getAuthenticatedUser(req);
+  if (!user) return null;
+  // Global "ADMIN" is still required as a coarse gate; this catches
+  // OPERATOR / COACH / SIDEARM_SPECIALIST users early.
+  if (user.role !== 'ADMIN' && !user.isSuperAdmin) return null;
+  const center = await resolveCurrentCenter(req, user);
+  if (!center) return null;
+  if (user.isSuperAdmin) {
+    return { user, center };
+  }
+  if (!hasMembershipRole(user, center.id, 'ADMIN')) {
+    return null;
+  }
+  return { user, center };
+}
+
+/**
+ * Allow only super admins. Use for cross-center operations:
+ * managing centers, machine catalog, super-admin-only data fixes.
+ */
+export async function requireSuperAdmin(req: NextRequest) {
+  const session = await getAdminSession(req);
+  if (!session?.isSuperAdmin) return null;
+  return session;
+}
+
+/**
+ * Allow super admins OR center admins of the given centerId. Use for
+ * endpoints that manage a SPECIFIC center's own data (its members,
+ * resources, machines, policies, profile) — the things a center admin
+ * should be able to run independently.
+ *
+ * Returns `{ user, isSuperAdmin }` on success or `null` on failure.
+ * Callers should turn null into a 403.
+ *
+ * This is intentionally different from `requireCenterAdmin`, which
+ * resolves the "current" center from cookie/membership. Here the
+ * centerId is explicit (from the URL), which is what we want for
+ * `/api/admin/centers/[id]/*` routes.
+ */
+export async function requireCenterAdminForCenter(req: NextRequest, centerId: string) {
+  const user = await getAuthenticatedUser(req);
+  if (!user) return null;
+  if (user.isSuperAdmin) return { user, isSuperAdmin: true as const };
+  // Global ADMIN gate first, then check membership at THIS center.
+  if (user.role !== 'ADMIN') return null;
+  if (!hasMembershipRole(user, centerId, 'ADMIN')) return null;
+  return { user, isSuperAdmin: false as const };
 }
 
 export async function requireOperatorOrAdmin(req: NextRequest) {

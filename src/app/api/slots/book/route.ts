@@ -11,11 +11,14 @@ import { dateStringToUTC, formatIST } from '@/lib/time';
 import { notifyBookingConfirmed, notifyOperatorNewBooking } from '@/lib/notifications';
 import { getPricingConfig, getTimeSlabConfig, calculateNewPricing, getTimeSlab } from '@/lib/pricing';
 import { getCachedPolicies } from '@/lib/policy-cache';
+import { getPolicyValue, isPolicyEnabled } from '@/lib/policy';
 import { validatePackageBooking } from '@/lib/packages';
 import { creditWallet, debitWallet, rollbackWalletDebit, isWalletEnabled, getWalletBalance } from '@/lib/wallet';
+import { resolveCurrentCenter } from '@/lib/centers';
 import { autoAssignOperator, getOperatorCount } from '@/lib/operatorAssign';
 import { getAllApplicablePromoDiscounts } from '@/lib/promotionalOffers';
 import { calculateStackedDiscount } from '@/lib/specialUsers';
+import { log } from '@/lib/logger';
 
 /** Typed user shape from getAuthenticatedUser */
 export type AuthenticatedUser = {
@@ -115,10 +118,27 @@ function isTransactionAborted(error: unknown): boolean {
 export async function executeSlotBooking(
   user: AuthenticatedUser,
   slotsToBook: Record<string, unknown>[],
+  centerId: string,
   options?: { onlinePaymentId?: string },
 ): Promise<Array<{ id: string; status: string }>> {
   const onlinePaymentId = options?.onlinePaymentId || slotsToBook[0]?.paymentId as string | undefined;
-  const logPrefix = `[Booking user=${user.id} name=${user.name || 'N/A'}]`;
+  // Structured log context — every line under this booking attempt carries
+  // the same op tag + identifiers, so a Vercel search by email/paymentId
+  // pulls the full attempt history.
+  const ctx = {
+    op: 'booking.create.machinepitch',
+    user: { id: user.id, email: user.email, name: user.name },
+    centerId,
+    paymentId: onlinePaymentId ?? null,
+    extra: {
+      slots: slotsToBook.length,
+      machineId: (slotsToBook[0]?.machineId as string | undefined) ?? null,
+      ballType: (slotsToBook[0]?.ballType as string | undefined) ?? null,
+      pitchType: (slotsToBook[0]?.pitchType as string | undefined) ?? null,
+      paymentMethod: (slotsToBook[0]?.paymentMethod as string | undefined) ?? (onlinePaymentId ? 'ONLINE' : 'NONE'),
+      userPackageId: (slotsToBook[0]?.userPackageId as string | undefined) ?? null,
+    },
+  } as const;
 
   try {
     if (slotsToBook.length === 0) {
@@ -153,15 +173,15 @@ export async function executeSlotBooking(
     const isCashPayment = requestedPaymentMethod === 'CASH';
     const isWalletPayment = requestedPaymentMethod === 'WALLET';
 
-    console.log(`${logPrefix} Starting booking: ${slotsToBook.length} slot(s), payment=${requestedPaymentMethod || 'ONLINE'}, onlinePaymentId=${onlinePaymentId || 'none'}`);
+    log.info(ctx, 'Booking attempt start');
 
     // Kit rental - read config from policy (server-side truth)
     const kitRentalRequested = !!slotsToBook[0]?.kitRental;
     let kitRental = false;
     let kitRentalCharge = 0;
     if (kitRentalRequested) {
-      const kitRentalPolicy = await prisma.policy.findUnique({ where: { key: 'KIT_RENTAL_CONFIG' } });
-      const kitConfig = kitRentalPolicy ? (() => { try { return JSON.parse(kitRentalPolicy.value); } catch { return null; } })() : null;
+      const kitRentalRaw = await getPolicyValue('KIT_RENTAL_CONFIG', centerId, null);
+      const kitConfig = kitRentalRaw ? (() => { try { return JSON.parse(kitRentalRaw); } catch { return null; } })() : null;
       const isKitEnabled = kitConfig?.enabled ?? false;
       const kitMachines: string[] = kitConfig?.machines ?? ['GRAVITY', 'YANTRA'];
       const firstMachineIdRaw = slotsToBook[0]?.machineId as string | undefined;
@@ -171,23 +191,27 @@ export async function executeSlotBooking(
       }
     }
 
-    // Server-side: reject cash payment if disabled globally and user has no cash access
+    // Server-side: reject cash payment if disabled at this center and the
+    // user has no cash-payment override row. Both checks are center-scoped.
     if (isCashPayment) {
-      const [cashPolicy, cashPaymentUser] = await Promise.all([
-        prisma.policy.findUnique({ where: { key: 'CASH_PAYMENT_ENABLED' } }),
-        prisma.cashPaymentUser.findUnique({ where: { userId: user.id } }),
+      const [centerCashEnabled, cashPaymentUser] = await Promise.all([
+        isPolicyEnabled('CASH_PAYMENT_ENABLED', centerId),
+        prisma.cashPaymentUser.findUnique({
+          where: { centerId_userId: { centerId, userId: user.id } },
+        }),
       ]);
-      const globalCashEnabled = cashPolicy?.value === 'true';
-      if (!globalCashEnabled && !cashPaymentUser) {
+      if (!centerCashEnabled && !cashPaymentUser) {
         throw new BookingServiceError('Cash payment is not available.', 400);
       }
     }
 
-    // Fetch configs in parallel
+    // Fetch configs in parallel. centerId routed through both lookups so
+    // ABCA-style centers can publish their own PRICING_CONFIG and
+    // TIME_SLAB_CONFIG via CenterPolicy without touching the global rows.
     const [machineConfig, pricingConfig, timeSlabConfig] = await Promise.all([
       getMachineConfig(),
-      getPricingConfig(),
-      getTimeSlabConfig(),
+      getPricingConfig(centerId),
+      getTimeSlabConfig(centerId),
     ]);
 
     // Validate all slots first
@@ -334,9 +358,13 @@ export async function executeSlotBooking(
     }
 
     // ── Recurring Slot Discount (Feature 1) ──────────────────────────
-    // After consecutive pricing, check for recurring slot discounts and apply as additional flat reduction.
+    // After consecutive pricing, check for recurring slot discounts and
+    // apply as additional flat reduction. Scoped to THIS center —
+    // without the centerId filter a rule configured at Toplay could
+    // apply to an ABCA booking at the same time-of-day, silently
+    // shaving rupees off the wrong center's pricing.
     const recurringDiscountRules = await prisma.recurringSlotDiscount.findMany({
-      where: { enabled: true },
+      where: { centerId, enabled: true },
     }).catch(() => []);
 
     let totalRecurringDiscount = 0;
@@ -366,21 +394,34 @@ export async function executeSlotBooking(
       const istTimeStr = getISTTime(slot.startTime);
       const slotPitchType = slot.pitchType;
 
-      const matchesRule = (rule: typeof recurringDiscountRules[0]) => {
+      const matchesRule = (rule: any) => {
         if (!rule.days.includes(dayOfWeek)) return false;
         const ruleStartTime = rule.slotStartTime.padStart(5, '0');
         const ruleEndTime = (rule.slotEndTime || rule.slotStartTime).padStart(5, '0');
         if (istTimeStr < ruleStartTime || istTimeStr >= ruleEndTime) return false;
-        if (rule.machineIds && rule.machineIds.length > 0 && firstMachineId && !rule.machineIds.includes(firstMachineId)) return false;
-        const rulePitchTypes = (rule as Record<string, unknown>).pitchTypes as string[] | undefined;
+        
+        // Machine filter (only for MACHINE bookings)
+        if (category === 'MACHINE' && rule.machineIds && rule.machineIds.length > 0 && firstMachineId && !rule.machineIds.includes(firstMachineId)) return false;
+        
+        const rulePitchTypes = rule.pitchTypes as string[] | undefined;
         if (rulePitchTypes && rulePitchTypes.length > 0 && slotPitchType && !rulePitchTypes.includes(slotPitchType)) return false;
+
+        // Category axis: ABCA bookings are always MACHINE. If the rule targets categories
+        // and doesn't include MACHINE, it shouldn't apply here.
+        const ruleCategories = rule.categories as string[] | undefined;
+        if (ruleCategories && ruleCategories.length > 0 && !ruleCategories.includes(category)) return false;
+
         return true;
       };
 
-      // Find best ALL-user recurring discount
+      // Find best regular-user (non-SPECIAL) recurring discount.
+      // ALL → applies to everyone.
+      // NON_SPECIAL → applies only when the user is *not* a special user.
+      // SPECIAL is handled in a separate stacking pass below.
       let bestAllDiscount = 0;
       for (const rule of recurringDiscountRules) {
         if (rule.appliesTo === 'SPECIAL') continue;
+        if (rule.appliesTo === 'NON_SPECIAL' && targetUser.isSpecialUser) continue;
         if (!matchesRule(rule)) continue;
         bestAllDiscount = Math.max(bestAllDiscount, rule[perSlotDiscount]);
       }
@@ -421,8 +462,17 @@ export async function executeSlotBooking(
         const userIsSpecial = targetUser.isSpecialUser;
         for (let i = 0; i < pricing.length; i++) {
           const slot = validatedSlots[i];
+          // Pass centerId so an offer at center A can't accidentally
+          // apply to a booking at center B. The helper treats a missing
+          // centerId as "any center", which was the pre-multi-center
+          // assumption and not what we want anymore. Machine / pitch /
+          // category filtering is done inside the helper from the
+          // (machineId, pitchType, category) it's passed — no pre-filter
+          // is needed here, and the booking is always MACHINE on this
+          // legacy MACHINE_PITCH route anyway.
           const allPromos = await getAllApplicablePromoDiscounts(
             slot.date, slot.startTime, slot.machineId, slot.pitchType, userIsSpecial,
+            null, null, centerId,
           );
           if (allPromos.length > 0) {
             const result = calculateStackedDiscount(
@@ -451,11 +501,11 @@ export async function executeSlotBooking(
     const totalPrice = slotsTotalPrice + totalKitRentalCharge;
     const totalRecurringDiscountDisplay = totalRecurringDiscount; // For notification display
     if (isWalletPayment && !isFreeBooking && !userPackageId) {
-      const walletEnabled = await isWalletEnabled();
+      const walletEnabled = await isWalletEnabled(centerId);
       if (!walletEnabled) {
         throw new BookingServiceError('Wallet payments are not enabled', 400);
       }
-      const balance = await getWalletBalance(userId!);
+      const balance = await getWalletBalance(userId!, centerId);
       if (balance < totalPrice) {
         throw new BookingServiceError(`Insufficient wallet balance. Required: ₹${totalPrice}, Available: ₹${balance}`, 400);
       }
@@ -553,7 +603,7 @@ export async function executeSlotBooking(
             // Operator constraint check — use per-day/slab operator count
             if (requiresOperator) {
               const slotTimeSlab = getTimeSlab(slot.startTime, timeSlabConfig);
-              const numberOfOperators = await getOperatorCount(slot.date, slot.startTime, timeSlabConfig);
+              const numberOfOperators = await getOperatorCount(slot.date, slot.startTime, timeSlabConfig, centerId);
 
               const operatorWhere: Prisma.BookingWhereInput = {
                 date: slot.date,
@@ -616,7 +666,7 @@ export async function executeSlotBooking(
             let assignedOperatorId: string | null = null;
             if (requiresOperator) {
               const slotTimeSlab = getTimeSlab(slot.startTime, timeSlabConfig);
-              assignedOperatorId = await autoAssignOperator(slot.date, slot.startTime, tx, slot.machineId, slotTimeSlab);
+              assignedOperatorId = await autoAssignOperator(slot.date, slot.startTime, tx, slot.machineId, slotTimeSlab, centerId);
             }
 
             // Kit rental: add per-slot charge to the booking price
@@ -624,6 +674,7 @@ export async function executeSlotBooking(
             const priceWithKit = effectivePrice + slotKitCharge;
 
             const bookingData: Prisma.BookingUncheckedCreateInput = {
+              centerId,
               userId: userId!,
               date: slot.date,
               startTime: slot.startTime,
@@ -688,6 +739,12 @@ export async function executeSlotBooking(
             }
           }, {
             isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+            // Match the resource-based path's headroom. ABCA writes are
+            // simpler (1 row per slot), but multi-slot + package linkage
+            // can still creep close to Prisma's 5s default. Generous
+            // bounds — serializable isolation is the real guard.
+            maxWait: 10_000,
+            timeout: 30_000,
           });
 
           break;
@@ -763,6 +820,7 @@ export async function executeSlotBooking(
             const now = new Date();
             const expiry = new Date(now);
             expiry.setDate(expiry.getDate() + currentUserPackage.package.validityDays);
+            expiry.setHours(23, 59, 59, 999);
             updateData.activationDate = now;
             updateData.expiryDate = expiry;
           }
@@ -794,6 +852,7 @@ export async function executeSlotBooking(
         const bookingIds = results.map(r => r.id).join(', ');
         const result = await debitWallet(
           userId!,
+          centerId,
           totalPrice,
           'DEBIT_BOOKING',
           `Booking payment (${results.length} slot${results.length > 1 ? 's' : ''})`,
@@ -823,13 +882,25 @@ export async function executeSlotBooking(
       }
     }
 
-    // Create booking confirmation notification
-    try {
+    // Create booking confirmation notification (fire-and-forget so a
+    // slow Twilio/Meta WhatsApp API can't block the booking response
+    // — the user has already paid / committed to the booking).
+    void (async () => { try {
       const firstSlot = validatedSlots[0];
       const machineName = firstSlot.machineId ? MACHINES[firstSlot.machineId]?.shortName : (firstBallType === 'TENNIS' ? 'Tennis' : 'Leather');
       const dateStr = formatIST(firstSlot.date, 'EEE, dd MMM yyyy');
-      const timeStr = formatIST(firstSlot.startTime, 'hh:mm a');
-      const endTimeStr = formatIST(validatedSlots[validatedSlots.length - 1].endTime, 'hh:mm a');
+      // Use min(startTime) / max(endTime) across all slots so multi-slot
+      // bookings show the full booking window, regardless of client ordering.
+      const earliestStart = validatedSlots.reduce(
+        (acc, s) => (s.startTime < acc ? s.startTime : acc),
+        validatedSlots[0].startTime,
+      );
+      const latestEnd = validatedSlots.reduce(
+        (acc, s) => (s.endTime > acc ? s.endTime : acc),
+        validatedSlots[0].endTime,
+      );
+      const timeStr = formatIST(earliestStart, 'hh:mm a');
+      const endTimeStr = formatIST(latestEnd, 'hh:mm a');
       const slotCount = validatedSlots.length;
 
       const lines = [
@@ -903,27 +974,39 @@ export async function executeSlotBooking(
       });
     } catch (notifErr) {
       console.error('Failed to create booking notification:', notifErr);
-    }
+    } })();
 
     // ─── Notify Assigned Operator via WhatsApp + In-App ───────────────
-    try {
+    // Same fire-and-forget pattern — the operator dashboard subscribes
+    // to bookings independently; the WhatsApp ping is best-effort.
+    void (async () => { try {
       const firstSlot = validatedSlots[0];
       const machineName = firstSlot.machineId ? MACHINES[firstSlot.machineId]?.shortName : (firstBallType === 'TENNIS' ? 'Tennis' : 'Leather');
       const pitchLabels: Record<string, string> = {
         ASTRO: 'Astro Turf', CEMENT: 'Cement', NATURAL: 'Natural Turf', TURF: 'Cement Wicket',
       };
       const pitchLabel = firstSlot.pitchType ? (pitchLabels[firstSlot.pitchType] || firstSlot.pitchType) : 'N/A';
+      // Span the full booking window from earliest start to latest end so
+      // multi-slot bookings don't get truncated to a single slot.
+      const earliestStart = validatedSlots.reduce(
+        (acc, s) => (s.startTime < acc ? s.startTime : acc),
+        validatedSlots[0].startTime,
+      );
+      const latestEnd = validatedSlots.reduce(
+        (acc, s) => (s.endTime > acc ? s.endTime : acc),
+        validatedSlots[0].endTime,
+      );
       await notifyOperatorNewBooking(results.map(r => r.id), {
         customerName: firstSlot.playerName,
         date: formatIST(firstSlot.date, 'EEE, dd MMM yyyy'),
-        time: `${formatIST(firstSlot.startTime, 'hh:mm a')} – ${formatIST(validatedSlots[validatedSlots.length - 1].endTime, 'hh:mm a')}`,
+        time: `${formatIST(earliestStart, 'hh:mm a')} – ${formatIST(latestEnd, 'hh:mm a')}`,
         machine: machineName || 'N/A',
         pitch: pitchLabel,
         slotCount: validatedSlots.length,
       });
     } catch (opNotifErr) {
       console.error('Failed to notify operator about new booking:', opNotifErr);
-    }
+    } })();
 
     // ─── Link Online Payment to Bookings (Server-Side) ────────────────
     // If an online paymentId was provided, link it to the created bookings
@@ -950,21 +1033,54 @@ export async function executeSlotBooking(
       }
     }
 
-    console.log(`${logPrefix} Booking completed successfully: ${results.length} booking(s) created [${results.map(r => r.id).join(', ')}]`);
+    log.info({ ...ctx, bookingIds: results.map(r => r.id) }, `Booking success — ${results.length} row(s) created`);
     return results;
   } catch (error: unknown) {
     // ─── Auto-Refund on Booking Failure ─────────────────────────────
     // If an online payment was captured but booking creation failed,
     // automatically refund to the user's wallet so money isn't lost.
+    //
+    // ── Race-safety guard ────────────────────────────────────────
+    // The Razorpay webhook + verify can race; if the *other* path
+    // created the bookings while we were failing, `Payment.bookingIds`
+    // may not yet reflect that. Poll briefly before refunding so we
+    // never refund a booking the user actually has. See the verify
+    // route's atomic-claim block for the broader race fix.
     if (onlinePaymentId) {
       try {
-        const payment = await prisma.payment.findUnique({
-          where: { id: onlinePaymentId },
-        });
+        const MAX_POLL_MS = 8_000;
+        const POLL_INTERVAL_MS = 400;
+        const deadline = Date.now() + MAX_POLL_MS;
+        let payment = await prisma.payment.findUnique({ where: { id: onlinePaymentId } });
+        while (
+          payment
+          && payment.status === 'CAPTURED'
+          && payment.bookingIds.length === 0
+          && Date.now() < deadline
+        ) {
+          await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
+          payment = await prisma.payment.findUnique({ where: { id: onlinePaymentId } });
+        }
+
+        if (payment && payment.status === 'CAPTURED' && payment.bookingIds.length > 0) {
+          // The other path created the bookings during our retry
+          // window. Don't refund. Return their bookings as our own.
+          const linked = await prisma.booking.findMany({
+            where: { id: { in: payment.bookingIds } },
+            select: { id: true, status: true },
+          });
+          log.warn(
+            { ...ctx, bookingIds: payment.bookingIds },
+            `Booking failure suppressed: bookings already exist on payment (other path created them)`,
+          );
+          return linked;
+        }
+
         if (payment && payment.status === 'CAPTURED' && payment.bookingIds.length === 0) {
           const refundAmount = payment.amount;
           const walletResult = await creditWallet(
             payment.userId,
+            payment.centerId,
             refundAmount,
             'CREDIT_REFUND',
             `Auto-refund: slot booking failed after payment`,
@@ -982,7 +1098,10 @@ export async function executeSlotBooking(
             },
           });
 
-          console.log(`${logPrefix} Auto-refunded ₹${refundAmount} to wallet for failed booking (payment: ${onlinePaymentId})`);
+          log.info(
+            { ...ctx, op: 'payment.refund', amount: refundAmount, extra: { ...ctx.extra, refundMethod: 'WALLET', newWalletBalance: walletResult.newBalance } },
+            'Auto-refunded to wallet after booking failure',
+          );
 
           const errMessage = error instanceof Error ? error.message : 'Booking failed';
           throw new BookingServiceError(
@@ -993,8 +1112,8 @@ export async function executeSlotBooking(
         }
       } catch (refundErr) {
         if (refundErr instanceof BookingServiceError) throw refundErr;
-        console.error(`${logPrefix} CRITICAL: Auto-refund failed after booking failure:`, refundErr);
-        console.error(`${logPrefix} Original booking error:`, error);
+        log.error(ctx, 'CRITICAL: auto-refund failed after booking failure', refundErr);
+        log.error(ctx, 'Original booking error', error);
       }
     }
 
@@ -1006,7 +1125,7 @@ export async function executeSlotBooking(
       throw new BookingServiceError(error.message, 409);
     }
     const message = error instanceof Error ? error.message : 'Internal server error';
-    console.error(`${logPrefix} Booking error:`, error);
+    log.error(ctx, 'Booking error', error);
     throw new BookingServiceError(message, 400);
   }
 }
@@ -1019,10 +1138,17 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
+    // Resolve the center the user is booking at — from `?center=<slug>`,
+    // the `selectedCenterId` cookie, or the user's first membership.
+    const center = await resolveCurrentCenter(req, user);
+    if (!center) {
+      return NextResponse.json({ error: 'No center selected' }, { status: 400 });
+    }
+
     const body = await req.json();
     const slotsToBook = Array.isArray(body) ? body : [body];
 
-    const results = await executeSlotBooking(user, slotsToBook);
+    const results = await executeSlotBooking(user, slotsToBook, center.id);
 
     const response = Array.isArray(body) ? results : results[0];
     return NextResponse.json(response);

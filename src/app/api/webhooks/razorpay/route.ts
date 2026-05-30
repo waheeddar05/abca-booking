@@ -1,71 +1,95 @@
 import { NextRequest, NextResponse } from 'next/server';
-import crypto from 'crypto';
 import { prisma } from '@/lib/prisma';
-import { executeSlotBooking, BookingServiceError } from '@/app/api/slots/book/route';
-import { creditWallet } from '@/lib/wallet';
+import { executeSlotBooking } from '@/app/api/slots/book/route';
+import {
+  executeResourceBooking,
+  ResourceBookingBodySchema,
+} from '@/app/api/slots/book-resource/route';
+import { getCenterRazorpayCredentials, verifyWebhookSignatureWithSecret } from '@/lib/razorpay';
+import { completePackagePurchase } from '@/lib/package-purchase';
 
 /**
  * POST /api/webhooks/razorpay
  *
- * Server-to-server webhook from Razorpay. Handles `payment.captured` events
- * as a safety net: if the browser failed to call /api/payments/verify (network
- * drop, PWA killed, UPI redirect failure), this webhook still completes the
- * booking server-side.
+ * Multi-center webhook handler.
  *
- * Setup in Razorpay Dashboard → Settings → Webhooks:
+ * Multiple Razorpay accounts (one per center) all POST here. We identify
+ * the originating center from the order_id → Payment row → centerId, then
+ * verify the signature with that center's webhook secret. The env
+ * `RAZORPAY_WEBHOOK_SECRET` is used as a fallback for centers without a
+ * configured webhook secret (single-center installs, or centers still on
+ * the platform-wide account).
+ *
+ * Setup in EACH center's Razorpay Dashboard → Settings → Webhooks:
  *   URL:    https://<your-domain>/api/webhooks/razorpay
- *   Secret: same as RAZORPAY_WEBHOOK_SECRET env var
+ *   Secret: matches Center.razorpayWebhookSecret (or RAZORPAY_WEBHOOK_SECRET env)
  *   Events: payment.captured
  */
 export async function POST(req: NextRequest) {
   try {
-    const webhookSecret = process.env.RAZORPAY_WEBHOOK_SECRET;
-    if (!webhookSecret) {
-      console.error('[RazorpayWebhook] RAZORPAY_WEBHOOK_SECRET not configured');
-      return NextResponse.json({ error: 'Webhook not configured' }, { status: 500 });
-    }
-
-    // Read raw body for signature verification
+    // Read raw body once — we need it for both parsing and signature verification.
     const rawBody = await req.text();
     const signature = req.headers.get('x-razorpay-signature');
-
     if (!signature) {
       return NextResponse.json({ error: 'Missing signature' }, { status: 400 });
     }
 
-    // Verify webhook signature
-    const expectedSignature = crypto
-      .createHmac('sha256', webhookSecret)
-      .update(rawBody)
-      .digest('hex');
+    // Parse the body BEFORE verifying. We trust nothing in it yet — we
+    // just need order_id to find which center this webhook came from.
+    // The signature check below is the actual trust boundary.
+    let event: { event?: string; payload?: { payment?: { entity?: Record<string, unknown> } } };
+    try {
+      event = JSON.parse(rawBody);
+    } catch {
+      return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 });
+    }
 
-    if (expectedSignature !== signature) {
-      console.error('[RazorpayWebhook] Invalid signature');
+    const eventType = event.event;
+    const razorpayPayment = event.payload?.payment?.entity as Record<string, unknown> | undefined;
+    const razorpayOrderId = razorpayPayment?.order_id as string | undefined;
+    const razorpayPaymentId = razorpayPayment?.id as string | undefined;
+
+    if (!razorpayOrderId) {
+      return NextResponse.json({ error: 'Missing order_id' }, { status: 400 });
+    }
+
+    // Identify the center via the local Payment row. If unknown, we'll
+    // fall back to env credentials (single-center installs).
+    const payment = await prisma.payment.findFirst({
+      where: { razorpayOrderId },
+    });
+
+    let webhookSecret: string | null = null;
+    if (payment) {
+      const creds = await getCenterRazorpayCredentials(payment.centerId);
+      webhookSecret = creds?.webhookSecret ?? null;
+    }
+    if (!webhookSecret) webhookSecret = process.env.RAZORPAY_WEBHOOK_SECRET || null;
+
+    if (!webhookSecret) {
+      console.error('[RazorpayWebhook] No webhook secret configured (center or env)');
+      return NextResponse.json({ error: 'Webhook not configured' }, { status: 500 });
+    }
+
+    // The actual trust boundary — verify with the resolved secret.
+    if (!verifyWebhookSignatureWithSecret({ body: rawBody, signature, webhookSecret })) {
+      console.error(
+        `[RazorpayWebhook] Invalid signature (center=${payment?.centerId ?? 'env'}, order=${razorpayOrderId})`,
+      );
       return NextResponse.json({ error: 'Invalid signature' }, { status: 400 });
     }
 
-    const event = JSON.parse(rawBody);
-    const eventType = event.event as string;
-
-    // We only care about payment.captured
     if (eventType !== 'payment.captured') {
       return NextResponse.json({ status: 'ignored', event: eventType });
     }
 
-    const razorpayPayment = event.payload?.payment?.entity;
-    if (!razorpayPayment) {
-      return NextResponse.json({ error: 'Missing payment entity' }, { status: 400 });
+    if (!razorpayPaymentId) {
+      return NextResponse.json({ error: 'Missing payment id' }, { status: 400 });
     }
 
-    const razorpayOrderId = razorpayPayment.order_id as string;
-    const razorpayPaymentId = razorpayPayment.id as string;
-
-    console.log(`[RazorpayWebhook] payment.captured: order=${razorpayOrderId} payment=${razorpayPaymentId}`);
-
-    // Find our payment record by Razorpay order ID
-    const payment = await prisma.payment.findFirst({
-      where: { razorpayOrderId },
-    });
+    console.log(
+      `[RazorpayWebhook] payment.captured: order=${razorpayOrderId} payment=${razorpayPaymentId} center=${payment?.centerId ?? 'unknown'}`,
+    );
 
     if (!payment) {
       console.warn(`[RazorpayWebhook] No payment record found for order ${razorpayOrderId}`);
@@ -83,16 +107,25 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ status: 'already_refunded' });
     }
 
-    // If still CREATED, the browser's verify call never arrived. Mark as CAPTURED.
+    // Atomic claim — match the same protocol /api/payments/verify uses.
+    // Whichever path (this webhook or the client-driven verify) flips
+    // CREATED→CAPTURED first owns the booking creation. The losing
+    // path bails out instead of attempting its own booking, which
+    // previously caused duplicate-booking + spurious-refund incidents
+    // (see verify route's same atomic-claim comment).
     if (payment.status === 'CREATED') {
-      console.log(`[RazorpayWebhook] Payment ${payment.id} still CREATED — marking CAPTURED via webhook`);
-      await prisma.payment.update({
-        where: { id: payment.id },
+      const claim = await prisma.payment.updateMany({
+        where: { id: payment.id, status: 'CREATED' },
         data: {
           status: 'CAPTURED',
           razorpayPaymentId,
         },
       });
+      if (claim.count === 0) {
+        console.log(`[RazorpayWebhook] Lost claim for payment ${payment.id} — verify is processing`);
+        return NextResponse.json({ status: 'claim_lost_to_verify' });
+      }
+      console.log(`[RazorpayWebhook] Won claim for payment ${payment.id} — proceeding to create bookings`);
     }
 
     // If CAPTURED but no bookings — the verify call either didn't happen or booking failed.
@@ -127,6 +160,55 @@ export async function POST(req: NextRequest) {
       }
 
       const isSuperAdmin = !!(user.email && SUPER_ADMIN_EMAIL && user.email === SUPER_ADMIN_EMAIL);
+      const authedUser = {
+        id: user.id,
+        name: user.name || undefined,
+        role: user.role,
+        email: user.email || undefined,
+        isSuperAdmin,
+        isFreeUser: user.isFreeUser,
+        isSpecialUser: user.isSpecialUser,
+        mobileVerified: user.mobileVerified,
+      };
+
+      // Route by center.bookingModel — RESOURCE_BASED centers (Toplay)
+      // store the resource-shaped payload in metadata.bookingPayload[0]
+      // and MUST NOT be fed through executeSlotBooking (legacy ABCA
+      // path), which fails their payload as "Missing required fields"
+      // and triggers an unnecessary wallet refund.
+      const center = await prisma.center.findUnique({
+        where: { id: payment.centerId },
+        select: { id: true, name: true, bookingModel: true },
+      });
+      if (!center) {
+        console.error(`[RazorpayWebhook] Center ${payment.centerId} not found for payment ${payment.id}`);
+        return NextResponse.json({ status: 'center_not_found' });
+      }
+
+      if (center.bookingModel === 'RESOURCE_BASED') {
+        const raw = bookingPayload[0];
+        const parsed = ResourceBookingBodySchema.safeParse(raw);
+        if (!parsed.success) {
+          console.error(`[RazorpayWebhook] Resource booking payload invalid for ${payment.id}:`, parsed.error.issues);
+          return NextResponse.json({ status: 'invalid_payload', issues: parsed.error.issues });
+        }
+        try {
+          console.log(`[RazorpayWebhook] Creating resource booking(s) for payment ${payment.id} user=${user.id}`);
+          const bookings = await executeResourceBooking(authedUser, parsed.data, center, {
+            onlinePaymentId: payment.id,
+          });
+          await prisma.payment.update({
+            where: { id: payment.id },
+            data: { bookingIds: bookings.map(b => b.id) },
+          }).catch((e) => console.error(`[RazorpayWebhook] Failed to link bookingIds on ${payment.id}:`, e));
+          console.log(`[RazorpayWebhook] Resource bookings created via webhook: ${bookings.map(b => b.id).join(', ')}`);
+          return NextResponse.json({ status: 'bookings_created', bookingIds: bookings.map(b => b.id) });
+        } catch (bookingErr) {
+          const errMsg = bookingErr instanceof Error ? bookingErr.message : 'Booking failed';
+          console.error(`[RazorpayWebhook] Resource booking creation failed for ${payment.id}:`, bookingErr);
+          return NextResponse.json({ status: 'booking_failed', error: errMsg });
+        }
+      }
 
       try {
         const slotsWithPayment = bookingPayload.map(slot => ({
@@ -137,17 +219,9 @@ export async function POST(req: NextRequest) {
         console.log(`[RazorpayWebhook] Creating ${bookingPayload.length} booking(s) for payment ${payment.id} user=${user.id}`);
 
         const bookings = await executeSlotBooking(
-          {
-            id: user.id,
-            name: user.name || undefined,
-            role: user.role,
-            email: user.email || undefined,
-            isSuperAdmin,
-            isFreeUser: user.isFreeUser,
-            isSpecialUser: user.isSpecialUser,
-            mobileVerified: user.mobileVerified,
-          },
+          authedUser,
           slotsWithPayment,
+          payment.centerId,
           { onlinePaymentId: payment.id },
         );
 
@@ -161,11 +235,44 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // For PACKAGE_PURCHASE, the verify route handles it. If webhook fires and
-    // it's still unprocessed, log it for manual admin review.
-    if (payment.paymentType === 'PACKAGE_PURCHASE' && !payment.userPackageId) {
-      console.warn(`[RazorpayWebhook] Unprocessed package purchase ${payment.id} — needs manual review`);
-      return NextResponse.json({ status: 'package_needs_review' });
+    // PACKAGE_PURCHASE completion. Previously this branch just logged
+    // "needs_review" and bailed — but the webhook had already won the
+    // atomic-claim race upstream, so the user-driven verify call kept
+    // polling for 15s, never saw a `userPackageId` appear, and surfaced
+    // "Payment captured but booking is still being processed" to the
+    // user. The webhook owns the claim, so it owns the completion.
+    if (payment.paymentType === 'PACKAGE_PURCHASE') {
+      if (payment.userPackageId) {
+        console.log(
+          `[RazorpayWebhook] Package ${payment.id} already completed (userPackageId=${payment.userPackageId})`,
+        );
+        return NextResponse.json({ status: 'already_completed' });
+      }
+      try {
+        const result = await completePackagePurchase(
+          {
+            id: payment.id,
+            amount: payment.amount,
+            metadata: payment.metadata,
+            centerId: payment.centerId,
+          },
+          payment.userId,
+        );
+        console.log(
+          `[RazorpayWebhook] Package purchase completed via webhook: payment=${payment.id} userPackage=${result.userPackage.id}`,
+        );
+        return NextResponse.json({
+          status: 'package_completed',
+          userPackageId: result.userPackage.id,
+        });
+      } catch (pkgErr) {
+        const errMsg = pkgErr instanceof Error ? pkgErr.message : 'Package completion failed';
+        console.error(
+          `[RazorpayWebhook] Package purchase completion failed for ${payment.id}:`,
+          pkgErr,
+        );
+        return NextResponse.json({ status: 'package_failed', error: errMsg });
+      }
     }
 
     return NextResponse.json({ status: 'ok' });

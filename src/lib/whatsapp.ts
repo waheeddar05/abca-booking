@@ -17,12 +17,47 @@
  *   WHATSAPP_OTP_TEMPLATE    – (optional) template name (default: "otp_login")
  */
 
+// ─── Constants ──────────────────────────────────────────────────────
+
+/**
+ * Hard cap on each WhatsApp BSP request. Without this, a hung Twilio
+ * or Meta endpoint blocks the calling request (typically a payment
+ * verify or booking flow) until the Vercel function itself times out
+ * at ~10s, which manifests to users as "unable to buy package" or
+ * "taking too long". 5s is enough headroom for normal latency and
+ * short enough that a failed BSP doesn't cost users a real request.
+ */
+const WHATSAPP_REQUEST_TIMEOUT_MS = 5_000;
+
+/**
+ * Wrap a `fetch` with an AbortController so it can't hang forever.
+ * Returns a Response on success; throws on abort/network error.
+ */
+async function fetchWithTimeout(
+  url: string,
+  init: RequestInit,
+  timeoutMs: number = WHATSAPP_REQUEST_TIMEOUT_MS,
+): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...init, signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 // ─── Types ──────────────────────────────────────────────────────────
 
 export interface WhatsAppSendResult {
   success: boolean;
   messageId?: string;
   error?: string;
+  /** When Meta returns error 131047 ("Re-engagement message"), the
+   *  recipient is outside the 24-hour customer-service window and a
+   *  free-form text can't be delivered. This isn't a bug — callers
+   *  should treat it as a soft skip rather than a noisy error. */
+  outsideWindow?: boolean;
 }
 
 export interface WhatsAppProvider {
@@ -125,7 +160,7 @@ class TwilioWhatsAppProvider implements WhatsAppProvider {
         Body: body,
       });
 
-      const res = await fetch(url, {
+      const res = await fetchWithTimeout(url, {
         method: 'POST',
         headers: {
           Authorization: `Basic ${credentials}`,
@@ -193,7 +228,7 @@ class MetaCloudAPIProvider implements WhatsAppProvider {
       const url = `${this.baseUrl}/messages`;
       console.log('[WhatsApp/Meta] Sending template:', { url, to, templateName, language });
 
-      const res = await fetch(url, {
+      const res = await fetchWithTimeout(url, {
         method: 'POST',
         headers: {
           Authorization: `Bearer ${this.accessToken}`,
@@ -242,7 +277,7 @@ class MetaCloudAPIProvider implements WhatsAppProvider {
       const url = `${this.baseUrl}/messages`;
       console.log('[WhatsApp/Meta] Sending text to:', to);
 
-      const res = await fetch(url, {
+      const res = await fetchWithTimeout(url, {
         method: 'POST',
         headers: {
           Authorization: `Bearer ${this.accessToken}`,
@@ -259,8 +294,26 @@ class MetaCloudAPIProvider implements WhatsAppProvider {
       const data = await res.json();
 
       if (!res.ok) {
+        // 131047 = "Re-engagement message". Plain text is not allowed
+        // outside the 24h conversation window. Downgrade to a warning;
+        // this is an expected outcome for users who haven't messaged
+        // the business recently. The proper fix is using a pre-approved
+        // template instead, but until every notification is templated
+        // we shouldn't pollute the error logs.
+        const code = data?.error?.code;
+        if (code === 131047) {
+          console.warn(
+            `[WhatsApp/Meta] Skipped: ${to} outside 24h conversation window (131047). Use a template message instead.`,
+          );
+          return {
+            success: false,
+            error: 'outside-24h-window',
+            outsideWindow: true,
+          };
+        }
         console.error('[WhatsApp/Meta] API error (text):', {
           status: res.status,
+          code,
           error: data?.error,
           to,
         });
@@ -332,7 +385,7 @@ class MetaCloudAPIProvider implements WhatsAppProvider {
 
       console.log('[WhatsApp/Meta] Auth OTP payload:', JSON.stringify(payload, null, 2));
 
-      const res = await fetch(url, {
+      const res = await fetchWithTimeout(url, {
         method: 'POST',
         headers: {
           Authorization: `Bearer ${this.accessToken}`,

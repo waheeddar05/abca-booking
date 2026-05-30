@@ -1,5 +1,7 @@
 'use client';
 
+import { ResourceBlockManagement } from '@/components/admin/ResourceBlockManagement';
+import { useCenter } from '@/lib/center-context';
 import { useState, useEffect, useCallback } from 'react';
 import { format, addDays, parseISO, eachDayOfInterval, getDay } from 'date-fns';
 import {
@@ -66,7 +68,9 @@ const formatBlockTime = (iso: string | null) => {
 };
 
 // ─── Component ───────────────────────────────────────────
-export default function SlotManagement() {
+// MACHINE_PITCH-only legacy block-slot UI. RESOURCE_BASED centers see
+// the gate notice via the wrapper at the bottom of this file.
+function SlotManagementLegacy() {
   const [activeTab, setActiveTab] = useState<TabId>('block');
   const [message, setMessage] = useState({ text: '', type: '' });
 
@@ -80,16 +84,33 @@ export default function SlotManagement() {
   const [endTime, setEndTime] = useState('22:30');
   const [selectedMachines, setSelectedMachines] = useState<string[]>([]);
   const [allMachines, setAllMachines] = useState(true);
+  const [pitchType, setPitchType] = useState<string>('');
   const [reason, setReason] = useState('');
   const [appliesTo, setAppliesTo] = useState<'ALL' | 'SPECIAL' | 'NON_SPECIAL'>('ALL');
   const [blockLoading, setBlockLoading] = useState(false);
+
+  // Confirmation popup for blocks that overlap existing bookings. We
+  // resolve the affected count via a dry-run before committing, then
+  // hold the pending request body until the admin confirms.
+  const [pendingBlockBody, setPendingBlockBody] = useState<Record<string, unknown> | null>(null);
+  const [pendingCancelCount, setPendingCancelCount] = useState(0);
 
   // Active blocks state
   const [blockedSlots, setBlockedSlots] = useState<BlockedSlot[]>([]);
   const [blockedLoading, setBlockedLoading] = useState(false);
   const [unblockId, setUnblockId] = useState<string | null>(null);
   const [editingBlock, setEditingBlock] = useState<BlockedSlot | null>(null);
-  const [editForm, setEditForm] = useState({ startDate: '', endDate: '', startTime: '', endTime: '', isFullDay: true, machineId: '' as string | null, reason: '', appliesTo: 'ALL' as string });
+  const [editForm, setEditForm] = useState({
+    startDate: '',
+    endDate: '',
+    startTime: '',
+    endTime: '',
+    isFullDay: true,
+    machineId: '' as string | null,
+    pitchType: '' as string | null,
+    reason: '',
+    appliesTo: 'ALL' as string,
+  });
   const [editLoading, setEditLoading] = useState(false);
 
   const todayStr = format(new Date(), 'yyyy-MM-dd');
@@ -141,6 +162,7 @@ export default function SlotManagement() {
     setEndTime('22:30');
     setSelectedMachines([]);
     setAllMachines(true);
+    setPitchType('');
     setReason('');
     setAppliesTo('ALL');
   };
@@ -194,35 +216,72 @@ export default function SlotManagement() {
 
     const machineIdsToSend = allMachines ? [] : selectedMachines;
 
+    // Build a single block request
+    const body: Record<string, unknown> = {
+      startDate,
+      endDate,
+      reason: reason || null,
+      appliesTo,
+    };
+    if (!isFullDay) {
+      body.startTime = startTime;
+      body.endTime = endTime;
+    }
+    if (machineIdsToSend.length > 0) {
+      body.machineIds = machineIdsToSend;
+    }
+    if (pitchType) {
+      body.pitchType = pitchType;
+    }
+
+    if (scheduleType === 'recurring') {
+      const dates = getDatesToBlock();
+      if (dates.length === 0) {
+        setMessage({ text: 'No matching days found in the selected range', type: 'error' });
+        return;
+      }
+      body.recurringDays = recurringDays;
+    }
+
     setBlockLoading(true);
     setMessage({ text: '', type: '' });
 
     try {
-      // Build a single block request
-      const body: Record<string, unknown> = {
-        startDate,
-        endDate,
-        reason: reason || null,
-        appliesTo,
-      };
-      if (!isFullDay) {
-        body.startTime = startTime;
-        body.endTime = endTime;
-      }
-      if (machineIdsToSend.length > 0) {
-        body.machineIds = machineIdsToSend;
-      }
-
-      if (scheduleType === 'recurring') {
-        const dates = getDatesToBlock();
-        if (dates.length === 0) {
-          setMessage({ text: 'No matching days found in the selected range', type: 'error' });
-          setBlockLoading(false);
-          return;
-        }
-        body.recurringDays = recurringDays;
+      // First ask the API how many existing bookings this block would
+      // cancel (dry run — nothing is created or cancelled yet).
+      const previewRes = await fetch('/api/admin/slots/block', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...body, dryRun: true }),
+      });
+      const preview = await previewRes.json();
+      if (!previewRes.ok) {
+        setMessage({ text: preview.error || 'Failed to block slots', type: 'error' });
+        setBlockLoading(false);
+        return;
       }
 
+      // If bookings would be cancelled, hold the request and surface a
+      // confirmation popup with the count. Otherwise commit immediately.
+      if (preview.cancelledBookingsCount > 0) {
+        setPendingBlockBody(body);
+        setPendingCancelCount(preview.cancelledBookingsCount);
+        setBlockLoading(false);
+        return;
+      }
+
+      await performBlock(body);
+    } catch {
+      setMessage({ text: 'Failed to block slots', type: 'error' });
+      setBlockLoading(false);
+    }
+  };
+
+  // ─── Commit the block (after dry-run / confirmation) ────
+  const performBlock = async (body: Record<string, unknown>) => {
+    setBlockLoading(true);
+    setMessage({ text: '', type: '' });
+    try {
       const res = await fetch('/api/admin/slots/block', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -245,6 +304,13 @@ export default function SlotManagement() {
     } finally {
       setBlockLoading(false);
     }
+  };
+
+  const confirmPendingBlock = async () => {
+    const body = pendingBlockBody;
+    setPendingBlockBody(null);
+    setPendingCancelCount(0);
+    if (body) await performBlock(body);
   };
 
   // ─── Unblock ────────────────────────────────────────────
@@ -280,6 +346,7 @@ export default function SlotManagement() {
       endTime: formatBlockTime(block.endTime) || '22:30',
       isFullDay: !block.startTime,
       machineId: block.machineId,
+      pitchType: block.pitchType || '',
       reason: block.reason || '',
       appliesTo: block.appliesTo || 'ALL',
     });
@@ -304,6 +371,7 @@ export default function SlotManagement() {
         body.endTime = null;
       }
       body.machineId = editForm.machineId || null;
+      body.pitchType = editForm.pitchType || null;
 
       const res = await fetch('/api/admin/slots/block', {
         method: 'PUT',
@@ -841,6 +909,48 @@ export default function SlotManagement() {
                 </select>
               </div>
 
+              {/* Pitch Selection */}
+              <div className="mb-6">
+                <label className="block text-[10px] font-medium text-slate-400 mb-1.5 uppercase tracking-wider">
+                  Pitch Type (optional)
+                </label>
+                <div className="flex flex-wrap gap-1.5">
+                  {['ASTRO', 'TURF', 'CEMENT', 'NATURAL'].map((p) => {
+                    const selected = pitchType === p;
+                    return (
+                      <button
+                        key={p}
+                        type="button"
+                        onClick={() => setPitchType(selected ? '' : p)}
+                        className={`px-2.5 py-1.5 rounded-lg text-[11px] font-medium transition-all cursor-pointer ${
+                          selected
+                            ? 'bg-accent/20 text-accent ring-1 ring-accent/30'
+                            : 'bg-white/[0.04] text-slate-400 hover:bg-white/[0.06]'
+                        }`}
+                      >
+                        {p}
+                      </button>
+                    );
+                  })}
+                </div>
+                <p className="text-[10px] text-slate-500 mt-1.5">
+                  Empty = all pitch types
+                </p>
+              </div>
+
+              {/* Pitch Selection */}
+              <div>
+                <label className="block text-[10px] font-medium text-slate-500 mb-1 uppercase tracking-wider">Pitch Type</label>
+                <select value={editForm.pitchType || ''} onChange={e => setEditForm(f => ({ ...f, pitchType: e.target.value || null }))}
+                  className="w-full bg-white/[0.04] border border-white/[0.08] rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-accent/50">
+                  <option value="">All Pitches</option>
+                  <option value="ASTRO">Astro</option>
+                  <option value="TURF">Turf</option>
+                  <option value="CEMENT">Cement</option>
+                  <option value="NATURAL">Natural</option>
+                </select>
+              </div>
+
               {/* Reason */}
               <div>
                 <label className="block text-[10px] font-medium text-slate-500 mb-1 uppercase tracking-wider">Reason</label>
@@ -899,6 +1009,40 @@ export default function SlotManagement() {
         onConfirm={handleUnblockConfirm}
         onCancel={() => setUnblockId(null)}
       />
+
+      {/* Overlapping-bookings confirmation */}
+      <ConfirmDialog
+        open={!!pendingBlockBody}
+        title="Cancel existing bookings?"
+        message={`This block overlaps ${pendingCancelCount} existing booking${pendingCancelCount === 1 ? '' : 's'}. Proceeding will cancel ${pendingCancelCount === 1 ? 'it' : 'them'} and notify the affected user${pendingCancelCount === 1 ? '' : 's'}.`}
+        warning="Cancelled bookings are refunded to the user's wallet. This cannot be undone."
+        confirmLabel={`Block & cancel ${pendingCancelCount}`}
+        cancelLabel="Keep bookings"
+        variant="danger"
+        loading={blockLoading}
+        onConfirm={confirmPendingBlock}
+        onCancel={() => { setPendingBlockBody(null); setPendingCancelCount(0); }}
+      />
     </div>
   );
+}
+
+export default function SlotManagementPage() {
+  // Center-aware split. The legacy form is hardcoded around the four
+  // ABCA enum machines + ball/pitch enums and would silently fail at
+  // RESOURCE_BASED centers (Toplay) — those get the dedicated
+  // ResourceBlockManagement form instead, which targets machine rows,
+  // resource rows, and BookingCategory directly.
+  const { currentCenter, loading } = useCenter();
+  if (loading || !currentCenter) {
+    return (
+      <div className="flex items-center justify-center py-16 text-slate-500">
+        Loading…
+      </div>
+    );
+  }
+  if (currentCenter.bookingModel === 'RESOURCE_BASED') {
+    return <ResourceBlockManagement />;
+  }
+  return <SlotManagementLegacy />;
 }

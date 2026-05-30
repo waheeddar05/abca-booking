@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { requireAdmin } from '@/lib/adminAuth';
+import { getAuthenticatedUser } from '@/lib/auth';
+import { resolveCurrentCenter } from '@/lib/centers';
 import { getISTTodayUTC, getISTLastMonthRange, dateStringToUTC, formatIST } from '@/lib/time';
 
 const SAFE_BOOKING_SELECT = {
@@ -24,6 +26,13 @@ const SAFE_BOOKING_SELECT = {
   discountAmount: true,
   kitRental: true,
   kitRentalCharge: true,
+  // Resource-based (Toplay) fields. Null on ABCA rows; populated on
+  // category-based bookings so the CSV captures the actual machine /
+  // coach / staff that ran the session.
+  category: true,
+  assignedMachine: { select: { name: true, shortName: true } },
+  assignedCoach: { select: { name: true } },
+  assignedStaff: { select: { name: true } },
   user: { select: { email: true, mobileNumber: true } },
 } as const;
 
@@ -40,8 +49,19 @@ export async function GET(req: NextRequest) {
     const from = searchParams.get('from');
     const to = searchParams.get('to');
     const status = searchParams.get('status');
+    const allCenters = searchParams.get('allCenters') === 'true';
+
+    const adminUser = await getAuthenticatedUser(req);
+    const center = adminUser ? await resolveCurrentCenter(req, adminUser) : null;
 
     const where: any = {};
+    if (!allCenters && center) {
+      where.centerId = center.id;
+    } else if (!allCenters && !center) {
+      return NextResponse.json({ error: 'No center selected' }, { status: 400 });
+    } else if (allCenters && !adminUser?.isSuperAdmin) {
+      return NextResponse.json({ error: 'allCenters requires super admin' }, { status: 403 });
+    }
     const todayUTC = getISTTodayUTC();
 
     if (category === 'today') {
@@ -79,6 +99,12 @@ export async function GET(req: NextRequest) {
         where,
         include: {
           user: { select: { email: true, mobileNumber: true } },
+          // Resource-based axes — joined here too so the CSV row can
+          // surface category / assigned machine / coach / staff for
+          // Toplay rows. Null fields are simply blank on ABCA rows.
+          assignedMachine: { select: { name: true, shortName: true } },
+          assignedCoach: { select: { name: true } },
+          assignedStaff: { select: { name: true } },
           packageBooking: {
             include: {
               userPackage: {
@@ -101,8 +127,87 @@ export async function GET(req: NextRequest) {
     // Build CSV
     const isPackage = (b: any) => !!b.packageBooking;
 
+    // Load all payments linked to these bookings so we can compute the
+    // wallet/online split per booking. A single Payment can cover multiple
+    // bookings (multi-slot order) — we allocate the wallet + online
+    // portions proportionally to each booking's price.
+    const bookingIds = bookings.filter(b => !isPackage(b)).map(b => b.id);
+    const payments = bookingIds.length > 0
+      ? await prisma.payment.findMany({
+          where: {
+            status: 'CAPTURED',
+            bookingIds: { hasSome: bookingIds },
+          },
+          select: { id: true, amount: true, metadata: true, bookingIds: true },
+        })
+      : [];
+
+    const priceByBookingId = new Map<string, number>(
+      bookings.map(b => [b.id, b.price ?? 0]),
+    );
+    const paymentByBookingId = new Map<string, typeof payments[number]>();
+    for (const p of payments) {
+      for (const bId of p.bookingIds) paymentByBookingId.set(bId, p);
+    }
+
+    const computeSplit = (b: any): { wallet: number; online: number } => {
+      if (isPackage(b)) return { wallet: 0, online: 0 };
+      // Pure wallet booking — booking row records this via paymentMethod.
+      if (b.paymentMethod === 'WALLET') {
+        return { wallet: b.price || 0, online: 0 };
+      }
+      if (b.paymentMethod === 'CASH') {
+        return { wallet: 0, online: 0 };
+      }
+      const payment = paymentByBookingId.get(b.id);
+      if (!payment) {
+        // No captured payment — fall back to recorded method.
+        if (b.paymentMethod === 'ONLINE') {
+          return { wallet: 0, online: b.price || 0 };
+        }
+        return { wallet: 0, online: 0 };
+      }
+      const orderTotal = payment.bookingIds.reduce(
+        (sum, bId) => sum + (priceByBookingId.get(bId) ?? 0),
+        0,
+      );
+      const meta = (payment.metadata as Record<string, unknown> | null) ?? null;
+      const walletPortion = typeof meta?.walletDeduction === 'number' ? meta.walletDeduction : 0;
+      const onlinePortion = payment.amount;
+      const myPrice = b.price ?? 0;
+      if (orderTotal > 0) {
+        return {
+          wallet: Math.round((myPrice / orderTotal) * walletPortion),
+          online: Math.round((myPrice / orderTotal) * onlinePortion),
+        };
+      }
+      return { wallet: walletPortion, online: onlinePortion };
+    };
+
     // Check if there are any package bookings to decide whether to show Extra Amount column
     const hasPackageBookings = bookings.some((b: any) => !!b.packageBooking);
+
+    // Map raw BookingCategory enum to human-readable labels. ABCA legacy
+    // rows have null category but are effectively bowling-machine
+    // sessions (schema defaults to MACHINE), so the fallback is "Bowling
+    // Machine".
+    const CATEGORY_LABELS: Record<string, string> = {
+      MACHINE: 'Bowling Machine',
+      SIDEARM: 'Sidearm',
+      NET: 'Cricket Nets',
+      FULL_COURT: 'Full Indoor Court',
+      COACHING: 'Personal Coaching',
+      CORPORATE_BATCH: 'Corporate Batch',
+    };
+    const categoryLabel = (raw: string | null | undefined): string =>
+      (raw && CATEGORY_LABELS[raw]) || 'Bowling Machine';
+
+    // Ball type / operation mode only apply to bowling-machine sessions.
+    // For sidearm / nets / coaching / full-court / corporate-batch the
+    // cell reads "Not Applicable" (mirrors the admin bookings page
+    // which gates operation mode on `!category || category === 'MACHINE'`).
+    const isMachineBooking = (b: { category?: string | null }): boolean =>
+      !b.category || b.category === 'MACHINE';
 
     const headers = [
       'Booking ID',
@@ -119,14 +224,27 @@ export async function GET(req: NextRequest) {
       'Ball Type',
       'Pitch Type',
       'Machine',
+      // Resource-based axes (Toplay). Empty on ABCA rows.
+      'Category',
+      'Coach',
+      'Staff',
       'Operation Mode',
       'Status',
       'Amount',
+      // Split of the booking amount across the two funding sources.
+      // For a mixed payment (some wallet + some Razorpay), the wallet
+      // portion comes from Payment.metadata.walletDeduction and the
+      // online portion is Payment.amount; both are pro-rated to this
+      // booking's share when the order covered multiple slots.
+      // Pure WALLET bookings → full amount under Wallet, 0 Online.
+      // CASH/PACKAGE bookings → 0 / 0.
+      'Wallet Amount',
+      'Online Amount',
+      'Payment Method',
       ...(hasPackageBookings ? ['Extra Amount'] : []),
       'Created By',
       'Cancelled By',
       'Cancelled At',
-      'Payment Method',
       'Payment Status',
       'Kit Rental',
       'Kit Rental Charge',
@@ -167,6 +285,38 @@ export async function GET(req: NextRequest) {
         }
       }
 
+      // Single machine label that works for both models: legacy enum on
+      // ABCA, resource Machine row on Toplay. Whichever is non-null.
+      const machineLabel = b.machineId
+        || b.assignedMachine?.shortName
+        || b.assignedMachine?.name
+        || 'Not Applicable';
+
+      // Wallet / online split for this booking. computeSplit() returns
+      // {0, 0} for package + cash rows; for mixed wallet+Razorpay
+      // payments it pro-rates the funding across all bookings in the
+      // same order so the per-row numbers always sum back to the
+      // captured payment.
+      const split = computeSplit(b);
+      const machineRow = isMachineBooking(b);
+      // Payment Method display:
+      //   pkg rows           → 'NA' (unchanged)
+      //   wallet > 0 && online > 0 → 'Wallet + Online'
+      //   wallet > 0 only    → 'Wallet'
+      //   online > 0 only    → 'Online'
+      //   else               → raw paymentMethod (covers CASH / unknown)
+      let paymentMethodCol: string;
+      if (pkg) {
+        paymentMethodCol = 'NA';
+      } else if (split.wallet > 0 && split.online > 0) {
+        paymentMethodCol = 'Wallet + Online';
+      } else if (split.wallet > 0) {
+        paymentMethodCol = 'Wallet';
+      } else if (split.online > 0) {
+        paymentMethodCol = 'Online';
+      } else {
+        paymentMethodCol = b.paymentMethod || '';
+      }
       return [
         b.id,
         formatIST(b.date, 'yyyy-MM-dd'),
@@ -174,22 +324,32 @@ export async function GET(req: NextRequest) {
         formatIST(b.startTime, 'HH:mm'),
         formatIST(b.endTime, 'HH:mm'),
         `"${(b.playerName || '').replace(/"/g, '""')}"`,
-        b.user?.email || '',
-        b.user?.mobileNumber || '',
+        b.user?.email || 'Not Applicable',
+        b.user?.mobileNumber || 'Not Applicable',
         pkg ? 'Package' : 'Regular',
-        pkg ? (b.packageBooking?.userPackage?.package?.name || '') : 'NA',
-        pkg ? (b.packageBooking?.userPackageId || '') : 'NA',
-        b.ballType,
-        b.pitchType || '',
-        b.machineId || '',
-        b.operationMode || '',
+        pkg ? (b.packageBooking?.userPackage?.package?.name || '') : 'Not Applicable',
+        pkg ? (b.packageBooking?.userPackageId || '') : 'Not Applicable',
+        machineRow ? b.ballType : 'Not Applicable',
+        b.pitchType || 'Not Applicable',
+        machineLabel,
+        // Resource-based columns: category (human label), coach, staff.
+        // Legacy ABCA rows have null category but represent bowling
+        // machine sessions, so the label falls back to "Bowling Machine".
+        categoryLabel(b.category),
+        b.assignedCoach?.name || 'Not Applicable',
+        b.assignedStaff?.name || 'Not Applicable',
+        machineRow ? (b.operationMode || '') : 'Not Applicable',
         b.status,
         pkg ? ((b.packageBooking?.extraCharge || 0) + (b.kitRentalCharge || 0)).toString() : (b.price?.toString() || ''),
+        // Wallet / online amounts paired with the same row as the
+        // total so a quick sum check is obvious in Excel.
+        split.wallet.toString(),
+        split.online.toString(),
+        paymentMethodCol,
         ...(hasPackageBookings ? [pkg ? (b.packageBooking?.extraCharge ? b.packageBooking.extraCharge.toString() : '0') : '0'] : []),
         `"${(b.createdBy || '').replace(/"/g, '""')}"`,
         `"${(b.cancelledBy || '').replace(/"/g, '""')}"`,
         b.status === 'CANCELLED' && b.updatedAt ? formatIST(b.updatedAt, 'yyyy-MM-dd HH:mm:ss') : '',
-        pkg ? 'NA' : (b.paymentMethod || ''),
         pkg ? 'NA' : (b.paymentStatus || ''),
         b.kitRental ? 'Yes' : 'No',
         b.kitRentalCharge != null ? b.kitRentalCharge.toString() : '',

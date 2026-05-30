@@ -1,45 +1,69 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { getAuthenticatedUser } from '@/lib/auth';
+import { resolveCurrentCenter } from '@/lib/centers';
+import { getCenterRazorpayCredentials } from '@/lib/razorpay';
+import { getPolicyValue, isPolicyEnabled } from '@/lib/policy';
 
-const RAZORPAY_PUBLIC_KEY = process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID
+const ENV_RAZORPAY_PUBLIC_KEY = process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID
   || process.env.RAZORPAY_KEY_ID
   || '';
 
-const PAYMENT_POLICY_KEYS = [
-  'PAYMENT_GATEWAY_ENABLED',
-  'SLOT_PAYMENT_REQUIRED',
-  'PACKAGE_PAYMENT_REQUIRED',
-  'CASH_PAYMENT_ENABLED',
-  'WALLET_ENABLED',
-  'KIT_RENTAL_CONFIG',
-];
-
 // GET /api/payments/config - Payment config (includes cash payment eligibility)
-// NOTE: Queries DB directly (no cache) so admin changes take effect immediately.
+// NOTE: Resolves per-center overrides so admin toggles take effect for the
+// user's current center, not just globally.
 export async function GET(req: NextRequest) {
   try {
-    // Parallelize: fetch policies from DB directly and authenticate user
-    const [policies, user] = await Promise.all([
-      prisma.policy.findMany({ where: { key: { in: PAYMENT_POLICY_KEYS } } }),
-      getAuthenticatedUser(req),
+    const user = await getAuthenticatedUser(req);
+    const center = await resolveCurrentCenter(req, user);
+    const centerId = center?.id ?? null;
+
+    // All flags go through the center → global → default cascade.
+    const [
+      paymentEnabled,
+      slotPaymentRequired,
+      packagePaymentRequired,
+      centerCashEnabled,
+      walletEnabled,
+      kitRentalRaw,
+      ballTypeSelectionEnabled,
+      pitchTypeSelectionEnabled,
+    ] = await Promise.all([
+      isPolicyEnabled('PAYMENT_GATEWAY_ENABLED', centerId),
+      isPolicyEnabled('SLOT_PAYMENT_REQUIRED', centerId),
+      isPolicyEnabled('PACKAGE_PAYMENT_REQUIRED', centerId),
+      isPolicyEnabled('CASH_PAYMENT_ENABLED', centerId),
+      isPolicyEnabled('WALLET_ENABLED', centerId),
+      getPolicyValue('KIT_RENTAL_CONFIG', centerId, null),
+      // Ball / pitch selector toggles. Resource-based centers expose
+      // these as a center-wide override on top of the per-machine
+      // supportedBallTypes / supportedPitchTypes lists. When the
+      // toggle is OFF the user-side picker auto-selects the first
+      // supported value and hides the chip row. Defaults to ON (true)
+      // when the policy isn't set, matching the existing UI behaviour.
+      isPolicyEnabled('BALL_TYPE_SELECTION_ENABLED', centerId, true),
+      isPolicyEnabled('PITCH_TYPE_SELECTION_ENABLED', centerId, true),
     ]);
 
-    const config: Record<string, string> = {};
-    for (const p of policies) config[p.key] = p.value;
-
-    const globalCashEnabled = config['CASH_PAYMENT_ENABLED'] === 'true';
-
-    // Check per-user cash payment override
+    // Check per-user cash payment override at the user's current center.
+    // CashPaymentUser is center-scoped — a user may have cash access at
+    // ABCA but not Toplay (or vice versa).
     let userHasCashAccess = false;
-    if (user) {
-      const cashPaymentUser = await prisma.cashPaymentUser.findUnique({
-        where: { userId: user.id },
-      });
-      userHasCashAccess = !!cashPaymentUser;
-    }
+    let centerRazorpayKeyId: string | null = null;
+    if (center) {
+      // Resolve which Razorpay account the client should initialize against.
+      // This may be the center's own keyId or the env fallback. The secret
+      // never leaves the server.
+      const creds = await getCenterRazorpayCredentials(center.id);
+      centerRazorpayKeyId = creds?.keyId ?? null;
 
-    const paymentEnabled = config['PAYMENT_GATEWAY_ENABLED'] === 'true';
+      if (user) {
+        const cashPaymentUser = await prisma.cashPaymentUser.findUnique({
+          where: { centerId_userId: { centerId: center.id, userId: user.id } },
+        });
+        userHasCashAccess = !!cashPaymentUser;
+      }
+    }
 
     // Parse kit rental config
     const DEFAULT_KIT_RENTAL = {
@@ -52,19 +76,30 @@ export async function GET(req: NextRequest) {
     };
     let kitRentalConfig = DEFAULT_KIT_RENTAL;
     try {
-      if (config['KIT_RENTAL_CONFIG']) {
-        kitRentalConfig = { ...DEFAULT_KIT_RENTAL, ...JSON.parse(config['KIT_RENTAL_CONFIG']) };
+      if (kitRentalRaw) {
+        kitRentalConfig = { ...DEFAULT_KIT_RENTAL, ...JSON.parse(kitRentalRaw) };
       }
     } catch { /* use defaults */ }
 
     return NextResponse.json({
       paymentEnabled,
-      slotPaymentRequired: config['SLOT_PAYMENT_REQUIRED'] === 'true',
-      packagePaymentRequired: config['PACKAGE_PAYMENT_REQUIRED'] === 'true',
-      razorpayKeyId: paymentEnabled ? RAZORPAY_PUBLIC_KEY : '',
-      cashPaymentEnabled: globalCashEnabled || userHasCashAccess,
-      walletEnabled: config['WALLET_ENABLED'] === 'true',
+      slotPaymentRequired,
+      packagePaymentRequired,
+      // Per-center keyId when the center configured one; env fallback
+      // otherwise. The client uses this to bootstrap the Razorpay
+      // checkout for the right merchant account.
+      razorpayKeyId: paymentEnabled
+        ? (centerRazorpayKeyId || ENV_RAZORPAY_PUBLIC_KEY)
+        : '',
+      cashPaymentEnabled: centerCashEnabled || userHasCashAccess,
+      walletEnabled,
       kitRentalConfig,
+      // Selector visibility flags. Default true (selectors visible)
+      // when nothing is configured; admins can flip to false in the
+      // center configuration page to force-pick the first option.
+      ballTypeSelectionEnabled,
+      pitchTypeSelectionEnabled,
+      centerId: center?.id ?? null,
     });
   } catch (error) {
     console.error('Payment config error:', error);

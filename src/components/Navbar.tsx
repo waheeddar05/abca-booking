@@ -6,11 +6,14 @@ import { useSession, signOut } from 'next-auth/react';
 import { usePathname, useRouter } from 'next/navigation';
 import { useState, useEffect } from 'react';
 import { Shield, Power, LogIn, ArrowLeft, Calendar, ClipboardList, Package, Wallet, Bell, Headset } from 'lucide-react';
+import { CenterSelector } from './CenterSelector';
+import { useCenter } from '@/lib/center-context';
 
 export default function Navbar() {
   const { data: session, status } = useSession();
   const pathname = usePathname();
   const router = useRouter();
+  const { isAdminAtCurrentCenter, isStaffAtCurrentCenter, loading: centerLoading } = useCenter();
   const [scrolled, setScrolled] = useState(false);
   // For OTP-logged-in users who don't have a NextAuth session
   const [otpUserRole, setOtpUserRole] = useState<string | null>(null);
@@ -34,11 +37,17 @@ export default function Navbar() {
   }, [session, status]);
 
   const isLoggedIn = !!session || !!otpUserRole;
-  const userRole = (session?.user?.role as string) || otpUserRole;
-  const isAdmin = userRole === 'ADMIN';
-  const isOperator = userRole === 'OPERATOR';
+  // Admin / staff buttons are gated by membership at the *currently selected* center,
+  // not by the global User.role. A user who is ADMIN at Toplay but not at ABCA must
+  // see the Admin button on Toplay and not on ABCA. Super admin bypass is folded
+  // into these flags by the provider. While memberships are still loading we hide
+  // the buttons to avoid a flash for users without admin rights.
+  const showAdmin = isLoggedIn && !centerLoading && isAdminAtCurrentCenter;
+  const showStaff = isLoggedIn && !centerLoading && isStaffAtCurrentCenter;
   const isInAdminMode = pathname.startsWith('/admin');
-  const isInOperatorMode = pathname.startsWith('/operator');
+  // /operator is a legacy redirect to /staff; treat both as "staff mode"
+  // so coach/sidearm users on /staff get the same chrome as operators did.
+  const isInStaffMode = pathname.startsWith('/staff') || pathname.startsWith('/operator');
 
   if (pathname === '/') return null;
 
@@ -82,7 +91,7 @@ export default function Navbar() {
           </Link>
 
           {/* Desktop Navigation Links — hidden on mobile (BottomNav handles mobile) */}
-          {isLoggedIn && !isInAdminMode && !isInOperatorMode && (
+          {isLoggedIn && !isInAdminMode && !isInStaffMode && (
             <div className="hidden md:flex items-center gap-1">
               {desktopNavLinks.map(({ href, label, icon: Icon }) => {
                 const active = isNavActive(href);
@@ -106,10 +115,16 @@ export default function Navbar() {
 
           {/* Right side actions */}
           <div className="flex items-center gap-1.5">
+            {/* Center selector — visible to everyone (logged in or not) when 2+ centers exist.
+                Auto-hides itself in the single-center case so this looks identical to before. */}
+            {!isInAdminMode && !isInStaffMode && (
+              <CenterSelector compact />
+            )}
+
             {isLoggedIn ? (
               <>
-                {/* Admin/Operator mode: Switch to User Mode */}
-                {(isInAdminMode || isInOperatorMode) && (
+                {/* Admin/Staff mode: Switch to User Mode */}
+                {(isInAdminMode || isInStaffMode) && (
                   <Link
                     href="/slots"
                     className="hidden md:flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium transition-all text-white/70 hover:text-white hover:bg-white/10"
@@ -119,8 +134,9 @@ export default function Navbar() {
                   </Link>
                 )}
 
-                {/* User mode: Admin button for admin users */}
-                {!isInAdminMode && isAdmin && (
+                {/* User mode: Admin button — only visible when the user is an
+                    ADMIN at the currently-selected center (or a super admin). */}
+                {!isInAdminMode && showAdmin && (
                   <Link
                     href="/admin"
                     className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium transition-all text-white/70 hover:text-white hover:bg-white/10"
@@ -130,21 +146,23 @@ export default function Navbar() {
                   </Link>
                 )}
 
-                {/* Operator Dashboard button for operator users */}
-                {!isInOperatorMode && (isOperator || isAdmin) && (
+                {/* Staff Dashboard button — only visible when the user holds a
+                    staff role (OPERATOR / COACH / SIDEARM_SPECIALIST) or ADMIN
+                    membership at the currently-selected center. */}
+                {!isInStaffMode && showStaff && (
                   <Link
-                    href="/operator"
+                    href="/staff"
                     className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium transition-all text-white/70 hover:text-white hover:bg-white/10"
                   >
                     <Headset className="w-4 h-4" />
-                    <span className="hidden md:inline">Operator</span>
+                    <span className="hidden md:inline">Staff</span>
                   </Link>
                 )}
 
-                {/* Logout button - hidden on mobile in admin/operator mode since those layouts have their own */}
+                {/* Logout button - hidden on mobile in admin/staff mode since those layouts have their own */}
                 <button
                   onClick={handleLogout}
-                  className={`${(isInAdminMode || isInOperatorMode) ? 'hidden md:flex' : 'flex'} items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium transition-all cursor-pointer text-white/70 hover:text-red-400 hover:bg-white/10`}
+                  className={`${(isInAdminMode || isInStaffMode) ? 'hidden md:flex' : 'flex'} items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium transition-all cursor-pointer text-white/70 hover:text-red-400 hover:bg-white/10`}
                 >
                   <Power className="w-4 h-4" />
                   <span className="hidden md:inline">Logout</span>

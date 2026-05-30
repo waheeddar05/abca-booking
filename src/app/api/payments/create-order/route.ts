@@ -2,8 +2,10 @@ import { NextRequest, NextResponse } from 'next/server';
 import { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 import { getAuthenticatedUser } from '@/lib/auth';
+import { resolveCurrentCenter } from '@/lib/centers';
 import {
   createRazorpayOrder,
+  getCenterRazorpayCredentials,
   isPaymentEnabled,
   isSlotPaymentRequired,
   isPackagePaymentRequired,
@@ -17,9 +19,28 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const enabled = await isPaymentEnabled();
+    // Payments are center-scoped — bind the order to the user's current
+    // center. The payment-gateway toggle is also center-scoped, so we
+    // need the center before checking whether payments are enabled.
+    const center = await resolveCurrentCenter(req, user);
+    if (!center) {
+      return NextResponse.json({ error: 'No center selected' }, { status: 400 });
+    }
+
+    const enabled = await isPaymentEnabled(center.id);
     if (!enabled) {
       return NextResponse.json({ error: 'Payment gateway is not enabled' }, { status: 400 });
+    }
+
+    // Resolve which Razorpay account this center uses. Required up front so
+    // the keyId returned to the client matches the merchant account that
+    // creates the order — otherwise Razorpay Checkout silently fails.
+    const creds = await getCenterRazorpayCredentials(center.id);
+    if (!creds) {
+      return NextResponse.json(
+        { error: 'Razorpay is not configured for this center' },
+        { status: 500 },
+      );
     }
 
     const body = await req.json();
@@ -39,7 +60,7 @@ export async function POST(req: NextRequest) {
 
     // Validate based on type
     if (type === 'PACKAGE_PURCHASE') {
-      const required = await isPackagePaymentRequired();
+      const required = await isPackagePaymentRequired(center.id);
       if (!required) {
         return NextResponse.json({ error: 'Payment not required for packages' }, { status: 400 });
       }
@@ -57,7 +78,7 @@ export async function POST(req: NextRequest) {
     }
 
     if (type === 'SLOT_BOOKING') {
-      const required = await isSlotPaymentRequired();
+      const required = await isSlotPaymentRequired(center.id);
       if (!required) {
         return NextResponse.json({ error: 'Payment not required for slot bookings' }, { status: 400 });
       }
@@ -71,8 +92,9 @@ export async function POST(req: NextRequest) {
     // Generate receipt ID
     const receipt = `rcpt_${type === 'PACKAGE_PURCHASE' ? 'pkg' : 'slot'}_${Date.now()}`;
 
-    // Create Razorpay order
+    // Create Razorpay order against the center's Razorpay account.
     const razorpayOrder = await createRazorpayOrder({
+      centerId: center.id,
       amount,
       receipt,
       notes: {
@@ -86,6 +108,7 @@ export async function POST(req: NextRequest) {
     // Create Payment record in DB
     const payment = await prisma.payment.create({
       data: {
+        centerId: center.id,
         userId: user.id,
         amount,
         currency: 'INR',
@@ -110,7 +133,7 @@ export async function POST(req: NextRequest) {
       paymentId: payment.id,
       amount: razorpayOrder.amount, // in paise
       currency: razorpayOrder.currency,
-      keyId: process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID,
+      keyId: creds.keyId,
     });
   } catch (error) {
     console.error('Create order error:', error);

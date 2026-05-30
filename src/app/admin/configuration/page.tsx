@@ -7,6 +7,11 @@ import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { AdminPageHeader } from '@/components/admin/AdminPageHeader';
 import { AdminCard } from '@/components/admin/AdminCard';
 import { AdminToggle } from '@/components/admin/AdminToggle';
+import { useCenter } from '@/lib/center-context';
+import { ResourcePricingEditor } from '@/components/admin/ResourcePricingEditor';
+import { EnabledCategoriesEditor } from '@/components/admin/EnabledCategoriesEditor';
+import { EnabledPitchTypesEditor } from '@/components/admin/EnabledPitchTypesEditor';
+import { Ticket } from 'lucide-react';
 
 interface SlabPricing {
   single: number;
@@ -83,9 +88,13 @@ const DEFAULT_PRICING: PricingConfig = {
   },
 };
 
+// Kept in sync with src/lib/pricing.ts → DEFAULT_TIME_SLABS so the
+// admin form pre-populates with the same continuous slabs the engine
+// uses when CenterPolicy isn't set. The previous 17:00–19:00 gap left
+// resource-based centers with no bookable slots in that window.
 const DEFAULT_TIME_SLABS: TimeSlabConfig = {
   morning: { start: '07:00', end: '17:00' },
-  evening: { start: '19:00', end: '22:30' },
+  evening: { start: '17:00', end: '22:30' },
 };
 
 const DEFAULT_MACHINE_PITCH_CONFIG: MachinePitchConfig = {
@@ -165,6 +174,12 @@ function PriceField({ label, value, onChange }: { label: string; value: number; 
 
 export default function ConfigurationPage() {
   useSession(); // ensure auth context is available
+  const { currentCenter } = useCenter();
+  // Settings are always edited at the center scope. The global-defaults
+  // toggle was removed because it confused admins more than it helped —
+  // every center now manages its own values via this page, and the
+  // platform default is whatever ships in code.
+  const scope = 'center' as const;
 
   // Machine config state
   const [machineConfig, setMachineConfig] = useState<MachineConfig>({
@@ -181,35 +196,75 @@ export default function ConfigurationPage() {
   const [showMachineConfigConfirm, setShowMachineConfigConfirm] = useState(false);
   const [activePricingTab, setActivePricingTab] = useState<string>('leather');
 
+  // Unified Settings state
+  const [settingsSaveTrigger, setSettingsSaveTrigger] = useState(0);
+  const [categoriesSaveStatus, setCategoriesSaveStatus] = useState<{ saving: boolean; message: { text: string; ok: boolean } | null }>({ saving: false, message: null });
+  const [pitchTypesSaveStatus, setPitchTypesSaveStatus] = useState<{ saving: boolean; message: { text: string; ok: boolean } | null }>({ saving: false, message: null });
+  const isSettingsSaving = categoriesSaveStatus.saving || pitchTypesSaveStatus.saving;
+  const settingsMessage = categoriesSaveStatus.message || pitchTypesSaveStatus.message;
+
+  const handleSaveSettings = () => {
+    setSettingsSaveTrigger(prev => prev + 1);
+  };
+
 
   // Payment settings state
+  // BALL_TYPE_SELECTION_ENABLED / PITCH_TYPE_SELECTION_ENABLED default
+  // to `true` — the chip rows are visible unless the admin opts out.
+  // The cascade in /api/admin/policies returns the stored string
+  // ("true" / "false") and we coerce below.
   const [paymentSettings, setPaymentSettings] = useState({
     PAYMENT_GATEWAY_ENABLED: false,
     SLOT_PAYMENT_REQUIRED: false,
     PACKAGE_PAYMENT_REQUIRED: false,
     CASH_PAYMENT_ENABLED: false,
     WALLET_ENABLED: false,
+    BALL_TYPE_SELECTION_ENABLED: true,
+    PITCH_TYPE_SELECTION_ENABLED: true,
   });
   const [paymentLoading, setPaymentLoading] = useState(true);
   const [savingPayment, setSavingPayment] = useState(false);
   const [paymentMessage, setPaymentMessage] = useState({ text: '', type: '' });
 
-  // Kit Rental Config state
-  const [kitRentalConfig, setKitRentalConfig] = useState({
+  // Kit Rental Config state. `machineRowConfigs` is a Toplay (and
+  // future RESOURCE_BASED center) extension: instead of one global
+  // price + an ABCA enum allowlist, each Machine row at the center
+  // gets its own enabled + price config. The global `price` /
+  // `machines` fields remain for back-compat with ABCA-style centers.
+  const [kitRentalConfig, setKitRentalConfig] = useState<{
+    enabled: boolean;
+    price: number;
+    title: string;
+    description: string;
+    note: string;
+    machines: string[];
+    machineRowConfigs?: Record<string, { enabled: boolean; price: number }>;
+  }>({
     enabled: false,
     price: 200,
     title: 'Cricket Kit & Bat Rental',
     description: 'Rent cricket kit and bat for your session',
     note: 'Any damages to the bat will be chargeable',
-    machines: ['GRAVITY', 'YANTRA'] as string[],
+    machines: ['GRAVITY', 'YANTRA'],
+    machineRowConfigs: {},
   });
+  // Live Machine rows at the current center — used by the per-machine
+  // kit rental editor (resource-based centers only). Fetched alongside
+  // the policies effect when the active center is resource-based.
+  const [centerMachines, setCenterMachines] = useState<Array<{
+    id: string;
+    name: string;
+    shortName: string | null;
+    isActive: boolean;
+    machineType: { code: string; name: string; ballType: string };
+  }>>([]);
   const [savingKitRental, setSavingKitRental] = useState(false);
   const [kitRentalMessage, setKitRentalMessage] = useState({ text: '', type: '' });
 
   useEffect(() => {
     async function fetchMachineConfig() {
       try {
-        const response = await fetch('/api/admin/machine-config');
+        const response = await fetch(`/api/admin/machine-config?scope=${scope}`);
         if (response.ok) {
           const data = await response.json();
           const pc = data.pricingConfig || DEFAULT_PRICING;
@@ -235,7 +290,7 @@ export default function ConfigurationPage() {
 
     async function fetchPaymentSettings() {
       try {
-        const res = await fetch('/api/admin/policies');
+        const res = await fetch(`/api/admin/policies?scope=${scope}`);
         if (res.ok) {
           const data = await res.json();
           const policyArray: { key: string; value: string }[] = Array.isArray(data) ? data : (data.policies || []);
@@ -247,6 +302,16 @@ export default function ConfigurationPage() {
             PACKAGE_PAYMENT_REQUIRED: policies['PACKAGE_PAYMENT_REQUIRED'] === 'true',
             CASH_PAYMENT_ENABLED: policies['CASH_PAYMENT_ENABLED'] === 'true',
             WALLET_ENABLED: policies['WALLET_ENABLED'] === 'true',
+            // Selector toggles default to TRUE when unset — the chip
+            // rows show unless the admin has explicitly stored "false".
+            BALL_TYPE_SELECTION_ENABLED:
+              policies['BALL_TYPE_SELECTION_ENABLED'] === undefined
+                ? true
+                : policies['BALL_TYPE_SELECTION_ENABLED'] === 'true',
+            PITCH_TYPE_SELECTION_ENABLED:
+              policies['PITCH_TYPE_SELECTION_ENABLED'] === undefined
+                ? true
+                : policies['PITCH_TYPE_SELECTION_ENABLED'] === 'true',
           });
           // Load kit rental config
           if (policies['KIT_RENTAL_CONFIG']) {
@@ -265,24 +330,77 @@ export default function ConfigurationPage() {
 
     fetchMachineConfig();
     fetchPaymentSettings();
-  }, []);
+    // Fetch live machine list when the current center is resource-
+    // based — the kit rental editor needs it to render per-machine
+    // toggle + price rows. ABCA centers use the legacy enum allowlist
+    // and don't need this fetch.
+    if (currentCenter?.bookingModel === 'RESOURCE_BASED') {
+      fetch(`/api/centers/${currentCenter.id}/machines`)
+        .then((r) => (r.ok ? r.json() : []))
+        .then((data) => {
+          if (Array.isArray(data)) setCenterMachines(data);
+        })
+        .catch(() => setCenterMachines([]));
+    } else {
+      setCenterMachines([]);
+    }
+    // Re-fetch on center / scope change so values match the active
+    // edit target (CenterPolicy(currentCenter) vs the global Policy).
+  }, [currentCenter?.id, scope]);
 
 
   const handleSavePayment = async (key: string, value: boolean) => {
     setSavingPayment(true);
     setPaymentMessage({ text: '', type: '' });
     try {
-      const res = await fetch('/api/admin/policies', {
+      const res = await fetch(`/api/admin/policies?scope=${scope}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ key, value: String(value) }),
       });
-      if (!res.ok) throw new Error('Failed to save');
-      setPaymentSettings(prev => ({ ...prev, [key]: value }));
+      if (!res.ok) {
+        // Surface the server's error so a 403 (wrong center) or 400
+        // (validation) is visible instead of silently swallowed.
+        const errBody = await res.json().catch(() => ({} as { error?: string }));
+        throw new Error(errBody?.error || `HTTP ${res.status}`);
+      }
+
+      // Re-fetch policies after save instead of trusting the optimistic
+      // update. If the POST returned 200 but the upsert didn't actually
+      // land (Prisma error swallowed, wrong center resolved, etc.) the
+      // round-trip would catch it: the GET response would still show
+      // the old value, and we'd update local state accordingly. This
+      // is what stops the "I toggled it ON but refresh shows OFF"
+      // class of bug — the GET-after-POST happens in the same tab so
+      // a subsequent F5 will read the same value.
+      const verifyRes = await fetch(`/api/admin/policies?scope=${scope}`);
+      if (verifyRes.ok) {
+        const data = await verifyRes.json();
+        const arr: { key: string; value: string }[] =
+          Array.isArray(data) ? data : (data.policies || []);
+        const found = arr.find((p) => p.key === key);
+        // Boolean policies arrive as 'true'/'false' strings. Coerce
+        // back to boolean so the toggle reads it the same way the
+        // GET handler in the page initial-load does.
+        const persisted = found ? found.value === 'true' : value;
+        setPaymentSettings(prev => ({ ...prev, [key]: persisted }));
+        if (persisted !== value) {
+          throw new Error(
+            `Server kept it ${persisted ? 'ON' : 'OFF'} after the save — refresh and try again.`,
+          );
+        }
+      } else {
+        // Verify-fetch failed; trust the optimistic update for now.
+        setPaymentSettings(prev => ({ ...prev, [key]: value }));
+      }
+
       setPaymentMessage({ text: 'Saved', type: 'success' });
-      setTimeout(() => setPaymentMessage({ text: '', type: '' }), 2000);
-    } catch {
-      setPaymentMessage({ text: 'Failed to save', type: 'error' });
+      setTimeout(() => setPaymentMessage({ text: '', type: '' }), 2500);
+    } catch (err) {
+      setPaymentMessage({
+        text: err instanceof Error ? `Failed to save: ${err.message}` : 'Failed to save',
+        type: 'error',
+      });
     } finally {
       setSavingPayment(false);
     }
@@ -293,7 +411,7 @@ export default function ConfigurationPage() {
     setSavingKitRental(true);
     setKitRentalMessage({ text: '', type: '' });
     try {
-      const res = await fetch('/api/admin/policies', {
+      const res = await fetch(`/api/admin/policies?scope=${scope}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ key: 'KIT_RENTAL_CONFIG', value: JSON.stringify(configToSave) }),
@@ -315,7 +433,7 @@ export default function ConfigurationPage() {
     const errors: string[] = [];
     try {
       // 1. Save machine config (pricing, time slabs, machine-pitch config)
-      const machineRes = await fetch('/api/admin/machine-config', {
+      const machineRes = await fetch(`/api/admin/machine-config?scope=${scope}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(machineConfig),
@@ -389,7 +507,11 @@ export default function ConfigurationPage() {
       <AdminPageHeader
         icon={Settings}
         title="Configuration"
-        description="Payment, machines & pricing"
+        description={
+          currentCenter
+            ? `Payment, machines & pricing for ${currentCenter.name}`
+            : 'Payment, machines & pricing'
+        }
       />
 
       {/* ─── Payment Settings ─────────────────────── */}
@@ -459,20 +581,29 @@ export default function ConfigurationPage() {
 
           {kitRentalConfig.enabled && (
             <div className="space-y-3 pt-2">
-              {/* Price */}
-              <div>
-                <label className="block text-[10px] font-medium text-slate-400 mb-1 uppercase tracking-wider">Rental Price (per session)</label>
-                <div className="relative max-w-xs">
-                  <IndianRupee className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3 h-3 text-slate-500" />
-                  <input
-                    type="number"
-                    min="0"
-                    value={kitRentalConfig.price}
-                    onChange={e => setKitRentalConfig(prev => ({ ...prev, price: Math.max(0, Number(e.target.value)) }))}
-                    className={inputClass + ' pl-7 max-w-xs'}
-                  />
+              {/* For RESOURCE_BASED centers the standalone 'Rental
+                  Price (per session)' field was removed — the price is
+                  set per machine row below. The stored JSON's `price`
+                  field stays as the default for any newly-added
+                  machine.
+                  For MACHINE_PITCH centers (ABCA), the legacy
+                  multi-select machine list doesn't carry per-machine
+                  prices, so the single price input still applies. */}
+              {currentCenter?.bookingModel !== 'RESOURCE_BASED' && (
+                <div>
+                  <label className="block text-[10px] font-medium text-slate-400 mb-1 uppercase tracking-wider">Rental Price (per session)</label>
+                  <div className="relative max-w-xs">
+                    <IndianRupee className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3 h-3 text-slate-500" />
+                    <input
+                      type="number"
+                      min="0"
+                      value={kitRentalConfig.price}
+                      onChange={e => setKitRentalConfig(prev => ({ ...prev, price: Math.max(0, Number(e.target.value)) }))}
+                      className={inputClass + ' pl-7 max-w-xs'}
+                    />
+                  </div>
                 </div>
-              </div>
+              )}
 
               {/* Title */}
               <div>
@@ -510,43 +641,139 @@ export default function ConfigurationPage() {
                 />
               </div>
 
-              {/* Applicable Machines */}
-              <div>
-                <label className="block text-[10px] font-medium text-slate-400 mb-2 uppercase tracking-wider">Applicable Machines</label>
-                <div className="grid grid-cols-2 gap-2">
-                  {ALL_MACHINE_IDS.map(mid => {
-                    const isSelected = kitRentalConfig.machines.includes(mid);
-                    return (
-                      <button
-                        key={mid}
-                        type="button"
-                        onClick={() => {
-                          setKitRentalConfig(prev => ({
-                            ...prev,
-                            machines: isSelected
-                              ? prev.machines.filter(m => m !== mid)
-                              : [...prev.machines, mid],
-                          }));
-                        }}
-                        className={`flex items-center gap-2 p-2.5 rounded-xl text-left transition-all cursor-pointer ${
-                          isSelected
-                            ? 'bg-accent/10 ring-1 ring-accent/30'
-                            : 'bg-white/[0.03] border border-white/[0.06] hover:border-white/[0.12]'
-                        }`}
-                      >
-                        <span className={`w-4 h-4 rounded border flex items-center justify-center flex-shrink-0 ${
-                          isSelected ? 'bg-accent border-accent' : 'border-slate-600'
-                        }`}>
-                          {isSelected && <Check className="w-2.5 h-2.5 text-primary" />}
-                        </span>
-                        <span className={`text-xs font-medium ${isSelected ? 'text-accent' : 'text-slate-400'}`}>
-                          {MACHINE_LABELS[mid].name}
-                        </span>
-                      </button>
-                    );
-                  })}
+              {/* Per-center machine config. Two surfaces:
+                  - ABCA (MACHINE_PITCH): the legacy multi-select of
+                    the 4 enum machines (GRAVITY/YANTRA/LEVERAGE_*).
+                    One global price field above governs all of them.
+                  - Toplay (RESOURCE_BASED): one row per live Machine
+                    at the center, each with its own enabled toggle
+                    + price input. The global `price` field above
+                    acts as the default for any newly-added machine. */}
+              {currentCenter?.bookingModel === 'RESOURCE_BASED' ? (
+                <div>
+                  <label className="block text-[10px] font-medium text-slate-400 mb-2 uppercase tracking-wider">
+                    Per-machine kit rental
+                  </label>
+                  {centerMachines.length === 0 ? (
+                    <p className="text-[11px] text-slate-500 italic">
+                      No machines configured at this center yet.
+                    </p>
+                  ) : (
+                    <div className="space-y-2">
+                      {centerMachines
+                        .filter((m) => m.isActive)
+                        .map((m) => {
+                          const cfg = kitRentalConfig.machineRowConfigs?.[m.id];
+                          const enabled = cfg?.enabled ?? false;
+                          const price = cfg?.price ?? kitRentalConfig.price;
+                          const label = m.shortName || m.name;
+                          return (
+                            <div
+                              key={m.id}
+                              className="flex items-center gap-3 p-3 rounded-xl bg-white/[0.03] border border-white/[0.06]"
+                            >
+                              {/* Toggle */}
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setKitRentalConfig((prev) => ({
+                                    ...prev,
+                                    machineRowConfigs: {
+                                      ...(prev.machineRowConfigs ?? {}),
+                                      [m.id]: {
+                                        enabled: !enabled,
+                                        price: cfg?.price ?? prev.price,
+                                      },
+                                    },
+                                  }));
+                                }}
+                                className={`w-4 h-4 rounded border flex items-center justify-center flex-shrink-0 ${
+                                  enabled ? 'bg-accent border-accent' : 'border-slate-600'
+                                }`}
+                              >
+                                {enabled && <Check className="w-2.5 h-2.5 text-primary" />}
+                              </button>
+                              {/* Machine name */}
+                              <div className="flex-1 min-w-0">
+                                <div className={`text-xs font-semibold truncate ${enabled ? 'text-white' : 'text-slate-400'}`}>
+                                  {label}
+                                </div>
+                                <div className="text-[10px] text-slate-500">
+                                  {m.machineType.name} · {m.machineType.ballType.toLowerCase()}
+                                </div>
+                              </div>
+                              {/* Per-machine price */}
+                              <div className="relative w-24">
+                                <IndianRupee className="absolute left-2 top-1/2 -translate-y-1/2 w-3 h-3 text-slate-500" />
+                                <input
+                                  type="number"
+                                  min="0"
+                                  value={price}
+                                  disabled={!enabled}
+                                  onChange={(e) =>
+                                    setKitRentalConfig((prev) => ({
+                                      ...prev,
+                                      machineRowConfigs: {
+                                        ...(prev.machineRowConfigs ?? {}),
+                                        [m.id]: {
+                                          enabled: true,
+                                          price: Math.max(0, Number(e.target.value)),
+                                        },
+                                      },
+                                    }))
+                                  }
+                                  placeholder="0"
+                                  className="w-full bg-white/[0.04] border border-white/[0.1] text-white rounded-md pl-6 pr-2 py-1.5 text-xs outline-none focus:border-accent disabled:opacity-50"
+                                />
+                              </div>
+                            </div>
+                          );
+                        })}
+                    </div>
+                  )}
+                  <p className="mt-2 text-[10px] text-slate-500">
+                    Toggle a machine to enable kit rental for that machine, and set its per-slot price.
+                    The default price above is used for any newly-added machine until you override it.
+                  </p>
                 </div>
-              </div>
+              ) : (
+                <div>
+                  <label className="block text-[10px] font-medium text-slate-400 mb-2 uppercase tracking-wider">Applicable Machines</label>
+                  <div className="grid grid-cols-2 gap-2">
+                    {ALL_MACHINE_IDS.map((mid) => {
+                      const isSelected = kitRentalConfig.machines.includes(mid);
+                      return (
+                        <button
+                          key={mid}
+                          type="button"
+                          onClick={() => {
+                            setKitRentalConfig((prev) => ({
+                              ...prev,
+                              machines: isSelected
+                                ? prev.machines.filter((m) => m !== mid)
+                                : [...prev.machines, mid],
+                            }));
+                          }}
+                          className={`flex items-center gap-2 p-2.5 rounded-xl text-left transition-all cursor-pointer ${
+                            isSelected
+                              ? 'bg-accent/10 ring-1 ring-accent/30'
+                              : 'bg-white/[0.03] border border-white/[0.06] hover:border-white/[0.12]'
+                          }`}
+                        >
+                          <span className={`w-4 h-4 rounded border flex items-center justify-center flex-shrink-0 ${
+                            isSelected ? 'bg-accent border-accent' : 'border-slate-600'
+                          }`}>
+                            {isSelected && <Check className="w-2.5 h-2.5 text-primary" />}
+                          </span>
+                          <span className={`text-xs font-medium ${isSelected ? 'text-accent' : 'text-slate-400'}`}>
+                            {MACHINE_LABELS[mid].name}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
 
               {/* Save Button */}
               <button
@@ -562,7 +789,13 @@ export default function ConfigurationPage() {
         </div>
       </AdminCard>
 
-      {/* ─── Machine Configuration ────────────────── */}
+      {/* ─── Machine Configuration ──────────────────
+          Hardcoded against the legacy MachineId enum (Gravity / Yantra /
+          Leverage Indoor / Leverage Outdoor) — only meaningful for
+          MACHINE_PITCH centers. Resource-based centers configure
+          machines per-row under Center → Machines, so hide the ghost
+          four-machine UI here. */}
+      {currentCenter?.bookingModel !== 'RESOURCE_BASED' && (
       <AdminCard
         title="Machine Configuration"
         icon={<Zap className="w-4 h-4 text-accent" />}
@@ -669,7 +902,7 @@ export default function ConfigurationPage() {
                 <div className="bg-white/[0.02] rounded-xl p-3 border border-white/[0.05]">
                   <p className="text-[11px] font-bold text-slate-300 mb-2 flex items-center gap-1.5">
                     <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
-                    Morning Slab
+                    Morning Hours
                   </p>
                   <div className="grid grid-cols-2 gap-2">
                     <div>
@@ -697,7 +930,7 @@ export default function ConfigurationPage() {
                 <div className="bg-white/[0.02] rounded-xl p-3 border border-white/[0.05]">
                   <p className="text-[11px] font-bold text-slate-300 mb-2 flex items-center gap-1.5">
                     <span className="w-1.5 h-1.5 rounded-full bg-indigo-400" />
-                    Evening Slab
+                    Evening Hours
                   </p>
                   <div className="grid grid-cols-2 gap-2">
                     <div>
@@ -757,22 +990,22 @@ export default function ConfigurationPage() {
                     </p>
                     <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                       <PriceField
-                        label="Morn / Slot"
+                        label="Morning · Single slot"
                         value={pitchPricing.morning.single}
                         onChange={v => updatePricing([activePricingTab, pitch, 'morning', 'single'], v)}
                       />
                       <PriceField
-                        label="Morn / 2 Cons."
+                        label="Morning · 2 consecutive"
                         value={pitchPricing.morning.consecutive}
                         onChange={v => updatePricing([activePricingTab, pitch, 'morning', 'consecutive'], v)}
                       />
                       <PriceField
-                        label="Eve / Slot"
+                        label="Evening · Single slot"
                         value={pitchPricing.evening.single}
                         onChange={v => updatePricing([activePricingTab, pitch, 'evening', 'single'], v)}
                       />
                       <PriceField
-                        label="Eve / 2 Cons."
+                        label="Evening · 2 consecutive"
                         value={pitchPricing.evening.consecutive}
                         onChange={v => updatePricing([activePricingTab, pitch, 'evening', 'consecutive'], v)}
                       />
@@ -786,6 +1019,238 @@ export default function ConfigurationPage() {
           </div>
         )}
       </AdminCard>
+      )}
+
+      {/* Resource-based "Machine Configuration" card. Mirrors the
+          single ABCA card on main: same Zap icon, same title, same
+          structure (Slot Timing → Slot Pricing). Per-Machine pitch
+          and ball compatibility live under Center → Machines because
+          it's per row, not per category. Booking categories stays as
+          its own card below — it controls which CATEGORY tabs the
+          user-facing slot picker exposes, which is a separate concern
+          from pricing. */}
+      {currentCenter?.bookingModel === 'RESOURCE_BASED' && !machineLoading && (
+        <AdminCard
+          title="Machine Configuration"
+          icon={<Zap className="w-4 h-4 text-accent" />}
+          collapsible
+          defaultOpen={false}
+        >
+          <div className="space-y-4">
+            {/* ─── Slot Timing Configuration ────────── */}
+            <div className="bg-white/[0.02] rounded-xl border border-white/[0.05] p-4">
+              <h3 className="text-xs font-bold text-slate-300 uppercase tracking-wider mb-3">
+                Slot Timing Configuration
+              </h3>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="bg-white/[0.02] rounded-xl p-3 border border-white/[0.05]">
+                  <p className="text-[11px] font-bold text-slate-300 mb-2 flex items-center gap-1.5">
+                    <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
+                    Morning Hours
+                  </p>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="block text-[10px] font-medium text-slate-400 mb-1">Start</label>
+                      <input
+                        type="time"
+                        value={machineConfig.timeSlabConfig.morning.start}
+                        onChange={(e) => updateTimeSlab('morning', 'start', e.target.value)}
+                        step="1800"
+                        className={inputClass}
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-medium text-slate-400 mb-1">End</label>
+                      <input
+                        type="time"
+                        value={machineConfig.timeSlabConfig.morning.end}
+                        onChange={(e) => updateTimeSlab('morning', 'end', e.target.value)}
+                        step="1800"
+                        className={inputClass}
+                      />
+                    </div>
+                  </div>
+                </div>
+                <div className="bg-white/[0.02] rounded-xl p-3 border border-white/[0.05]">
+                  <p className="text-[11px] font-bold text-slate-300 mb-2 flex items-center gap-1.5">
+                    <span className="w-1.5 h-1.5 rounded-full bg-indigo-400" />
+                    Evening Hours
+                  </p>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="block text-[10px] font-medium text-slate-400 mb-1">Start</label>
+                      <input
+                        type="time"
+                        value={machineConfig.timeSlabConfig.evening.start}
+                        onChange={(e) => updateTimeSlab('evening', 'start', e.target.value)}
+                        step="1800"
+                        className={inputClass}
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-medium text-slate-400 mb-1">End</label>
+                      <input
+                        type="time"
+                        value={machineConfig.timeSlabConfig.evening.end}
+                        onChange={(e) => updateTimeSlab('evening', 'end', e.target.value)}
+                        step="1800"
+                        className={inputClass}
+                      />
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* ─── Slot Pricing Configuration ───────── */}
+            <div className="bg-white/[0.02] rounded-xl border border-white/[0.05] p-4">
+              <h3 className="text-xs font-bold text-slate-300 uppercase tracking-wider mb-3">
+                Slot Pricing Configuration
+              </h3>
+              <p className="text-[11px] text-slate-500 leading-relaxed mb-3">
+                Per-Machine pricing with single + consecutive rates per
+                pitch and ball type. Per-machine pitch / ball
+                compatibility live under{' '}
+                <a
+                  href={`/admin/centers/${currentCenter.id}`}
+                  className="text-accent underline hover:text-accent/80"
+                >
+                  Center → Machines
+                </a>
+                .
+              </p>
+              <ResourcePricingEditor
+                scope={scope}
+                centerLabel={currentCenter.shortName ?? currentCenter.name}
+              />
+            </div>
+          </div>
+        </AdminCard>
+      )}
+
+      {/* Unified Booking Settings — merged Booking Categories and Pitch Types
+          per Category into a single streamlined section. Consolidates
+          everything onto one 'Save All' button. */}
+      {currentCenter?.bookingModel === 'RESOURCE_BASED' && (
+        <AdminCard
+          title="Booking Settings"
+          icon={<Settings className="w-4 h-4 text-accent" />}
+          collapsible
+          defaultOpen={true}
+        >
+          <div className="space-y-8">
+            {/* Booking categories */}
+            <div>
+              <div className="flex items-center gap-2 mb-3">
+                <Ticket className="w-3.5 h-3.5 text-accent/70" />
+                <h4 className="text-[11px] font-bold text-white uppercase tracking-wider">Booking Categories</h4>
+              </div>
+              <EnabledCategoriesEditor
+                scope={scope}
+                centerLabel={currentCenter.shortName ?? currentCenter.name}
+                externalSaveTrigger={settingsSaveTrigger}
+                onSaveStatus={setCategoriesSaveStatus}
+              />
+            </div>
+
+            {/* Pitch types per category */}
+            <div className="pt-6 border-t border-white/[0.06]">
+              <div className="flex items-center gap-2 mb-3">
+                <Zap className="w-3.5 h-3.5 text-accent/70" />
+                <h4 className="text-[11px] font-bold text-white uppercase tracking-wider">Pitch Types Per Category</h4>
+              </div>
+              <EnabledPitchTypesEditor
+                scope={scope}
+                externalSaveTrigger={settingsSaveTrigger}
+                onSaveStatus={setPitchTypesSaveStatus}
+              />
+            </div>
+
+            {/* Save Button */}
+            <div className="pt-4 flex items-center justify-between gap-4 border-t border-white/[0.06]">
+              <div className="min-w-0">
+                {settingsMessage && (
+                  <div className={`flex items-center gap-1.5 text-[11px] font-medium animate-in fade-in slide-in-from-left-2 duration-300 ${settingsMessage.ok ? 'text-emerald-400' : 'text-red-400'}`}>
+                    <div className={`w-1.5 h-1.5 rounded-full ${settingsMessage.ok ? 'bg-emerald-400' : 'bg-red-400'} animate-pulse`} />
+                    {settingsMessage.text}
+                  </div>
+                )}
+              </div>
+              <button
+                type="button"
+                onClick={handleSaveSettings}
+                disabled={isSettingsSaving}
+                className="flex items-center gap-2 px-8 py-2.5 rounded-xl bg-accent text-primary text-xs font-bold hover:bg-accent-light active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer transition-all shadow-lg shadow-accent/10"
+              >
+                {isSettingsSaving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
+                Save All Settings
+              </button>
+            </div>
+          </div>
+        </AdminCard>
+      )}
+
+      {/* Slot picker — user-facing toggles for ball / pitch selectors.
+          On RESOURCE_BASED centers each Machine row already declares
+          its supportedBallTypes / supportedPitchTypes (see Center →
+          Machines). These two toggles act as a *center-wide* override
+          on top of those: when OFF, ResourceSlotsPage hides the chip
+          rows and auto-picks the first supported option per machine.
+          ON is the default — chips show whenever the machine supports
+          more than one value. Matches what ABCA exposes globally.
+
+          NOTE: toggling here writes via /api/admin/policies (one POST
+          per flip), NOT via 'Save Machine Configuration' at the bottom
+          of the page. Each click is its own save — the Saved /
+          Failed-to-save banner under the toggles confirms the result.
+          Don't wire these into the machine-config save button: that
+          one POSTs to a different endpoint and would silently drop
+          these keys. */}
+      {currentCenter?.bookingModel === 'RESOURCE_BASED' && (
+        <AdminCard
+          title="Slot picker display"
+          icon={<Zap className="w-4 h-4 text-accent" />}
+          collapsible
+          defaultOpen={false}
+        >
+          <div className="space-y-1">
+            <AdminToggle
+              enabled={paymentSettings.BALL_TYPE_SELECTION_ENABLED}
+              onToggle={() => handleSavePayment(
+                'BALL_TYPE_SELECTION_ENABLED',
+                !paymentSettings.BALL_TYPE_SELECTION_ENABLED,
+              )}
+              label="Ball type selection"
+              description="Show the ball-type chip row when a machine supports more than one. Turn off to auto-pick the first supported ball."
+              size="sm"
+              disabled={savingPayment}
+            />
+            <AdminToggle
+              enabled={paymentSettings.PITCH_TYPE_SELECTION_ENABLED}
+              onToggle={() => handleSavePayment(
+                'PITCH_TYPE_SELECTION_ENABLED',
+                !paymentSettings.PITCH_TYPE_SELECTION_ENABLED,
+              )}
+              label="Pitch type selection"
+              description="Show the pitch-type chip row for MACHINE / SIDEARM / NET when the relevant resource supports more than one. Turn off to auto-pick the first."
+              size="sm"
+              disabled={savingPayment}
+            />
+            <p className="text-[10px] text-slate-500 italic mt-2">
+              Saves immediately on click. The &lsquo;Save Machine
+              Configuration&rsquo; button at the bottom does NOT save
+              these toggles &mdash; if you flipped one but didn&rsquo;t see
+              a &lsquo;Saved&rsquo; / &lsquo;Failed to save&rsquo; line below it, the
+              click never registered.
+            </p>
+            {paymentMessage.text && (
+              <p className={`text-xs mt-1 font-medium ${paymentMessage.type === 'success' ? 'text-emerald-400' : 'text-red-400'}`}>
+                {paymentMessage.text}
+              </p>
+            )}
+          </div>
+        </AdminCard>
+      )}
 
       {/* Machine Config Save Confirmation */}
       <ConfirmDialog

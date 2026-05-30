@@ -1,8 +1,8 @@
 import { PrismaClient, MachineId } from '@prisma/client';
 import { prisma as defaultPrisma } from './prisma';
-import { getCachedPolicy } from './policy-cache';
+import { getPolicyValue } from './policy';
 import type { TimeSlabConfig } from './pricing';
-import { getTimeSlab } from './pricing';
+import { getTimeSlab, timeToMinutes } from './pricing';
 
 type PrismaTransaction = Omit<PrismaClient, '$connect' | '$disconnect' | '$on' | '$transaction' | '$use' | '$extends'>;
 
@@ -34,12 +34,21 @@ function getDateStringIST(date: Date): string {
 
 // ─── Operator Date Override Config ────────────────────────
 // New range format: [{ from: "2026-04-10", to: "2026-04-15", morning: 0, evening: 2 }, ...]
+//
+// A range is either:
+//   - slab-based  → morning/evening operator counts (legacy behaviour), or
+//   - time-window → startTime/endTime ("HH:MM", IST) + a single `count`
+//     applied only to slots whose start falls within [startTime, endTime).
+// Time-window ranges take precedence over slab ranges for matching slots.
 export interface OperatorDateOverrideRange {
   from: string;
   to: string;
-  morning: number;
-  evening: number;
+  morning?: number;
+  evening?: number;
   recurringDays?: number[]; // 0=Sun..6=Sat; empty/undefined = every day in range
+  startTime?: string;       // "HH:MM" IST — time-window override start (inclusive)
+  endTime?: string;         // "HH:MM" IST — time-window override end (exclusive)
+  count?: number;           // operator count for the time window
 }
 
 // Legacy format (individual dates): { "2026-04-10": { morning: 0, evening: 2 } }
@@ -51,48 +60,84 @@ function dayOfWeekFromDateKey(dateKey: string): number {
   return new Date(Date.UTC(y, (m || 1) - 1, d || 1)).getUTCDay();
 }
 
-/** Check if a YYYY-MM-DD date key falls within any override range */
-function findOverrideForDate(
+/** Minutes-since-midnight (IST) for a slot's start time. */
+function getMinutesIST(date: Date): number {
+  const istStr = date.toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour12: false, hour: '2-digit', minute: '2-digit' });
+  return timeToMinutes(istStr);
+}
+
+/** True when a range carries a usable time-window definition. */
+function isTimeWindow(range: OperatorDateOverrideRange): range is OperatorDateOverrideRange & { startTime: string; endTime: string; count: number } {
+  return !!range.startTime && !!range.endTime && typeof range.count === 'number';
+}
+
+/**
+ * Resolve the operator count for a date + slab + slot start time from the
+ * override config. Time-window overrides win over slab overrides; within each
+ * pass the first matching range wins. Returns undefined when nothing matches.
+ */
+function findOverrideCount(
   overrides: OperatorDateOverrideRange[] | LegacyOverrides,
-  dateKey: string
-): { morning: number; evening: number } | undefined {
+  dateKey: string,
+  slab: 'morning' | 'evening',
+  slotMinutes: number,
+): number | undefined {
   // Support new range format (array)
   if (Array.isArray(overrides)) {
     const dow = dayOfWeekFromDateKey(dateKey);
+    const inRange = (range: OperatorDateOverrideRange) =>
+      dateKey >= range.from && dateKey <= range.to &&
+      !(range.recurringDays && range.recurringDays.length > 0 && !range.recurringDays.includes(dow));
+
+    // Pass 1: time-window overrides take precedence
     for (const range of overrides) {
-      if (dateKey < range.from || dateKey > range.to) continue;
-      if (range.recurringDays && range.recurringDays.length > 0 && !range.recurringDays.includes(dow)) continue;
-      return { morning: range.morning, evening: range.evening };
+      if (!isTimeWindow(range) || !inRange(range)) continue;
+      const start = timeToMinutes(range.startTime);
+      const end = timeToMinutes(range.endTime);
+      if (slotMinutes >= start && slotMinutes < end) return Math.max(0, range.count);
+    }
+
+    // Pass 2: slab-based overrides
+    for (const range of overrides) {
+      if (isTimeWindow(range) || !inRange(range)) continue;
+      const count = slab === 'morning' ? range.morning : range.evening;
+      if (typeof count === 'number') return Math.max(0, count);
     }
     return undefined;
   }
   // Legacy format (object with date keys)
-  return overrides[dateKey];
+  const match = overrides[dateKey];
+  if (match) return Math.max(0, slab === 'morning' ? match.morning : match.evening);
+  return undefined;
 }
 
 /**
  * Get the number of operators needed for a given date + time slot.
  * Priority: 1. Date-specific overrides, 2. Day-of-week schedule, 3. Legacy NUMBER_OF_OPERATORS, 4. Default 1.
  * Returns 0 when explicitly configured (allows "no operator" mode).
+ *
+ * `centerId` is optional. When supplied, every policy lookup cascades
+ * CenterPolicy → Policy → fallback so each center can override scheduling
+ * independently. Passing `null` preserves the pre-multi-center behaviour
+ * of reading only the global `Policy` table.
  */
 export async function getOperatorCount(
   date: Date,
   startTime: Date,
-  timeSlabs: TimeSlabConfig
+  timeSlabs: TimeSlabConfig,
+  centerId: string | null = null,
 ): Promise<number> {
   const slab = getTimeSlab(startTime, timeSlabs);
+  const slotMinutes = getMinutesIST(startTime);
 
   // 1. Check date-specific overrides first (highest priority)
   try {
-    const overridesStr = await getCachedPolicy('OPERATOR_DATE_OVERRIDES');
+    const overridesStr = await getPolicyValue('OPERATOR_DATE_OVERRIDES', centerId);
     if (overridesStr) {
       const overrides = JSON.parse(overridesStr);
       const dateKey = getDateStringIST(date);
-      const match = findOverrideForDate(overrides, dateKey);
-      if (match !== undefined) {
-        const count = match[slab];
-        if (count !== undefined) return Math.max(0, count);
-      }
+      const count = findOverrideCount(overrides, dateKey, slab, slotMinutes);
+      if (count !== undefined) return count;
     }
   } catch (e) {
     console.warn('[OperatorAssign] Error parsing OPERATOR_DATE_OVERRIDES:', e);
@@ -100,7 +145,7 @@ export async function getOperatorCount(
 
   // 2. Check day-of-week schedule config
   try {
-    const configStr = await getCachedPolicy('OPERATOR_SCHEDULE_CONFIG');
+    const configStr = await getPolicyValue('OPERATOR_SCHEDULE_CONFIG', centerId);
     if (configStr) {
       const config: OperatorScheduleConfig = JSON.parse(configStr);
       const day = getDayOfWeekIST(date);
@@ -113,7 +158,7 @@ export async function getOperatorCount(
 
   // 3. Legacy fallback
   try {
-    const val = await getCachedPolicy('NUMBER_OF_OPERATORS');
+    const val = await getPolicyValue('NUMBER_OF_OPERATORS', centerId);
     if (val) return Math.max(1, parseInt(val, 10));
   } catch { /* ignore */ }
 
@@ -160,28 +205,80 @@ function sortByPriority(operators: OperatorInfo[], slab: 'morning' | 'evening', 
 }
 
 /**
+ * Resolve the candidate operator pool for a center.
+ *
+ * - `centerId` null  → legacy ABCA path: `role: 'OPERATOR'` on User.
+ * - `centerId` set   → users with a CenterMembership(centerId, role: OPERATOR).
+ *
+ * The new path matches how RESOURCE_BASED centers are administered (Toplay's
+ * operators live as memberships, not as User.role).
+ */
+async function loadCenterOperators(
+  db: PrismaTransaction | typeof defaultPrisma,
+  centerId: string | null,
+): Promise<OperatorInfo[]> {
+  if (!centerId) {
+    const rows = await db.user.findMany({
+      where: { role: 'OPERATOR' },
+      select: OPERATOR_SELECT,
+    });
+    return rows.map(op => ({ ...op, operatorDayPriorities: op.operatorDayPriorities as DayPriorities | null }));
+  }
+  const memberships = await db.centerMembership.findMany({
+    where: { centerId, role: 'OPERATOR' },
+    include: { user: { select: OPERATOR_SELECT } },
+  });
+  return memberships.map(m => ({
+    id: m.user.id,
+    operatorPriority: m.user.operatorPriority,
+    operatorMorningPriority: m.user.operatorMorningPriority,
+    operatorEveningPriority: m.user.operatorEveningPriority,
+    operatorDayPriorities: m.user.operatorDayPriorities as DayPriorities | null,
+  }));
+}
+
+/**
  * Auto-assign an operator to a booking based on priority and availability.
  * Picks the highest-priority operator not already booked at the same time.
  * Falls back to highest-priority operator if all are busy.
  * Respects weekday preferences from OperatorAssignment.days.
+ *
+ * `centerId` scopes the candidate pool to a center's memberships. ABCA
+ * callers can pass `null` to keep the legacy global `role: 'OPERATOR'`
+ * lookup; new code should pass the resolved center.
  */
 export async function autoAssignOperator(
   date: Date,
   startTime: Date,
   tx?: PrismaTransaction,
   machineId?: MachineId | null,
-  timeSlab?: 'morning' | 'evening'
+  timeSlab?: 'morning' | 'evening',
+  centerId: string | null = null,
 ): Promise<string | null> {
   const db = tx || defaultPrisma;
   const slab = timeSlab || 'morning';
   const dayOfWeek = getDayOfWeekIST(date);
 
-  // Get candidate operators — machine-specific first, fallback to all
+  // Get candidate operators — machine-specific first, fallback to all center operators.
   let operators: OperatorInfo[] = [];
   if (machineId) {
     const assignments = await db.operatorAssignment.findMany({
-      where: { machineId },
-      include: { user: { select: { ...OPERATOR_SELECT, role: true } } },
+      where: centerId ? { machineId, centerId } : { machineId },
+      include: {
+        user: {
+          select: {
+            ...OPERATOR_SELECT,
+            role: true,
+            // Source of truth for "is this user an OPERATOR at this
+            // center" is CenterMembership, not User.role — same
+            // reasoning as `/api/admin/operators`. Pull the per-center
+            // membership rows so we can filter on them instead.
+            centerMemberships: centerId
+              ? { where: { centerId, role: 'OPERATOR' as const, isActive: true }, select: { id: true } }
+              : { where: { role: 'OPERATOR' as const, isActive: true }, select: { id: true } },
+          },
+        },
+      },
     });
     operators = assignments
       .filter(a => {
@@ -189,20 +286,22 @@ export async function autoAssignOperator(
         const daysFilter = a.days;
         return daysFilter.length === 0 || daysFilter.includes(dayOfWeek);
       })
-      .filter(a => a.user.role === 'OPERATOR')
+      .filter(a =>
+        // Either:
+        //   - legacy: User.role === 'OPERATOR' (works for ABCA where
+        //     the bumping ladder always set User.role correctly), OR
+        //   - new: any active OPERATOR CenterMembership at this center
+        //     (catches users whose User.role was outranked by an ADMIN
+        //     membership elsewhere, or who were added via the Members
+        //     tab on a RESOURCE_BASED center).
+        a.user.role === 'OPERATOR' || (a.user.centerMemberships?.length ?? 0) > 0,
+      )
       .map(a => ({ id: a.user.id, operatorPriority: a.user.operatorPriority, operatorMorningPriority: a.user.operatorMorningPriority, operatorEveningPriority: a.user.operatorEveningPriority, operatorDayPriorities: a.user.operatorDayPriorities as DayPriorities | null }));
   }
 
-  // Fallback: no machine-specific assignments → use all operators
+  // Fallback: no machine-specific assignments → use all operators at this center.
   if (operators.length === 0) {
-    const allOps = await db.user.findMany({
-      where: { role: 'OPERATOR' },
-      select: OPERATOR_SELECT,
-    });
-    operators = allOps.map(op => ({
-      ...op,
-      operatorDayPriorities: op.operatorDayPriorities as DayPriorities | null,
-    }));
+    operators = await loadCenterOperators(db, centerId);
   }
 
   if (operators.length === 0) return null;
@@ -210,9 +309,16 @@ export async function autoAssignOperator(
 
   const sorted = sortByPriority(operators, slab, dayOfWeek);
 
-  // Find which operators are already booked at this time
+  // Find which operators are already booked at this time (scoped to center
+  // when supplied so cross-center bookings don't mask availability).
   const busyBookings = await db.booking.findMany({
-    where: { date, startTime, status: 'BOOKED', operatorId: { in: sorted.map(o => o.id) } },
+    where: {
+      date,
+      startTime,
+      status: 'BOOKED',
+      operatorId: { in: sorted.map(o => o.id) },
+      ...(centerId ? { centerId } : {}),
+    },
     select: { operatorId: true },
   });
   const busyIds = new Set(busyBookings.map(b => b.operatorId));

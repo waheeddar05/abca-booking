@@ -1,12 +1,18 @@
 import { NextRequest, NextResponse } from 'next/server';
+import type { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
-import { requireAdmin } from '@/lib/adminAuth';
+import { requireCenterAdmin } from '@/lib/adminAuth';
 import { getAuthenticatedUser } from '@/lib/auth';
+import { resolveCurrentCenter } from '@/lib/centers';
 import { getISTTodayUTC, getISTLastMonthRange, dateStringToUTC, formatIST } from '@/lib/time';
 import { MACHINES } from '@/lib/constants';
-import { notifyBookingCancelled, notifyWalletCredit, notifyOperatorBookingCancelled } from '@/lib/notifications';
+import { notifyBookingCancelled, notifyOperatorBookingCancelled } from '@/lib/notifications';
 import { autoAssignOperator } from '@/lib/operatorAssign';
-import { creditWallet, isWalletEnabled, getDefaultRefundMethod } from '@/lib/wallet';
+import {
+  adjustSiblingPricesForCancellation,
+  processCancellationRefund,
+} from '@/lib/booking-cancellation';
+import { log } from '@/lib/logger';
 
 type MachineIdFilter = 'GRAVITY' | 'YANTRA' | 'LEVERAGE_INDOOR' | 'LEVERAGE_OUTDOOR';
 
@@ -35,12 +41,36 @@ const SAFE_BOOKING_SELECT = {
   isSuperAdminBooking: true,
   kitRental: true,
   kitRentalCharge: true,
+  // Resource-based booking fields (Toplay). null on ABCA rows; the
+  // admin UI uses these to render the right chips instead of the
+  // legacy machine/pitch enums. category disambiguates the booking
+  // kind (MACHINE / SIDEARM / COACHING / FULL_COURT / NET /
+  // CORPORATE_BATCH); the three assigned* joins resolve human-
+  // readable names; resourceAssignments lists the consumed nets.
+  category: true,
+  assignedMachineId: true,
+  assignedMachine: {
+    select: {
+      id: true,
+      name: true,
+      machineType: { select: { code: true, name: true } },
+    },
+  },
+  assignedCoachId: true,
+  assignedCoach: { select: { id: true, name: true } },
+  assignedStaffId: true,
+  assignedStaff: { select: { id: true, name: true } },
+  resourceAssignments: {
+    select: {
+      resource: { select: { id: true, name: true, type: true, category: true } },
+    },
+  },
   user: { select: { name: true, email: true, mobileNumber: true } },
 } as const;
 
 export async function GET(req: NextRequest) {
   try {
-    const session = await requireAdmin(req);
+    const session = await requireCenterAdmin(req);
     if (!session) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 403 });
     }
@@ -59,7 +89,21 @@ export async function GET(req: NextRequest) {
     const sortBy = searchParams.get('sortBy') || 'date';
     const sortOrder = searchParams.get('sortOrder') || 'desc';
 
+    // Scope by the admin's current center. Super admins can pass
+    // `?allCenters=true` to view aggregate data across centers — useful
+    // for the platform-wide dashboard.
+    const allCenters = searchParams.get('allCenters') === 'true';
+    const adminUser = await getAuthenticatedUser(req);
+    const center = adminUser ? await resolveCurrentCenter(req, adminUser) : null;
+
     const where: any = {};
+    if (!allCenters && center) {
+      where.centerId = center.id;
+    } else if (!allCenters && !center) {
+      return NextResponse.json({ error: 'No center selected' }, { status: 400 });
+    } else if (allCenters && !adminUser?.isSuperAdmin) {
+      return NextResponse.json({ error: 'allCenters requires super admin' }, { status: 403 });
+    }
     const todayUTC = getISTTodayUTC();
 
     if (category === 'today') {
@@ -123,11 +167,60 @@ export async function GET(req: NextRequest) {
     }
 
     if (userId) {
-      where.userId = userId;
+      // `userInvolvement` controls how the userId param is matched:
+      //   - 'customer' (default): only bookings where this user is the
+      //     paying customer. Preserves prior behavior for any existing
+      //     caller.
+      //   - 'any':              every booking the user was involved in
+      //     in any role — customer, operator, coach (resource-based
+      //     COACHING bookings), or sidearm specialist (SIDEARM bookings).
+      // Use 'any' on /admin/users so a center admin can audit an
+      // operator/coach/sidearm's full schedule from one place.
+      const involvement = (searchParams.get('userInvolvement') || 'customer').toLowerCase();
+      if (involvement === 'any') {
+        const userClauses: Prisma.BookingWhereInput[] = [
+          { userId },
+          { operatorId: userId },
+          { assignedCoachId: userId },
+          { assignedStaffId: userId },
+        ];
+        // Compose with whatever OR / AND was already built up by the
+        // customer / status filters above so we don't accidentally drop
+        // those constraints.
+        if (where.OR) {
+          where.AND = [...(where.AND || []), { OR: where.OR }, { OR: userClauses }];
+          delete where.OR;
+        } else {
+          where.AND = [...(where.AND || []), { OR: userClauses }];
+        }
+      } else {
+        where.userId = userId;
+      }
     }
 
     if (machineId) {
       where.machineId = machineId as MachineIdFilter;
+    }
+
+    // Optional booking-category filter (Bowling Machine / Sidearm /
+    // Cricket Nets / Full Indoor Court / Personal Coaching). Replaces
+    // the legacy 'Machine' filter on the admin UI — both still work
+    // server-side for back-compat with any old bookmarks. Falls
+    // through unchanged when `categoryFilter` isn't supplied.
+    const categoryFilter = searchParams.get('categoryFilter');
+    if (categoryFilter) {
+      const validCategories = new Set(['MACHINE', 'SIDEARM', 'COACHING', 'NET', 'FULL_COURT', 'CORPORATE_BATCH']);
+      if (validCategories.has(categoryFilter)) {
+        // NULL Booking.category rows are ABCA's legacy MACHINE-only
+        // shape — treat them as MACHINE for filtering so admins on
+        // ABCA still see their bowling-machine bookings under that
+        // chip.
+        if (categoryFilter === 'MACHINE') {
+          where.OR = [...(where.OR ?? []), { category: 'MACHINE' }, { category: null }];
+        } else {
+          where.category = categoryFilter;
+        }
+      }
     }
 
     const orderBy: any = [];
@@ -149,6 +242,42 @@ export async function GET(req: NextRequest) {
           where,
           include: {
             user: { select: { name: true, email: true, mobileNumber: true } },
+            // Operator + resource-based staff joins. Surfaces the names
+            // on every row so the BookingCard renders machine/coach/
+            // staff chips, plus lets admins audit an operator/coach's
+            // schedule via /admin/users → History.
+            operator: { select: { id: true, name: true, mobileNumber: true } },
+            assignedMachine: {
+              select: {
+                id: true,
+                name: true,
+                shortName: true,
+                machineType: { select: { code: true, name: true } },
+              },
+            },
+            assignedCoach: { select: { id: true, name: true } },
+            assignedStaff: { select: { id: true, name: true } },
+            resourceAssignments: {
+              select: {
+                resource: { select: { id: true, name: true, type: true, category: true } },
+              },
+            },
+            // Center info so the user booking history (and any admin
+            // surface showing a multi-center list) can render name,
+            // address, contact, map link.
+            center: {
+              select: {
+                id: true,
+                name: true,
+                shortName: true,
+                addressLine1: true,
+                addressLine2: true,
+                city: true,
+                contactPhone: true,
+                contactEmail: true,
+                mapUrl: true,
+              },
+            },
             packageBooking: {
               select: {
                 userPackage: {
@@ -223,7 +352,7 @@ export async function GET(req: NextRequest) {
 
 export async function PATCH(req: NextRequest) {
   try {
-    const session = await requireAdmin(req);
+    const session = await requireCenterAdmin(req);
     if (!session) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 403 });
     }
@@ -298,193 +427,71 @@ export async function PATCH(req: NextRequest) {
 
     // Process refund when booking is cancelled by admin
     let refundInfo: string | undefined;
+
+    // Structured log context — admin attribution + booking owner so a
+    // single email search pulls every admin action against that user.
+    const adminCtx = {
+      op: 'booking.cancel.admin',
+      user: { id: authUser?.id, email: authUser?.email, name: adminName, role: 'ADMIN' },
+      targetUser: booking.userId ? { id: booking.userId } : null,
+      centerId: booking.centerId,
+      bookingId,
+      extra: {
+        bookingPrice: booking.price ?? null,
+        paymentMethod: booking.paymentMethod ?? null,
+        category: booking.category ?? null,
+      },
+    } as const;
+
     if (status === 'CANCELLED' && booking.userId) {
+      log.info(adminCtx, 'Admin cancellation start');
+
+      // Reprice consecutive siblings first. The cancelled booking's
+      // `price` is reduced in-place by the helper, so the refund logic
+      // below automatically uses the post-adjustment amount.
       try {
-        // Check how much has already been refunded for this booking
-        const existingRefunds = await prisma.refund.findMany({
-          where: { bookingId, status: { not: 'FAILED' } },
+        const adjustment = await adjustSiblingPricesForCancellation(booking);
+        if (adjustment > 0) {
+          log.info(
+            { ...adminCtx, extra: { ...adminCtx.extra, consecutiveAdjustment: adjustment, refundablePrice: booking.price } },
+            'Sibling reprice applied',
+          );
+        }
+      } catch (adjErr) {
+        log.error(adminCtx, 'Consecutive pricing adjustment failed', adjErr);
+      }
+
+      // ─── Refund (delegates to shared helper) ─────────────────────
+      try {
+        const refund = await processCancellationRefund({
+          booking,
+          initiatedByUserId: authUser!.id,
+          initiatedByName: adminName,
         });
-        const alreadyRefunded = existingRefunds.reduce((sum, r) => sum + r.amount, 0);
-
-        // Case 1: Wallet-paid booking — refund remaining to wallet
-        if (booking.paymentMethod === 'WALLET' && booking.paymentStatus === 'PAID' && booking.price && booking.price > 0) {
-          const remainingRefund = booking.price - alreadyRefunded;
-
-          if (remainingRefund > 0) {
-            const walletResult = await creditWallet(
-              booking.userId,
-              remainingRefund,
-              'CREDIT_REFUND',
-              `Refund for booking cancelled by admin (${adminName})`,
-              bookingId,
-            );
-
-            await prisma.booking.update({
-              where: { id: bookingId },
-              data: { paymentStatus: 'UNPAID' },
-            });
-
-            // Create Refund record so canRefund() knows this booking was already refunded
-            await prisma.refund.create({
-              data: {
-                bookingId,
-                amount: remainingRefund,
-                method: 'WALLET',
-                status: 'PROCESSED',
-                reason: `Auto-refund: booking cancelled by admin (${adminName})`,
-                walletTransactionId: walletResult.transactionId || undefined,
-                initiatedById: authUser!.id,
-              },
-            });
-
-            refundInfo = alreadyRefunded > 0
-              ? `Refund: ₹${remainingRefund} credited to wallet (₹${alreadyRefunded} was already refunded). Balance: ₹${walletResult.newBalance}`
-              : `Refund: ₹${remainingRefund} credited to wallet (Balance: ₹${walletResult.newBalance})`;
-
-            // Notify wallet credit
-            try {
-              const notifUser = await prisma.user.findUnique({
-                where: { id: booking.userId },
-                select: { mobileNumber: true, mobileVerified: true },
-              });
-              await notifyWalletCredit(booking.userId, {
-                amount: remainingRefund,
-                reason: 'Booking cancelled by admin',
-                newBalance: walletResult.newBalance,
-                mobileNumber: notifUser?.mobileVerified ? notifUser.mobileNumber : null,
-              });
-            } catch (notifErr) {
-              console.error('Wallet credit notification failed:', notifErr);
-            }
+        if (refund) {
+          if (refund.method === 'WALLET') {
+            refundInfo = `Refund: ₹${refund.amount} credited to wallet (Balance: ₹${refund.newBalance ?? 'N/A'})`;
           } else {
-            // Already fully refunded — just update payment status
-            await prisma.booking.update({
-              where: { id: bookingId },
-              data: { paymentStatus: 'UNPAID' },
-            });
-            refundInfo = `Already refunded: ₹${alreadyRefunded} was previously refunded`;
+            refundInfo = `Refund: ₹${refund.amount} will be credited to bank in 5-7 business days`;
           }
-        } else if (booking.paymentMethod === 'ONLINE' && booking.paymentStatus === 'PAID') {
-          // Case 2: Online payment — check for Razorpay refund or wallet refund
-          const payment = await prisma.payment.findFirst({
-            where: {
-              bookingIds: { has: bookingId },
-              status: 'CAPTURED',
-            },
-          });
-
-          if (payment?.razorpayPaymentId) {
-            const fullRefundAmount = payment.bookingIds.length > 1
-              ? payment.amount / payment.bookingIds.length
-              : payment.amount;
-            const remainingRefund = fullRefundAmount - alreadyRefunded;
-
-            if (remainingRefund > 0) {
-              const walletEnabled = await isWalletEnabled();
-              const resolvedMethod = walletEnabled
-                ? await getDefaultRefundMethod()
-                : 'RAZORPAY';
-
-              if (resolvedMethod === 'WALLET') {
-                const walletResult = await creditWallet(
-                  booking.userId,
-                  remainingRefund,
-                  'CREDIT_REFUND',
-                  `Refund for booking cancelled by admin (${adminName})`,
-                  bookingId,
-                );
-
-                const totalRefundedOnPayment = (payment.refundAmount || 0) + remainingRefund;
-                const isFullPaymentRefund = totalRefundedOnPayment >= payment.amount;
-                await prisma.payment.update({
-                  where: { id: payment.id },
-                  data: {
-                    status: isFullPaymentRefund ? 'REFUNDED' : 'PARTIALLY_REFUNDED',
-                    refundAmount: { increment: remainingRefund },
-                    refundedAt: new Date(),
-                    refundMethod: 'WALLET',
-                  },
-                });
-
-                // Create Refund record so canRefund() knows this booking was already refunded
-                await prisma.refund.create({
-                  data: {
-                    bookingId,
-                    paymentId: payment.id,
-                    amount: remainingRefund,
-                    method: 'WALLET',
-                    status: 'PROCESSED',
-                    reason: `Auto-refund: booking cancelled by admin (${adminName})`,
-                    walletTransactionId: walletResult.transactionId || undefined,
-                    initiatedById: authUser!.id,
-                  },
-                });
-
-                refundInfo = alreadyRefunded > 0
-                  ? `Refund: ₹${remainingRefund} credited to wallet (₹${alreadyRefunded} was already refunded). Balance: ₹${walletResult.newBalance}`
-                  : `Refund: ₹${remainingRefund} credited to wallet (Balance: ₹${walletResult.newBalance})`;
-
-                try {
-                  const notifUser = await prisma.user.findUnique({
-                    where: { id: booking.userId },
-                    select: { mobileNumber: true, mobileVerified: true },
-                  });
-                  await notifyWalletCredit(booking.userId, {
-                    amount: remainingRefund,
-                    reason: 'Booking cancelled by admin',
-                    newBalance: walletResult.newBalance,
-                    mobileNumber: notifUser?.mobileVerified ? notifUser.mobileNumber : null,
-                  });
-                } catch (notifErr) {
-                  console.error('Wallet credit notification failed:', notifErr);
-                }
-              } else {
-                // Razorpay refund
-                const { initiateRefund } = await import('@/lib/razorpay');
-                const refund = await initiateRefund({
-                  paymentId: payment.razorpayPaymentId,
-                  amount: remainingRefund,
-                  notes: { bookingId, cancelledBy: adminName },
-                });
-
-                const totalRefundedOnPayment = (payment.refundAmount || 0) + remainingRefund;
-                const isFullPaymentRefund = totalRefundedOnPayment >= payment.amount;
-                await prisma.payment.update({
-                  where: { id: payment.id },
-                  data: {
-                    status: isFullPaymentRefund ? 'REFUNDED' : 'PARTIALLY_REFUNDED',
-                    refundId: refund.id,
-                    refundAmount: { increment: remainingRefund },
-                    refundedAt: new Date(),
-                    refundMethod: 'RAZORPAY',
-                  },
-                });
-
-                // Create Refund record so canRefund() knows this booking was already refunded
-                await prisma.refund.create({
-                  data: {
-                    bookingId,
-                    paymentId: payment.id,
-                    amount: remainingRefund,
-                    method: 'RAZORPAY',
-                    status: 'INITIATED',
-                    reason: `Auto-refund: booking cancelled by admin (${adminName})`,
-                    razorpayRefundId: refund.id,
-                    initiatedById: authUser!.id,
-                  },
-                });
-
-                refundInfo = alreadyRefunded > 0
-                  ? `Refund: ₹${remainingRefund} will be credited to bank in 5-7 days (₹${alreadyRefunded} was already refunded)`
-                  : `Refund: ₹${remainingRefund} will be credited to bank in 5-7 business days`;
-              }
-            } else {
-              refundInfo = `Already refunded: ₹${alreadyRefunded} was previously refunded`;
-            }
-          }
+          log.info(
+            { ...adminCtx, op: 'payment.refund', amount: refund.amount, extra: { ...adminCtx.extra, refundMethod: refund.method } },
+            `Refund processed (${refund.method}, admin cancel)`,
+          );
+        } else {
+          // Helper logs the exact reason it returned null (see
+          // `[Refund booking=...]` lines). Surface a neutral message
+          // here so the admin sees "we tried, nothing to refund" —
+          // and the dev can grep the helper's log for the why.
+          refundInfo = 'No refund processed (see server logs for reason)';
+          log.warn(
+            adminCtx,
+            'processCancellationRefund returned null — see [Refund booking=...] log for reason',
+          );
         }
       } catch (refundErr) {
-        console.error('Admin cancellation refund failed:', refundErr);
+        log.error(adminCtx, 'Admin cancellation refund failed', refundErr);
+        refundInfo = 'Refund attempt failed — please check server logs and process manually';
       }
 
       // Restore package session if this was a package booking
@@ -501,7 +508,7 @@ export async function PATCH(req: NextRequest) {
           });
         }
       } catch (pkgErr) {
-        console.error('Failed to restore package session:', pkgErr);
+        log.error(adminCtx, 'Failed to restore package session', pkgErr);
       }
 
       // Send cancellation notification
@@ -529,7 +536,7 @@ export async function PATCH(req: NextRequest) {
           refundInfo,
         });
       } catch (notifErr) {
-        console.error('Failed to create cancellation notification:', notifErr);
+        log.error(adminCtx, 'Failed to create cancellation notification', notifErr);
       }
 
       // Notify assigned operator about cancellation
@@ -549,13 +556,15 @@ export async function PATCH(req: NextRequest) {
           });
         }
       } catch (opNotifErr) {
-        console.error('Failed to notify operator about admin cancellation:', opNotifErr);
+        log.error(adminCtx, 'Failed to notify operator about admin cancellation', opNotifErr);
       }
+
+      log.info({ ...adminCtx, extra: { ...adminCtx.extra, refundInfo: refundInfo ?? null } }, 'Admin cancellation complete');
     }
 
     return NextResponse.json({ id: booking.id, status: booking.status, price: booking.price });
   } catch (error: any) {
-    console.error('Admin booking update error:', error);
+    log.error({ op: 'booking.cancel.admin' }, 'Admin booking update error', error);
     return NextResponse.json({ error: error?.message || 'Internal server error' }, { status: 500 });
   }
 }
@@ -563,7 +572,7 @@ export async function PATCH(req: NextRequest) {
 // POST: Copy booking to next consecutive slot
 export async function POST(req: NextRequest) {
   try {
-    const session = await requireAdmin(req);
+    const session = await requireCenterAdmin(req);
     if (!session) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 403 });
     }
@@ -585,6 +594,27 @@ export async function POST(req: NextRequest) {
 
       if (!sourceBooking) {
         return NextResponse.json({ error: 'Booking not found' }, { status: 404 });
+      }
+
+      // Copy Next is the ABCA legacy (MACHINE_PITCH) consecutive flow:
+      // it only knows how to clone machineId + pitchType + ballType.
+      // Resource-based bookings (Toplay) carry assignedMachineId,
+      // assignedCoachId, assignedStaffId, and a set of consumed Resources
+      // that this flow doesn't replicate — copying would create a row
+      // with the right time but no assignments, causing availability
+      // gaps and refund chaos. Block here with a clear message; the
+      // admin can re-book the next slot through the normal flow.
+      if (sourceBooking.category && sourceBooking.category !== 'MACHINE') {
+        return NextResponse.json(
+          { error: `Copy Next is only available for machine bookings. ${sourceBooking.category} bookings must be created from the slot grid so coach/staff/resources can be reassigned.` },
+          { status: 400 },
+        );
+      }
+      if (!sourceBooking.machineId && sourceBooking.assignedMachineId) {
+        return NextResponse.json(
+          { error: 'Copy Next is not supported for resource-based bookings yet. Use the slot grid to book the next slot.' },
+          { status: 400 },
+        );
       }
 
       // Calculate next slot time (30 min after current endTime)
@@ -612,8 +642,8 @@ export async function POST(req: NextRequest) {
       try {
         const { getPricingConfig, getTimeSlabConfig, calculateNewPricing } = await import('@/lib/pricing');
         const [pricingConfig, timeSlabConfig] = await Promise.all([
-          getPricingConfig(),
-          getTimeSlabConfig(),
+          getPricingConfig(sourceBooking.centerId),
+          getTimeSlabConfig(sourceBooking.centerId),
         ]);
 
         const isMachineA = ['LEATHER', 'MACHINE'].includes(sourceBooking.ballType);
@@ -647,14 +677,18 @@ export async function POST(req: NextRequest) {
           sourceBooking.date,
           nextStartTime,
           undefined,
-          sourceBooking.machineId
+          sourceBooking.machineId,
+          undefined,
+          sourceBooking.centerId,
         );
       }
 
-      // Start transaction to create new booking and update source booking price
+      // Start transaction to create new booking and update source booking price.
+      // The new (consecutive) booking inherits the source booking's center.
       const [newBooking] = await prisma.$transaction([
         prisma.booking.create({
           data: {
+            centerId: sourceBooking.centerId,
             userId: sourceBooking.userId,
             date: sourceBooking.date,
             startTime: nextStartTime,

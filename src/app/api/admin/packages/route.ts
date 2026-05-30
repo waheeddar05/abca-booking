@@ -1,17 +1,30 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { requireAdmin } from '@/lib/adminAuth';
+import { requireCenterAdmin } from '@/lib/adminAuth';
+import { getAuthenticatedUser } from '@/lib/auth';
+import { resolveCurrentCenter } from '@/lib/centers';
 
-// GET /api/admin/packages - List all packages (with filters)
+// GET /api/admin/packages - List packages at the admin's current center
 export async function GET(req: NextRequest) {
-  const admin = await requireAdmin(req);
+  const admin = await requireCenterAdmin(req);
   if (!admin) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   try {
     const { searchParams } = new URL(req.url);
     const activeOnly = searchParams.get('activeOnly') === 'true';
+    const allCenters = searchParams.get('allCenters') === 'true';
+
+    const adminUser = await getAuthenticatedUser(req);
+    const center = adminUser ? await resolveCurrentCenter(req, adminUser) : null;
 
     const where: any = { isCustom: false };
+    if (!allCenters && center) {
+      where.centerId = center.id;
+    } else if (!allCenters && !center) {
+      return NextResponse.json({ error: 'No center selected' }, { status: 400 });
+    } else if (allCenters && !adminUser?.isSuperAdmin) {
+      return NextResponse.json({ error: 'allCenters requires super admin' }, { status: 403 });
+    }
     if (activeOnly) where.isActive = true;
 
     const packages = await prisma.package.findMany({
@@ -37,7 +50,7 @@ export async function GET(req: NextRequest) {
 
 // POST /api/admin/packages - Create a new package
 export async function POST(req: NextRequest) {
-  const admin = await requireAdmin(req);
+  const admin = await requireCenterAdmin(req);
   if (!admin) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   try {
@@ -53,6 +66,11 @@ export async function POST(req: NextRequest) {
       validityDays = 30,
       price,
       extraChargeRules,
+      // RESOURCE_BASED axes (Toplay et al.). Either may be set; both
+      // optional. Bookings redeem the package only if their category
+      // (and machine row, if pinned) match.
+      category,
+      machineRowId,
     } = body;
 
     if (!name || !machineType || !timingType || !totalSessions || !price) {
@@ -72,8 +90,33 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Invalid wicketType' }, { status: 400 });
     }
 
+    const validBookingCategories = ['MACHINE', 'SIDEARM', 'COACHING', 'NET', 'FULL_COURT', 'CORPORATE_BATCH'];
+    if (category && !validBookingCategories.includes(category)) {
+      return NextResponse.json({ error: 'Invalid category' }, { status: 400 });
+    }
+
+    // Packages are center-scoped — bind to the admin's current center.
+    const authUser = await getAuthenticatedUser(req);
+    const center = authUser ? await resolveCurrentCenter(req, authUser) : null;
+    if (!center) {
+      return NextResponse.json({ error: 'No center selected' }, { status: 400 });
+    }
+
+    // Validate machineRowId belongs to this center.
+    let validatedMachineRowId: string | null = null;
+    if (machineRowId) {
+      const row = await prisma.machine.findUnique({
+        where: { id: machineRowId },
+        select: { id: true, centerId: true },
+      });
+      if (row && row.centerId === center.id) {
+        validatedMachineRowId = row.id;
+      }
+    }
+
     const pkg = await prisma.package.create({
       data: {
+        centerId: center.id,
         name,
         machineId: machineId || null,
         machineType,
@@ -84,6 +127,8 @@ export async function POST(req: NextRequest) {
         validityDays,
         price,
         extraChargeRules: extraChargeRules || null,
+        category: category || null,
+        machineRowId: validatedMachineRowId,
       },
     });
 
@@ -96,7 +141,7 @@ export async function POST(req: NextRequest) {
 
 // PUT /api/admin/packages - Update a package
 export async function PUT(req: NextRequest) {
-  const admin = await requireAdmin(req);
+  const admin = await requireCenterAdmin(req);
   if (!admin) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   try {
@@ -113,7 +158,7 @@ export async function PUT(req: NextRequest) {
     }
 
     // Only allow updating specific fields
-    const allowedFields = ['name', 'machineId', 'machineType', 'ballType', 'wicketType', 'timingType', 'totalSessions', 'validityDays', 'price', 'extraChargeRules', 'isActive'];
+    const allowedFields = ['name', 'machineId', 'machineType', 'ballType', 'wicketType', 'timingType', 'totalSessions', 'validityDays', 'price', 'extraChargeRules', 'isActive', 'category', 'machineRowId'];
     const data: any = {};
     for (const field of allowedFields) {
       if (updateData[field] !== undefined) {

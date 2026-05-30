@@ -2,16 +2,65 @@
 
 import { useState, useEffect, useMemo } from 'react';
 import { useSession } from 'next-auth/react';
-import { Package, Loader2, ShoppingCart, Clock, X, ChevronRight, RotateCcw, Sun, Moon, Zap, Calendar, CreditCard } from 'lucide-react';
+import {
+  Package,
+  Loader2,
+  ShoppingCart,
+  Clock,
+  X,
+  RotateCcw,
+  Sun,
+  Moon,
+  Zap,
+  Calendar,
+  CreditCard,
+  Settings2,
+  LayoutGrid,
+  Users,
+  UserCog,
+} from 'lucide-react';
 import Link from 'next/link';
-import { differenceInDays, startOfDay } from 'date-fns';
+import { differenceInDays, startOfDay, format } from 'date-fns';
 import { useRazorpay, usePaymentConfig } from '@/lib/useRazorpay';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { LABEL_MAP } from '@/lib/client-constants';
 import { ContactFooter } from '@/components/ContactFooter';
 import { PackageFirstBookingBanner } from '@/components/ui/PackageFirstBookingBanner';
+import { useCenter } from '@/lib/center-context';
+import {
+  PACKAGE_CATEGORY_LABEL,
+  PACKAGE_TIMING_LABEL,
+  PACKAGE_TIMING_DAY_LABEL,
+  PACKAGE_TIMING_EVENING_LABEL,
+  PACKAGE_WICKET_LABEL,
+  packageCategoryLabel,
+  categoryUsesBallType,
+} from '@/lib/package-admin-labels';
 
 import { Wallet } from 'lucide-react';
+
+/**
+ * BookingCategory ids supported by the user-side packages page. Mirrors
+ * the canonical list used in `pitch-config.ts` and the admin
+ * `EnabledCategoriesEditor`. Legacy ABCA packages without an explicit
+ * category are treated as `MACHINE` for filtering / display.
+ */
+type BookingCategory = 'MACHINE' | 'NET' | 'SIDEARM' | 'COACHING' | 'FULL_COURT';
+
+/** Compact center-machine row used to power the Bowling Machine
+ *  sub-filter. Fetched from the public `/api/centers/[id]/machines`
+ *  endpoint — same source the user-facing slot picker uses, so the chips
+ *  here are guaranteed to match what the user sees at booking time. */
+interface CenterMachine {
+  id: string;
+  name: string;
+  shortName?: string | null;
+  /** Bridge to the legacy MachineId enum for ABCA-style packages where
+   *  `Package.machineId` is the enum string (e.g. `YANTRA`). Null on
+   *  newly-added machines at resource-based centers. */
+  legacyMachineId?: string | null;
+  isActive: boolean;
+}
 
 interface PackageInfo {
   id: string;
@@ -24,21 +73,37 @@ interface PackageInfo {
   totalSessions: number;
   validityDays: number;
   price: number;
+  // Resource-based (Toplay) axes. Null on legacy ABCA packages — those
+  // continue to render via machineId / machineType.
+  category?: BookingCategory | null;
+  machineRowId?: string | null;
+  machineRow?: {
+    id: string;
+    name: string;
+    shortName?: string | null;
+    machineType?: { code: string; name: string };
+  } | null;
 }
 
 interface MyPackage {
   id: string;
   packageName: string;
   machineType: string;
+  machineId?: string | null;
   ballType: string;
   wicketType: string;
   pitchTypes?: string[];
+  /** Resource-based (Toplay) targeting. Null on ABCA-style packages. */
+  category?: BookingCategory | string | null;
+  machineRowId?: string | null;
+  machineRowName?: string | null;
   timingType: string;
   totalSessions: number;
   usedSessions: number;
   remainingSessions: number;
-  activationDate: string;
-  expiryDate: string;
+  activationDate: string | null;
+  expiryDate: string | null;
+  pendingActivation?: boolean;
   status: string;
   amountPaid: number;
   totalExtraPayments: number;
@@ -46,31 +111,64 @@ interface MyPackage {
     id: string;
     sessionsUsed: number;
     extraCharge: number;
-    booking: { date: string; startTime: string; endTime: string; status: string };
+    booking: { date: string; startTime: string; endTime: string; status: string } | null;
   }>;
 }
 
 const labelMap = LABEL_MAP;
 
-type MachineFilter = 'all' | 'GRAVITY' | 'YANTRA' | 'LEVERAGE_INDOOR' | 'LEVERAGE_OUTDOOR';
-
-const PACKAGE_MACHINE_CARDS: { id: MachineFilter; label: string; sub: string; category: string; image: string; dot: string }[] = [
-  { id: 'GRAVITY', label: 'Gravity', sub: 'Leather', category: 'LEATHER', image: '/images/leathermachine.jpeg', dot: 'bg-red-500' },
-  { id: 'YANTRA', label: 'Yantra', sub: 'Premium Leather', category: 'LEATHER', image: '/images/yantra-machine.jpeg', dot: 'bg-red-500' },
-  { id: 'LEVERAGE_INDOOR', label: 'Leverage Tennis', sub: 'Indoor', category: 'TENNIS', image: '/images/tennismachine.jpeg', dot: 'bg-green-500' },
-  { id: 'LEVERAGE_OUTDOOR', label: 'Leverage Tennis', sub: 'Outdoor', category: 'TENNIS', image: '/images/tennismachine.jpeg', dot: 'bg-green-500' },
+/** Canonical category cards. Rendered as the top-level browse filter on
+ *  the packages page. The actual list shown is the intersection with the
+ *  center's `ENABLED_BOOKING_CATEGORIES` policy, so a center that only
+ *  offers Bowling Machine + Cricket Nets shows just those two cards. */
+const CATEGORY_CARDS: Array<{
+  id: BookingCategory;
+  label: string;
+  icon: typeof Settings2;
+  dot: string;
+}> = [
+  { id: 'MACHINE',    label: 'Bowling Machine',  icon: Settings2,  dot: 'bg-red-500' },
+  { id: 'NET',        label: 'Cricket Net',      icon: LayoutGrid, dot: 'bg-cyan-500' },
+  { id: 'SIDEARM',    label: 'Sidearm',          icon: Users,      dot: 'bg-emerald-500' },
+  { id: 'FULL_COURT', label: 'Full Indoor Court',icon: LayoutGrid, dot: 'bg-purple-500' },
+  { id: 'COACHING',   label: 'Personal Coaching',icon: UserCog,    dot: 'bg-amber-500' },
 ];
+
+/**
+ * Normalise a package row to a BookingCategory. Legacy ABCA packages
+ * predate the `category` column on Package — every such row is a
+ * bowling-machine package, so we treat null as `MACHINE`.
+ */
+function packageCategory(pkg: { category?: string | null }): BookingCategory {
+  const c = pkg.category;
+  if (c === 'NET' || c === 'SIDEARM' || c === 'COACHING' || c === 'FULL_COURT') return c;
+  return 'MACHINE';
+}
 
 export default function PackagesPage() {
   const { data: session } = useSession();
   const [tab, setTab] = useState<'browse' | 'my'>('my');
   const [packages, setPackages] = useState<PackageInfo[]>([]);
+  const [enabledCategories, setEnabledCategories] = useState<BookingCategory[] | null>(null);
   const [myPackages, setMyPackages] = useState<MyPackage[]>([]);
   const [loading, setLoading] = useState(true);
   const [purchasing, setPurchasing] = useState<string | null>(null);
   const [message, setMessage] = useState({ text: '', type: '' });
-  const [machineFilter, setMachineFilter] = useState<MachineFilter>('all');
-  const [timingFilter, setTimingFilter] = useState<'DAY' | 'EVENING' | ''>('');
+  /** Top-level category filter. `null` (no selection) shows all
+   *  packages — matches the admin Packages tab which lists everything
+   *  by default after commit bec7435. */
+  const [categoryFilter, setCategoryFilter] = useState<BookingCategory | null>(null);
+  /** Secondary timing chip. `null` means "no timing filter" so packages
+   *  of any timing (Day, Evening, Both) are shown. */
+  const [timingFilter, setTimingFilter] = useState<'DAY' | 'EVENING' | null>(null);
+  /** Machine sub-filter — only relevant when `categoryFilter === MACHINE`.
+   *  Stores the Machine row id; matches packages by either `machineRowId`
+   *  (resource centers) or by the corresponding `legacyMachineId` (ABCA
+   *  packages where `Package.machineId` is the enum string). `null` =
+   *  "All machines". */
+  const [machineFilter, setMachineFilter] = useState<string | null>(null);
+  const [centerMachines, setCenterMachines] = useState<CenterMachine[]>([]);
+  const { currentCenter } = useCenter();
   const [selectedPackage, setSelectedPackage] = useState<PackageInfo | null>(null);
   const [confirmPurchaseId, setConfirmPurchaseId] = useState<string | null>(null);
   const [useWalletForPkg, setUseWalletForPkg] = useState(false);
@@ -92,7 +190,21 @@ export default function PackagesPage() {
     setLoading(true);
     try {
       const res = await fetch('/api/packages');
-      if (res.ok) setPackages(await res.json());
+      if (res.ok) {
+        // Newer envelope is `{ packages, enabledCategories, bookingModel }`.
+        // Fall back to the legacy bare-array shape if an older deploy is
+        // serving this client.
+        const data = await res.json();
+        if (Array.isArray(data)) {
+          setPackages(data);
+          setEnabledCategories(null);
+        } else {
+          setPackages(Array.isArray(data?.packages) ? data.packages : []);
+          setEnabledCategories(
+            Array.isArray(data?.enabledCategories) ? data.enabledCategories : null,
+          );
+        }
+      }
     } catch (e) {
       console.error('Failed to fetch packages', e);
     } finally {
@@ -132,6 +244,39 @@ export default function PackagesPage() {
     if (tab === 'my' && session) fetchMyPackages();
     if (tab === 'browse') fetchPackages();
   }, [tab, session]);
+
+  // Fetch the center's active machines once (and on center switch). Used
+  // to power the Bowling Machine sub-filter chip row. Same public endpoint
+  // the resource-based slot picker uses, so the chips line up with what
+  // the user actually sees when booking.
+  useEffect(() => {
+    if (!currentCenter) {
+      setCenterMachines([]);
+      return;
+    }
+    let cancelled = false;
+    fetch(`/api/centers/${currentCenter.id}/machines`)
+      .then((r) => (r.ok ? r.json() : []))
+      .then((rows: CenterMachine[]) => {
+        if (cancelled) return;
+        setCenterMachines(Array.isArray(rows) ? rows.filter((m) => m.isActive) : []);
+      })
+      .catch(() => {
+        if (!cancelled) setCenterMachines([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [currentCenter]);
+
+  // Clear the machine sub-filter whenever the user moves away from the
+  // Bowling Machine category — otherwise selecting Nets/Sidearm would
+  // silently keep a stale machine constraint that the user can't see.
+  useEffect(() => {
+    if (categoryFilter !== 'MACHINE' && machineFilter !== null) {
+      setMachineFilter(null);
+    }
+  }, [categoryFilter, machineFilter]);
 
   const handlePurchase = async (packageId: string) => {
     if (!session) {
@@ -232,40 +377,61 @@ export default function PackagesPage() {
     }
   };
 
-  const hasActiveFilter = machineFilter !== 'all' || timingFilter !== '';
+  const hasActiveFilter =
+    categoryFilter !== null || timingFilter !== null || machineFilter !== null;
 
   const clearFilters = () => {
-    setMachineFilter('all');
-    setTimingFilter('');
+    setCategoryFilter(null);
+    setTimingFilter(null);
+    setMachineFilter(null);
   };
 
-  // Filtered packages based on machine card + timing
+  /** Visible category cards = canonical list ∩ center's enabled
+   *  categories. We always show MACHINE for legacy ABCA installs where
+   *  the policy hasn't been initialised, because every ABCA package is
+   *  effectively MACHINE-category. */
+  const visibleCategoryCards = useMemo(() => {
+    if (!enabledCategories || enabledCategories.length === 0) {
+      // Either pre-policy or the API returned the legacy array shape.
+      // Fall back to the categories actually represented in the
+      // package list — that way ABCA still shows just "Bowling Machine"
+      // while a multi-category center shows everything it really has.
+      const present = new Set<BookingCategory>(packages.map(packageCategory));
+      return CATEGORY_CARDS.filter((c) => present.has(c.id));
+    }
+    const enabledSet = new Set(enabledCategories);
+    return CATEGORY_CARDS.filter((c) => enabledSet.has(c.id));
+  }, [enabledCategories, packages]);
+
+  // Filter the package list by the active category + timing + machine
+  // chips. Machine filter is only meaningful when the active category is
+  // MACHINE (the UI hides the chip row otherwise and clears the value).
   const filteredPackages = useMemo(() => {
     let filtered = packages;
-    if (machineFilter !== 'all') {
-      const card = PACKAGE_MACHINE_CARDS.find(c => c.id === machineFilter);
-      if (card) {
-        // Filter by machineId if available, fallback to machineType category for older packages
-        filtered = filtered.filter(pkg =>
-          pkg.machineId ? pkg.machineId === machineFilter : pkg.machineType === card.category
-        );
-      }
+    if (categoryFilter) {
+      filtered = filtered.filter((p) => packageCategory(p) === categoryFilter);
     }
     if (timingFilter) {
-      filtered = filtered.filter(pkg => pkg.timingType === timingFilter || pkg.timingType === 'BOTH');
+      filtered = filtered.filter((p) => p.timingType === timingFilter || p.timingType === 'BOTH');
+    }
+    if (categoryFilter === 'MACHINE' && machineFilter) {
+      const m = centerMachines.find((cm) => cm.id === machineFilter);
+      const legacy = m?.legacyMachineId ?? null;
+      filtered = filtered.filter((p) => {
+        // Resource-based packages pin a specific Machine row.
+        if (p.machineRowId && p.machineRowId === machineFilter) return true;
+        // Legacy ABCA packages reference the MachineId enum on
+        // `Package.machineId`. Bridge through the selected machine's
+        // `legacyMachineId` to keep both shapes filterable from the same
+        // chip row.
+        if (legacy && p.machineId === legacy) return true;
+        return false;
+      });
     }
     return filtered;
-  }, [packages, machineFilter, timingFilter]);
+  }, [packages, categoryFilter, timingFilter, machineFilter, centerMachines]);
 
-  const leatherPackages = filteredPackages.filter(p => p.machineType === 'LEATHER');
-  const tennisPackages = filteredPackages.filter(p => p.machineType === 'TENNIS');
-
-  const getTimingLabel = (t: string) => {
-    if (t === 'DAY') return 'Day';
-    if (t === 'EVENING') return 'Evening/Night';
-    if (t === 'BOTH') return 'Day & Evening';
-    return t;
-  };
+  const getTimingLabel = (t: string) => PACKAGE_TIMING_LABEL[t] || t;
 
   return (
     <div className="min-h-[calc(100vh-56px)]">
@@ -330,87 +496,9 @@ export default function PackagesPage() {
               </div>
             ) : (
               <div className="space-y-4">
-                {myPackages.map(up => {
-                  const remaining = up.totalSessions - up.usedSessions;
-                  const pct = up.totalSessions > 0 ? (up.usedSessions / up.totalSessions) * 100 : 0;
-                  const isActive = up.status === 'ACTIVE';
-                  const isExpired = up.status === 'EXPIRED';
-                  const today = startOfDay(new Date());
-                  const expiry = startOfDay(new Date(up.expiryDate));
-                  const daysRemaining = differenceInDays(expiry, today);
-                  const isFirstBookingPending = isActive && up.usedSessions === 0;
-
-                  return (
-                    <div key={up.id}>
-                    {isFirstBookingPending && (
-                      <PackageFirstBookingBanner packageName={up.packageName} />
-                    )}
-                    <div className="bg-white/[0.04] backdrop-blur-sm rounded-xl border border-white/[0.08] p-5">
-                      <div className="flex items-start justify-between mb-3">
-                        <div>
-                          <div className="flex items-center gap-2 mb-1">
-                            <h3 className="text-sm font-semibold text-white">{up.packageName}</h3>
-                            <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${
-                              isActive ? 'bg-green-500/15 text-green-400' :
-                              isExpired ? 'bg-red-500/15 text-red-400' :
-                              'bg-slate-500/15 text-slate-400'
-                            }`}>
-                              {up.status}
-                            </span>
-                          </div>
-                          <div className="flex flex-col gap-1 text-[11px] text-slate-400">
-                            <span className="flex items-center gap-1">
-                              <Clock className="w-3 h-3" />
-                              {(up as any).pendingActivation ? (
-                                'Pending activation — starts on first booking'
-                              ) : isExpired ? (
-                                `Expired on ${new Date(up.expiryDate).toLocaleDateString()}`
-                              ) : daysRemaining <= 0 ? (
-                                "Expires today"
-                              ) : (
-                                `${daysRemaining} day${daysRemaining === 1 ? '' : 's'} remaining`
-                              )}
-                            </span>
-                            {(() => {
-                              const pitches = (up.pitchTypes && up.pitchTypes.length > 0)
-                                ? up.pitchTypes
-                                : (up.wicketType ? [up.wicketType] : []);
-                              if (pitches.length === 0) return null;
-                              return (
-                                <span className="flex items-center gap-1">
-                                  <span className="text-slate-500">Pitch:</span>
-                                  <span className="text-slate-300">{pitches.map(p => labelMap[p] || p).join(', ')}</span>
-                                </span>
-                              );
-                            })()}
-                          </div>
-                        </div>
-                        {isActive && remaining > 0 && (
-                          <Link
-                            href="/slots"
-                            className="bg-accent hover:bg-accent-light text-primary px-3 py-1.5 rounded-lg text-[11px] font-semibold transition-colors"
-                          >
-                            Book
-                          </Link>
-                        )}
-                      </div>
-
-                      <div className="mb-0">
-                        <div className="flex justify-between text-[10px] mb-1">
-                          <span className="text-slate-500">Sessions (Per Slot: 30 Min)</span>
-                          <span className="text-white">{up.usedSessions}/{up.totalSessions}</span>
-                        </div>
-                        <div className="w-full bg-white/[0.06] rounded-full h-1.5">
-                          <div
-                            className={`h-1.5 rounded-full transition-all ${pct >= 100 ? 'bg-red-500' : pct >= 75 ? 'bg-yellow-500' : 'bg-accent'}`}
-                            style={{ width: `${Math.min(pct, 100)}%` }}
-                          />
-                        </div>
-                      </div>
-                    </div>
-                    </div>
-                  );
-                })}
+                {myPackages.map(up => (
+                  <PurchasedPackageCard key={up.id} pkg={up} />
+                ))}
               </div>
             )}
           </div>
@@ -421,11 +509,11 @@ export default function PackagesPage() {
           <div>
             {/* ─── Filters Section ─── */}
             <div className="bg-white/[0.03] rounded-xl border border-white/[0.06] p-4 mb-5">
-              {/* Machine Type Filter */}
+              {/* Booking Category Filter */}
               <div className="mb-4">
                 <div className="flex items-center justify-between mb-2">
                   <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
-                    Machine Type
+                    Booking Category
                   </label>
                   {hasActiveFilter && (
                     <button
@@ -437,106 +525,143 @@ export default function PackagesPage() {
                     </button>
                   )}
                 </div>
-                {/* Leather Machines */}
-                <div className="grid grid-cols-2 gap-1.5 mb-1.5">
-                  {PACKAGE_MACHINE_CARDS.filter(c => c.category === 'LEATHER').map((card) => {
-                    const isSelected = machineFilter === card.id;
-                    return (
-                      <button
-                        key={card.id}
-                        onClick={() => { setMachineFilter(isSelected ? 'all' : card.id); setTimingFilter(''); }}
-                        className={`flex items-center gap-1.5 px-1.5 py-1 rounded-lg transition-all cursor-pointer text-left ${
-                          isSelected
-                            ? 'bg-accent/15 ring-1 ring-accent/50 shadow-sm'
-                            : 'bg-white/[0.04] border border-white/[0.08] hover:border-accent/30'
-                        }`}
-                      >
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img
-                          src={card.image}
-                          alt={card.label}
-                          className="w-7 h-7 rounded-md object-cover flex-shrink-0"
-                        />
-                        <div className="min-w-0">
-                          <span className={`text-[10px] font-bold leading-tight ${isSelected ? 'text-accent' : 'text-slate-300'}`}>
-                            {card.label}
-                          </span>
-                          <p className={`text-[8px] ${isSelected ? 'text-accent/70' : 'text-slate-500'}`}>
-                            {card.sub}
-                          </p>
-                        </div>
-                      </button>
-                    );
-                  })}
-                </div>
-                {/* Tennis Machines */}
-                <div className="grid grid-cols-2 gap-1.5">
-                  {PACKAGE_MACHINE_CARDS.filter(c => c.category === 'TENNIS').map((card) => {
-                    const isSelected = machineFilter === card.id;
-                    return (
-                      <button
-                        key={card.id}
-                        onClick={() => { setMachineFilter(isSelected ? 'all' : card.id); setTimingFilter(''); }}
-                        className={`flex items-center gap-1.5 px-1.5 py-1 rounded-lg transition-all cursor-pointer text-left ${
-                          isSelected
-                            ? 'bg-accent/15 ring-1 ring-accent/50 shadow-sm'
-                            : 'bg-white/[0.04] border border-white/[0.08] hover:border-accent/30'
-                        }`}
-                      >
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img
-                          src={card.image}
-                          alt={card.label}
-                          className="w-7 h-7 rounded-md object-cover flex-shrink-0"
-                        />
-                        <div className="min-w-0">
-                          <span className={`text-[10px] font-bold leading-tight ${isSelected ? 'text-accent' : 'text-slate-300'}`}>
-                            {card.label}
-                          </span>
-                          <p className={`text-[8px] ${isSelected ? 'text-accent/70' : 'text-slate-500'}`}>
-                            {card.sub}
-                          </p>
-                        </div>
-                      </button>
-                    );
-                  })}
-                </div>
+                {visibleCategoryCards.length === 0 ? (
+                  <p className="text-[11px] text-slate-500 italic">
+                    No booking categories enabled for {currentCenter?.name || 'this center'}.
+                  </p>
+                ) : (
+                  // Category tiles reuse the exact layout/styling from the
+                  // "Book Your Slot" page (ResourceSlotsPage) — icon-left,
+                  // accent-solid active state — so both flows share one UI
+                  // standard.
+                  <div className="grid grid-cols-2 md:grid-cols-3 gap-1.5">
+                    {visibleCategoryCards.map((card) => {
+                      const isSelected = categoryFilter === card.id;
+                      const Icon = card.icon;
+                      return (
+                        <button
+                          key={card.id}
+                          onClick={() => {
+                            // Toggle: clicking the active card clears
+                            // the category lens. Timing is preserved so
+                            // a user can flip between categories while
+                            // keeping their Day/Evening preference.
+                            setCategoryFilter(isSelected ? null : card.id);
+                          }}
+                          className={`flex items-center justify-start gap-1.5 px-2 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer min-w-0 text-left ${
+                            isSelected
+                              ? 'bg-accent text-primary shadow-sm'
+                              : 'bg-white/[0.04] text-slate-400 border border-white/[0.08] hover:border-accent/20'
+                          }`}
+                        >
+                          <div className={`w-6 h-6 rounded-md flex items-center justify-center flex-shrink-0 ${
+                            isSelected ? 'bg-primary/15' : 'bg-white/[0.04]'
+                          }`}>
+                            <Icon className={`w-3.5 h-3.5 ${isSelected ? 'text-primary' : 'text-accent'}`} />
+                          </div>
+                          <span className="truncate">{card.label}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
 
-              {/* Timing Filter */}
+              {/* Machine sub-filter — only meaningful when the user has
+                  picked the Bowling Machine category. Single-select with
+                  an "All machines" reset. Chips match the resource-based
+                  slot picker (same data source) so the user sees the
+                  exact machine names they'd encounter at booking time.
+                  Hidden when the center has no machines configured. */}
+              {categoryFilter === 'MACHINE' && centerMachines.length > 0 && (
+                <div className="mb-4">
+                  <div className="flex items-center justify-between mb-2">
+                    <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                      Machine Type
+                    </label>
+                    {machineFilter && (
+                      <button
+                        onClick={() => setMachineFilter(null)}
+                        className="inline-flex items-center gap-1 text-[10px] text-slate-500 hover:text-accent transition-colors cursor-pointer"
+                      >
+                        <X className="w-3 h-3" />
+                        Clear
+                      </button>
+                    )}
+                  </div>
+                  {/* Machine boxes mirror the "Book Your Slot" machine
+                      picker — equal-width grid cells with an icon badge and
+                      accent-solid selection — for a single UI standard. */}
+                  <div className="grid grid-cols-2 gap-1.5">
+                    {centerMachines.map((m) => {
+                      const isActive = machineFilter === m.id;
+                      const label = m.shortName ?? m.name;
+                      return (
+                        <button
+                          key={m.id}
+                          onClick={() => setMachineFilter(isActive ? null : m.id)}
+                          className={`flex items-center gap-1.5 pl-1.5 pr-2 py-1 rounded-lg text-xs font-semibold border cursor-pointer transition-all min-w-0 text-left ${
+                            isActive
+                              ? 'bg-accent text-primary border-accent shadow-sm'
+                              : 'bg-white/[0.04] text-slate-300 border-white/[0.08] hover:border-accent/30'
+                          }`}
+                        >
+                          <div className={`w-7 h-7 rounded-md flex items-center justify-center flex-shrink-0 ${
+                            isActive ? 'bg-primary/15' : 'bg-white/5'
+                          }`}>
+                            <Settings2 className={`w-3.5 h-3.5 ${isActive ? 'text-primary/70' : 'text-slate-500'}`} />
+                          </div>
+                          <span className="truncate">{label}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {/* Timing Filter — secondary chip, single-select with
+                  clear. Defaults to no selection so packages of any
+                  timing (Day, Evening, Both) show through. */}
               <div>
-                <label className="block text-[10px] font-bold text-slate-400 mb-2 uppercase tracking-wider">
-                  Timing
-                </label>
-                <div className="grid grid-cols-2 gap-2">
+                <div className="flex items-center justify-between mb-2">
+                  <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                    Timing
+                  </label>
+                  {timingFilter && (
+                    <button
+                      onClick={() => setTimingFilter(null)}
+                      className="inline-flex items-center gap-1 text-[10px] text-slate-500 hover:text-accent transition-colors cursor-pointer"
+                    >
+                      <X className="w-3 h-3" />
+                      Clear
+                    </button>
+                  )}
+                </div>
+                {/* Timing boxes share the machine-box pattern (icon-left,
+                    accent-solid active) so machine and timing selectors are
+                    visually identical, matching the Book Your Slot flow. */}
+                <div className="grid grid-cols-2 gap-1.5">
                   {([
-                    { key: 'DAY' as const, label: 'Day', sub: '7:00 AM – 5:00 PM', Icon: Sun },
-                    { key: 'EVENING' as const, label: 'Evening / Night', sub: '7:00 PM – 10:30 PM', Icon: Moon },
+                    { key: 'DAY' as const,     label: 'Day',     Icon: Sun },
+                    { key: 'EVENING' as const, label: 'Evening', Icon: Moon },
                   ]).map(t => {
                     const isActive = timingFilter === t.key;
                     return (
                       <button
                         key={t.key}
-                        onClick={() => setTimingFilter(isActive ? '' : t.key)}
-                        className={`flex items-center gap-2 px-2 py-1.5 rounded-lg transition-all cursor-pointer text-left ${
+                        onClick={() => setTimingFilter(isActive ? null : t.key)}
+                        className={`flex items-center justify-start gap-1.5 px-2 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer min-w-0 text-left ${
                           isActive
-                            ? 'bg-accent/15 ring-1 ring-accent/50 shadow-sm'
-                            : 'bg-white/[0.04] border border-white/[0.08] hover:border-accent/30'
+                            ? 'bg-accent text-primary shadow-sm'
+                            : 'bg-white/[0.04] text-slate-400 border border-white/[0.08] hover:border-accent/20'
                         }`}
                       >
-                        <div className={`w-7 h-7 rounded-md flex items-center justify-center flex-shrink-0 ${
-                          isActive ? 'bg-accent/20' : 'bg-white/[0.06]'
+                        <div className={`w-6 h-6 rounded-md flex items-center justify-center flex-shrink-0 ${
+                          isActive ? 'bg-primary/15' : 'bg-white/[0.04]'
                         }`}>
-                          <t.Icon className={`w-3.5 h-3.5 ${isActive ? 'text-accent' : 'text-slate-400'}`} />
+                          <t.Icon className={`w-3.5 h-3.5 ${isActive ? 'text-primary' : 'text-accent'}`} />
                         </div>
-                        <div className="min-w-0">
-                          <span className={`text-[10px] font-bold block ${isActive ? 'text-accent' : 'text-slate-300'}`}>
-                            {t.label}
-                          </span>
-                          <span className={`text-[8px] ${isActive ? 'text-accent/70' : 'text-slate-500'}`}>
-                            {t.sub}
-                          </span>
-                        </div>
+                        <span className="truncate">{t.label}</span>
                       </button>
                     );
                   })}
@@ -568,36 +693,20 @@ export default function PackagesPage() {
                 )}
               </div>
             ) : (
-              <div className="space-y-5">
-                {/* Leather Packages */}
-                {leatherPackages.length > 0 && (
-                  <PackageSection
-                    title="Leather Ball Machines"
-                    dotColor="bg-red-500"
-                    count={leatherPackages.length}
-                    packages={leatherPackages}
-                    showBallType
+              <div className="space-y-2">
+                {/* Single uniform card list — matches the admin
+                    Available Packages cards (AdminPackageCard) from
+                    commit bec7435 so admins and users see the same
+                    package treatment. */}
+                {filteredPackages.map((pkg) => (
+                  <PackageCard
+                    key={pkg.id}
+                    pkg={pkg}
                     purchasing={purchasing}
-                    onPurchase={handlePurchase}
                     onSelect={setSelectedPackage}
                     getTimingLabel={getTimingLabel}
                   />
-                )}
-
-                {/* Tennis Packages */}
-                {tennisPackages.length > 0 && (
-                  <PackageSection
-                    title="Tennis Machines"
-                    dotColor="bg-green-500"
-                    count={tennisPackages.length}
-                    packages={tennisPackages}
-                    showBallType={false}
-                    purchasing={purchasing}
-                    onPurchase={handlePurchase}
-                    onSelect={setSelectedPackage}
-                    getTimingLabel={getTimingLabel}
-                  />
-                )}
+                ))}
               </div>
             )}
           </div>
@@ -629,12 +738,9 @@ export default function PackagesPage() {
             <div className="flex items-start justify-between mb-5">
               <div>
                 <h2 className="text-lg font-bold text-white">{selectedPackage.name}</h2>
-                <span className={`inline-block mt-1 text-[10px] px-2 py-0.5 rounded-full font-semibold ${
-                  selectedPackage.machineType === 'LEATHER'
-                    ? 'bg-red-500/15 text-red-400'
-                    : 'bg-green-500/15 text-green-400'
-                }`}>
-                  {selectedPackage.machineId ? labelMap[selectedPackage.machineId] : (selectedPackage.machineType === 'LEATHER' ? 'Leather Ball Machine' : 'Tennis Machine')}
+                <span className="inline-block mt-1 text-[10px] px-2 py-0.5 rounded-full font-semibold bg-purple-500/15 text-purple-300">
+                  {packageCategoryLabel(selectedPackage.category)}
+                  {selectedPackage.machineRow ? ` · ${selectedPackage.machineRow.shortName ?? selectedPackage.machineRow.name}` : ''}
                 </span>
               </div>
               <button
@@ -648,14 +754,43 @@ export default function PackagesPage() {
             <div className="space-y-4">
               {/* Details Grid */}
               <div className="grid grid-cols-2 gap-3">
-                <DetailItem label="Machine" value={selectedPackage.machineId ? labelMap[selectedPackage.machineId] : (selectedPackage.machineType === 'LEATHER' ? 'Leather Ball' : 'Tennis')} />
-                {selectedPackage.machineType === 'LEATHER' && (
-                  <DetailItem label="Ball Type" value={labelMap[selectedPackage.ballType] || selectedPackage.ballType} />
+                <DetailItem
+                  label="Category"
+                  value={packageCategoryLabel(selectedPackage.category)}
+                />
+                {/* Machine — show pinned Machine row first (resource
+                    centers), then ABCA's legacy enum machine. Only
+                    relevant for MACHINE-category packages, which we
+                    enforce via packageCategory() so non-machine
+                    packages don't leak a machine chip. */}
+                {packageCategory(selectedPackage) === 'MACHINE' && selectedPackage.machineRow && (
+                  <DetailItem
+                    label="Machine"
+                    value={selectedPackage.machineRow.shortName ?? selectedPackage.machineRow.name}
+                  />
+                )}
+                {packageCategory(selectedPackage) === 'MACHINE' && !selectedPackage.machineRow && selectedPackage.machineId && (
+                  <DetailItem
+                    label="Machine"
+                    value={labelMap[selectedPackage.machineId] || selectedPackage.machineId}
+                  />
+                )}
+                {categoryUsesBallType(selectedPackage.category) && selectedPackage.ballType && (
+                  <DetailItem
+                    label="Ball Type"
+                    value={labelMap[selectedPackage.ballType] || selectedPackage.ballType}
+                  />
+                )}
+                {selectedPackage.wicketType && (
+                  <DetailItem
+                    label="Pitch"
+                    value={PACKAGE_WICKET_LABEL[selectedPackage.wicketType] || selectedPackage.wicketType}
+                  />
                 )}
                 <DetailItem
                   label="Timing"
                   value={getTimingLabel(selectedPackage.timingType)}
-                  subValue={selectedPackage.timingType === 'DAY' ? '7:00 AM – 5:00 PM' : selectedPackage.timingType === 'EVENING' ? '7:00 PM – 10:30 PM' : 'Any time'}
+                  subValue={selectedPackage.timingType === 'DAY' ? '6 a.m. to 6 p.m.' : selectedPackage.timingType === 'EVENING' ? '6 p.m. to 10:30 p.m.' : 'Any time'}
                 />
                 <DetailItem label="Sessions (Per Slot: 30 Minutes)" value={`${selectedPackage.totalSessions} Sessions`} />
                 <DetailItem label="Validity" value={`${selectedPackage.validityDays} Days Validity`} />
@@ -749,81 +884,246 @@ export default function PackagesPage() {
     </div>
   );
 }
-// ─── Package Section (Leather or Tennis) ────────────────
-function PackageSection({
-  title, dotColor, count, packages, showBallType, purchasing, onPurchase, onSelect, getTimingLabel,
+
+// ─── Package Card (Browse list) ─────────────────────────
+/**
+ * Single uniform package card used in the Browse tab. Visual structure
+ * mirrors the admin AdminPackageCard from commit bec7435: name +
+ * category chip + price on the top row, chip row of axes (machine /
+ * ball / pitch / timing / sessions) below, click anywhere on the card
+ * to open the detail modal.
+ */
+function PackageCard({
+  pkg, purchasing, onSelect, getTimingLabel,
 }: {
-  title: string;
-  dotColor: string;
-  count: number;
-  packages: PackageInfo[];
-  showBallType: boolean;
+  pkg: PackageInfo;
   purchasing: string | null;
-  onPurchase: (id: string) => void;
   onSelect: (pkg: PackageInfo) => void;
   getTimingLabel: (t: string) => string;
 }) {
+  const cat = packageCategory(pkg);
+  const showBallType = cat === 'MACHINE' && pkg.machineType !== 'TENNIS' && !!pkg.ballType;
+  const machineLabel = pkg.machineRow
+    ? (pkg.machineRow.shortName ?? pkg.machineRow.name)
+    : (pkg.machineId ? (labelMap[pkg.machineId] || pkg.machineId) : null);
+
   return (
-    <div>
-      <div className="flex items-center gap-2 mb-3">
-        <span className={`w-2 h-2 rounded-full ${dotColor}`}></span>
-        <h3 className="text-sm font-bold text-white">{title}</h3>
-        <span className="text-[10px] text-slate-500 bg-white/[0.04] px-2 py-0.5 rounded-full">{count}</span>
-      </div>
-      <div className="space-y-2">
-        {packages.map((pkg) => (
+    <div className="bg-white/[0.04] backdrop-blur-sm rounded-xl border border-white/[0.08] hover:border-white/[0.12] transition-colors">
+      <div className="p-4">
+        <div className="flex items-start justify-between gap-3">
           <div
-            key={pkg.id}
-            className="bg-white/[0.04] backdrop-blur-sm rounded-xl border border-white/[0.08] hover:border-white/[0.12] transition-colors"
+            className="min-w-0 flex-1 cursor-pointer"
+            onClick={() => onSelect(pkg)}
           >
-            {/* Mobile card layout */}
-            <div className="p-4">
-              <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0 flex-1 cursor-pointer" onClick={() => onSelect(pkg)}>
-                  <h4 className="text-sm font-semibold text-white hover:text-accent transition-colors leading-tight">{pkg.name}</h4>
-                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-1.5">
-                    {pkg.machineId && (
-                      <span className="text-[10px] text-slate-400 flex items-center gap-1">
-                        <Package className="w-3 h-3 text-slate-500" />
-                        {labelMap[pkg.machineId] || pkg.machineId}
-                      </span>
-                    )}
-                    {showBallType && pkg.ballType && (
-                      <span className="text-[10px] text-slate-400 flex items-center gap-1">
-                        <Zap className="w-3 h-3 text-slate-500" />
-                        {labelMap[pkg.ballType] || pkg.ballType}
-                      </span>
-                    )}
-                    <span className="text-[10px] text-slate-400 flex items-center gap-1">
-                      {pkg.timingType === 'DAY' ? <Sun className="w-3 h-3 text-slate-500" /> : pkg.timingType === 'EVENING' ? <Moon className="w-3 h-3 text-slate-500" /> : <Clock className="w-3 h-3 text-slate-500" />}
-                      {getTimingLabel(pkg.timingType)}
-                    </span>
-                    {pkg.wicketType && (
-                      <span className="text-[10px] text-slate-400 flex items-center gap-1">
-                        <span className="text-slate-500">Pitch:</span>
-                        <span className="text-slate-300">{labelMap[pkg.wicketType] || pkg.wicketType}</span>
-                      </span>
-                    )}
-                    <span className="text-[10px] text-slate-400 flex items-center gap-1">
-                      <Calendar className="w-3 h-3 text-slate-500" />
-                      {pkg.totalSessions} Sessions (Per Slot: 30 Minutes) · {pkg.validityDays} Days Validity
-                    </span>
-                  </div>
-                </div>
-                <div className="flex items-center gap-2 flex-shrink-0">
-                  <span className="text-sm font-bold text-accent">₹{pkg.price}</span>
-                  <button
-                    onClick={() => onSelect(pkg)}
-                    disabled={purchasing === pkg.id}
-                    className="bg-accent hover:bg-accent-light text-primary px-3 py-1.5 rounded-lg text-[11px] font-bold transition-colors disabled:opacity-50 cursor-pointer"
-                  >
-                    {purchasing === pkg.id ? <Loader2 className="w-3 h-3 animate-spin" /> : 'Buy'}
-                  </button>
-                </div>
-              </div>
+            <div className="flex items-center gap-2 flex-wrap">
+              <h4 className="text-sm font-semibold text-white hover:text-accent transition-colors leading-tight">{pkg.name}</h4>
+              <span className="text-[10px] px-2 py-0.5 rounded-full font-medium bg-purple-500/15 text-purple-300">
+                {PACKAGE_CATEGORY_LABEL[cat]}
+              </span>
+            </div>
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-1.5">
+              {cat === 'MACHINE' && machineLabel && (
+                <span className="text-[10px] text-slate-400 flex items-center gap-1">
+                  <Package className="w-3 h-3 text-slate-500" />
+                  {machineLabel}
+                </span>
+              )}
+              {showBallType && (
+                <span className="text-[10px] text-slate-400 flex items-center gap-1">
+                  <Zap className="w-3 h-3 text-slate-500" />
+                  {labelMap[pkg.ballType] || pkg.ballType}
+                </span>
+              )}
+              {pkg.wicketType && (
+                <span className="text-[10px] text-slate-400 flex items-center gap-1">
+                  <span className="text-slate-500">Pitch:</span>
+                  <span className="text-slate-300">{PACKAGE_WICKET_LABEL[pkg.wicketType] || pkg.wicketType}</span>
+                </span>
+              )}
+              <span className="text-[10px] text-slate-400 flex items-center gap-1">
+                {pkg.timingType === 'DAY' ? <Sun className="w-3 h-3 text-slate-500" /> : pkg.timingType === 'EVENING' ? <Moon className="w-3 h-3 text-slate-500" /> : <Clock className="w-3 h-3 text-slate-500" />}
+                {getTimingLabel(pkg.timingType)}
+              </span>
+              <span className="text-[10px] text-slate-400 flex items-center gap-1">
+                <Calendar className="w-3 h-3 text-slate-500" />
+                {pkg.totalSessions} Sessions (Per Slot: 30 Minutes) · {pkg.validityDays} Days Validity
+              </span>
             </div>
           </div>
-        ))}
+          <div className="flex items-center gap-2 flex-shrink-0">
+            <span className="text-sm font-bold text-accent">₹{pkg.price}</span>
+            <button
+              onClick={() => onSelect(pkg)}
+              disabled={purchasing === pkg.id}
+              className="bg-accent hover:bg-accent-light text-primary px-3 py-1.5 rounded-lg text-[11px] font-bold transition-colors disabled:opacity-50 cursor-pointer"
+            >
+              {purchasing === pkg.id ? <Loader2 className="w-3 h-3 animate-spin" /> : 'Buy'}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Purchased Package Card (My Packages) ────────────────
+/**
+ * Compact card for a row in the "My Packages" list. Every load-bearing
+ * field — Sessions Left, Total, Used, Expiry date and days remaining —
+ * is rendered inline; nothing is hidden behind a click. Vertical
+ * footprint is roughly half the previous (large callouts + "View
+ * details" expander) layout while preserving the same information
+ * density via a single compact stats row.
+ */
+function PurchasedPackageCard({ pkg }: { pkg: MyPackage }) {
+  const remaining = pkg.totalSessions - pkg.usedSessions;
+  const isActive = pkg.status === 'ACTIVE';
+  const isExpired = pkg.status === 'EXPIRED';
+
+  const today = startOfDay(new Date());
+  const expiryDateObj = pkg.expiryDate ? startOfDay(new Date(pkg.expiryDate)) : null;
+  const daysRemaining = expiryDateObj ? differenceInDays(expiryDateObj, today) : null;
+  const isFirstBookingPending = isActive && pkg.usedSessions === 0;
+
+  const cat = packageCategory(pkg);
+  const showBallType = cat === 'MACHINE' && pkg.machineType !== 'TENNIS' && !!pkg.ballType;
+  const pitches = (pkg.pitchTypes && pkg.pitchTypes.length > 0)
+    ? pkg.pitchTypes
+    : (pkg.wicketType ? [pkg.wicketType] : []);
+  const machineLabel = pkg.machineRowName
+    ?? (pkg.machineId ? (labelMap[pkg.machineId] || pkg.machineId) : null);
+
+  const purchaseFmt = pkg.activationDate
+    ? format(new Date(pkg.activationDate), 'dd MMM yyyy')
+    : null;
+  const expiryFmt = pkg.expiryDate
+    ? format(new Date(pkg.expiryDate), 'dd MMM yyyy')
+    : null;
+
+  // Sessions-Left colour escalates from green (lots left) → amber
+  // (running low) → red (last session). Keeps the most actionable
+  // number visually prominent inline.
+  const sessionsLeftColor =
+    remaining <= 1 ? 'text-red-400'
+    : remaining <= 3 ? 'text-amber-400'
+    : 'text-emerald-400';
+
+  // Validity-days colour — red ≤ 3 days (and overdue), amber ≤ 7 days,
+  // neutral otherwise. Matches the spec exactly.
+  const daysColor =
+    daysRemaining === null ? 'text-slate-300'
+    : daysRemaining < 0 ? 'text-red-400'
+    : daysRemaining <= 3 ? 'text-red-400'
+    : daysRemaining <= 7 ? 'text-amber-400'
+    : 'text-slate-300';
+
+  // Inline "days left" suffix shown right next to the expiry date so the
+  // user sees urgency without scanning a second line.
+  const daysLeftSuffix = (() => {
+    if (pkg.pendingActivation) return 'Starts on first booking';
+    if (daysRemaining === null) return null;
+    if (isExpired) return 'Expired';
+    if (daysRemaining < 0) {
+      const n = Math.abs(daysRemaining);
+      return `${n} day${n === 1 ? '' : 's'} overdue`;
+    }
+    if (daysRemaining === 0) return 'Expires today';
+    return `${daysRemaining} day${daysRemaining === 1 ? '' : 's'} left`;
+  })();
+
+  return (
+    <div>
+      {isFirstBookingPending && (
+        <PackageFirstBookingBanner packageName={pkg.packageName} />
+      )}
+      <div className="bg-white/[0.04] backdrop-blur-sm rounded-xl border border-white/[0.08] p-3.5">
+        {/* Header: name, Book CTA */}
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0 flex-1">
+            <h3 className="text-sm font-semibold text-white leading-tight mb-1">{pkg.packageName}</h3>
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${
+                isActive ? 'bg-green-500/15 text-green-400' :
+                isExpired ? 'bg-red-500/15 text-red-400' :
+                'bg-slate-500/15 text-slate-400'
+              }`}>
+                {pkg.status}
+              </span>
+              <span className="text-[10px] px-2 py-0.5 rounded-full font-medium bg-purple-500/15 text-purple-300">
+                {PACKAGE_CATEGORY_LABEL[cat]}
+              </span>
+            </div>
+          </div>
+          {isActive && remaining > 0 && (
+            <Link
+              href="/slots"
+              className="bg-accent hover:bg-accent-light text-primary px-3 py-1.5 rounded-lg text-[11px] font-semibold transition-colors flex-shrink-0"
+            >
+              Book
+            </Link>
+          )}
+        </div>
+
+        {/* Chip row — category-derived axes (machine, ball, pitch),
+            timing, and purchase date. Mirrors the AdminPackageCard
+            chip strip so admin and user views line up visually. */}
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-1.5">
+          {cat === 'MACHINE' && machineLabel && (
+            <span className="text-[10px] text-slate-400 flex items-center gap-1">
+              <Package className="w-3 h-3 text-slate-500" />
+              {machineLabel}
+            </span>
+          )}
+          {showBallType && (
+            <span className="text-[10px] text-slate-400 flex items-center gap-1">
+              <Zap className="w-3 h-3 text-slate-500" />
+              {labelMap[pkg.ballType] || pkg.ballType}
+            </span>
+          )}
+          {pitches.length > 0 && (
+            <span className="text-[10px] text-slate-400 flex items-center gap-1">
+              <span className="text-slate-500">Pitch:</span>
+              <span className="text-slate-300">{pitches.map(p => PACKAGE_WICKET_LABEL[p] || labelMap[p] || p).join(', ')}</span>
+            </span>
+          )}
+          <span className="text-[10px] text-slate-400 flex items-center gap-1">
+            {pkg.timingType === 'DAY' ? <Sun className="w-3 h-3 text-slate-500" /> : pkg.timingType === 'EVENING' ? <Moon className="w-3 h-3 text-slate-500" /> : <Clock className="w-3 h-3 text-slate-500" />}
+            {PACKAGE_TIMING_LABEL[pkg.timingType] || pkg.timingType}
+          </span>
+          {purchaseFmt && (
+            <span className="text-[10px] text-slate-400 flex items-center gap-1">
+              <Calendar className="w-3 h-3 text-slate-500" />
+              Purchased {purchaseFmt}
+            </span>
+          )}
+        </div>
+
+        {/* Single compact stats row — Sessions Left + Expiry inline.
+            Small labels, bold numbers, no large callout blocks. Wraps
+            cleanly on narrow screens by splitting the two halves onto
+            separate lines via flex-wrap. */}
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mt-2.5 pt-2.5 border-t border-white/[0.05]">
+          <div className="flex items-baseline gap-1.5">
+            <span className="text-[10px] text-slate-500">Sessions Left:</span>
+            <span className={`text-sm font-bold ${sessionsLeftColor}`}>{remaining}</span>
+            <span className="text-[10px] text-slate-500">
+              · Total: {pkg.totalSessions} · Used: {pkg.usedSessions}
+            </span>
+          </div>
+          <div className="flex items-baseline gap-1.5">
+            <span className="text-[10px] text-slate-500">Expires:</span>
+            <span className={`text-[11px] font-semibold ${daysColor}`}>
+              {pkg.pendingActivation
+                ? 'Pending'
+                : expiryFmt ?? 'No expiry'}
+            </span>
+            {daysLeftSuffix && (
+              <span className={`text-[10px] ${daysColor}`}>
+                ({daysLeftSuffix})
+              </span>
+            )}
+          </div>
+        </div>
       </div>
     </div>
   );

@@ -1,11 +1,20 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { requireAdmin } from '@/lib/adminAuth';
+import { requireCenterAdmin } from '@/lib/adminAuth';
+import { getAuthenticatedUser, hasMembershipRole } from '@/lib/auth';
+import { resolveCurrentCenter } from '@/lib/centers';
 import { DEFAULT_PRICING_CONFIG, DEFAULT_TIME_SLABS, normalizePricingConfig } from '@/lib/pricing';
 import type { PricingConfig, TimeSlabConfig } from '@/lib/pricing';
 import { DEFAULT_MACHINE_PITCH_CONFIG, ALL_MACHINE_IDS, MACHINES } from '@/lib/constants';
 import type { MachinePitchConfig } from '@/lib/constants';
-import { getCachedPolicies, invalidatePolicyCache } from '@/lib/policy-cache';
+import { invalidatePolicyCache } from '@/lib/policy-cache';
+import { getPolicyValue, invalidatePolicy } from '@/lib/policy';
+
+type Scope = 'center' | 'global';
+
+function readScope(req: NextRequest): Scope {
+  return new URL(req.url).searchParams.get('scope') === 'global' ? 'global' : 'center';
+}
 
 const MACHINE_CONFIG_KEYS = [
   'BALL_TYPE_SELECTION_ENABLED',
@@ -23,12 +32,39 @@ const MACHINE_CONFIG_KEYS = [
 
 export async function GET(req: NextRequest) {
   try {
-    const session = await requireAdmin(req);
+    const session = await requireCenterAdmin(req);
     if (!session) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 403 });
     }
 
-    const config = await getCachedPolicies(MACHINE_CONFIG_KEYS);
+    const user = await getAuthenticatedUser(req);
+    const scope = readScope(req);
+
+    // Read source — center cascade by default, global-only when the
+    // super admin explicitly opts in. Anything outside the bare global
+    // table is filtered out in global mode so the editor doesn't
+    // misleadingly inherit center overrides.
+    const config: Record<string, string> = {};
+    if (scope === 'global') {
+      if (!user?.isSuperAdmin) {
+        return NextResponse.json({ error: 'Super admin required' }, { status: 403 });
+      }
+      const rows = await prisma.policy.findMany({
+        where: { key: { in: MACHINE_CONFIG_KEYS } },
+      });
+      for (const row of rows) config[row.key] = row.value;
+    } else {
+      const center = await resolveCurrentCenter(req, user);
+      if (!center) {
+        return NextResponse.json({ error: 'No center selected' }, { status: 400 });
+      }
+      await Promise.all(
+        MACHINE_CONFIG_KEYS.map(async (key) => {
+          const v = await getPolicyValue(key, center.id, null);
+          if (v !== null) config[key] = v;
+        }),
+      );
+    }
 
     let pricingConfig: PricingConfig = DEFAULT_PRICING_CONFIG;
     if (config['PRICING_CONFIG']) {
@@ -93,9 +129,25 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
-    const session = await requireAdmin(req);
+    const session = await requireCenterAdmin(req);
     if (!session) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 403 });
+    }
+
+    const user = await getAuthenticatedUser(req);
+    const scope = readScope(req);
+    if (scope === 'global' && !user?.isSuperAdmin) {
+      return NextResponse.json({ error: 'Super admin required' }, { status: 403 });
+    }
+    const center = scope === 'center' ? await resolveCurrentCenter(req, user) : null;
+    if (scope === 'center' && !center) {
+      return NextResponse.json({ error: 'No center selected' }, { status: 400 });
+    }
+    if (scope === 'center' && center && user && !hasMembershipRole(user, center.id, 'ADMIN')) {
+      return NextResponse.json(
+        { error: 'You are not an admin at this center' },
+        { status: 403 },
+      );
     }
 
     const body = await req.json();
@@ -168,18 +220,34 @@ export async function POST(req: NextRequest) {
       updates.push({ key: 'MACHINE_PITCH_CONFIG', value: JSON.stringify(machinePitchConfig) });
     }
 
-    await Promise.all(
-      updates.map(({ key, value }) =>
-        prisma.policy.upsert({
-          where: { key },
-          update: { value },
-          create: { key, value },
-        })
-      )
-    );
-
-    // Invalidate cache so subsequent reads pick up the new values
-    invalidatePolicyCache(...updates.map(u => u.key));
+    // Persist either to CenterPolicy(currentCenter) or to the global
+    // Policy table depending on the requested scope. Same `updates`
+    // shape either way; only the table changes.
+    if (scope === 'global') {
+      await Promise.all(
+        updates.map(({ key, value }) =>
+          prisma.policy.upsert({
+            where: { key },
+            update: { value },
+            create: { key, value },
+          }),
+        ),
+      );
+      for (const { key } of updates) invalidatePolicy(key, null);
+    } else {
+      const centerId = center!.id;
+      await Promise.all(
+        updates.map(({ key, value }) =>
+          prisma.centerPolicy.upsert({
+            where: { centerId_key: { centerId, key } },
+            update: { value },
+            create: { centerId, key, value },
+          }),
+        ),
+      );
+      for (const { key } of updates) invalidatePolicy(key, centerId);
+    }
+    invalidatePolicyCache(...updates.map((u) => u.key));
 
     return NextResponse.json({ message: 'Machine configuration updated successfully' });
   } catch (error: any) {

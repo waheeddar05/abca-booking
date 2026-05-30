@@ -1,16 +1,33 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { requireAdmin } from '@/lib/adminAuth';
+import { requireCenterAdmin } from '@/lib/adminAuth';
+import { getAuthenticatedUser } from '@/lib/auth';
+import { resolveCurrentCenter } from '@/lib/centers';
 
-// GET: List all recurring discount rules
+// GET: List recurring discount rules at the admin's current center
 export async function GET(req: NextRequest) {
   try {
-    const session = await requireAdmin(req);
+    const session = await requireCenterAdmin(req);
     if (!session) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 403 });
     }
 
+    const { searchParams } = new URL(req.url);
+    const allCenters = searchParams.get('allCenters') === 'true';
+    const adminUser = await getAuthenticatedUser(req);
+    const center = adminUser ? await resolveCurrentCenter(req, adminUser) : null;
+
+    const where: { centerId?: string } = {};
+    if (!allCenters && center) {
+      where.centerId = center.id;
+    } else if (!allCenters && !center) {
+      return NextResponse.json({ error: 'No center selected' }, { status: 400 });
+    } else if (allCenters && !adminUser?.isSuperAdmin) {
+      return NextResponse.json({ error: 'allCenters requires super admin' }, { status: 403 });
+    }
+
     const rules = await prisma.recurringSlotDiscount.findMany({
+      where,
       orderBy: { createdAt: 'desc' },
     });
 
@@ -27,13 +44,26 @@ export async function GET(req: NextRequest) {
 // POST: Create a new recurring discount rule
 export async function POST(req: NextRequest) {
   try {
-    const session = await requireAdmin(req);
+    const session = await requireCenterAdmin(req);
     if (!session) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 403 });
     }
 
     const body = await req.json();
-    const { days, slotStartTime, slotEndTime, machineIds, pitchTypes, oneSlotDiscount, twoSlotDiscount, enabled, appliesTo } = body;
+    const {
+      days,
+      slotStartTime,
+      slotEndTime,
+      machineIds,
+      pitchTypes,
+      // RESOURCE_BASED targeting (Toplay et al.).
+      machineRowIds,
+      categories,
+      oneSlotDiscount,
+      twoSlotDiscount,
+      enabled,
+      appliesTo,
+    } = body;
 
     // Validation
     if (!Array.isArray(days) || days.length === 0) {
@@ -67,13 +97,42 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    // Recurring discounts are center-scoped — bind to admin's current center.
+    const admin = await getAuthenticatedUser(req);
+    const center = admin ? await resolveCurrentCenter(req, admin) : null;
+    if (!center) {
+      return NextResponse.json({ error: 'No center selected' }, { status: 400 });
+    }
+
+    // Validate RESOURCE_BASED axes against this center.
+    let validatedMachineRowIds: string[] = [];
+    if (Array.isArray(machineRowIds) && machineRowIds.length > 0) {
+      const rows = await prisma.machine.findMany({
+        where: {
+          id: { in: (machineRowIds as unknown[]).filter((x) => typeof x === 'string') as string[] },
+          centerId: center.id,
+        },
+        select: { id: true },
+      });
+      validatedMachineRowIds = rows.map((r) => r.id);
+    }
+    const validBookingCategories = ['MACHINE', 'SIDEARM', 'COACHING', 'NET', 'FULL_COURT', 'CORPORATE_BATCH'];
+    const validatedCategories: string[] = Array.isArray(categories)
+      ? (categories as unknown[]).filter(
+          (c): c is string => typeof c === 'string' && validBookingCategories.includes(c),
+        )
+      : [];
+
     const rule = await prisma.recurringSlotDiscount.create({
       data: {
+        centerId: center.id,
         days: days.map(Number),
         slotStartTime,
         slotEndTime,
         machineIds: (machineIds || []) as any[],
         pitchTypes: (pitchTypes || []) as any[],
+        machineRowIds: validatedMachineRowIds,
+        categories: validatedCategories as any,
         oneSlotDiscount: Number(oneSlotDiscount),
         twoSlotDiscount: Number(twoSlotDiscount),
         enabled: enabled !== false,

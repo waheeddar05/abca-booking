@@ -1,13 +1,39 @@
 'use client';
 
 import React, { useState } from 'react';
+import Link from 'next/link';
 import Image from 'next/image';
-import { Calendar, Zap, Clock, Instagram, Phone, Target, Shield, Users, Star, ArrowRight, MapPin } from 'lucide-react';
+import { Calendar, Zap, Clock, Instagram, Phone, Target, Shield, Users, Star, ArrowRight, MapPin, Building2, Mail } from 'lucide-react';
 import LoginModal from './LoginModal';
-import { CONTACT_NUMBERS, INSTAGRAM_URL, LOCATION_URL } from '@/lib/client-constants';
+import { INSTAGRAM_URL } from '@/lib/client-constants';
+import { useCenter } from '@/lib/center-context';
 
 export default function LandingPageClient() {
   const [loginOpen, setLoginOpen] = useState(false);
+  const { centers, currentCenter } = useCenter();
+  const hasMultipleCenters = centers.length >= 2;
+
+  // "Ready to play?" contacts come from the selected center only —
+  // not the platform-wide CONTACT_NUMBERS allowlist. Phones come from
+  // `contactPhones` when the center has configured a multi-contact
+  // list; otherwise we fall back to a single-entry list synthesised
+  // from `contactPhone` for legacy data. Empty phone strings are
+  // dropped so a stale row doesn't render a "Call (no number)" chip.
+  const centerEmail = (currentCenter?.contactEmail ?? '').trim();
+  const centerMapUrl = (currentCenter?.mapUrl ?? '').trim();
+  const phoneContacts: Array<{ name: string | null; number: string }> = (() => {
+    const list = currentCenter?.contactPhones;
+    if (Array.isArray(list) && list.length > 0) {
+      return list
+        .map((c) => ({
+          name: (c?.name ?? '').trim() || null,
+          number: (c?.number ?? '').trim(),
+        }))
+        .filter((c) => c.number.length > 0);
+    }
+    const single = (currentCenter?.contactPhone ?? '').trim();
+    return single.length > 0 ? [{ name: null, number: single }] : [];
+  })();
 
   const openLogin = () => setLoginOpen(true);
   const closeLogin = () => setLoginOpen(false);
@@ -97,6 +123,17 @@ export default function LandingPageClient() {
             <span className="text-white/10">&middot;</span>
             <span className="flex items-center gap-1"><Zap className="w-3 h-3 md:w-3.5 md:h-3.5" /> Instant Access</span>
           </div>
+
+          {hasMultipleCenters && (
+            <Link
+              href="/centers"
+              className="mt-4 md:mt-5 inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-accent/10 hover:bg-accent/20 border border-accent/20 hover:border-accent/40 text-accent text-[11px] md:text-xs font-semibold transition-all animate-fade-in delay-500"
+            >
+              <Building2 className="w-3 h-3 md:w-3.5 md:h-3.5" />
+              {centers.length} locations available
+              <ArrowRight className="w-3 h-3" />
+            </Link>
+          )}
         </div>
       </section>
 
@@ -280,45 +317,80 @@ export default function LandingPageClient() {
           <h2 className="text-lg md:text-3xl font-black text-white mb-0.5 md:mb-2">READY TO PLAY?</h2>
           <p className="text-slate-500 text-[10px] md:text-sm mb-3 md:mb-6 max-w-xl mx-auto leading-relaxed">Reach out via phone or Social Media.</p>
 
-          <div className="grid grid-cols-5 gap-1.5 md:flex md:flex-row md:items-start md:justify-center md:gap-8 w-full">
-            {CONTACT_NUMBERS.map((contact, idx) => (
-              <React.Fragment key={contact.number}>
-                {idx > 0 && <div className="hidden md:block w-px h-16 bg-white/[0.06]"></div>}
-                <a href={`tel:${contact.number}`} className="flex flex-col items-center gap-0.5 md:gap-1.5 group active:scale-95 transition-transform min-w-0">
-                  <div className="w-9 h-9 md:w-12 md:h-12 rounded-xl md:rounded-xl bg-white/[0.04] border border-white/[0.08] flex items-center justify-center group-hover:bg-accent group-hover:text-primary group-hover:border-accent/40 transition-all group-hover:shadow-[0_0_24px_rgba(56,189,248,0.25)] mb-0.5 md:mb-1 flex-shrink-0">
-                    <Phone className="w-3.5 h-3.5 md:w-5 md:h-5" />
-                  </div>
-                  <span className="text-[8px] md:text-[11px] uppercase font-bold tracking-wider text-slate-600 truncate w-full">{contact.name}</span>
-                  <span className="text-white font-bold text-[9px] md:text-sm truncate w-full tabular-nums">{contact.number}</span>
-                </a>
-              </React.Fragment>
+          {/* Contact strip — per-center only. The previous version
+              iterated the platform-wide CONTACT_NUMBERS allowlist
+              ("Vinay", "Surya", etc.) which is meaningless for any
+              center other than ABCA. Now we show at most: the
+              selected center's phone, its email, the platform
+              Instagram handle, and the center's Google Maps link.
+              Missing fields render no chip rather than a generic
+              fallback. */}
+          {/* Single horizontal row. We let it scroll horizontally on
+              narrow screens (overflow-x-auto) rather than wrap so all
+              five entries — multiple phones + Instagram + Location —
+              stay in one line per the design requirement. The wrap
+              variant was rendering 2–3 rows on phone widths which
+              admins complained looked cluttered. */}
+          <div className="flex flex-nowrap items-start justify-center gap-3 md:gap-8 w-full overflow-x-auto -mx-2 px-2 snap-x">
+            {phoneContacts.map((c, idx) => (
+              <a
+                key={`${c.number}-${idx}`}
+                href={`tel:${c.number}`}
+                className="flex flex-col items-center gap-0.5 md:gap-1.5 group active:scale-95 transition-transform min-w-0"
+              >
+                <div className="w-9 h-9 md:w-12 md:h-12 rounded-xl bg-white/[0.04] border border-white/[0.08] flex items-center justify-center group-hover:bg-accent group-hover:text-primary group-hover:border-accent/40 transition-all group-hover:shadow-[0_0_24px_rgba(56,189,248,0.25)] mb-0.5 md:mb-1 flex-shrink-0">
+                  <Phone className="w-3.5 h-3.5 md:w-5 md:h-5" />
+                </div>
+                <span className="text-[8px] md:text-[11px] uppercase font-bold tracking-wider text-slate-600 truncate w-full text-center">
+                  {c.name || currentCenter?.shortName || currentCenter?.name || 'Phone'}
+                </span>
+                <span className="text-white font-bold text-[9px] md:text-sm truncate w-full tabular-nums text-center">
+                  {c.number}
+                </span>
+              </a>
             ))}
-            <div className="hidden md:block w-px h-16 bg-white/[0.06]"></div>
+            {centerEmail && (
+              <a
+                href={`mailto:${centerEmail}`}
+                className="flex flex-col items-center gap-0.5 md:gap-1.5 group active:scale-95 transition-transform min-w-0"
+              >
+                <div className="w-9 h-9 md:w-12 md:h-12 rounded-xl bg-white/[0.04] border border-white/[0.08] flex items-center justify-center group-hover:bg-accent group-hover:text-primary group-hover:border-accent/40 transition-all group-hover:shadow-[0_0_24px_rgba(56,189,248,0.25)] mb-0.5 md:mb-1 flex-shrink-0">
+                  <Mail className="w-3.5 h-3.5 md:w-5 md:h-5" />
+                </div>
+                <span className="text-[8px] md:text-[11px] uppercase font-bold tracking-wider text-slate-600 truncate w-full text-center">
+                  Email
+                </span>
+                <span className="text-white font-bold text-[9px] md:text-sm truncate w-full text-center">
+                  {centerEmail}
+                </span>
+              </a>
+            )}
             <a
               href={INSTAGRAM_URL}
               target="_blank"
               rel="noopener noreferrer"
               className="flex flex-col items-center gap-0.5 md:gap-1.5 group active:scale-95 transition-transform min-w-0"
             >
-              <div className="w-9 h-9 md:w-12 md:h-12 rounded-xl md:rounded-xl bg-white/[0.04] border border-white/[0.08] flex items-center justify-center group-hover:bg-[#E1306C] group-hover:text-white group-hover:border-[#E1306C]/40 transition-all group-hover:shadow-[0_0_24px_rgba(225,48,108,0.3)] mb-0.5 md:mb-1 flex-shrink-0">
+              <div className="w-9 h-9 md:w-12 md:h-12 rounded-xl bg-white/[0.04] border border-white/[0.08] flex items-center justify-center group-hover:bg-[#E1306C] group-hover:text-white group-hover:border-[#E1306C]/40 transition-all group-hover:shadow-[0_0_24px_rgba(225,48,108,0.3)] mb-0.5 md:mb-1 flex-shrink-0">
                 <Instagram className="w-3.5 h-3.5 md:w-5 md:h-5" />
               </div>
-              <span className="text-[8px] md:text-[11px] uppercase font-bold tracking-wider text-slate-600 truncate w-full">Instagram</span>
-              <span className="text-white font-bold text-[9px] md:text-sm truncate w-full">@playorbit.in</span>
+              <span className="text-[8px] md:text-[11px] uppercase font-bold tracking-wider text-slate-600 truncate w-full text-center">Instagram</span>
+              <span className="text-white font-bold text-[9px] md:text-sm truncate w-full text-center">@playorbit.in</span>
             </a>
-            <div className="hidden md:block w-px h-16 bg-white/[0.06]"></div>
-            <a
-              href={LOCATION_URL}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex flex-col items-center gap-0.5 md:gap-1.5 group active:scale-95 transition-transform min-w-0"
-            >
-              <div className="w-9 h-9 md:w-12 md:h-12 rounded-xl md:rounded-xl bg-white/[0.04] border border-white/[0.08] flex items-center justify-center group-hover:bg-accent group-hover:text-primary group-hover:border-accent/40 transition-all group-hover:shadow-[0_0_24px_rgba(56,189,248,0.25)] mb-0.5 md:mb-1 flex-shrink-0">
-                <MapPin className="w-3.5 h-3.5 md:w-5 md:h-5" />
-              </div>
-              <span className="text-[8px] md:text-[11px] uppercase font-bold tracking-wider text-slate-600 truncate w-full">Location</span>
-              <span className="text-white font-bold text-[9px] md:text-sm truncate w-full">Directions</span>
-            </a>
+            {centerMapUrl && (
+              <a
+                href={centerMapUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex flex-col items-center gap-0.5 md:gap-1.5 group active:scale-95 transition-transform min-w-0"
+              >
+                <div className="w-9 h-9 md:w-12 md:h-12 rounded-xl bg-white/[0.04] border border-white/[0.08] flex items-center justify-center group-hover:bg-accent group-hover:text-primary group-hover:border-accent/40 transition-all group-hover:shadow-[0_0_24px_rgba(56,189,248,0.25)] mb-0.5 md:mb-1 flex-shrink-0">
+                  <MapPin className="w-3.5 h-3.5 md:w-5 md:h-5" />
+                </div>
+                <span className="text-[8px] md:text-[11px] uppercase font-bold tracking-wider text-slate-600 truncate w-full text-center">Location</span>
+                <span className="text-white font-bold text-[9px] md:text-sm truncate w-full text-center">Directions</span>
+              </a>
+            )}
           </div>
         </div>
       </section>

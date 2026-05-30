@@ -1,11 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { requireAdmin } from '@/lib/adminAuth';
+import { requireCenterAdmin } from '@/lib/adminAuth';
 import { getAuthenticatedUser } from '@/lib/auth';
+import { resolveCurrentCenter } from '@/lib/centers';
 
 // POST /api/admin/packages/assign - Assign a custom package to a user
 export async function POST(req: NextRequest) {
-  const admin = await requireAdmin(req);
+  const admin = await requireCenterAdmin(req);
   if (!admin) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   const authUser = await getAuthenticatedUser(req);
@@ -23,6 +24,14 @@ export async function POST(req: NextRequest) {
       timingType,
       totalSessions,
       validityDays = 30,
+      // Resource-based extension (Toplay et al.). When supplied, the
+      // assigned custom package targets a BookingCategory + optional
+      // Machine row instead of the legacy (machineId × ballType ×
+      // wicketType) tuple. machineType is still required by the
+      // schema, but callers send 'LEATHER' as a placeholder for pure
+      // resource bookings — mirrors ResourcePackageManagement.
+      category,
+      machineRowId,
     } = body;
 
     if (!userId || !name || !machineType || !timingType || !totalSessions || !validityDays) {
@@ -44,11 +53,36 @@ export async function POST(req: NextRequest) {
     if (wicketType && !['CEMENT', 'ASTRO', 'NATURAL', 'BOTH'].includes(wicketType)) {
       return NextResponse.json({ error: 'Invalid wicketType' }, { status: 400 });
     }
+    // Resource-based fields are validated against the BookingCategory
+    // enum; null/undefined keeps the legacy (MACHINE_PITCH) shape.
+    if (category && !['MACHINE', 'SIDEARM', 'COACHING', 'NET', 'FULL_COURT', 'CORPORATE_BATCH'].includes(category)) {
+      return NextResponse.json({ error: 'Invalid category' }, { status: 400 });
+    }
 
     // Verify user exists
     const user = await prisma.user.findUnique({ where: { id: userId } });
     if (!user) {
       return NextResponse.json({ error: 'User not found' }, { status: 404 });
+    }
+
+    // Custom packages are center-scoped — bind to admin's current center.
+    const center = authUser ? await resolveCurrentCenter(req, authUser) : null;
+    if (!center) {
+      return NextResponse.json({ error: 'No center selected' }, { status: 400 });
+    }
+
+    // If a machineRowId was supplied (resource-based assign path),
+    // verify it belongs to the admin's current center. Prevents an
+    // admin at center A from pinning a package to a machine at center
+    // B by tampering with the request body.
+    if (machineRowId) {
+      const machineRow = await prisma.machine.findUnique({
+        where: { id: machineRowId },
+        select: { centerId: true },
+      });
+      if (!machineRow || machineRow.centerId !== center.id) {
+        return NextResponse.json({ error: 'Invalid machineRowId for this center' }, { status: 400 });
+      }
     }
 
     // Far-future placeholder dates (recalculated on first booking)
@@ -58,6 +92,7 @@ export async function POST(req: NextRequest) {
       // Create the custom package template
       const pkg = await tx.package.create({
         data: {
+          centerId: center.id,
           name,
           machineId: machineId || null,
           machineType,
@@ -69,6 +104,10 @@ export async function POST(req: NextRequest) {
           price: 0,
           isCustom: true,
           isActive: true,
+          // Resource-based fields. Nullable so legacy ABCA custom
+          // packages keep working unchanged.
+          category: category || null,
+          machineRowId: machineRowId || null,
         },
       });
 
@@ -104,6 +143,8 @@ export async function POST(req: NextRequest) {
             timingType,
             totalSessions,
             validityDays,
+            category: category || null,
+            machineRowId: machineRowId || null,
             assignedTo: userId,
             assignedByName: authUser?.name || 'admin',
           },

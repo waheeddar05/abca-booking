@@ -23,14 +23,36 @@ import { MACHINE_CARDS, PITCH_TYPE_LABELS, getMachineCard } from '@/lib/client-c
 import { useRazorpay, usePaymentConfig } from '@/lib/useRazorpay';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { useToast } from '@/components/ui/Toast';
+import { useCenter } from '@/lib/center-context';
+import ResourceSlotsPage from './ResourceSlotsPage';
 import type { MachineId, MachineConfig, AvailableSlot, OperationMode } from '@/lib/schemas';
 
 export default function SlotsPage() {
   return (
     <Suspense fallback={<div className="flex items-center justify-center min-h-screen"><Loader2 className="w-8 h-8 animate-spin text-blue-600" /></div>}>
-      <SlotsContent />
+      <SlotsRouter />
     </Suspense>
   );
+}
+
+/**
+ * Routes to the right slot-booking experience for the active center.
+ * - MACHINE_PITCH (ABCA, default): existing legacy UI in this file.
+ * - RESOURCE_BASED (Toplay et al.): new ResourceSlotsPage component.
+ */
+function SlotsRouter() {
+  const { currentCenter, loading } = useCenter();
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
+      </div>
+    );
+  }
+  if (currentCenter?.bookingModel === 'RESOURCE_BASED') {
+    return <ResourceSlotsPage />;
+  }
+  return <SlotsContent />;
 }
 
 function SlotsContent() {
@@ -578,11 +600,22 @@ function SlotsContent() {
         </div>
       )}
 
-      {/* Payment Method Selection */}
+      {/* Payment Method Selection.
+       *
+       * Render whenever any payment-side affordance is on for this center:
+       *   - Online gateway (paymentEnabled && slotPaymentRequired), OR
+       *   - Cash-at-center, OR
+       *   - Wallet (so users can redeem refund balances even when the
+       *     gateway is off — e.g. ABCA's cash-only setup).
+       *
+       * The selector itself self-hides the online/cash options when no
+       * payment method is enabled and only renders the wallet toggle. */}
       {selectedSlots.length > 0
-        && paymentConfig?.paymentEnabled
-        && paymentConfig?.slotPaymentRequired
-        && (paymentConfig?.cashPaymentEnabled || paymentConfig?.walletEnabled)
+        && (
+          (paymentConfig?.paymentEnabled && paymentConfig?.slotPaymentRequired)
+          || paymentConfig?.cashPaymentEnabled
+          || paymentConfig?.walletEnabled
+        )
         && !isBookingForOther
         && !isFreeBooking
         && (
@@ -592,6 +625,7 @@ function SlotsContent() {
             selected={paymentMethod}
             onChange={setPaymentMethod}
             disabled={bookingLoading || paymentProcessing}
+            showOnline={!!(paymentConfig?.paymentEnabled && paymentConfig?.slotPaymentRequired)}
             showCash={paymentConfig?.cashPaymentEnabled}
             showWallet={paymentConfig?.walletEnabled}
             totalAmount={(pkg.selectedPackageId && pkg.validation ? (pkg.validation.extraCharge || 0) : pricing.totalPrice) + kitRentalTotal}

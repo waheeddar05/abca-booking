@@ -1,13 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { requireAdmin } from '@/lib/adminAuth';
+import { requireCenterAdmin } from '@/lib/adminAuth';
 import { getAuthenticatedUser } from '@/lib/auth';
+import { resolveCurrentCenter } from '@/lib/centers';
 import { creditWallet } from '@/lib/wallet';
 import { notifyWalletCredit } from '@/lib/notifications';
 
 // GET /api/admin/packages/user-packages?userId=xxx&status=ACTIVE&search=john&packageId=xxx - List user packages
 export async function GET(req: NextRequest) {
-  const admin = await requireAdmin(req);
+  const admin = await requireCenterAdmin(req);
   if (!admin) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   try {
@@ -16,8 +17,21 @@ export async function GET(req: NextRequest) {
     const status = searchParams.get('status');
     const search = searchParams.get('search');
     const packageId = searchParams.get('packageId');
+    const allCenters = searchParams.get('allCenters') === 'true';
+
+    const adminUser = await getAuthenticatedUser(req);
+    const center = adminUser ? await resolveCurrentCenter(req, adminUser) : null;
+    let centerId: string | null = null;
+    if (!allCenters && center) {
+      centerId = center.id;
+    } else if (!allCenters && !center) {
+      return NextResponse.json({ error: 'No center selected' }, { status: 400 });
+    } else if (allCenters && !adminUser?.isSuperAdmin) {
+      return NextResponse.json({ error: 'allCenters requires super admin' }, { status: 403 });
+    }
 
     const where: any = {};
+    if (centerId) where.package = { centerId };
     if (userId) where.userId = userId;
     if (status) where.status = status;
     if (packageId) where.packageId = packageId;
@@ -57,7 +71,7 @@ export async function GET(req: NextRequest) {
 // POST /api/admin/packages/user-packages - Admin actions on user packages
 // Actions: EXTEND_EXPIRY, ADD_SESSIONS, REDUCE_SESSIONS, RESET_SESSIONS, CANCEL, CONVERT_PACKAGE, OVERRIDE_EXTRA_CHARGES
 export async function POST(req: NextRequest) {
-  const adminUser = await requireAdmin(req);
+  const adminUser = await requireCenterAdmin(req);
   if (!adminUser) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   // Get admin user id for audit log
@@ -95,8 +109,11 @@ export async function POST(req: NextRequest) {
       let walletTxnId: string | null = null;
       let newBalance: number | null = null;
       if (refundAmount > 0) {
+        // Refund credits the package's own center wallet (Package is
+        // center-scoped, so userPackage.package.centerId is authoritative).
         const res = await creditWallet(
           userPackage.userId,
+          userPackage.package.centerId,
           refundAmount,
           'CREDIT_REFUND',
           `Pro-rata refund for cancelled package "${userPackage.package.name}" (${unused} of ${total} sessions unused)`,
@@ -151,6 +168,9 @@ export async function POST(req: NextRequest) {
         const { days } = params;
         if (days === undefined || days === 0) {
           return NextResponse.json({ error: 'days must be a non-zero number' }, { status: 400 });
+        }
+        if (!userPackage.expiryDate) {
+          return NextResponse.json({ error: 'Package has not been activated yet (no expiry date to extend)' }, { status: 400 });
         }
         const newExpiry = new Date(userPackage.expiryDate);
         newExpiry.setDate(newExpiry.getDate() + days);

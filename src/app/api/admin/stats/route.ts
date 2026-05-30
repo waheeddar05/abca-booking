@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { requireAdmin } from '@/lib/adminAuth';
+import { getAuthenticatedUser } from '@/lib/auth';
+import { resolveCurrentCenter } from '@/lib/centers';
 import { getISTTodayUTC, getISTLastMonthRange, dateStringToUTC } from '@/lib/time';
 
 export async function GET(req: NextRequest) {
@@ -13,6 +15,7 @@ export async function GET(req: NextRequest) {
     const { searchParams } = new URL(req.url);
     const fromParam = searchParams.get('from');
     const toParam = searchParams.get('to');
+    const allCenters = searchParams.get('allCenters') === 'true';
 
     // Build date filter for queries
     const dateFilter: Record<string, Date> = {};
@@ -20,11 +23,30 @@ export async function GET(req: NextRequest) {
     if (toParam) dateFilter.lte = dateStringToUTC(toParam);
     const hasDateFilter = Object.keys(dateFilter).length > 0;
 
+    // Center scope. The dashboard shows the current center's numbers
+    // unless the super admin asks for the platform aggregate.
+    const adminUser = await getAuthenticatedUser(req);
+    const center = adminUser ? await resolveCurrentCenter(req, adminUser) : null;
+    let centerId: string | null = null;
+    if (!allCenters && center) {
+      centerId = center.id;
+    } else if (!allCenters && !center) {
+      return NextResponse.json({ error: 'No center selected' }, { status: 400 });
+    } else if (allCenters && !adminUser?.isSuperAdmin) {
+      return NextResponse.json({ error: 'allCenters requires super admin' }, { status: 403 });
+    }
+    const centerFilter: { centerId?: string } = centerId ? { centerId } : {};
+
     const todayUTC = getISTTodayUTC();
     const lastMonthRange = getISTLastMonthRange();
 
     // Run ALL queries in a single Promise.all for maximum parallelism
     const [
+      operatorSummary,
+      sidearmSummary,
+      coachSummary,
+      machineTypeRevenue,
+      bookingDistribution,
       totalBookings,
       activeAdmins,
       todayBookings,
@@ -34,26 +56,209 @@ export async function GET(req: NextRequest) {
       bookingRevenueValue,
       totalDiscountValue,
       packageRevenueValue,
-      machineRevenue,
+      revenueBreakdownEntries,
       selfOperatedBookings,
       unassignedBookings,
-      operatorSummary,
     ] = await Promise.all([
+      // Staff sessions: total counts per operator/coach/specialist.
+      prisma.booking.groupBy({
+        by: ['operatorId'],
+        _count: { _all: true },
+        where: {
+          ...centerFilter,
+          status: { not: 'CANCELLED' },
+          operatorId: { not: null },
+          ...(hasDateFilter ? { date: dateFilter } : {}),
+        },
+      }).then(async (results) => {
+        if (results.length === 0) return [];
+        const operatorIds = results.map(r => r.operatorId).filter(Boolean) as string[];
+        const operators = await prisma.user.findMany({
+          where: { id: { in: operatorIds } },
+          select: { id: true, name: true },
+        });
+        const nameMap = new Map(operators.map(o => [o.id, o.name]));
+        return results.map(r => ({
+          id: r.operatorId!,
+          name: nameMap.get(r.operatorId!) || 'Unnamed',
+          sessions: r._count._all,
+        }));
+      }).catch(() => []),
+      prisma.booking.groupBy({
+        by: ['assignedStaffId'],
+        _count: { _all: true },
+        where: {
+          ...centerFilter,
+          status: { not: 'CANCELLED' },
+          assignedStaffId: { not: null },
+          ...(hasDateFilter ? { date: dateFilter } : {}),
+        },
+      }).then(async (results) => {
+        if (results.length === 0) return [];
+        const staffIds = results.map(r => r.assignedStaffId).filter(Boolean) as string[];
+        const staff = await prisma.user.findMany({
+          where: { id: { in: staffIds } },
+          select: { id: true, name: true },
+        });
+        const nameMap = new Map(staff.map(o => [o.id, o.name]));
+        return results.map(r => ({
+          id: r.assignedStaffId!,
+          name: nameMap.get(r.assignedStaffId!) || 'Unnamed',
+          sessions: r._count._all,
+        }));
+      }).catch(() => []),
+      prisma.booking.groupBy({
+        by: ['assignedCoachId'],
+        _count: { _all: true },
+        where: {
+          ...centerFilter,
+          status: { not: 'CANCELLED' },
+          assignedCoachId: { not: null },
+          ...(hasDateFilter ? { date: dateFilter } : {}),
+        },
+      }).then(async (results) => {
+        if (results.length === 0) return [];
+        const coachIds = results.map(r => r.assignedCoachId).filter(Boolean) as string[];
+        const coaches = await prisma.user.findMany({
+          where: { id: { in: coachIds } },
+          select: { id: true, name: true },
+        });
+        const nameMap = new Map(coaches.map(o => [o.id, o.name]));
+        return results.map(r => ({
+          id: r.assignedCoachId!,
+          name: nameMap.get(r.assignedCoachId!) || 'Unnamed',
+          sessions: r._count._all,
+        }));
+      }).catch(() => []),
+      // Revenue by Machine. Only for MACHINE category.
+      // The label must always be the exact machine name shown in
+      // My Center → Resources, i.e. the Machine instance's `name`. We never
+      // fall back to the MachineType catalog name (e.g. "Leverage Tennis"),
+      // which is the design/category name and is inconsistent with Resources.
+      (async () => {
+        try {
+          // Resolve legacy enum bookings to the center's actual machine names.
+          const centerMachines = await prisma.machine.findMany({
+            where: { ...centerFilter },
+            select: { name: true, legacyMachineId: true },
+          });
+          const legacyNameMap = new Map<string, string>();
+          for (const m of centerMachines) {
+            if (m.legacyMachineId) legacyNameMap.set(m.legacyMachineId, m.name);
+          }
+
+          const bookings = await prisma.booking.findMany({
+            where: {
+              ...centerFilter,
+              category: 'MACHINE',
+              status: { in: ['BOOKED', 'DONE'] },
+              ...(hasDateFilter ? { date: dateFilter } : {}),
+            },
+            select: {
+              price: true,
+              kitRentalCharge: true,
+              machineId: true, // Legacy
+              assignedMachine: { select: { name: true, machineType: { select: { name: true } } } }, // New
+              packageBooking: {
+                select: {
+                  sessionsUsed: true,
+                  extraCharge: true,
+                  userPackage: { select: { amountPaid: true, totalSessions: true } },
+                },
+              },
+              refunds: { select: { amount: true, status: true } },
+            },
+          });
+
+          const revenueByType = new Map<string, number>();
+          for (const b of bookings) {
+            let typeName = 'Other';
+            if (b.assignedMachine?.name) {
+              // Resources display name (authoritative).
+              typeName = b.assignedMachine.name;
+            } else if (b.machineId) {
+              // Legacy enum booking — map to this center's machine name,
+              // falling back to a sensible label per enum value.
+              typeName =
+                legacyNameMap.get(b.machineId) ||
+                (b.machineId === 'YANTRA' ? 'Yantra'
+                  : b.machineId === 'LEVERAGE_OUTDOOR' ? 'Leverage Outdoor'
+                  : b.machineId === 'LEVERAGE_INDOOR' ? 'Leverage Indoor'
+                  : b.machineId === 'GRAVITY' ? 'Gravity'
+                  : 'Other');
+            } else if (b.assignedMachine?.machineType?.name) {
+              // Last resort only — should rarely happen.
+              typeName = b.assignedMachine.machineType.name;
+            }
+
+            let net = 0;
+            if (b.packageBooking) {
+              const pb = b.packageBooking;
+              const total = pb.userPackage.totalSessions || 0;
+              const perSession = total > 0 ? pb.userPackage.amountPaid / total : 0;
+              net = perSession * (pb.sessionsUsed || 1) + (pb.extraCharge || 0) + (b.kitRentalCharge || 0);
+            } else {
+              net = b.price || 0;
+              for (const r of b.refunds) {
+                if (r.status !== 'FAILED') net -= r.amount;
+              }
+            }
+            revenueByType.set(typeName, (revenueByType.get(typeName) || 0) + net);
+          }
+          return Array.from(revenueByType.entries()).map(([name, revenue]) => ({ name, revenue }));
+        } catch {
+          return [];
+        }
+      })(),
+      // Booking Distribution Table Data (Category vs Today vs Upcoming)
+      // Note: "Today" and "Upcoming" are fixed points in time, 
+      // but the issue says "Counts must dynamically update based on selected date range."
+      // This means we should filter by date range AND the definition of Today/Upcoming.
+      (async () => {
+        const categories = ['MACHINE', 'SIDEARM', 'NET', 'FULL_COURT'];
+        const results = await Promise.all(categories.map(async (cat) => {
+          const todayCount = await prisma.booking.count({
+            where: { 
+              ...centerFilter, 
+              category: cat as any, 
+              date: todayUTC, 
+              status: { not: 'CANCELLED' },
+              ...(hasDateFilter ? { date: dateFilter } : {}),
+            },
+          });
+          const upcomingCount = await prisma.booking.count({
+            where: { 
+              ...centerFilter, 
+              category: cat as any, 
+              date: { gt: todayUTC }, 
+              status: 'BOOKED',
+              ...(hasDateFilter ? { date: dateFilter } : {}),
+            },
+          });
+          return { category: cat, today: todayCount, upcoming: upcomingCount };
+        }));
+        return results;
+      })(),
       prisma.booking.count({
         where: {
+          ...centerFilter,
           status: { not: 'CANCELLED' },
           ...(hasDateFilter ? { date: dateFilter } : {}),
         },
       }),
-      prisma.user.count({ where: { role: 'ADMIN' } }),
+      // "Active admins" = ADMIN users at this center (or globally for super admin platform view).
+      centerId
+        ? prisma.centerMembership.count({ where: { centerId, role: 'ADMIN', isActive: true } })
+        : prisma.user.count({ where: { role: 'ADMIN' } }),
       prisma.booking.count({
-        where: { date: todayUTC, status: { not: 'CANCELLED' } },
+        where: { ...centerFilter, date: todayUTC, status: { not: 'CANCELLED' } },
       }),
       prisma.booking.count({
-        where: { date: { gt: todayUTC }, status: 'BOOKED' },
+        where: { ...centerFilter, date: { gt: todayUTC }, status: 'BOOKED' },
       }),
       prisma.booking.count({
         where: {
+          ...centerFilter,
           date: {
             gte: lastMonthRange.start,
             lte: lastMonthRange.end,
@@ -61,16 +266,16 @@ export async function GET(req: NextRequest) {
           status: { not: 'CANCELLED' },
         },
       }),
-      prisma.slot.count().catch(() => 0),
-      // Booking revenue — mirrors the bookings CSV export exactly:
-      //   Revenue = Σ(Amount column) − Σ(Refund Amount column)
-      // where per-row Amount = regular ? price : (extraCharge + kitRentalCharge)
-      // and per-row Refund Amount = regular ? Σ(refund.amount where status!='FAILED') : 0.
-      // No Math.max clamp, no isSuperAdminBooking filter — we match the CSV 1:1.
+      prisma.slot.count({ where: centerFilter }).catch(() => 0),
+      // Booking revenue — net of refunds
       (async () => {
         try {
           const bookings = await prisma.booking.findMany({
-            where: hasDateFilter ? { date: dateFilter } : {},
+            where: {
+              ...centerFilter,
+              status: { in: ['BOOKED', 'DONE'] },
+              ...(hasDateFilter ? { date: dateFilter } : {}),
+            },
             select: {
               price: true,
               kitRentalCharge: true,
@@ -84,7 +289,6 @@ export async function GET(req: NextRequest) {
             const isPkg = !!b.packageBooking;
             if (isPkg) {
               paid += (b.packageBooking?.extraCharge || 0) + (b.kitRentalCharge || 0);
-              // Package bookings: Refund Amount column is 'NA' in CSV, so contribute 0.
             } else {
               paid += b.price || 0;
               for (const r of b.refunds) {
@@ -101,19 +305,27 @@ export async function GET(req: NextRequest) {
       prisma.booking.aggregate({
         _sum: { discountAmount: true },
         where: {
+          ...centerFilter,
           status: { in: ['BOOKED', 'DONE'] },
           isSuperAdminBooking: false,
           discountAmount: { gt: 0 },
           ...(hasDateFilter ? { date: dateFilter } : {}),
         },
       }).then(r => r._sum.discountAmount || 0).catch(() => 0),
-      // Package revenue — mirrors the packages CSV export exactly:
-      //   Revenue = Σ(Amount Paid) − Σ(Refunded Amount)
-      // Date filter keyed by activationDate (same as the CSV export). No clamp.
+      // Package revenue
+      // Mirrors the Packages → Reports total: every package except cancelled
+      // ones counts, net of refunds. We deliberately do NOT scope this by the
+      // dashboard date range — package revenue is recognised at purchase, and
+      // filtering by activationDate would silently drop packages that haven't
+      // had a booking yet (and packages purchased outside the range), which is
+      // exactly the inconsistency this fixes.
       (async () => {
         try {
           const ups = await prisma.userPackage.findMany({
-            where: hasDateFilter ? { activationDate: dateFilter } : {},
+            where: {
+              ...(centerId ? { package: { centerId } } : {}),
+              status: { not: 'CANCELLED' },
+            },
             select: { id: true, amountPaid: true },
           });
           if (ups.length === 0) return 0;
@@ -140,86 +352,81 @@ export async function GET(req: NextRequest) {
           return 0;
         }
       })(),
-      // Machine-wise revenue — uses the same per-booking Amount / Refund Amount
-      // logic as the bookings CSV export, grouped by machineId. No clamp.
+      // Revenue breakdown
       (async () => {
         try {
+          const packageSelect = {
+            sessionsUsed: true,
+            extraCharge: true,
+            userPackage: { select: { amountPaid: true, totalSessions: true } },
+          } as const;
+
+          const packageSessionRevenue = (
+            pb: { sessionsUsed: number; extraCharge: number; userPackage: { amountPaid: number; totalSessions: number } } | null,
+          ) => {
+            if (!pb) return 0;
+            const total = pb.userPackage.totalSessions || 0;
+            const perSession = total > 0 ? pb.userPackage.amountPaid / total : 0;
+            return perSession * (pb.sessionsUsed || 1) + (pb.extraCharge || 0);
+          };
+
           const bookings = await prisma.booking.findMany({
             where: {
-              machineId: { not: null },
+              ...centerFilter,
+              status: { in: ['BOOKED', 'DONE'] },
               ...(hasDateFilter ? { date: dateFilter } : {}),
             },
             select: {
-              machineId: true,
+              category: true,
               price: true,
               kitRentalCharge: true,
-              packageBooking: { select: { extraCharge: true } },
+              packageBooking: { select: packageSelect },
               refunds: { select: { amount: true, status: true } },
             },
           });
-          const byMachine = new Map<string, number>();
+          const byCategory = new Map<string, number>();
           for (const b of bookings) {
-            const mid = b.machineId as string;
+            const cat = b.category as string;
             const isPkg = !!b.packageBooking;
             let net = 0;
             if (isPkg) {
-              net += (b.packageBooking?.extraCharge || 0) + (b.kitRentalCharge || 0);
+              net += packageSessionRevenue(b.packageBooking) + (b.kitRentalCharge || 0);
             } else {
               net += b.price || 0;
               for (const r of b.refunds) {
                 if (r.status !== 'FAILED') net -= r.amount;
               }
             }
-            byMachine.set(mid, (byMachine.get(mid) || 0) + net);
+            byCategory.set(cat, (byCategory.get(cat) || 0) + net);
           }
-          return Array.from(byMachine.entries()).map(([machineId, price]) => ({
-            machineId,
-            _sum: { price },
-          }));
+          return Array.from(byCategory.entries()).map(([category, price]) => {
+            const count = bookings.filter(b => b.category === category).length;
+            return {
+              key: category,
+              _sum: { price, count },
+            };
+          });
         } catch {
           return [];
         }
       })(),
-      // Self-operated bookings
       prisma.booking.count({
         where: {
+          ...centerFilter,
           status: { not: 'CANCELLED' },
           operationMode: 'SELF_OPERATE',
           ...(hasDateFilter ? { date: dateFilter } : {}),
         },
       }).catch(() => 0),
-      // Unassigned bookings (WITH_OPERATOR but no operator assigned)
       prisma.booking.count({
         where: {
+          ...centerFilter,
           status: { not: 'CANCELLED' },
           operationMode: 'WITH_OPERATOR',
           operatorId: null,
           ...(hasDateFilter ? { date: dateFilter } : {}),
         },
       }).catch(() => 0),
-      // Operator summary
-      prisma.booking.groupBy({
-        by: ['operatorId'],
-        _count: { _all: true },
-        where: {
-          status: { not: 'CANCELLED' },
-          operatorId: { not: null },
-          ...(hasDateFilter ? { date: dateFilter } : {}),
-        },
-      }).then(async (results) => {
-        if (results.length === 0) return [];
-        const operatorIds = results.map(r => r.operatorId).filter(Boolean) as string[];
-        const operators = await prisma.user.findMany({
-          where: { id: { in: operatorIds } },
-          select: { id: true, name: true },
-        });
-        const nameMap = new Map(operators.map(o => [o.id, o.name]));
-        return results.map(r => ({
-          id: r.operatorId!,
-          name: nameMap.get(r.operatorId!) || null,
-          bookings: r._count._all,
-        }));
-      }).catch(() => []),
     ]);
 
     return NextResponse.json({
@@ -233,10 +440,14 @@ export async function GET(req: NextRequest) {
       bookingRevenue: bookingRevenueValue,
       packageRevenue: packageRevenueValue,
       totalDiscount: totalDiscountValue,
-      machineRevenue,
+      revenueBreakdown: { axis: 'category', entries: revenueBreakdownEntries },
+      machineTypeRevenue,
+      bookingDistribution,
       selfOperatedBookings,
       unassignedBookings,
       operatorSummary,
+      sidearmSummary,
+      coachSummary,
       systemStatus: 'Healthy',
     }, {
       headers: {

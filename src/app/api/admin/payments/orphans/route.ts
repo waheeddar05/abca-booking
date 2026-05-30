@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { requireAdmin } from '@/lib/adminAuth';
+import { requireSuperAdmin } from '@/lib/adminAuth';
+import { sanitizeApiError } from '@/lib/api-errors';
 
 /**
  * GET /api/admin/payments/orphans
@@ -10,15 +11,20 @@ import { requireAdmin } from '@/lib/adminAuth';
  * empty) for SLOT_BOOKING type. These are the rows that turn into a
  * "user paid but no booking" support ticket.
  *
- * Each row carries any `metadata.recovery` block stamped by the verify
- * route, plus a `hasBookingPayload` flag that tells the recovery UI
- * whether Retry is feasible (vs. only a Refund).
+ * Strictly super-admin only — surfaces every center's payments. The
+ * recovery endpoint at /api/admin/payments/[id]/recover does the actual
+ * remediation (retry booking creation from stored metadata, or
+ * initiate refund if the slot is no longer bookable).
+ *
+ * Response includes flagged-recovery metadata when present so the
+ * admin UI can show why each row failed (e.g. "Verify called but
+ * bookingPayload missing").
  */
 export async function GET(req: NextRequest) {
   try {
-    const session = await requireAdmin(req);
+    const session = await requireSuperAdmin(req);
     if (!session) {
-      return NextResponse.json({ error: 'Admin required' }, { status: 403 });
+      return NextResponse.json({ error: 'Super admin required' }, { status: 403 });
     }
 
     const { searchParams } = new URL(req.url);
@@ -36,6 +42,7 @@ export async function GET(req: NextRequest) {
       take: 200,
       include: {
         user: { select: { id: true, name: true, email: true, mobileNumber: true } },
+        center: { select: { id: true, slug: true, name: true } },
       },
     });
 
@@ -52,6 +59,7 @@ export async function GET(req: NextRequest) {
         currency: p.currency,
         razorpayOrderId: p.razorpayOrderId,
         razorpayPaymentId: p.razorpayPaymentId,
+        center: p.center,
         user: p.user,
         failureReason: p.failureReason,
         recovery,
@@ -66,8 +74,11 @@ export async function GET(req: NextRequest) {
       rows,
     });
   } catch (error) {
-    console.error('[admin.payments.orphans]', error);
-    const message = error instanceof Error ? error.message : 'Failed to list orphaned payments';
-    return NextResponse.json({ error: message }, { status: 500 });
+    const { message, status } = sanitizeApiError(
+      error,
+      'admin.payments.orphans',
+      'Could not list orphaned payments.',
+    );
+    return NextResponse.json({ error: message }, { status });
   }
 }

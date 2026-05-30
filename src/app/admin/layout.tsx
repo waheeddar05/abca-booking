@@ -3,11 +3,15 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useSession } from 'next-auth/react';
-import { LayoutDashboard, CalendarCheck, Users, Settings, Clock, Wrench, Package, Zap, SlidersHorizontal, ArrowLeft, Power, DatabaseZap, UserCog, Tag, AlertTriangle } from 'lucide-react';
+import { LayoutDashboard, CalendarCheck, Users, Clock, Wrench, Package, Zap, SlidersHorizontal, ArrowLeft, Power, DatabaseZap, UserCog, Tag, Building2, AlertTriangle } from 'lucide-react';
 import { signOut } from 'next-auth/react';
 import { AdminMobileNav } from '@/components/admin/AdminMobileNav';
+import { CenterSwitcher } from '@/components/admin/CenterSwitcher';
+import { useCenter } from '@/lib/center-context';
 
 const SUPER_ADMIN_EMAIL = 'waheeddar8@gmail.com';
+
+type BookingModel = 'MACHINE_PITCH' | 'RESOURCE_BASED';
 
 export default function AdminLayout({
   children,
@@ -16,25 +20,76 @@ export default function AdminLayout({
 }) {
   const pathname = usePathname();
   const { data: session } = useSession();
-  const isSuperAdmin = session?.user?.email === SUPER_ADMIN_EMAIL;
+  const { currentCenter } = useCenter();
+  // Source of truth for super admin is now the DB column, exposed on the
+  // session as `user.isSuperAdmin`. Email match kept as a defensive fallback
+  // so a stale token doesn't lock the project owner out of admin pages.
+  const sessionUser = session?.user as {
+    email?: string | null;
+    role?: string;
+    isSuperAdmin?: boolean;
+  } | undefined;
+  const isSuperAdmin = sessionUser?.isSuperAdmin === true || sessionUser?.email === SUPER_ADMIN_EMAIL;
+  // Anyone past the middleware /admin/* gate has User.role = 'ADMIN' —
+  // either as a super admin OR as a center-admin with a CenterMembership
+  // somewhere.
+  const isAdmin = sessionUser?.role === 'ADMIN';
+  const isCenterAdmin = !isSuperAdmin && isAdmin && !!currentCenter;
 
-  const links = [
-    { href: '/admin', label: 'Dashboard', icon: LayoutDashboard },
-    { href: '/admin/bookings', label: 'Bookings', icon: CalendarCheck },
-    { href: '/admin/slots', label: 'Slots', icon: Clock },
-    { href: '/admin/users', label: 'Users', icon: Users },
-    { href: '/admin/operators', label: 'Operators', icon: UserCog },
-    { href: '/admin/offers', label: 'Offers', icon: Tag },
-    { href: '/admin/packages', label: 'Packages', icon: Package },
-    { href: '/admin/configuration', label: 'Settings', icon: SlidersHorizontal },
-    { href: '/admin/policies', label: 'Policies', icon: Settings },
-    { href: '/admin/payments/orphans', label: 'Orphan Payments', icon: AlertTriangle },
-    ...(isSuperAdmin ? [
-      { href: '/admin/user-management', label: 'User Mgmt', icon: UserCog },
-      { href: '/admin/maintenance', label: 'Maintenance', icon: Wrench },
-      { href: '/admin/db-cleanup', label: 'DB Cleanup', icon: DatabaseZap },
-    ] : []),
+  // We also allow Sidearm Specialists to access the /admin/sidearm page
+  // so they can manage their own availability. The middleware is updated
+  // to allow them into /admin, and we gate the links here.
+  const hasSidearmMembership = currentCenter && sessionUser?.role === 'SIDEARM_SPECIALIST';
+  const canAccessSidearmTab = isAdmin || hasSidearmMembership;
+
+  // Until we rebuild Slots/Operators/Offers/Packages for RESOURCE_BASED
+  // centers (Toplay-style), the legacy forms hardcode the ABCA machine
+  // enum and crash or silently no-op on resource centers. Hide those
+  // links so admins don't land on broken pages. The `models` array is
+  // the parity gate — leave it absent to show on every center.
+  //
+  // Each surface flips back on when its RESOURCE_BASED implementation
+  // ships in this branch.
+  const currentModel: BookingModel | null = currentCenter?.bookingModel ?? null;
+  const links: Array<{ href: string; label: string; icon: typeof LayoutDashboard; models?: BookingModel[]; hidden?: boolean }> = [
+    { href: '/admin', label: 'Dashboard', icon: LayoutDashboard, hidden: !isAdmin },
+    { href: '/admin/bookings', label: 'Bookings', icon: CalendarCheck, hidden: !isAdmin },
+    { href: '/admin/slots', label: 'Slots', icon: Clock, hidden: !isAdmin },
+    { href: '/admin/users', label: 'Users', icon: Users, hidden: !isAdmin },
+    { href: '/admin/operators', label: 'Operators', icon: UserCog, hidden: !isAdmin },
+    // Sidearm tab — manages SIDEARM_SPECIALIST memberships and their
+    // availability (recurring + date-range) plus priority order for
+    // auto-assignment. Resource-based centers only; ABCA never had a
+    // sidearm role wired into bookings.
+    { href: '/admin/sidearm', label: 'Sidearm', icon: Users, models: ['RESOURCE_BASED'], hidden: !canAccessSidearmTab },
+    { href: '/admin/offers', label: 'Offers', icon: Tag, hidden: !isAdmin },
+    { href: '/admin/packages', label: 'Packages', icon: Package, hidden: !isAdmin },
+    { href: '/admin/configuration', label: 'Settings', icon: SlidersHorizontal, hidden: !isAdmin },
+    // /admin/policies removed — its raw key/value editor was confusing
+    // and overlapped the structured forms here on Settings. Per-center
+    // overrides for advanced keys still live under Centers → Policies.
+    // User Mgmt is now visible to every admin (super OR center). The
+    // API scopes the data to the current center for non-super admins
+    // and gates destructive actions to super admins; center admins
+    // primarily use it to view balances + credit/debit wallets.
+    { href: '/admin/user-management', label: 'User Mgmt', icon: UserCog, hidden: !isAdmin },
+    { href: `/admin/centers/${currentCenter?.id}`, label: 'My Center', icon: Building2, hidden: !isCenterAdmin },
+    ...(isSuperAdmin
+      ? [
+          { href: '/admin/centers', label: 'Centers', icon: Building2 },
+          { href: '/admin/payments/orphans', label: 'Orphan Payments', icon: AlertTriangle },
+          { href: '/admin/maintenance', label: 'Maintenance', icon: Wrench },
+          { href: '/admin/db-cleanup', label: 'DB Cleanup', icon: DatabaseZap },
+        ]
+      : []),
   ];
+
+  // Filter by booking model. While the center is still loading
+  // (`currentModel === null`), show every link so we don't briefly
+  // render a stripped-down sidebar.
+  const visibleLinks = links.filter(
+    (l) => (!l.models || currentModel == null || l.models.includes(currentModel)) && !l.hidden,
+  );
 
   const isActive = (href: string) =>
     href === '/admin' ? pathname === '/admin' : pathname.startsWith(href);
@@ -48,11 +103,17 @@ export default function AdminLayout({
 
       {/* Mobile: Compact header */}
       <div className="md:hidden flex items-center justify-between px-4 py-2 bg-[#0b1726]/80 backdrop-blur-xl border-b border-white/[0.06]">
-        <div className="flex items-center gap-2">
-          <div className="w-6 h-6 rounded-lg bg-gradient-to-br from-accent/20 to-purple-500/20 flex items-center justify-center">
+        <div className="flex items-center gap-2 min-w-0">
+          <div className="w-6 h-6 rounded-lg bg-gradient-to-br from-accent/20 to-purple-500/20 flex items-center justify-center flex-shrink-0">
             <Zap className="w-3 h-3 text-accent" />
           </div>
-          <span className="text-xs font-bold text-white tracking-wide">Admin</span>
+          <span className="text-xs font-bold text-white tracking-wide flex-shrink-0">Admin</span>
+          {/* Center switcher — same component the desktop sidebar shows.
+              Without it, mobile admins on a multi-center deployment had
+              no way to change centers from inside /admin. */}
+          <div className="ml-1 min-w-0">
+            <CenterSwitcher compact />
+          </div>
         </div>
         <div className="flex items-center gap-1.5">
           <Link
@@ -90,9 +151,14 @@ export default function AdminLayout({
             </div>
           </div>
 
+          {/* Center switcher (super admins + multi-center admins) */}
+          <div className="px-3 pb-2">
+            <CenterSwitcher />
+          </div>
+
           {/* Nav Links */}
           <nav className="flex-1 px-3 py-2 space-y-0.5">
-            {links.map(({ href, label, icon: Icon }) => {
+            {visibleLinks.map(({ href, label, icon: Icon }) => {
               const active = isActive(href);
               return (
                 <Link

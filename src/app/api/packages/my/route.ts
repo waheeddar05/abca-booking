@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { getAuthenticatedUser } from '@/lib/auth';
+import { resolveCurrentCenter } from '@/lib/centers';
 import { getUserActivePackages } from '@/lib/packages';
 
 // GET /api/packages/my - User's packages dashboard
@@ -13,12 +14,20 @@ export async function GET(req: NextRequest) {
 
     const { searchParams } = new URL(req.url);
     const includeAll = searchParams.get('all') === 'true';
+    const allCenters = searchParams.get('allCenters') === 'true';
+
+    // UserPackage doesn't carry centerId directly — derive via Package.centerId.
+    let centerFilter: { centerId: string } | undefined;
+    if (!allCenters) {
+      const center = await resolveCurrentCenter(req, user);
+      if (center) centerFilter = { centerId: center.id };
+    }
 
     if (includeAll) {
       // Return all packages (active, expired, cancelled)
       const now = new Date();
 
-      // Auto-expire
+      // Auto-expire (across all centers — expiry is centre-agnostic)
       await prisma.userPackage.updateMany({
         where: {
           userId: user.id,
@@ -29,9 +38,21 @@ export async function GET(req: NextRequest) {
       });
 
       const packages = await prisma.userPackage.findMany({
-        where: { userId: user.id },
+        where: {
+          userId: user.id,
+          ...(centerFilter ? { package: centerFilter } : {}),
+        },
         include: {
-          package: true,
+          package: {
+            include: {
+              // Pinned machine row (resource-based packages only). Used
+              // by the user UI to show "for Yantra 1" when the package
+              // is pinned to a specific machine.
+              machineRow: {
+                select: { id: true, name: true, shortName: true },
+              },
+            },
+          },
           packageBookings: {
             include: { booking: true },
             orderBy: { createdAt: 'desc' },
@@ -47,8 +68,11 @@ export async function GET(req: NextRequest) {
       return response;
     }
 
-    // Return only active packages
-    const activePackages = await getUserActivePackages(user.id);
+    // Return only active packages, scoped to current center unless allCenters=true
+    const activePackages = (await getUserActivePackages(user.id)).filter((up) => {
+      if (!centerFilter) return true;
+      return up.package.centerId === centerFilter.centerId;
+    });
     
     // Add no-cache headers to ensure the browser always gets the latest data
     const response = NextResponse.json(activePackages.map(formatUserPackage));
@@ -70,8 +94,8 @@ function formatUserPackage(up: any) {
     0
   ) || 0;
 
-  // Check if package is pending activation (not yet used, far-future dates)
-  const isPendingActivation = up.usedSessions === 0 && up.activationDate && new Date(up.activationDate).getFullYear() >= 2099;
+  // Check if package is pending activation (not yet used, far-future dates or null)
+  const isPendingActivation = up.usedSessions === 0 && (!up.activationDate || new Date(up.activationDate).getFullYear() >= 2099);
 
   return {
     id: up.id,
@@ -81,6 +105,15 @@ function formatUserPackage(up: any) {
     ballType: up.package.ballType,
     wicketType: up.package.wicketType,
     pitchTypes: up.package.pitchTypes || [],
+    // Resource-based axes (Toplay). Null on ABCA-style packages.
+    category: up.package.category ?? null,
+    machineRowId: up.package.machineRowId ?? null,
+    // Pinned machine's display name — null when the package isn't
+    // machine-pinned. Used by the slot grid's package picker to label
+    // the redeem chip with the specific machine the package is for.
+    machineRowName: up.package.machineRow
+      ? (up.package.machineRow.shortName || up.package.machineRow.name)
+      : null,
     timingType: up.package.timingType,
     totalSessions: up.totalSessions,
     usedSessions: up.usedSessions,

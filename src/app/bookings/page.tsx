@@ -22,6 +22,30 @@ interface BookingRefund {
   refunds?: RefundEntry[];
 }
 
+interface BookingCenter {
+  id: string;
+  name: string;
+  shortName: string | null;
+  addressLine1: string | null;
+  addressLine2: string | null;
+  city: string | null;
+  state: string | null;
+  pincode: string | null;
+  contactPhone: string | null;
+  contactEmail: string | null;
+  mapUrl: string | null;
+  // Top-priority active GROUND_STAFF membership at this center,
+  // flattened by the API. BookingCard surfaces it as the default
+  // contact pill on NET / FULL_COURT rows (Cricket Nets + Full
+  // Indoor Court) which don't have a per-booking operator / coach /
+  // sidearm row. Null when no ground staff is configured yet.
+  groundStaff: {
+    id: string;
+    name: string | null;
+    mobileNumber: string | null;
+  } | null;
+}
+
 interface Booking {
   id: string;
   date: string;
@@ -48,6 +72,13 @@ interface Booking {
   refund: BookingRefund | null;
   operatorName: string | null;
   operatorMobile: string | null;
+  // Resource-based booking fields. null on ABCA rows.
+  category: string | null;
+  assignedMachineName: string | null;
+  assignedMachineFullName: string | null;
+  assignedCoachName: string | null;
+  assignedStaffName: string | null;
+  center: BookingCenter | null;
 }
 
 type BookingTab = 'all' | 'upcoming' | 'inProgress' | 'completed' | 'cancelled';

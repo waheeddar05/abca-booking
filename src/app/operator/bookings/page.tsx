@@ -1,14 +1,9 @@
-'use client';
+// Legacy /operator/bookings route — folded into the unified /staff
+// dashboard. SSR redirect so even unauthenticated bookmarks bounce
+// cleanly through the middleware on their way to /staff.
 
-import { useEffect } from 'react';
-import { useRouter } from 'next/navigation';
+import { redirect } from 'next/navigation';
 
-// This page has been merged into the main operator dashboard.
-// Redirect to /operator for backwards compatibility.
-export default function OperatorBookingsRedirect() {
-  const router = useRouter();
-  useEffect(() => {
-    router.replace('/operator');
-  }, [router]);
-  return null;
+export default function LegacyOperatorBookingsRedirect() {
+  redirect('/staff');
 }

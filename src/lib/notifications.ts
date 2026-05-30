@@ -291,24 +291,25 @@ export async function notifyInfo(
 // ─── Operator Notification Helpers ─────────────────────────────────
 
 /**
- * Look up the assigned operator for a booking and return their details.
- * Returns null if no operator is assigned or operator has no mobile number.
+ * Look up the assigned operator for a booking.
+ * Returns null only when no operator is assigned. Missing mobile number is
+ * fine — the caller can still create an in-app notification and skip WhatsApp.
  */
 async function getBookingOperator(
   bookingId: string,
-): Promise<{ operatorId: string; name: string; mobileNumber: string } | null> {
+): Promise<{ operatorId: string; name: string; mobileNumber: string | null } | null> {
   const booking = await prisma.booking.findUnique({
     where: { id: bookingId },
     select: {
       operatorId: true,
-      operator: { select: { id: true, name: true, mobileNumber: true, mobileVerified: true } },
+      operator: { select: { id: true, name: true, mobileNumber: true } },
     },
   });
-  if (!booking?.operator?.mobileNumber) return null;
+  if (!booking?.operator) return null;
   return {
     operatorId: booking.operator.id,
     name: booking.operator.name || 'Operator',
-    mobileNumber: booking.operator.mobileNumber,
+    mobileNumber: booking.operator.mobileNumber || null,
   };
 }
 
@@ -351,11 +352,27 @@ export async function notifyOperatorNewBooking(
       type: 'SUCCESS',
     });
 
-    // WhatsApp text notification
-    const waEnabled = await isWhatsAppEnabled();
-    if (waEnabled) {
-      const { sendWhatsAppText } = await import('@/lib/whatsapp');
-      await sendWhatsAppText(operator.mobileNumber, msg);
+    // WhatsApp text notification — only if operator has a mobile number.
+    // The in-app notification above is the primary signal; WhatsApp is
+    // a nice-to-have that fails silently when the operator is outside
+    // the 24h conversation window (no error log in that case — that's
+    // expected, not a bug).
+    if (operator.mobileNumber) {
+      const waEnabled = await isWhatsAppEnabled();
+      if (waEnabled) {
+        const { sendWhatsAppText } = await import('@/lib/whatsapp');
+        const result = await sendWhatsAppText(operator.mobileNumber, msg);
+        if (!result?.success && !result?.outsideWindow) {
+          console.warn('[Notifications] Operator WhatsApp send failed:', {
+            operatorId: operator.operatorId,
+            error: result?.error || 'unknown',
+          });
+        }
+      } else {
+        console.log('[Notifications] WhatsApp disabled, skipped operator text:', operator.operatorId);
+      }
+    } else {
+      console.warn('[Notifications] Operator has no mobile number, WhatsApp skipped:', operator.operatorId);
     }
   } catch (err) {
     console.error('[Notifications] Failed to notify operator about new booking:', err);
@@ -400,11 +417,20 @@ export async function notifyOperatorBookingCancelled(
       type: 'WARNING',
     });
 
-    // WhatsApp text notification
-    const waEnabled = await isWhatsAppEnabled();
-    if (waEnabled) {
-      const { sendWhatsAppText } = await import('@/lib/whatsapp');
-      await sendWhatsAppText(operator.mobileNumber, msg);
+    // WhatsApp text notification — see notifyOperatorNewBooking above
+    // for the rationale on the outside-window soft fail.
+    if (operator.mobileNumber) {
+      const waEnabled = await isWhatsAppEnabled();
+      if (waEnabled) {
+        const { sendWhatsAppText } = await import('@/lib/whatsapp');
+        const result = await sendWhatsAppText(operator.mobileNumber, msg);
+        if (!result?.success && !result?.outsideWindow) {
+          console.warn('[Notifications] Operator cancel WhatsApp send failed:', {
+            operatorId: operator.operatorId,
+            error: result?.error || 'unknown',
+          });
+        }
+      }
     }
   } catch (err) {
     console.error('[Notifications] Failed to notify operator about cancellation:', err);

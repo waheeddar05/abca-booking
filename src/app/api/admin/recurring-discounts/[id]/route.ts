@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { requireAdmin } from '@/lib/adminAuth';
+import { requireCenterAdmin } from '@/lib/adminAuth';
 
 // PUT: Update a recurring discount rule
 export async function PUT(
@@ -8,14 +8,26 @@ export async function PUT(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const session = await requireAdmin(req);
+    const session = await requireCenterAdmin(req);
     if (!session) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 403 });
     }
 
     const { id } = await params;
     const body = await req.json();
-    const { days, slotStartTime, slotEndTime, machineIds, pitchTypes, oneSlotDiscount, twoSlotDiscount, enabled, appliesTo } = body;
+    const {
+      days,
+      slotStartTime,
+      slotEndTime,
+      machineIds,
+      pitchTypes,
+      machineRowIds,
+      categories,
+      oneSlotDiscount,
+      twoSlotDiscount,
+      enabled,
+      appliesTo,
+    } = body;
 
     const existing = await prisma.recurringSlotDiscount.findUnique({ where: { id } });
     if (!existing) {
@@ -31,6 +43,42 @@ export async function PUT(
       }
     }
 
+    const validPitchTypes = ['ASTRO', 'CEMENT', 'NATURAL'];
+    if (pitchTypes && Array.isArray(pitchTypes)) {
+      for (const pt of pitchTypes) {
+        if (!validPitchTypes.includes(pt)) {
+          return NextResponse.json({ error: `Invalid pitchType` }, { status: 400 });
+        }
+      }
+    }
+
+    // Validate RESOURCE_BASED axes (Toplay et al.).
+    let validatedMachineRowIds: string[] | undefined = undefined;
+    if (machineRowIds !== undefined) {
+      if (Array.isArray(machineRowIds)) {
+        const rows = await prisma.machine.findMany({
+          where: {
+            id: { in: (machineRowIds as unknown[]).filter((x) => typeof x === 'string') as string[] },
+            centerId: existing.centerId,
+          },
+          select: { id: true },
+        });
+        validatedMachineRowIds = rows.map((r) => r.id);
+      } else {
+        validatedMachineRowIds = [];
+      }
+    }
+
+    const validBookingCategories = ['MACHINE', 'SIDEARM', 'COACHING', 'NET', 'FULL_COURT', 'CORPORATE_BATCH'];
+    let validatedCategories: string[] | undefined = undefined;
+    if (categories !== undefined) {
+      validatedCategories = Array.isArray(categories)
+        ? (categories as unknown[]).filter(
+            (c): c is string => typeof c === 'string' && validBookingCategories.includes(c),
+          )
+        : [];
+    }
+
     const rule = await prisma.recurringSlotDiscount.update({
       where: { id },
       data: {
@@ -39,6 +87,8 @@ export async function PUT(
         ...(slotEndTime !== undefined ? { slotEndTime } : {}),
         ...(machineIds !== undefined ? { machineIds: machineIds || [] } : {}),
         ...(pitchTypes !== undefined ? { pitchTypes: pitchTypes || [] } : {}),
+        ...(validatedMachineRowIds !== undefined ? { machineRowIds: validatedMachineRowIds } : {}),
+        ...(validatedCategories !== undefined ? { categories: validatedCategories as any } : {}),
         ...(oneSlotDiscount !== undefined ? { oneSlotDiscount: Number(oneSlotDiscount) } : {}),
         ...(twoSlotDiscount !== undefined ? { twoSlotDiscount: Number(twoSlotDiscount) } : {}),
         ...(enabled !== undefined ? { enabled: Boolean(enabled) } : {}),
@@ -62,7 +112,7 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const session = await requireAdmin(req);
+    const session = await requireCenterAdmin(req);
     if (!session) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 403 });
     }

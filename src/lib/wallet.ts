@@ -2,20 +2,29 @@
  * Wallet Service
  *
  * Manages user wallet balance, credits (refunds), and debits (payments).
- * No expiry on wallet credits.
+ * Wallets are CENTER-SCOPED: each user can hold at most one wallet per
+ * center, with independent balances. A refund issued at ABCA credits the
+ * user's ABCA wallet only; balances cannot be spent across centers.
  *
- * Feature flag: WALLET_ENABLED (Policy table)
+ * Future option (per WALLET_SCOPE policy = 'GLOBAL') would collapse to
+ * one wallet per user — not implemented today.
+ *
+ * Feature flag: WALLET_ENABLED (Policy table, with optional CenterPolicy
+ * override).
+ *
+ * No expiry on wallet credits.
  */
 
 import { prisma } from '@/lib/prisma';
-import { getCachedPolicy } from '@/lib/policy-cache';
-import type { Prisma, WalletTransactionType } from '@prisma/client';
+import { isPolicyEnabled, getPolicyValue } from '@/lib/policy';
+import type { WalletTransactionType } from '@prisma/client';
 
 // ─── Types ──────────────────────────────────────────────────────────
 
 export interface WalletInfo {
   id: string;
   userId: string;
+  centerId: string;
   balance: number;
 }
 
@@ -28,44 +37,48 @@ export interface WalletTransactionResult {
 
 // ─── Feature Flag ───────────────────────────────────────────────────
 
-export async function isWalletEnabled(): Promise<boolean> {
-  const val = await getCachedPolicy('WALLET_ENABLED');
-  return val === 'true';
+/**
+ * Whether wallet feature is enabled at the given center.
+ * Falls back to the global Policy row.
+ */
+export async function isWalletEnabled(centerId: string): Promise<boolean> {
+  return isPolicyEnabled('WALLET_ENABLED', centerId, false);
 }
 
 // ─── Core Functions ─────────────────────────────────────────────────
 
 /**
- * Get or create a wallet for a user.
+ * Get or create a wallet for a (user, center) pair.
  * Wallets are lazily created on first access.
  */
-export async function getOrCreateWallet(userId: string): Promise<WalletInfo> {
+export async function getOrCreateWallet(userId: string, centerId: string): Promise<WalletInfo> {
   const wallet = await prisma.wallet.upsert({
-    where: { userId },
-    create: { userId, balance: 0 },
+    where: { userId_centerId: { userId, centerId } },
+    create: { userId, centerId, balance: 0 },
     update: {}, // no-op if exists
-    select: { id: true, userId: true, balance: true },
+    select: { id: true, userId: true, centerId: true, balance: true },
   });
   return wallet;
 }
 
 /**
- * Get wallet balance for a user. Returns 0 if no wallet exists.
+ * Get wallet balance for a user at a center. Returns 0 if no wallet exists.
  */
-export async function getWalletBalance(userId: string): Promise<number> {
+export async function getWalletBalance(userId: string, centerId: string): Promise<number> {
   const wallet = await prisma.wallet.findUnique({
-    where: { userId },
+    where: { userId_centerId: { userId, centerId } },
     select: { balance: true },
   });
   return wallet?.balance ?? 0;
 }
 
 /**
- * Credit amount to user's wallet (e.g., refund).
+ * Credit amount to user's wallet at a center (e.g., refund).
  * Uses a transaction to ensure atomicity.
  */
 export async function creditWallet(
   userId: string,
+  centerId: string,
   amount: number,
   type: 'CREDIT_REFUND' | 'CREDIT_ADMIN',
   description: string,
@@ -74,22 +87,19 @@ export async function creditWallet(
   if (amount <= 0) throw new Error('Credit amount must be positive');
 
   return prisma.$transaction(async (tx) => {
-    // Get or create wallet
     const wallet = await tx.wallet.upsert({
-      where: { userId },
-      create: { userId, balance: 0 },
+      where: { userId_centerId: { userId, centerId } },
+      create: { userId, centerId, balance: 0 },
       update: {},
     });
 
     const newBalance = wallet.balance + amount;
 
-    // Update balance
     await tx.wallet.update({
       where: { id: wallet.id },
       data: { balance: newBalance },
     });
 
-    // Create transaction record
     const txn = await tx.walletTransaction.create({
       data: {
         walletId: wallet.id,
@@ -111,12 +121,12 @@ export async function creditWallet(
 }
 
 /**
- * Debit amount from user's wallet (e.g., booking payment).
- * Throws if insufficient balance.
- * Uses a transaction to ensure atomicity.
+ * Debit amount from user's wallet at a center (e.g., booking payment).
+ * Throws if no wallet exists or balance is insufficient.
  */
 export async function debitWallet(
   userId: string,
+  centerId: string,
   amount: number,
   type: 'DEBIT_BOOKING' | 'DEBIT_ADMIN',
   description: string,
@@ -126,7 +136,7 @@ export async function debitWallet(
 
   return prisma.$transaction(async (tx) => {
     const wallet = await tx.wallet.findUnique({
-      where: { userId },
+      where: { userId_centerId: { userId, centerId } },
     });
 
     if (!wallet) throw new Error('Wallet not found');
@@ -161,15 +171,17 @@ export async function debitWallet(
 
 /**
  * Roll back a wallet debit (e.g., if Razorpay payment fails after wallet debit).
- * Credits back the amount to the wallet.
+ * Credits back the amount to the same wallet (same center).
  */
 export async function rollbackWalletDebit(
   userId: string,
+  centerId: string,
   amount: number,
   originalTransactionId: string,
 ): Promise<WalletTransactionResult> {
   return creditWallet(
     userId,
+    centerId,
     amount,
     'CREDIT_REFUND',
     `Rollback: payment failed (ref: ${originalTransactionId})`,
@@ -178,10 +190,11 @@ export async function rollbackWalletDebit(
 }
 
 /**
- * Get wallet transactions for a user with pagination.
+ * Get wallet transactions for a user at a center, with pagination.
  */
 export async function getWalletTransactions(
   userId: string,
+  centerId: string,
   page = 1,
   limit = 20,
 ): Promise<{
@@ -197,7 +210,7 @@ export async function getWalletTransactions(
   pagination: { page: number; limit: number; total: number; totalPages: number };
 }> {
   const wallet = await prisma.wallet.findUnique({
-    where: { userId },
+    where: { userId_centerId: { userId, centerId } },
     select: { id: true },
   });
 
@@ -241,10 +254,25 @@ export async function getWalletTransactions(
 }
 
 /**
- * Get the admin-configured default refund method.
- * Returns 'WALLET' (default) or 'RAZORPAY'.
+ * Sum of wallet balances across all of a user's wallets (every center).
+ * Useful for the user dashboard summary while we still ship a single
+ * "wallet balance" widget. Phase 4 will replace this with a per-center
+ * breakdown in the UI.
  */
-export async function getDefaultRefundMethod(): Promise<'WALLET' | 'RAZORPAY'> {
-  const val = await getCachedPolicy('DEFAULT_REFUND_METHOD');
+export async function getTotalUserWalletBalance(userId: string): Promise<number> {
+  const wallets = await prisma.wallet.findMany({
+    where: { userId },
+    select: { balance: true },
+  });
+  return wallets.reduce((sum, w) => sum + w.balance, 0);
+}
+
+/**
+ * Get the admin-configured default refund method for a given center.
+ * Returns 'WALLET' (default) or 'RAZORPAY'. Per-center override
+ * supported via CenterPolicy('DEFAULT_REFUND_METHOD').
+ */
+export async function getDefaultRefundMethod(centerId: string): Promise<'WALLET' | 'RAZORPAY'> {
+  const val = await getPolicyValue('DEFAULT_REFUND_METHOD', centerId);
   return val === 'RAZORPAY' ? 'RAZORPAY' : 'WALLET';
 }

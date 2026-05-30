@@ -124,19 +124,24 @@ export default function WalletPage() {
         </button>
       </div>
 
-      {/* Balance Card */}
-      <div className="bg-gradient-to-br from-accent/15 via-accent/10 to-accent/5 rounded-2xl border border-accent/20 p-6 mb-6">
-        <p className="text-xs font-medium text-accent/70 uppercase tracking-wider mb-1">Available Balance</p>
-        {loading ? (
-          <div className="flex items-center gap-2">
-            <Loader2 className="w-5 h-5 animate-spin text-accent" />
+      {/* Balance Card — compact: label + amount on a single row with the
+          wallet glyph, so the card consumes far less vertical space while
+          keeping the balance prominent and readable. */}
+      <div className="bg-gradient-to-br from-accent/15 via-accent/10 to-accent/5 rounded-xl border border-accent/20 px-4 py-3 mb-5">
+        <div className="flex items-center justify-between gap-3">
+          <div className="min-w-0">
+            <p className="text-[10px] font-medium text-accent/70 uppercase tracking-wider mb-0.5">Available Balance</p>
+            {loading ? (
+              <Loader2 className="w-5 h-5 animate-spin text-accent" />
+            ) : (
+              <span className="text-2xl font-bold text-white leading-none">₹{(balance ?? 0).toLocaleString('en-IN')}</span>
+            )}
           </div>
-        ) : (
-          <div className="flex items-baseline gap-1">
-            <span className="text-3xl font-bold text-white">₹{(balance ?? 0).toLocaleString('en-IN')}</span>
+          <div className="w-9 h-9 rounded-lg bg-accent/10 flex items-center justify-center flex-shrink-0">
+            <Wallet className="w-4 h-4 text-accent/70" />
           </div>
-        )}
-        <p className="text-[10px] text-slate-400 mt-2">
+        </div>
+        <p className="text-[10px] text-slate-400 mt-1.5">
           Wallet credits are applied automatically when booking slots
         </p>
       </div>

@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { getAuthenticatedUser } from '@/lib/auth';
+import { resolveCurrentCenter } from '@/lib/centers';
+import { sanitizeApiError } from '@/lib/api-errors';
 
 // Safe select: only columns guaranteed to exist (pre-migration)
 const SAFE_BOOKING_SELECT = {
@@ -25,11 +27,19 @@ export async function GET(req: NextRequest) {
     const userId = user.id;
     const { searchParams } = new URL(req.url);
     const tab = searchParams.get('tab'); // all, upcoming, inProgress, completed, cancelled
+    const allCenters = searchParams.get('allCenters') === 'true';
     const page = parseInt(searchParams.get('page') || '1');
     const limit = parseInt(searchParams.get('limit') || '20');
     const skip = (page - 1) * limit;
 
+    // Filter by current center by default, matching the multi-center "each
+    // center is independent" model. Pass `?allCenters=true` to see history
+    // across every center the user has booked at.
     const where: any = { userId };
+    if (!allCenters) {
+      const center = await resolveCurrentCenter(req, user);
+      if (center) where.centerId = center.id;
+    }
     const now = new Date();
 
     if (tab === 'upcoming') {
@@ -61,6 +71,52 @@ export async function GET(req: NextRequest) {
           include: {
             operator: {
               select: { name: true, mobileNumber: true },
+            },
+            // Resource-based fields surface the machine / coach / staff
+            // names. For ABCA (MACHINE_PITCH) bookings these are all
+            // null and the card falls back to the legacy machineId
+            // label.
+            assignedMachine: {
+              select: {
+                id: true,
+                name: true,
+                shortName: true,
+                machineType: { select: { code: true, name: true } },
+              },
+            },
+            assignedCoach: { select: { id: true, name: true, mobileNumber: true } },
+            assignedStaff: { select: { id: true, name: true, mobileNumber: true } },
+            // Center context — shown on every booking card so users
+            // know which center, where, and how to reach it without
+            // having to leave the page.
+            center: {
+              select: {
+                id: true,
+                name: true,
+                shortName: true,
+                addressLine1: true,
+                addressLine2: true,
+                city: true,
+                state: true,
+                pincode: true,
+                contactPhone: true,
+                contactEmail: true,
+                mapUrl: true,
+                // Ground staff are the default contact for Cricket Nets
+                // and Full Indoor Court bookings (categories that don't
+                // have a per-booking operator / coach / sidearm row).
+                // Pull the highest-priority active GROUND_STAFF
+                // membership; BookingCard surfaces them as a 'Call'
+                // pill on NET / FULL_COURT rows.
+                memberships: {
+                  where: { role: 'GROUND_STAFF', isActive: true },
+                  orderBy: [{ priority: 'asc' }, { createdAt: 'asc' }],
+                  take: 1,
+                  select: {
+                    user: { select: { id: true, name: true, mobileNumber: true } },
+                  },
+                },
+              },
             },
             packageBooking: {
               select: {
@@ -138,6 +194,7 @@ export async function GET(req: NextRequest) {
 
     const mappedBookings = bookings.map((b: any) => ({
       id: b.id,
+      centerId: b.centerId ?? null,
       date: b.date.toISOString(),
       startTime: b.startTime.toISOString(),
       endTime: b.endTime.toISOString(),
@@ -170,6 +227,46 @@ export async function GET(req: NextRequest) {
       packageName: b.packageBooking?.userPackage?.package?.name || null,
       operatorName: b.operator?.name || null,
       operatorMobile: b.operator?.mobileNumber || null,
+      // Resource-based booking details (Toplay et al.). null on ABCA
+      // rows; the BookingCard reads these to render the right chips.
+      category: b.category ?? null,
+      assignedMachineName: b.assignedMachine
+        ? (b.assignedMachine.shortName || b.assignedMachine.name)
+        : null,
+      assignedMachineFullName: b.assignedMachine?.name ?? null,
+      assignedCoachName: b.assignedCoach?.name ?? null,
+      assignedStaffName: b.assignedStaff?.name ?? null,
+      // Center snapshot for the booking card / receipt — name + address
+      // + contact + map link. Falls back to null for legacy rows that
+      // somehow predate center linking.
+      center: b.center
+        ? {
+            id: b.center.id,
+            name: b.center.name,
+            shortName: b.center.shortName ?? null,
+            addressLine1: b.center.addressLine1 ?? null,
+            addressLine2: b.center.addressLine2 ?? null,
+            city: b.center.city ?? null,
+            state: b.center.state ?? null,
+            pincode: b.center.pincode ?? null,
+            contactPhone: b.center.contactPhone ?? null,
+            contactEmail: b.center.contactEmail ?? null,
+            mapUrl: b.center.mapUrl ?? null,
+            // Top-priority ground staff at the center, flattened for
+            // BookingCard to render as the contact pill on NET /
+            // FULL_COURT rows (which don't have a per-booking operator
+            // / coach / sidearm). Null when no GROUND_STAFF member is
+            // configured at the center yet.
+            groundStaff: (() => {
+              const gs = (b.center.memberships ?? [])[0]?.user;
+              return gs ? {
+                id: gs.id,
+                name: gs.name ?? null,
+                mobileNumber: gs.mobileNumber ?? null,
+              } : null;
+            })(),
+          }
+        : null,
     }));
 
     return NextResponse.json({
@@ -181,8 +278,12 @@ export async function GET(req: NextRequest) {
         totalPages: Math.ceil(total / limit),
       },
     });
-  } catch (error: any) {
-    console.error('Fetch bookings error:', error);
-    return NextResponse.json({ error: error?.message || 'Internal server error' }, { status: 500 });
+  } catch (error) {
+    const { message, status } = sanitizeApiError(
+      error,
+      'bookings.list',
+      'Could not load bookings. Please try again.',
+    );
+    return NextResponse.json({ error: message }, { status });
   }
 }

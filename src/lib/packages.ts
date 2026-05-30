@@ -1,5 +1,5 @@
 import { prisma } from '@/lib/prisma';
-import { type MachineType, type PackageBallType, type PackageWicketType, type TimingType, type BallType, type PitchType } from '@prisma/client';
+import { type PackageMachineType, type PackageBallType, type PackageWicketType, type TimingType, type BallType, type PitchType } from '@prisma/client';
 import { getTimeSlab, getTimeSlabConfig, type TimeSlabConfig } from '@/lib/pricing';
 
 export interface ExtraChargeRules {
@@ -15,7 +15,7 @@ export interface ExtraChargeRules {
  * LEATHER machine → LEATHER/MACHINE ball types
  * TENNIS machine → TENNIS ball type
  */
-export function isMachineTypeCompatible(packageMachineType: MachineType, bookingBallType: BallType): boolean {
+export function isMachineTypeCompatible(packageMachineType: PackageMachineType, bookingBallType: BallType): boolean {
   if (packageMachineType === 'LEATHER') {
     return bookingBallType === 'LEATHER' || bookingBallType === 'MACHINE';
   }
@@ -136,7 +136,7 @@ export function getTimingExtraCharge(
 export function calculatePackageExtraCharge(
   pkg: {
     machineId?: string | null;
-    machineType: MachineType;
+    machineType: PackageMachineType;
     ballType: PackageBallType | null;
     wicketType: PackageWicketType | null;
     timingType: TimingType;
@@ -185,12 +185,23 @@ export async function getUserActivePackages(userId: string) {
       userId,
       status: 'ACTIVE',
       OR: [
+        { expiryDate: null },
         { expiryDate: { gte: now } },
         { expiryDate: { gte: farFutureThreshold } }, // Pending activation packages
       ],
     },
     include: {
-      package: true,
+      // Pull the pinned machine row when present (resource-based
+      // packages) so the user-side picker can label them clearly
+      // ("Yantra 1 only") instead of silently hiding when the user
+      // hasn't picked that machine yet.
+      package: {
+        include: {
+          machineRow: {
+            select: { id: true, name: true, shortName: true },
+          },
+        },
+      },
       packageBookings: {
         include: {
           booking: true,
@@ -241,7 +252,7 @@ export async function validatePackageBooking(
     return { valid: false, error: 'Package is not active' };
   }
 
-  if (userPackage.expiryDate < now) {
+  if (userPackage.expiryDate && userPackage.expiryDate < now) {
     // Auto-expire
     await prisma.userPackage.update({
       where: { id: userPackageId },
@@ -251,7 +262,7 @@ export async function validatePackageBooking(
   }
 
   // Check if booking date is within package validity
-  if (slotStartTime > userPackage.expiryDate) {
+  if (userPackage.expiryDate && slotStartTime > userPackage.expiryDate) {
     return { valid: false, error: 'Slot is after package expiry date' };
   }
 
@@ -260,31 +271,70 @@ export async function validatePackageBooking(
     return { valid: false, error: `Not enough sessions. Remaining: ${remainingSessions}, Required: ${numberOfSlots}` };
   }
 
-  // Machine type check
-  if (!isMachineTypeCompatible(userPackage.package.machineType, bookingBallType)) {
-    return { valid: false, error: `Package machine type (${userPackage.package.machineType}) does not support ${bookingBallType} ball type` };
-  }
-
-  // Calculate extra charges
+  // Resource-based packages (Toplay et al.) live in a different
+  // taxonomy — they use `category` + optional `machineRowId` + the
+  // shared `timingType`. The ABCA-shape compatibility checks
+  // (machineType ↔ ballType, wicketType upgrades) don't apply here:
+  // category gating is enforced in book-resource, and machine pinning
+  // by `eligiblePackages` on the client. We only compute the timing
+  // upgrade here, since that's the one ABCA-shape extra charge that
+  // also makes sense at Toplay (DAY package, evening slot).
+  const isResourcePackage = userPackage.package.category !== null;
   const tsConfig = timeSlabConfig || await getTimeSlabConfig();
   const slotTimeSlab = getTimeSlab(slotStartTime, tsConfig);
 
-  const { totalExtra, breakdown } = calculatePackageExtraCharge(
-    {
-      machineId: userPackage.package.machineId,
-      machineType: userPackage.package.machineType,
-      ballType: userPackage.package.ballType,
-      wicketType: userPackage.package.wicketType,
-      timingType: userPackage.package.timingType,
-      extraChargeRules: userPackage.package.extraChargeRules as ExtraChargeRules | null,
-    },
-    {
-      machineId: bookingMachineId || null,
-      ballType: bookingBallType,
-      pitchType: bookingPitchType,
-      slotTimeSlab,
+  let totalExtra: number;
+  let breakdown: { ballTypeExtra: number; wicketTypeExtra: number; timingExtra: number; machineExtra: number };
+
+  if (isResourcePackage) {
+    const rules = (userPackage.package.extraChargeRules as ExtraChargeRules | null) || {};
+    const timingExtra = getTimingExtraCharge(userPackage.package.timingType, slotTimeSlab, rules);
+    // Ball-type upgrade — if the package is machine-ball only and the
+    // user is booking with leather balls, charge the upgrade fee.
+    // BOTH / LEATHER packages have no upgrade. Skips for non-MACHINE
+    // categories since they don't use a bowling machine.
+    const ballTypeExtra =
+      userPackage.package.category === 'MACHINE'
+        ? getBallTypeExtraCharge(userPackage.package.ballType, bookingBallType, rules)
+        : 0;
+    // Wicket-type upgrade — applies to categories that use a pitch
+    // (MACHINE / SIDEARM / NET). Uses the same per-path helper ABCA
+    // uses, so the `extraChargeRules.wicketTypeUpgrades` JSON is
+    // identical in shape.
+    const usesPitch =
+      userPackage.package.category === 'MACHINE'
+      || userPackage.package.category === 'SIDEARM'
+      || userPackage.package.category === 'NET';
+    const wicketTypeExtra = usesPitch
+      ? getWicketTypeExtraCharge(userPackage.package.wicketType, bookingPitchType, rules)
+      : 0;
+    totalExtra = timingExtra + ballTypeExtra + wicketTypeExtra;
+    breakdown = { ballTypeExtra, wicketTypeExtra, timingExtra, machineExtra: 0 };
+  } else {
+    // Machine type check — ABCA-only; resource packages skip this.
+    if (!isMachineTypeCompatible(userPackage.package.machineType, bookingBallType)) {
+      return { valid: false, error: `Package machine type (${userPackage.package.machineType}) does not support ${bookingBallType} ball type` };
     }
-  );
+
+    const result = calculatePackageExtraCharge(
+      {
+        machineId: userPackage.package.machineId,
+        machineType: userPackage.package.machineType,
+        ballType: userPackage.package.ballType,
+        wicketType: userPackage.package.wicketType,
+        timingType: userPackage.package.timingType,
+        extraChargeRules: userPackage.package.extraChargeRules as ExtraChargeRules | null,
+      },
+      {
+        machineId: bookingMachineId || null,
+        ballType: bookingBallType,
+        pitchType: bookingPitchType,
+        slotTimeSlab,
+      }
+    );
+    totalExtra = result.totalExtra;
+    breakdown = result.breakdown;
+  }
 
   // Determine extra charge type for record
   let extraChargeType: string | undefined;

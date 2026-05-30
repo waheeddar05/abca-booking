@@ -47,7 +47,13 @@ function AdminBookingsContent() {
     from: '',
     to: '',
     machineId: '',
+    // Booking-category filter (Bowling Machine / Sidearm / Cricket
+    // Nets / Full Indoor Court / Personal Coaching). Replaces the
+    // legacy 'Machine' dropdown — options are sourced from the
+    // center's ENABLED_BOOKING_CATEGORIES policy below.
+    categoryFilter: '',
   });
+  const [bookableCategories, setBookableCategories] = useState<string[]>([]);
   const [showDateRange, setShowDateRange] = useState(false);
   const [showFilters, setShowFilters] = useState(false);
   const [editingPriceId, setEditingPriceId] = useState<string | null>(null);
@@ -85,6 +91,7 @@ function AdminBookingsContent() {
         params.set('to', filters.to);
       }
       if (filters.machineId) params.set('machineId', filters.machineId);
+      if (filters.categoryFilter) params.set('categoryFilter', filters.categoryFilter);
       params.set('page', String(pagination.page));
       params.set('limit', '50');
       params.set('sortBy', sortBy);
@@ -118,6 +125,29 @@ function AdminBookingsContent() {
         }
       })
       .catch(() => { });
+  }, []);
+
+  // Source the Category filter options from the center's
+  // ENABLED_BOOKING_CATEGORIES policy. Re-runs on mount and on
+  // center switch so flipping a category off in Admin → Settings
+  // immediately removes the option here. Falls back to the
+  // full default list if the policy isn't set.
+  useEffect(() => {
+    const DEFAULT_LIST = ['MACHINE', 'NET', 'SIDEARM', 'COACHING', 'FULL_COURT'];
+    fetch('/api/admin/policies?scope=center')
+      .then((r) => (r.ok ? r.json() : []))
+      .then((data) => {
+        const arr: { key: string; value: string }[] = Array.isArray(data) ? data : (data.policies ?? []);
+        const row = arr.find((p) => p.key === 'ENABLED_BOOKING_CATEGORIES');
+        if (!row) { setBookableCategories(DEFAULT_LIST); return; }
+        try {
+          const parsed = JSON.parse(row.value);
+          setBookableCategories(Array.isArray(parsed) && parsed.length > 0 ? parsed : DEFAULT_LIST);
+        } catch {
+          setBookableCategories(DEFAULT_LIST);
+        }
+      })
+      .catch(() => setBookableCategories(['MACHINE', 'NET', 'SIDEARM', 'COACHING', 'FULL_COURT']));
   }, []);
 
   useEffect(() => {
@@ -561,19 +591,35 @@ function AdminBookingsContent() {
               <option value="CANCELLED">Cancelled</option>
             </select>
           </div>
+          {/* Booking-category filter. Replaces the static four-machine
+              dropdown so the admin filters by session type (Bowling
+              Machine / Sidearm / Cricket Nets / Full Indoor Court /
+              Personal Coaching) instead. Options are sourced from
+              the center's ENABLED_BOOKING_CATEGORIES policy so adding
+              or disabling a category in Admin → Settings flows here
+              automatically. CORPORATE_BATCH is intentionally
+              filtered out — hidden everywhere else for now. */}
           <div>
-            <label className="block text-[11px] font-semibold text-slate-300 mb-1.5">Machine</label>
+            <label className="block text-[11px] font-semibold text-slate-300 mb-1.5">Category</label>
             <select
-              name="machineId"
-              value={filters.machineId}
+              name="categoryFilter"
+              value={filters.categoryFilter}
               onChange={handleFilterChange}
               className="w-full bg-white/[0.06] border border-white/[0.15] text-white rounded-lg px-3 py-2.5 text-sm outline-none focus:border-accent focus:ring-1 focus:ring-accent/20 cursor-pointer"
             >
-              <option value="">All Machines</option>
-              <option value="GRAVITY">Gravity</option>
-              <option value="YANTRA">Yantra</option>
-              <option value="LEVERAGE_INDOOR">Leverage Tennis (Indoor)</option>
-              <option value="LEVERAGE_OUTDOOR">Leverage Tennis (Outdoor)</option>
+              <option value="">All categories</option>
+              {bookableCategories
+                .filter((c) => c !== 'CORPORATE_BATCH')
+                .map((c) => (
+                  <option key={c} value={c}>
+                    {c === 'MACHINE' ? 'Bowling Machine'
+                      : c === 'NET' ? 'Cricket Nets'
+                      : c === 'SIDEARM' ? 'Sidearm'
+                      : c === 'COACHING' ? 'Personal Coaching'
+                      : c === 'FULL_COURT' ? 'Full Indoor Court'
+                      : c}
+                  </option>
+                ))}
             </select>
           </div>
           <div>
@@ -758,25 +804,78 @@ function AdminBookingsContent() {
                       )}
                     </div>
 
-                    {/* Row 3: Tags */}
+                    {/* Row 3: Tags
+                        Same MACHINE-only gating as BookingCard — ballType
+                        and operationMode are placeholder values on
+                        NET / SIDEARM / COACHING / FULL_COURT /
+                        CORPORATE_BATCH bookings; showing them as chips
+                        was confusing admins ("Sidearm Tennis Operator"
+                        on a sidearm session, etc.). */}
                     <div className="flex flex-wrap items-center gap-1 mb-2">
-                      <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${booking.ballType === 'LEATHER' ? 'bg-red-500/10 text-red-400' :
-                        booking.ballType === 'TENNIS' ? 'bg-green-500/10 text-green-400' :
-                          'bg-blue-500/10 text-blue-400'
-                        }`}>
-                        {booking.ballType}
-                      </span>
-                      {booking.machineId && (
+                      {(!booking.category || booking.category === 'MACHINE') && (
+                        <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${booking.ballType === 'LEATHER' ? 'bg-red-500/10 text-red-400' :
+                          booking.ballType === 'TENNIS' ? 'bg-green-500/10 text-green-400' :
+                            'bg-blue-500/10 text-blue-400'
+                          }`}>
+                          {booking.ballType}
+                        </span>
+                      )}
+                      {booking.machineId && (!booking.category || booking.category === 'MACHINE') && (
                         <span className="text-[10px] px-1.5 py-0.5 rounded bg-white/[0.04] text-slate-400 font-medium">
                           {booking.machineId === 'GRAVITY' ? 'Gravity' : booking.machineId === 'YANTRA' ? 'Yantra' : booking.machineId === 'LEVERAGE_INDOOR' ? 'Tennis In' : 'Tennis Out'}
                         </span>
                       )}
                       {booking.pitchType && (
+                        !booking.category
+                        || booking.category === 'MACHINE'
+                        || booking.category === 'SIDEARM'
+                        || booking.category === 'NET'
+                      ) && (
                         <span className="text-[10px] px-1.5 py-0.5 rounded bg-white/[0.04] text-slate-400 font-medium">
                           {booking.pitchType === 'ASTRO' ? 'Astro' : booking.pitchType === 'CEMENT' ? 'Cement' : 'Natural'}
                         </span>
                       )}
-                      {booking.operationMode && (
+                      {/* Resource-based booking chips (Toplay). Hidden
+                          on ABCA rows because category defaults to
+                          MACHINE everywhere — only show the category
+                          chip for non-MACHINE categories or when the
+                          legacy machineId is null. */}
+                      {booking.category && booking.category !== 'MACHINE' && (
+                        <span className="text-[10px] px-1.5 py-0.5 rounded font-medium bg-indigo-500/10 text-indigo-300">
+                          {booking.category === 'SIDEARM' ? 'Sidearm'
+                            : booking.category === 'COACHING' ? 'Coaching'
+                            : booking.category === 'FULL_COURT' ? 'Full Court'
+                            : booking.category === 'CORPORATE_BATCH' ? 'Corporate'
+                            : booking.category === 'NET' ? 'Net only'
+                            : booking.category}
+                        </span>
+                      )}
+                      {booking.assignedMachine && (
+                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-white/[0.04] text-slate-400 font-medium">
+                          {booking.assignedMachine.name}
+                        </span>
+                      )}
+                      {booking.assignedCoach && (
+                        <span className="text-[10px] px-1.5 py-0.5 rounded font-medium bg-amber-500/10 text-amber-300">
+                          Coach: {booking.assignedCoach.name}
+                        </span>
+                      )}
+                      {booking.assignedStaff && (
+                        <span className="text-[10px] px-1.5 py-0.5 rounded font-medium bg-cyan-500/10 text-cyan-300">
+                          Staff: {booking.assignedStaff.name}
+                        </span>
+                      )}
+                      {Array.isArray(booking.resourceAssignments)
+                        && booking.resourceAssignments.length > 0
+                        && booking.category !== 'MACHINE' && (
+                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-white/[0.04] text-slate-400 font-medium"
+                          title={booking.resourceAssignments.map((ra: { resource: { name: string } }) => ra.resource.name).join(', ')}>
+                          {booking.resourceAssignments.length === 1
+                            ? booking.resourceAssignments[0].resource.name
+                            : `${booking.resourceAssignments.length} nets`}
+                        </span>
+                      )}
+                      {booking.operationMode && (!booking.category || booking.category === 'MACHINE') && (
                         <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${booking.operationMode === 'SELF_OPERATE' ? 'bg-orange-500/10 text-orange-400' : 'bg-blue-500/10 text-blue-400'}`}>
                           {booking.operationMode === 'SELF_OPERATE' ? 'Self' : 'Operator'}
                         </span>
@@ -786,15 +885,55 @@ function AdminBookingsContent() {
                           Cricket Kit{booking.kitRentalCharge ? ` (₹${booking.kitRentalCharge})` : ''}
                         </span>
                       )}
-                      {booking.packageBooking?.userPackage?.package?.name && (
-                        <span className="text-[10px] px-1.5 py-0.5 rounded font-medium bg-purple-500/10 text-purple-400">
-                          📦 {booking.packageBooking.userPackage.package.name}
-                        </span>
+                      {booking.packageBooking ? (
+                        <div className="flex flex-col">
+                          <span className="text-sm font-medium text-slate-300">Package Session</span>
+                          <span className="text-[10px] text-slate-500">
+                            📦 {booking.packageBooking.userPackage.package.name}
+                          </span>
+                        </div>
+                      ) : (
+                        <div className="flex flex-col">
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-sm font-bold text-white flex items-center">
+                              <IndianRupee className="w-3 h-3" />{booking.price || 0}
+                            </span>
+                            {(() => {
+                              if (booking.paymentMethod === 'CASH') {
+                                return <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-400 font-medium">Cash</span>;
+                              }
+                              const payment = booking.payments?.[0];
+                              if (!payment) {
+                                if (booking.paymentMethod === 'WALLET') return <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-400 font-medium">Wallet</span>;
+                                if (booking.paymentMethod === 'ONLINE') return <span className="text-[10px] px-1.5 py-0.5 rounded bg-purple-500/10 text-purple-400 font-medium">Online</span>;
+                                return booking.paymentMethod ? <span className="text-[10px] px-1.5 py-0.5 rounded bg-white/5 text-slate-400 font-medium">{booking.paymentMethod}</span> : null;
+                              }
+                              const meta = payment.metadata as any;
+                              const wallet = meta?.walletDeduction || 0;
+                              const online = payment.amount || 0;
+                              if (wallet > 0 && online > 0) {
+                                return (
+                                  <div className="flex items-center gap-1">
+                                    <span className="text-[9px] px-1 py-0.5 rounded bg-blue-500/10 text-blue-400 border border-blue-500/20">W: ₹{wallet}</span>
+                                    <span className="text-[9px] px-1 py-0.5 rounded bg-purple-500/10 text-purple-400 border border-purple-500/20">O: ₹{online}</span>
+                                  </div>
+                                );
+                              }
+                              if (wallet > 0) return <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-400 font-medium">Wallet</span>;
+                              return <span className="text-[10px] px-1.5 py-0.5 rounded bg-purple-500/10 text-purple-400 font-medium">Online</span>;
+                            })()}
+                          </div>
+                        </div>
                       )}
                     </div>
 
-                    {/* Operator Assignment */}
-                    {booking.operationMode === 'WITH_OPERATOR' && (
+                    {/* Operator Assignment — MACHINE only. NET / SIDEARM /
+                        COACHING / FULL_COURT / CORPORATE_BATCH have
+                        their staff (coach / specialist) shown above as
+                        chips; surfacing an operator selector on those
+                        rows was misleading. */}
+                    {booking.operationMode === 'WITH_OPERATOR'
+                      && (!booking.category || booking.category === 'MACHINE') && (
                       <div className="flex items-center gap-2 mb-2.5">
                         <span className="text-[10px] text-slate-500">Operator:</span>
                         <select
@@ -909,9 +1048,37 @@ function AdminBookingsContent() {
                           )}
                         </td>
                         <td className="px-5 py-3.5">
-                          <div className="flex items-center gap-1.5">
+                          <div className="flex items-center gap-1.5 flex-wrap">
                             <span className={`w-2 h-2 rounded-full ${ballTypeConfig[booking.ballType] || 'bg-gray-400'}`}></span>
                             <span className="text-sm text-slate-300">{booking.ballType}</span>
+                            {/* Machine name pill — shows the specific
+                                machine the booking landed on. For ABCA
+                                bookings this comes from the legacy
+                                `machineId` enum (GRAVITY/YANTRA/...);
+                                for Toplay (resource-based) it comes
+                                from `assignedMachine.shortName ??
+                                assignedMachine.name`. Previously the
+                                TYPE column only showed the ball type
+                                + Op/Self pills, so admins couldn't tell
+                                Yantra-vs-Leverage at a glance. */}
+                            {(() => {
+                              const machineLabel = booking.machineId
+                                ? (booking.machineId === 'GRAVITY' ? 'Gravity'
+                                  : booking.machineId === 'YANTRA' ? 'Yantra'
+                                  : booking.machineId === 'LEVERAGE_INDOOR' ? 'Tennis In'
+                                  : booking.machineId === 'LEVERAGE_OUTDOOR' ? 'Tennis Out'
+                                  : booking.machineId)
+                                : booking.assignedMachine
+                                  ? (booking.assignedMachine.shortName || booking.assignedMachine.name)
+                                  : null;
+                              return machineLabel
+                                ? (
+                                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-white/[0.06] text-slate-300 font-medium">
+                                    {machineLabel}
+                                  </span>
+                                )
+                                : null;
+                            })()}
                             {booking.operationMode && (
                               <span className={`text-[10px] px-1.5 py-0.5 rounded ${booking.operationMode === 'SELF_OPERATE' ? 'bg-orange-500/10 text-orange-400' : 'bg-blue-500/10 text-blue-400'}`}>
                                 {booking.operationMode === 'SELF_OPERATE' ? 'Self' : 'Op'}
@@ -926,7 +1093,12 @@ function AdminBookingsContent() {
                         </td>
                         <td className="px-5 py-3.5">
                           {booking.packageBooking ? (
-                            <span className="text-[10px] text-slate-500">—</span>
+                            <div className="flex flex-col">
+                              <span className="text-xs text-slate-400">Package Session</span>
+                              <span className="text-[10px] text-slate-500 truncate max-w-[120px]">
+                                {booking.packageBooking.userPackage.package.name}
+                              </span>
+                            </div>
                           ) : isEditing ? (
                             <div className="flex items-center gap-1">
                               <span className="text-xs text-slate-400">₹</span>
@@ -946,20 +1118,43 @@ function AdminBookingsContent() {
                               </button>
                             </div>
                           ) : booking.price != null ? (
-                            <button onClick={() => startEditPrice(booking)} className="text-sm text-white hover:text-accent transition-colors cursor-pointer group">
-                              <span className="flex items-center gap-0.5">
-                                <IndianRupee className="w-3 h-3" />{booking.price}
-                                <Pencil className="w-3 h-3 ml-1 opacity-0 group-hover:opacity-50" />
-                              </span>
+                            <div className="flex flex-col gap-1">
+                              <button onClick={() => startEditPrice(booking)} className="text-sm text-white hover:text-accent transition-colors cursor-pointer group w-fit">
+                                <span className="flex items-center gap-0.5 font-bold">
+                                  <IndianRupee className="w-3 h-3" />{booking.price}
+                                  <Pencil className="w-3 h-3 ml-1 opacity-0 group-hover:opacity-50" />
+                                </span>
+                              </button>
+                              {(() => {
+                                if (booking.paymentMethod === 'CASH') {
+                                  return <span className="text-[9px] px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-400 font-medium w-fit border border-emerald-500/20">Cash Payment</span>;
+                                }
+                                const payment = booking.payments?.[0];
+                                if (!payment) {
+                                  if (booking.paymentMethod === 'WALLET') return <span className="text-[9px] px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-400 font-medium w-fit border border-blue-500/20">Wallet Only</span>;
+                                  if (booking.paymentMethod === 'ONLINE') return <span className="text-[9px] px-1.5 py-0.5 rounded bg-purple-500/10 text-purple-400 font-medium w-fit border border-purple-500/20">Online Only</span>;
+                                  return booking.paymentMethod ? <span className="text-[9px] px-1.5 py-0.5 rounded bg-white/5 text-slate-500 font-medium w-fit border border-white/10">{booking.paymentMethod}</span> : null;
+                                }
+                                const meta = payment.metadata as any;
+                                const wallet = meta?.walletDeduction || 0;
+                                const online = payment.amount || 0;
+                                if (wallet > 0 && online > 0) {
+                                  return (
+                                    <div className="flex flex-col gap-0.5">
+                                      <span className="text-[9px] text-blue-400/80">Wallet: ₹{wallet}</span>
+                                      <span className="text-[9px] text-purple-400/80">Online: ₹{online}</span>
+                                    </div>
+                                  );
+                                }
+                                if (wallet > 0) return <span className="text-[9px] px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-400 font-medium w-fit border border-blue-500/20">Wallet Payment</span>;
+                                return <span className="text-[9px] px-1.5 py-0.5 rounded bg-purple-500/10 text-purple-400 font-medium w-fit border border-purple-500/20">Online Payment</span>;
+                              })()}
                               {booking.discountAmount > 0 && (
-                                <div className="text-[10px] text-green-400">-{booking.discountAmount} discount</div>
+                                <div className="text-[9px] text-green-400/70 italic">₹{booking.discountAmount} discount applied</div>
                               )}
-                              {booking.kitRental && booking.kitRentalCharge && (
-                                <div className="text-[10px] text-teal-400">incl. ₹{booking.kitRentalCharge} kit</div>
-                              )}
-                            </button>
+                            </div>
                           ) : (
-                            <button onClick={() => startEditPrice(booking)} className="text-xs text-slate-500 hover:text-accent cursor-pointer">Set price</button>
+                            <button onClick={() => startEditPrice(booking)} className="text-xs text-slate-500 hover:text-accent cursor-pointer italic">No price set</button>
                           )}
                         </td>
                         <td className="px-5 py-3.5">

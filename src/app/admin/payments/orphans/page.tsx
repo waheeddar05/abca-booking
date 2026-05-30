@@ -8,9 +8,9 @@ import { AdminPageHeader } from '@/components/admin/AdminPageHeader';
 import { AdminCard } from '@/components/admin/AdminCard';
 
 /**
- * Admin tool: list of "orphaned captures" — payments where Razorpay
- * says CAPTURED but no booking exists. Built reactively to the
- * support tickets where users paid but didn't get a slot.
+ * Super-admin tool: list of "orphaned captures" — payments where
+ * Razorpay says CAPTURED but no booking exists. Built reactively to
+ * the support tickets where users paid but didn't get a slot.
  *
  * Two recovery paths per row:
  *   - Retry booking: re-runs the same booking pipeline using the
@@ -26,6 +26,7 @@ interface OrphanRow {
   currency: string;
   razorpayOrderId: string;
   razorpayPaymentId: string | null;
+  center: { id: string; slug: string; name: string } | null;
   user: { id: string; name: string | null; email: string | null; mobileNumber: string | null } | null;
   failureReason: string | null;
   recovery: { flaggedAt?: string; reason?: string; handled?: boolean } | null;
@@ -36,8 +37,7 @@ interface OrphanRow {
 export default function OrphanedPaymentsPage() {
   const { data: session, status } = useSession();
   const router = useRouter();
-  const role = (session?.user as { role?: string })?.role;
-  const isAdmin = role === 'ADMIN';
+  const isSuperAdmin = (session?.user as { isSuperAdmin?: boolean })?.isSuperAdmin === true;
 
   const [rows, setRows] = useState<OrphanRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -46,8 +46,8 @@ export default function OrphanedPaymentsPage() {
   const [toast, setToast] = useState<{ ok: boolean; text: string } | null>(null);
 
   useEffect(() => {
-    if (status === 'authenticated' && !isAdmin) router.replace('/admin');
-  }, [status, isAdmin, router]);
+    if (status === 'authenticated' && !isSuperAdmin) router.replace('/admin');
+  }, [status, isSuperAdmin, router]);
 
   const refresh = async () => {
     setLoading(true);
@@ -68,8 +68,8 @@ export default function OrphanedPaymentsPage() {
   };
 
   useEffect(() => {
-    if (isAdmin) refresh();
-  }, [isAdmin]);
+    if (isSuperAdmin) refresh();
+  }, [isSuperAdmin]);
 
   const act = async (id: string, action: 'retry' | 'refund') => {
     if (action === 'refund' && !confirm('Refund this payment to the user? This is irreversible.')) return;
@@ -97,8 +97,8 @@ export default function OrphanedPaymentsPage() {
     }
   };
 
-  if (!isAdmin) {
-    return <div className="p-6 text-slate-400 text-sm">Admin access required.</div>;
+  if (!isSuperAdmin) {
+    return <div className="p-6 text-slate-400 text-sm">Super admin access required.</div>;
   }
 
   return (
@@ -159,6 +159,9 @@ export default function OrphanedPaymentsPage() {
                       <div className="flex items-center gap-2 flex-wrap mb-0.5">
                         <span className="text-sm font-semibold text-white">
                           {row.user?.name || row.user?.email || row.user?.mobileNumber || '(no user)'}
+                        </span>
+                        <span className="text-[10px] px-1.5 py-0.5 rounded border bg-purple-500/10 text-purple-300 border-purple-500/30 uppercase tracking-wide">
+                          {row.center?.name ?? row.center?.slug ?? '—'}
                         </span>
                         <span className="text-[10px] flex items-center text-emerald-400 font-semibold">
                           <IndianRupee className="w-3 h-3" />{row.amount}

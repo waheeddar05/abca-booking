@@ -1,7 +1,7 @@
 'use client';
 
 import { format } from 'date-fns';
-import { IndianRupee, Calendar, Clock, User, Phone, Headset } from 'lucide-react';
+import { IndianRupee, Calendar, Clock, User, Phone, Headset, MapPin } from 'lucide-react';
 import { getDisplayStatus } from '@/lib/booking-utils';
 
 // ─── Types ───────────────────────────────────────────────
@@ -148,26 +148,129 @@ export function BookingCard({ booking, role, renderActions, renderPrice, renderO
         )}
       </div>
 
-      {/* Row 3: Tags */}
+      {/* Center info — name + city + map + phone. Hidden when the
+          booking doesn't carry a center snapshot (legacy rows or admin
+          views that don't include the join). The map link opens in a
+          new tab; the phone is a tel: link. */}
+      {booking.center && (
+        <div className="mb-2 bg-white/[0.02] rounded-lg px-2.5 py-1.5 border border-white/[0.04]">
+          <div className="flex items-center gap-1.5 min-w-0">
+            <MapPin className="w-3 h-3 text-accent/70 flex-shrink-0" />
+            <div className="min-w-0 flex-1">
+              <div className="text-[11px] font-semibold text-white truncate">
+                {booking.center.shortName || booking.center.name}
+              </div>
+              {(booking.center.addressLine1 || booking.center.city) && (
+                <div className="text-[10px] text-slate-400 truncate">
+                  {[booking.center.addressLine1, booking.center.city].filter(Boolean).join(', ')}
+                </div>
+              )}
+            </div>
+            {/* Map + Call action buttons. Previously they were two
+                anchor tags side-by-side with only the parent flex
+                container's `gap-1.5` between them — too tight, users
+                reported accidental taps. Each is now its own padded
+                pill with explicit ml-1 between them and a larger tap
+                target. */}
+            {booking.center.mapUrl && (
+              <a
+                href={booking.center.mapUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="ml-1 inline-flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-medium text-accent bg-accent/10 hover:bg-accent/20 active:scale-95 flex-shrink-0"
+              >
+                <MapPin className="w-2.5 h-2.5" /> Map
+              </a>
+            )}
+            {booking.center.contactPhone && (
+              <a
+                href={`tel:${booking.center.contactPhone}`}
+                className="ml-1.5 inline-flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-medium text-accent bg-accent/10 hover:bg-accent/20 active:scale-95 flex-shrink-0"
+              >
+                <Phone className="w-2.5 h-2.5" /> Call
+              </a>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Row 3: Tags
+          Resource-based bookings store TENNIS/WITH_OPERATOR as
+          placeholders for the columns the schema can't null out
+          (machineType, operationMode). Those placeholders are
+          meaningless for NET / SIDEARM / COACHING / FULL_COURT /
+          CORPORATE_BATCH bookings — surfacing them as chips ("TENNIS"
+          on a sidearm session, "Operator" on a bare-net booking)
+          was actively misleading. Show ball / machine label / operator
+          chips only for MACHINE bookings; the others get just the
+          category chip + the assigned-coach/staff/machine names. */}
       <div className="flex flex-wrap items-center gap-1 mb-2">
-        <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${
-          booking.ballType === 'LEATHER' ? 'bg-red-500/10 text-red-400' :
-          booking.ballType === 'TENNIS' ? 'bg-green-500/10 text-green-400' :
-          'bg-blue-500/10 text-blue-400'
-        }`}>
-          {booking.ballType}
-        </span>
-        {booking.machineId && (
+        {/* Default category for ABCA rows is null/MACHINE — treat
+            both as MACHINE so legacy bookings keep their chips. */}
+        {(!booking.category || booking.category === 'MACHINE') && (
+          <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${
+            booking.ballType === 'LEATHER' ? 'bg-red-500/10 text-red-400' :
+            booking.ballType === 'TENNIS' ? 'bg-green-500/10 text-green-400' :
+            'bg-blue-500/10 text-blue-400'
+          }`}>
+            {booking.ballType}
+          </span>
+        )}
+        {booking.machineId && (!booking.category || booking.category === 'MACHINE') && (
           <span className="text-[10px] px-1.5 py-0.5 rounded bg-white/[0.04] text-slate-400 font-medium">
             {getMachineLabel(booking.machineId)}
           </span>
         )}
+        {/* Pitch chip — meaningful for MACHINE / SIDEARM / NET.
+            FULL_COURT spans every net so pitch isn't a property of
+            the booking; COACHING / CORPORATE_BATCH don't pin a pitch. */}
         {booking.pitchType && (
+          !booking.category
+          || booking.category === 'MACHINE'
+          || booking.category === 'SIDEARM'
+          || booking.category === 'NET'
+        ) && (
           <span className="text-[10px] px-1.5 py-0.5 rounded bg-white/[0.04] text-slate-400 font-medium">
             {booking.pitchType === 'ASTRO' ? 'Astro' : booking.pitchType === 'CEMENT' ? 'Cement' : 'Natural'}
           </span>
         )}
-        {booking.operationMode && (
+        {/* Resource-based booking chips. Hidden on ABCA rows (category
+            defaults to MACHINE everywhere) — only render the category
+            tag for non-MACHINE categories. Coach/staff name is
+            surfaced as a chip so the staff dashboard reads consistently
+            with the user-side selection. */}
+        {booking.category && booking.category !== 'MACHINE' && (
+          <span className="text-[10px] px-1.5 py-0.5 rounded font-medium bg-indigo-500/10 text-indigo-300">
+            {booking.category === 'SIDEARM' ? 'Sidearm'
+              : booking.category === 'COACHING' ? 'Coaching'
+              : booking.category === 'FULL_COURT' ? 'Full Court'
+              : booking.category === 'CORPORATE_BATCH' ? 'Corporate'
+              : booking.category === 'NET' ? 'Net only'
+              : booking.category}
+          </span>
+        )}
+        {booking.assignedMachineName && (
+          <span className="text-[10px] px-1.5 py-0.5 rounded bg-white/[0.04] text-slate-400 font-medium">
+            {booking.assignedMachineName}
+          </span>
+        )}
+        {booking.assignedCoachName && (
+          <span className="text-[10px] px-1.5 py-0.5 rounded font-medium bg-amber-500/10 text-amber-300">
+            Coach: {booking.assignedCoachName}
+          </span>
+        )}
+        {booking.assignedStaffName && (
+          <span className="text-[10px] px-1.5 py-0.5 rounded font-medium bg-cyan-500/10 text-cyan-300">
+            Staff: {booking.assignedStaffName}
+          </span>
+        )}
+        {/* Operator chip — only MACHINE bookings actually have a
+            with-operator vs self-operate concept. NET / COACHING /
+            SIDEARM / FULL_COURT / CORPORATE_BATCH store the column as
+            'WITH_OPERATOR' as a placeholder; rendering it as a chip
+            implied those sessions have a machine operator, which they
+            don't (coach / staff are surfaced separately above). */}
+        {booking.operationMode && (!booking.category || booking.category === 'MACHINE') && (
           <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${
             booking.operationMode === 'SELF_OPERATE' ? 'bg-orange-500/10 text-orange-400' : 'bg-blue-500/10 text-blue-400'
           }`}>
@@ -186,41 +289,84 @@ export function BookingCard({ booking, role, renderActions, renderPrice, renderO
         )}
         {booking.paymentMethod && (
           <span className="text-[10px] px-1.5 py-0.5 rounded font-medium bg-white/[0.04] text-slate-500">
-            {booking.paymentMethod === 'CASH' ? 'Cash' : booking.paymentMethod === 'WALLET' ? 'Wallet' : 'Online'}
+            {(() => {
+              if (booking.isPackageBooking || !!booking.packageBooking) return 'Package';
+              // Check for split payment
+              const meta = (booking.payment?.metadata || {}) as any;
+              const walletPortion = typeof meta.walletDeduction === 'number' ? meta.walletDeduction : 0;
+              const onlinePortion = booking.payment?.amount || 0;
+              if (walletPortion > 0 && onlinePortion > 0) return 'Wallet + Online';
+              if (booking.paymentMethod === 'WALLET' || walletPortion > 0) return 'Wallet';
+              if (booking.paymentMethod === 'CASH') return 'Cash';
+              return 'Online';
+            })()}
           </span>
         )}
       </div>
 
-      {/* Operator Info */}
-      {renderOperatorAssignment ? renderOperatorAssignment(booking) : (
-        booking.operationMode === 'WITH_OPERATOR' && (
-          <div className="flex items-center gap-2 mb-2 bg-white/[0.02] rounded-lg px-2.5 py-1.5 border border-white/[0.04]">
-            <Headset className="w-3 h-3 text-accent/60 flex-shrink-0" />
-            {(booking.operatorName || booking.operator?.name) ? (
-              <div className="flex items-center gap-2 min-w-0">
-                <span className="text-[11px] text-white truncate">{booking.operatorName || booking.operator?.name}</span>
-                {(booking.operatorMobile || booking.operator?.mobileNumber) && (
-                  <a
-                    href={`tel:${booking.operatorMobile || booking.operator?.mobileNumber}`}
-                    className="flex items-center gap-0.5 text-[10px] text-accent hover:text-accent-light transition-colors flex-shrink-0"
-                  >
-                    <Phone className="w-2.5 h-2.5" />
-                    {booking.operatorMobile || booking.operator?.mobileNumber}
-                  </a>
-                )}
-              </div>
-            ) : (
-              <span className="text-[11px] text-slate-500">Not assigned</span>
-            )}
-          </div>
+      {/* Operator info block — only meaningful for MACHINE bookings.
+          NET / SIDEARM / COACHING / FULL_COURT / CORPORATE_BATCH carry
+          'WITH_OPERATOR' as a schema-required placeholder; rendering
+          "Not assigned" under those rows confused users into thinking
+          someone was supposed to be assigned. */}
+      {(!booking.category || booking.category === 'MACHINE') && (
+        renderOperatorAssignment ? renderOperatorAssignment(booking) : (
+          booking.operationMode === 'WITH_OPERATOR' && (
+            <div className="flex items-center gap-2 mb-2 bg-white/[0.02] rounded-lg px-2.5 py-1.5 border border-white/[0.04]">
+              <Headset className="w-3 h-3 text-accent/60 flex-shrink-0" />
+              {(booking.operatorName || booking.operator?.name) ? (
+                <div className="flex items-center gap-2 min-w-0">
+                  <span className="text-[11px] text-white truncate">{booking.operatorName || booking.operator?.name}</span>
+                  {(booking.operatorMobile || booking.operator?.mobileNumber) && (
+                    <a
+                      href={`tel:${booking.operatorMobile || booking.operator?.mobileNumber}`}
+                      className="flex items-center gap-0.5 text-[10px] text-accent hover:text-accent-light transition-colors flex-shrink-0"
+                    >
+                      <Phone className="w-2.5 h-2.5" />
+                      {booking.operatorMobile || booking.operator?.mobileNumber}
+                    </a>
+                  )}
+                </div>
+              ) : (
+                <span className="text-[11px] text-slate-500">Not assigned</span>
+              )}
+            </div>
+          )
         )
       )}
 
-      {/* Self Operate indicator for non-operator-required bookings */}
-      {booking.operationMode === 'SELF_OPERATE' && (
+      {/* Self Operate indicator — same gate. */}
+      {booking.operationMode === 'SELF_OPERATE'
+        && (!booking.category || booking.category === 'MACHINE') && (
         <div className="flex items-center gap-2 mb-2 bg-amber-500/5 rounded-lg px-2.5 py-1.5 border border-amber-500/10">
           <Headset className="w-3 h-3 text-amber-400/60 flex-shrink-0" />
           <span className="text-[11px] text-amber-400">Self Operate</span>
+        </div>
+      )}
+
+      {/* Ground Staff contact — surfaced for Cricket Nets (NET) and
+          Full Indoor Court (FULL_COURT) bookings. Those categories
+          don't have a per-booking operator / coach / sidearm row so
+          the user has nobody to call on arrival. Falls back silently
+          when no GROUND_STAFF membership is configured at the center. */}
+      {(booking.category === 'NET' || booking.category === 'FULL_COURT')
+        && booking.center?.groundStaff && (
+        <div className="flex items-center gap-2 mb-2 bg-white/[0.02] rounded-lg px-2.5 py-1.5 border border-white/[0.04]">
+          <User className="w-3 h-3 text-teal-400/70 flex-shrink-0" />
+          <div className="flex items-center gap-2 min-w-0 flex-1">
+            <span className="text-[11px] text-slate-400 flex-shrink-0">Ground Staff:</span>
+            <span className="text-[11px] text-white truncate">
+              {booking.center.groundStaff.name || 'Available on-site'}
+            </span>
+          </div>
+          {booking.center.groundStaff.mobileNumber && (
+            <a
+              href={`tel:${booking.center.groundStaff.mobileNumber}`}
+              className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-medium text-accent bg-accent/10 hover:bg-accent/20 active:scale-95 flex-shrink-0"
+            >
+              <Phone className="w-2.5 h-2.5" /> Call
+            </a>
+          )}
         </div>
       )}
 

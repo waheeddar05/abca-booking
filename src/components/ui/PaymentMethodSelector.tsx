@@ -7,6 +7,7 @@ interface PaymentMethodSelectorProps {
   selected: 'ONLINE' | 'CASH';
   onChange: (method: 'ONLINE' | 'CASH') => void;
   disabled?: boolean;
+  showOnline?: boolean;
   showCash?: boolean;
   showWallet?: boolean;
   totalAmount?: number;
@@ -20,6 +21,7 @@ export function PaymentMethodSelector({
   selected,
   onChange,
   disabled,
+  showOnline = true,
   showCash = true,
   showWallet,
   totalAmount = 0,
@@ -115,7 +117,8 @@ export function PaymentMethodSelector({
             </p>
           )}
           <div className="flex flex-col sm:flex-row gap-2.5">
-            {/* Pay Online */}
+            {/* Pay Online — only shown when the gateway is enabled. */}
+            {showOnline && (
             <button
               type="button"
               disabled={disabled}
@@ -154,6 +157,7 @@ export function PaymentMethodSelector({
                 </div>
               </div>
             </button>
+            )}
 
             {/* Pay at Center — only shown when cash payment is enabled */}
             {showCash && (
