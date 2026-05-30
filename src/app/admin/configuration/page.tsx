@@ -902,7 +902,7 @@ export default function ConfigurationPage() {
                 <div className="bg-white/[0.02] rounded-xl p-3 border border-white/[0.05]">
                   <p className="text-[11px] font-bold text-slate-300 mb-2 flex items-center gap-1.5">
                     <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
-                    Morning Slab
+                    Morning Hours
                   </p>
                   <div className="grid grid-cols-2 gap-2">
                     <div>
@@ -930,7 +930,7 @@ export default function ConfigurationPage() {
                 <div className="bg-white/[0.02] rounded-xl p-3 border border-white/[0.05]">
                   <p className="text-[11px] font-bold text-slate-300 mb-2 flex items-center gap-1.5">
                     <span className="w-1.5 h-1.5 rounded-full bg-indigo-400" />
-                    Evening Slab
+                    Evening Hours
                   </p>
                   <div className="grid grid-cols-2 gap-2">
                     <div>
@@ -990,22 +990,22 @@ export default function ConfigurationPage() {
                     </p>
                     <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                       <PriceField
-                        label="Morn / Slot"
+                        label="Morning · Single slot"
                         value={pitchPricing.morning.single}
                         onChange={v => updatePricing([activePricingTab, pitch, 'morning', 'single'], v)}
                       />
                       <PriceField
-                        label="Morn / 2 Cons."
+                        label="Morning · 2 consecutive"
                         value={pitchPricing.morning.consecutive}
                         onChange={v => updatePricing([activePricingTab, pitch, 'morning', 'consecutive'], v)}
                       />
                       <PriceField
-                        label="Eve / Slot"
+                        label="Evening · Single slot"
                         value={pitchPricing.evening.single}
                         onChange={v => updatePricing([activePricingTab, pitch, 'evening', 'single'], v)}
                       />
                       <PriceField
-                        label="Eve / 2 Cons."
+                        label="Evening · 2 consecutive"
                         value={pitchPricing.evening.consecutive}
                         onChange={v => updatePricing([activePricingTab, pitch, 'evening', 'consecutive'], v)}
                       />
@@ -1046,7 +1046,7 @@ export default function ConfigurationPage() {
                 <div className="bg-white/[0.02] rounded-xl p-3 border border-white/[0.05]">
                   <p className="text-[11px] font-bold text-slate-300 mb-2 flex items-center gap-1.5">
                     <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
-                    Morning Slab
+                    Morning Hours
                   </p>
                   <div className="grid grid-cols-2 gap-2">
                     <div>
@@ -1074,7 +1074,7 @@ export default function ConfigurationPage() {
                 <div className="bg-white/[0.02] rounded-xl p-3 border border-white/[0.05]">
                   <p className="text-[11px] font-bold text-slate-300 mb-2 flex items-center gap-1.5">
                     <span className="w-1.5 h-1.5 rounded-full bg-indigo-400" />
-                    Evening Slab
+                    Evening Hours
                   </p>
                   <div className="grid grid-cols-2 gap-2">
                     <div>
