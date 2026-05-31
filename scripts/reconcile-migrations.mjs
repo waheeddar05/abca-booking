@@ -224,6 +224,51 @@ async function main() {
     } catch (e) {
       console.error('   (migrate diff failed: ' + (e?.message || e) + ')');
     }
+
+    // ── Data inventory: everything needed to author a data-SAFE corrective
+    //    migration (all read-only SELECTs). ──────────────────────────────
+    console.error('\n──────── DATA INVENTORY (read-only) ────────');
+    const q = async (label, sql) => {
+      try {
+        const r = await prisma.$queryRawUnsafe(sql);
+        console.error(`\n• ${label}:`);
+        console.error(JSON.stringify(r, (_k, v) => (typeof v === 'bigint' ? Number(v) : v), 2));
+      } catch (e) {
+        console.error(`\n• ${label}: ERROR ${e?.message || e}`);
+      }
+    };
+
+    await q('legacy MachineType enum labels',
+      `SELECT e.enumlabel FROM pg_enum e JOIN pg_type t ON e.enumtypid=t.oid WHERE t.typname='MachineType' ORDER BY e.enumsortorder`);
+    await q('columns still using the legacy MachineType enum',
+      `SELECT table_name, column_name FROM information_schema.columns WHERE table_schema='public' AND udt_name='MachineType'`);
+    await q('MachineType_archived columns',
+      `SELECT column_name, data_type, is_nullable FROM information_schema.columns WHERE table_schema='public' AND table_name='MachineType_archived' ORDER BY ordinal_position`);
+    await q('MachineType_archived row count',
+      `SELECT count(*)::int AS n FROM "MachineType_archived"`);
+    await q('MachineType_archived sample rows',
+      `SELECT * FROM "MachineType_archived" LIMIT 20`);
+    await q('Machine: total / with machineTypeId / orphaned machineTypeId',
+      `SELECT count(*)::int AS total,
+              count("machineTypeId")::int AS with_type,
+              count(*) FILTER (WHERE m."machineTypeId" IS NOT NULL AND a.id IS NULL)::int AS orphaned
+         FROM "Machine" m
+         LEFT JOIN "MachineType_archived" a ON a.id = m."machineTypeId"`);
+    await q('Package: count + distinct machineType values',
+      `SELECT "machineType"::text AS machine_type, count(*)::int AS n FROM "Package" GROUP BY 1 ORDER BY 2 DESC`);
+    await q('Package: rows with non-empty pitchTypes',
+      `SELECT count(*) FILTER (WHERE "pitchTypes" IS NOT NULL AND array_length("pitchTypes",1) > 0)::int AS with_pitchtypes,
+              count(*)::int AS total FROM "Package"`);
+
+    // centerId NULL counts on the 10 tables the diff wants to set NOT NULL.
+    const centerIdTables = ['Booking','Payment','Slot','Wallet','BlockedSlot','Package','OperatorAssignment','PromotionalOffer','RecurringSlotDiscount','CashPaymentUser'];
+    for (const t of centerIdTables) {
+      await q(`${t}: NULL centerId / total`,
+        `SELECT count(*) FILTER (WHERE "centerId" IS NULL)::int AS null_center, count(*)::int AS total FROM "${t}"`);
+    }
+    await q('seeded centers',
+      `SELECT id, slug, "bookingModel"::text FROM "Center" ORDER BY id`);
+
     process.exit(2);
   }
 
