@@ -208,6 +208,22 @@ async function main() {
     console.error('   MISSING:', f.missing.join(', '));
     console.error('\n   This needs a hand-written corrective migration (prisma migrate diff)');
     console.error('   to add the missing objects — do NOT mark it applied blindly.');
+
+    // ── Diagnostics: dump the full recorded list + the EXACT schema gap ──
+    // (read-only; `migrate diff` computes SQL, it never touches the DB).
+    console.error('\n──────── recorded migrations (' + recorded.size + ') ────────');
+    console.error([...recorded].sort().join('\n'));
+    console.error('\n──────── prisma migrate diff (DB → schema.prisma) ────────');
+    console.error('-- This is the SQL that would bring the live DB up to schema.prisma.');
+    console.error('-- Review it; it is the basis for the hand-written corrective migration.\n');
+    try {
+      execSync(
+        'npx prisma migrate diff --from-url "$DATABASE_URL" --to-schema-datamodel prisma/schema.prisma --script',
+        { stdio: 'inherit' }
+      );
+    } catch (e) {
+      console.error('   (migrate diff failed: ' + (e?.message || e) + ')');
+    }
     process.exit(2);
   }
 
