@@ -744,7 +744,9 @@ export async function executeSlotBooking(
             // can still creep close to Prisma's 5s default. Generous
             // bounds — serializable isolation is the real guard.
             maxWait: 10_000,
-            timeout: 30_000,
+            // Accelerate caps interactive transactions at 15_000ms; staying
+            // at/under that avoids P6005 in production (Prisma Postgres).
+            timeout: 15_000,
           });
 
           break;
