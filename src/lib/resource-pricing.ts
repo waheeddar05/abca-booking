@@ -240,7 +240,7 @@ export async function getResourceSlotPrice(args: PriceLookup): Promise<number> {
       const r = pickRate(legacy?.[slab], cons);
       if (r != null) return r;
     }
-    return pickRate(pricing.categoryRates.MACHINE[slab], cons) ?? 0;
+    return pickRate(pricing.categoryRates.MACHINE?.[slab], cons) ?? 0;
   }
 
   if (args.category === 'SIDEARM' && args.pitchType) {
@@ -270,7 +270,7 @@ export async function getResourceSlotPrice(args: PriceLookup): Promise<number> {
     if (r != null) return r;
   }
 
-  return pickRate(pricing.categoryRates[args.category][slab], cons) ?? 0;
+  return pickRate(pricing.categoryRates[args.category]?.[slab], cons) ?? 0;
 }
 
 /**
