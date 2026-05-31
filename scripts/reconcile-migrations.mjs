@@ -240,5 +240,21 @@ async function main() {
 }
 
 main()
-  .catch((e) => { console.error(e); process.exit(1); })
+  .catch((e) => {
+    // Connection failures (no DB reachable — e.g. a preview build with no
+    // DATABASE_URL) must NOT break the build: there's nothing to reconcile
+    // when we can't see the DB. Exit 0 so the pipeline continues, exactly
+    // like the build's tolerant `prisma migrate deploy || echo`.
+    const code = e?.errorCode || e?.code || '';
+    const msg = String(e?.message || e);
+    const isConnError = code === 'P1000' || code === 'P1001' || code === 'P1002'
+      || code === 'P1003' || code === 'P1017'
+      || /can't reach database|Connection refused|ENOTFOUND|ETIMEDOUT/i.test(msg);
+    if (isConnError) {
+      console.warn(`\n⚠️  reconcile-migrations: DB unreachable (${code || 'conn error'}) — skipping reconciliation.`);
+      process.exit(0);
+    }
+    console.error(e);
+    process.exit(1);
+  })
   .finally(() => prisma.$disconnect());
