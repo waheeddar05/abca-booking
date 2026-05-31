@@ -1236,7 +1236,9 @@ async function executeResourceBookingCore(
             // generous headroom — the serializable isolation already
             // protects against concurrent grabs.
             maxWait: 10_000,
-            timeout: 30_000,
+            // Accelerate caps interactive transactions at 15_000ms; staying
+            // at/under that avoids P6005 in production (Prisma Postgres).
+            timeout: 15_000,
           },
         );
 
