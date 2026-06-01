@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { Plus, Loader2, Trash2, Pencil, Check, X } from 'lucide-react';
 import { Field, TextInput, SelectInput, PrimaryButton, SecondaryButton, Banner } from './centerForms';
+import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 
 type PitchTypeId = 'ASTRO' | 'TURF' | 'CEMENT' | 'NATURAL';
 type BallTypeId = 'TENNIS' | 'LEATHER' | 'MACHINE';
@@ -43,6 +44,8 @@ export function CenterMachinesTab({ centerId }: { centerId: string }) {
   const [loading, setLoading] = useState(true);
   const [showNew, setShowNew] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [confirmDeactivateId, setConfirmDeactivateId] = useState<string | null>(null);
+  const [deactivating, setDeactivating] = useState(false);
 
   // We no longer fetch resources here — the "default lane" picker has
   // been removed from the simplified editor. Resources are still
@@ -63,10 +66,18 @@ export function CenterMachinesTab({ centerId }: { centerId: string }) {
 
   useEffect(() => { refresh(); }, [centerId]);
 
-  const remove = async (id: string) => {
-    if (!confirm('Deactivate this machine? It will be hidden from new bookings; existing bookings keep their reference.')) return;
-    const res = await fetch(`/api/admin/centers/${centerId}/machines/${id}`, { method: 'DELETE' });
-    if (res.ok) refresh();
+  const confirmDeactivate = async () => {
+    if (!confirmDeactivateId) return;
+    setDeactivating(true);
+    try {
+      const res = await fetch(`/api/admin/centers/${centerId}/machines/${confirmDeactivateId}`, { method: 'DELETE' });
+      if (res.ok) {
+        setConfirmDeactivateId(null);
+        refresh();
+      }
+    } finally {
+      setDeactivating(false);
+    }
   };
 
   if (loading) {
@@ -156,7 +167,7 @@ export function CenterMachinesTab({ centerId }: { centerId: string }) {
                       <Pencil className="w-3.5 h-3.5" />
                     </button>
                     <button
-                      onClick={() => remove(m.id)}
+                      onClick={() => setConfirmDeactivateId(m.id)}
                       className="p-1.5 rounded-lg text-red-400/70 hover:bg-red-500/10 hover:text-red-400 cursor-pointer"
                       title="Deactivate"
                     >
@@ -169,6 +180,17 @@ export function CenterMachinesTab({ centerId }: { centerId: string }) {
           ))}
         </div>
       )}
+
+      <ConfirmDialog
+        open={confirmDeactivateId !== null}
+        title="Deactivate machine?"
+        message="It will be hidden from new bookings; existing bookings keep their reference."
+        confirmLabel="Deactivate"
+        variant="danger"
+        loading={deactivating}
+        onConfirm={confirmDeactivate}
+        onCancel={() => setConfirmDeactivateId(null)}
+      />
     </div>
   );
 }
