@@ -108,8 +108,8 @@ export function CenterResourcesTab({ centerId }: { centerId: string }) {
               {showInactive ? 'Hide' : `Show (${inactiveCount})`}
             </SecondaryButton>
           )}
-          <PrimaryButton onClick={() => setShowNew(true)} className="!px-1.5 !py-1 !text-[9px] rounded-md">
-            <Plus className="w-2.5 h-2.5" /> Add pitch type
+          <PrimaryButton onClick={() => setShowNew(true)} className="shrink-0">
+            <Plus className="w-4 h-4" /> Add pitch type
           </PrimaryButton>
         </div>
       </div>
@@ -148,8 +148,8 @@ export function CenterResourcesTab({ centerId }: { centerId: string }) {
                       <span className="text-xs font-semibold text-white">{r.name}</span>
                       {!r.isActive && <span className="text-[9px] px-1 py-0.5 rounded bg-red-500/10 text-red-400 uppercase tracking-wide">inactive</span>}
                     </div>
-                    <div className="text-[10px] text-slate-500 mt-0.5">
-                      {TYPE_LABELS[r.type]} · cap {r.capacity}
+                    <div className="text-[11px] text-slate-500 mt-0.5 whitespace-nowrap">
+                      {TYPE_LABELS[r.type]} · Capacity {r.capacity}
                     </div>
                   </div>
                   <div className="flex gap-0.5 flex-shrink-0">
