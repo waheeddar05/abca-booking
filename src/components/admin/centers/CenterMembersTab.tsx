@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { useSession } from 'next-auth/react';
 import { Plus, Loader2, Trash2, X, UserPlus, Mail, Phone, CalendarClock, Save, Pencil } from 'lucide-react';
 import { Field, TextInput, SelectInput, PrimaryButton, SecondaryButton, Banner } from './centerForms';
+import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 
 type MembershipRole = 'ADMIN' | 'OPERATOR' | 'COACH' | 'SIDEARM_SPECIALIST' | 'GROUND_STAFF';
 
@@ -44,6 +45,13 @@ export function CenterMembersTab({ centerId }: { centerId: string }) {
   const [loading, setLoading] = useState(true);
   const [showNew, setShowNew] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [pendingConfirm, setPendingConfirm] = useState<{
+    title: string;
+    message: string;
+    confirmLabel: string;
+    onConfirm: () => Promise<void> | void;
+  } | null>(null);
+  const [confirmLoading, setConfirmLoading] = useState(false);
   const { data: session } = useSession();
   const isSuperAdmin = (session?.user as { isSuperAdmin?: boolean })?.isSuperAdmin === true;
 
@@ -62,10 +70,18 @@ export function CenterMembersTab({ centerId }: { centerId: string }) {
 
   useEffect(() => { refresh(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [centerId, filter]);
 
-  const remove = async (id: string) => {
+  const remove = (id: string) => {
     const target = members.find((m) => m.id === id);
     const label = target ? ROLE_LABEL[target.role] : 'membership';
-    if (!confirm(`Remove the ${label} role at this center? Other roles for this user are unaffected.`)) return;
+    setPendingConfirm({
+      title: 'Remove role?',
+      message: `Remove the ${label} role at this center? Other roles for this user are unaffected.`,
+      confirmLabel: 'Remove',
+      onConfirm: () => doRemove(id),
+    });
+  };
+
+  const doRemove = async (id: string) => {
     setActionError(null);
     try {
       const res = await fetch(`/api/admin/centers/${centerId}/members/${id}`, { method: 'DELETE' });
@@ -107,12 +123,20 @@ export function CenterMembersTab({ centerId }: { centerId: string }) {
   // Remove every active membership a user holds at this center in one shot.
   // The per-role X above only deactivates a single role chip, which is
   // confusing when the admin's intent is "this person no longer works here".
-  const removeUserEntirely = async (userId: string) => {
+  const removeUserEntirely = (userId: string) => {
     const userMemberships = members.filter((m) => m.user.id === userId);
     if (userMemberships.length === 0) return;
     const name = userMemberships[0].user.name || userMemberships[0].user.email || userMemberships[0].user.mobileNumber || 'this user';
     const roleList = userMemberships.map((m) => ROLE_LABEL[m.role]).join(', ');
-    if (!confirm(`Remove ${name} from this center?\nThis revokes: ${roleList}.`)) return;
+    setPendingConfirm({
+      title: 'Remove from center?',
+      message: `Remove ${name} from this center?\nThis revokes: ${roleList}.`,
+      confirmLabel: 'Remove',
+      onConfirm: () => doRemoveUser(userMemberships),
+    });
+  };
+
+  const doRemoveUser = async (userMemberships: MembershipRow[]) => {
     setActionError(null);
     try {
       const results = await Promise.all(
@@ -128,6 +152,17 @@ export function CenterMembersTab({ centerId }: { centerId: string }) {
       refresh();
     } catch (e) {
       setActionError(e instanceof Error ? e.message : 'Remove failed');
+    }
+  };
+
+  const handleConfirm = async () => {
+    if (!pendingConfirm) return;
+    setConfirmLoading(true);
+    try {
+      await pendingConfirm.onConfirm();
+    } finally {
+      setConfirmLoading(false);
+      setPendingConfirm(null);
     }
   };
 
@@ -193,6 +228,17 @@ export function CenterMembersTab({ centerId }: { centerId: string }) {
           ))}
         </div>
       )}
+
+      <ConfirmDialog
+        open={pendingConfirm !== null}
+        title={pendingConfirm?.title || ''}
+        message={pendingConfirm?.message || ''}
+        confirmLabel={pendingConfirm?.confirmLabel || 'Confirm'}
+        variant="danger"
+        loading={confirmLoading}
+        onConfirm={handleConfirm}
+        onCancel={() => setPendingConfirm(null)}
+      />
     </div>
   );
 }
