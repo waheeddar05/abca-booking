@@ -262,14 +262,15 @@ export function ResourceBlockManagement() {
         return;
       }
     }
-    // netCount is a count block: reserve N units of the selected pitch.
-    // Only sent for a pure pitch block (a pitch chosen, no machine, no
-    // category). Empty = block the whole pitch (null → engine blocks
-    // all). Non-positive falls back to "all".
+    // netCount is a count block: reserve N nets of the selected pitch.
+    // Surfaced under the Cricket Nets category — sent when NET is picked
+    // and a pitch is chosen (no specific machine pinned). Empty = block
+    // every net of that pitch (null → engine blocks all). Non-positive
+    // falls back to "all".
     const netCountParsed =
       !!pitchType
+      && pickedCategories.includes('NET')
       && pickedMachineIds.length === 0
-      && pickedCategories.length === 0
       && netCount.trim().length > 0
         ? Math.max(1, Math.floor(Number(netCount)))
         : null;
@@ -376,6 +377,19 @@ export function ResourceBlockManagement() {
     setEditingBlock(block);
     const st = isoTimeToIstHHMM(block.startTime);
     const et = isoTimeToIstHHMM(block.endTime);
+    // The net-count field now lives under the Cricket Nets category. A
+    // legacy count block authored before this (pitch chosen, no category)
+    // would otherwise hide the field and silently clear its count on save,
+    // so seed NET into the categories to keep the count visible/editable.
+    const seededCategories = [...(block.categories || [])];
+    if (
+      block.netCount != null
+      && block.netCount > 0
+      && (block.machineRowIds?.length ?? 0) === 0
+      && !seededCategories.includes('NET')
+    ) {
+      seededCategories.push('NET');
+    }
     setEditForm({
       startDate: block.startDate.split('T')[0],
       endDate: block.endDate.split('T')[0],
@@ -383,7 +397,7 @@ export function ResourceBlockManagement() {
       endTime: et || '22:30',
       isFullDay: !block.startTime,
       recurringDays: block.recurringDays || [],
-      pickedCategories: block.categories || [],
+      pickedCategories: seededCategories,
       pickedMachineIds: block.machineRowIds || [],
       pickedResourceIds: block.resourceIds || [],
       pitchType: block.pitchType || '',
@@ -418,8 +432,8 @@ export function ResourceBlockManagement() {
     try {
       const editNetCount =
         !!editForm.pitchType
+        && editForm.pickedCategories.includes('NET')
         && editForm.pickedMachineIds.length === 0
-        && editForm.pickedCategories.length === 0
         && editForm.netCount.trim().length > 0
           ? Math.max(1, Math.floor(Number(editForm.netCount)))
           : null;
@@ -686,26 +700,28 @@ export function ResourceBlockManagement() {
               Natural / Cement) rather than by individual net rows, and
               "Full Indoor Court" is a Category, not a resource. */}
 
-          {/* Count block: reserve N units of the selected pitch's pool
-              (e.g. "block 3 of 4 Astro Turf"). Only offered for a pure
-              pitch block — no machine and no category — so the meaning is
-              unambiguous. Empty = block the whole pitch. */}
-          {pitchType && pickedMachineIds.length === 0 && pickedCategories.length === 0 && (
+          {/* Count block: reserve N nets of the selected pitch's pool
+              (e.g. "block 2 of 4 Astro Turf nets"). Shown once the admin
+              picks the Cricket Nets category AND a pitch type — no machine
+              pinned — so the meaning is unambiguous. Empty = block every
+              net of that pitch. */}
+          {pitchType && pickedCategories.includes('NET') && pickedMachineIds.length === 0 && (
             <div className="mb-4">
               <label className="block text-[10px] font-medium text-slate-400 mb-1 uppercase tracking-wider">
-                Number of {pitchLabel(pitchType)} units to block (optional)
+                Number of {pitchLabel(pitchType)} nets to block (optional)
               </label>
               <input
                 type="number"
                 min={1}
-                placeholder={`Leave empty to block all ${pitchLabel(pitchType)}`}
+                inputMode="numeric"
+                placeholder={`Leave empty to block all ${pitchLabel(pitchType)} nets`}
                 value={netCount}
                 onChange={(e) => setNetCount(e.target.value)}
                 className="w-full bg-white/[0.04] border border-white/[0.1] text-white rounded-lg px-2 py-2 text-xs outline-none focus:border-accent placeholder:text-slate-600"
               />
               <p className="text-[10px] text-slate-500 mt-1">
-                Empty = block all {pitchLabel(pitchType)}. Setting a number
-                reserves that many units and leaves the rest available to
+                Empty = block all {pitchLabel(pitchType)} nets. Setting a number
+                reserves that many nets and leaves the rest available to
                 book. Other pitches and machines are unaffected.
               </p>
             </div>
@@ -851,12 +867,12 @@ export function ResourceBlockManagement() {
                               {CATEGORY_LABELS[c] ?? c}
                             </span>
                           ))}
-                          {/* Count-block badge — reserves N units of the
+                          {/* Count-block badge — reserves N nets of the
                               block's pitch pool. Reads as "Astro Turf × 3
-                              units" alongside the pitch chip. */}
+                              nets" alongside the pitch chip. */}
                           {b.netCount != null && (
                             <span className="text-[10px] text-yellow-300/90 px-2 py-0.5 rounded-md bg-yellow-500/10">
-                              {b.netCount} {b.netCount === 1 ? 'unit' : 'units'}
+                              {b.netCount} {b.netCount === 1 ? 'net' : 'nets'}
                             </span>
                           )}
                           {machineNames.map((n) => (
@@ -1112,23 +1128,25 @@ export function ResourceBlockManagement() {
 
               {/* Resource pinning removed — scope by Pitch Type instead. */}
 
-              {/* Count block in the edit dialog — reserve N units of the
-                  selected pitch (pure pitch block only). */}
-              {editForm.pitchType && editForm.pickedMachineIds.length === 0 && editForm.pickedCategories.length === 0 && (
+              {/* Count block in the edit dialog — reserve N nets of the
+                  selected pitch. Shown when Cricket Nets + a pitch are
+                  picked, mirroring the create form. */}
+              {editForm.pitchType && editForm.pickedCategories.includes('NET') && editForm.pickedMachineIds.length === 0 && (
                 <div>
                   <label className="block text-[10px] font-medium text-slate-500 mb-1 uppercase tracking-wider">
-                    Number of {pitchLabel(editForm.pitchType)} units to block (optional)
+                    Number of {pitchLabel(editForm.pitchType)} nets to block (optional)
                   </label>
                   <input
                     type="number"
                     min={1}
-                    placeholder={`Leave empty to block all ${pitchLabel(editForm.pitchType)}`}
+                    inputMode="numeric"
+                    placeholder={`Leave empty to block all ${pitchLabel(editForm.pitchType)} nets`}
                     value={editForm.netCount}
                     onChange={(e) => setEditForm((f) => ({ ...f, netCount: e.target.value }))}
                     className="w-full bg-white/[0.04] border border-white/[0.08] rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-accent/50 placeholder:text-slate-600"
                   />
                   <p className="text-[10px] text-slate-500 mt-1">
-                    Empty = block all {pitchLabel(editForm.pitchType)}. Otherwise N units
+                    Empty = block all {pitchLabel(editForm.pitchType)} nets. Otherwise N nets
                     stay reserved and the rest remain bookable.
                   </p>
                 </div>
