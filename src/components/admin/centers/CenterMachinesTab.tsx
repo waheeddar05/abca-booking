@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Plus, Loader2, Trash2, Pencil, Check, X } from 'lucide-react';
+import { Plus, Loader2, Pencil, Check, X, Power, PowerOff } from 'lucide-react';
 import { Field, TextInput, SelectInput, PrimaryButton, SecondaryButton, Banner } from './centerForms';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 
@@ -78,6 +78,17 @@ export function CenterMachinesTab({ centerId }: { centerId: string }) {
     } finally {
       setDeactivating(false);
     }
+  };
+
+  // Re-activate a previously deactivated machine. Non-destructive, so it
+  // applies immediately without a confirmation dialog.
+  const activate = async (id: string) => {
+    const res = await fetch(`/api/admin/centers/${centerId}/machines/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ isActive: true }),
+    });
+    if (res.ok) refresh();
   };
 
   if (loading) {
@@ -166,13 +177,23 @@ export function CenterMachinesTab({ centerId }: { centerId: string }) {
                     >
                       <Pencil className="w-3.5 h-3.5" />
                     </button>
-                    <button
-                      onClick={() => setConfirmDeactivateId(m.id)}
-                      className="p-1.5 rounded-lg text-red-400/70 hover:bg-red-500/10 hover:text-red-400 cursor-pointer"
-                      title="Deactivate"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
+                    {m.isActive ? (
+                      <button
+                        onClick={() => setConfirmDeactivateId(m.id)}
+                        className="p-1.5 rounded-lg text-amber-400/70 hover:bg-amber-500/10 hover:text-amber-400 cursor-pointer"
+                        title="Deactivate"
+                      >
+                        <PowerOff className="w-3.5 h-3.5" />
+                      </button>
+                    ) : (
+                      <button
+                        onClick={() => activate(m.id)}
+                        className="p-1.5 rounded-lg text-emerald-400/70 hover:bg-emerald-500/10 hover:text-emerald-400 cursor-pointer"
+                        title="Activate"
+                      >
+                        <Power className="w-3.5 h-3.5" />
+                      </button>
+                    )}
                   </div>
                 </div>
               )}
