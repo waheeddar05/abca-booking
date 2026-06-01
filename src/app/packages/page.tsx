@@ -393,21 +393,21 @@ export default function PackagesPage() {
   };
 
   /** Visible category cards = canonical list ∩ center's enabled
-   *  categories. We always show MACHINE for legacy ABCA installs where
-   *  the policy hasn't been initialised, because every ABCA package is
-   *  effectively MACHINE-category. */
+   *  categories — identical to the "Book Your Slot" picker, so every
+   *  category bookable at this center is also browsable here regardless
+   *  of whether a package already exists for it. */
   const visibleCategoryCards = useMemo(() => {
     if (!enabledCategories || enabledCategories.length === 0) {
-      // Either pre-policy or the API returned the legacy array shape.
-      // Fall back to the categories actually represented in the
-      // package list — that way ABCA still shows just "Bowling Machine"
-      // while a multi-category center shows everything it really has.
-      const present = new Set<BookingCategory>(packages.map(packageCategory));
-      return CATEGORY_CARDS.filter((c) => present.has(c.id));
+      // Enabled list unknown (pre-policy load or a legacy bare-array
+      // API response). Mirror the slot picker, which shows every
+      // canonical category when the enabled list isn't available, so
+      // categories like Bowling Machine / Full Indoor Court never
+      // vanish just because no package has been created for them yet.
+      return CATEGORY_CARDS;
     }
     const enabledSet = new Set(enabledCategories);
     return CATEGORY_CARDS.filter((c) => enabledSet.has(c.id));
-  }, [enabledCategories, packages]);
+  }, [enabledCategories]);
 
   // Filter the package list by the active category + timing + machine
   // chips. Machine filter is only meaningful when the active category is

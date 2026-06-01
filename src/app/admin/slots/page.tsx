@@ -453,7 +453,7 @@ function SlotManagementLegacy() {
           </div>
 
           {/* ── Section 1: Schedule Type ────────────────── */}
-          <div className="bg-white/[0.03] rounded-xl border border-white/[0.06] p-3.5">
+          <div className="bg-white/[0.03] rounded-xl border border-white/[0.06] p-2.5 sm:p-3.5">
             <div className="flex items-center gap-2 mb-3">
               <CalendarClock className="w-4 h-4 text-accent" />
               <h3 className="text-xs font-semibold text-white uppercase tracking-wider">Schedule</h3>
@@ -547,7 +547,7 @@ function SlotManagementLegacy() {
           </div>
 
           {/* ── Section 2: Time ─────────────────────────── */}
-          <div className="bg-white/[0.03] rounded-xl border border-white/[0.06] p-3.5">
+          <div className="bg-white/[0.03] rounded-xl border border-white/[0.06] p-2.5 sm:p-3.5">
             <div className="flex items-center justify-between mb-3">
               <div className="flex items-center gap-2">
                 <Clock className="w-4 h-4 text-accent" />
@@ -594,7 +594,7 @@ function SlotManagementLegacy() {
           </div>
 
           {/* ── Section 3: Machines ─────────────────────── */}
-          <div className="bg-white/[0.03] rounded-xl border border-white/[0.06] p-3.5">
+          <div className="bg-white/[0.03] rounded-xl border border-white/[0.06] p-2.5 sm:p-3.5">
             <div className="flex items-center justify-between mb-3">
               <div className="flex items-center gap-2">
                 <ShieldBan className="w-4 h-4 text-accent" />
@@ -626,7 +626,7 @@ function SlotManagementLegacy() {
                       key={m.id}
                       type="button"
                       onClick={() => toggleMachine(m.id)}
-                      className={`flex items-center gap-2.5 p-2.5 rounded-xl transition-all cursor-pointer text-left ${isSelected
+                      className={`flex items-center gap-2 sm:gap-2.5 p-2 sm:p-2.5 rounded-xl transition-all cursor-pointer text-left ${isSelected
                           ? 'bg-red-500/10 ring-1.5 ring-red-500/40'
                           : 'bg-white/[0.03] border border-white/[0.06] hover:border-white/[0.12]'
                         }`}
@@ -635,7 +635,7 @@ function SlotManagementLegacy() {
                       <img
                         src={m.image}
                         alt={m.label}
-                        className="w-9 h-9 rounded-lg object-cover flex-shrink-0"
+                        className="w-8 h-8 sm:w-9 sm:h-9 rounded-lg object-cover flex-shrink-0"
                       />
                       <div className="min-w-0 flex-1">
                         <span className={`text-[11px] font-bold block truncate ${isSelected ? 'text-red-400' : 'text-slate-300'}`}>
@@ -657,7 +657,7 @@ function SlotManagementLegacy() {
           </div>
 
           {/* ── Section 4: Reason ───────────────────────── */}
-          <div className="bg-white/[0.03] rounded-xl border border-white/[0.06] p-3.5">
+          <div className="bg-white/[0.03] rounded-xl border border-white/[0.06] p-2.5 sm:p-3.5">
             <label className="block text-[10px] font-medium text-slate-500 mb-1.5 uppercase tracking-wider">
               Reason <span className="text-slate-600 normal-case">(optional)</span>
             </label>
@@ -671,7 +671,7 @@ function SlotManagementLegacy() {
           </div>
 
           {/* ── Section 5: Apply Block To ─────────────── */}
-          <div className="bg-white/[0.03] rounded-xl border border-white/[0.06] p-3.5">
+          <div className="bg-white/[0.03] rounded-xl border border-white/[0.06] p-2.5 sm:p-3.5">
             <label className="block text-[10px] font-medium text-slate-500 mb-2 uppercase tracking-wider">
               Apply Block To
             </label>
@@ -762,7 +762,7 @@ function SlotManagementLegacy() {
                 return (
                   <div
                     key={block.id}
-                    className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-3.5 flex items-start gap-3"
+                    className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-2.5 sm:p-3.5 flex items-start gap-3"
                   >
                     {/* Left color bar */}
                     <div className="w-1 self-stretch rounded-full bg-red-500/40 flex-shrink-0" />

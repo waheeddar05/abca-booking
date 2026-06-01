@@ -504,7 +504,7 @@ export function ResourceBlockManagement() {
 
       {/* ═══ Block Slots tab ═══ */}
       {activeTab === 'block' && (
-        <div className="bg-white/[0.03] border border-white/[0.07] rounded-xl p-3.5 sm:p-4">
+        <div className="bg-white/[0.03] border border-white/[0.07] rounded-xl p-2.5 sm:p-4">
           <div className="flex items-center gap-2 mb-1">
             <ShieldBan className="w-4 h-4 text-accent" />
             <h3 className="text-xs font-bold text-white uppercase tracking-wider">Add Block</h3>
@@ -752,7 +752,7 @@ export function ResourceBlockManagement() {
 
       {/* ═══ Active Blocks tab ═══ */}
       {activeTab === 'active' && (
-        <div className="bg-white/[0.03] border border-white/[0.07] rounded-xl p-3 sm:p-3.5">
+        <div className="bg-white/[0.03] border border-white/[0.07] rounded-xl p-2.5 sm:p-3.5">
           {blocks.length === 0 ? (
             <div className="text-center py-12">
               <div className="w-14 h-14 rounded-full bg-white/[0.04] flex items-center justify-center mx-auto mb-3">
@@ -785,7 +785,7 @@ export function ResourceBlockManagement() {
                 return (
                   <div
                     key={b.id}
-                    className="bg-white/[0.02] border border-white/[0.06] rounded-xl p-3 flex items-start gap-3"
+                    className="bg-white/[0.02] border border-white/[0.06] rounded-xl p-2.5 sm:p-3 flex items-start gap-2.5 sm:gap-3"
                   >
                     {/* Left color bar */}
                     <div className="w-1 self-stretch rounded-full bg-red-500/40 flex-shrink-0" />

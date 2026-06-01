@@ -186,7 +186,7 @@ export async function notifyBookingCancelled(
       userId,
       title: 'Booking Cancelled',
       message: fullMessage,
-      type: 'WARNING',
+      type: 'CANCELLATION',
     },
     details.mobileNumber
       ? {
@@ -414,7 +414,7 @@ export async function notifyOperatorBookingCancelled(
       userId: operator.operatorId,
       title: 'Booking Cancelled',
       message: msg.replace(/\n/g, ' | '),
-      type: 'WARNING',
+      type: 'CANCELLATION',
     });
 
     // WhatsApp text notification — see notifyOperatorNewBooking above
