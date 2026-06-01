@@ -3,7 +3,7 @@
 import { ResourceBlockManagement } from '@/components/admin/ResourceBlockManagement';
 import { useCenter } from '@/lib/center-context';
 import { useState, useEffect, useCallback } from 'react';
-import { format, addDays, parseISO, eachDayOfInterval, getDay } from 'date-fns';
+import { format, parseISO, eachDayOfInterval, getDay } from 'date-fns';
 import {
   Clock, Loader2, Trash2, ShieldBan, Ban, AlertTriangle,
   CalendarRange, Repeat, CalendarClock, CheckCircle2, Info, Pencil, X,
@@ -442,7 +442,7 @@ function SlotManagementLegacy() {
       {/* BLOCK SLOTS TAB                                     */}
       {/* ════════════════════════════════════════════════════ */}
       {activeTab === 'block' && (
-        <form onSubmit={handleBlock} className="space-y-5">
+        <form onSubmit={handleBlock} className="space-y-3">
 
           {/* Warning Banner */}
           <div className="px-3.5 py-2.5 bg-amber-500/8 border border-amber-500/15 rounded-xl flex items-start gap-2.5">
@@ -453,14 +453,14 @@ function SlotManagementLegacy() {
           </div>
 
           {/* ── Section 1: Schedule Type ────────────────── */}
-          <div className="bg-white/[0.03] rounded-xl border border-white/[0.06] p-4">
+          <div className="bg-white/[0.03] rounded-xl border border-white/[0.06] p-3.5">
             <div className="flex items-center gap-2 mb-3">
               <CalendarClock className="w-4 h-4 text-accent" />
               <h3 className="text-xs font-semibold text-white uppercase tracking-wider">Schedule</h3>
             </div>
 
             {/* Toggle: Date Range / Recurring */}
-            <div className="flex gap-1 mb-4 bg-white/[0.03] p-1 rounded-lg">
+            <div className="flex gap-1 mb-3 bg-white/[0.03] p-1 rounded-lg">
               <button
                 type="button"
                 onClick={() => setScheduleType('dateRange')}
@@ -521,13 +521,13 @@ function SlotManagementLegacy() {
                 <label className="block text-[10px] font-medium text-slate-500 mb-2 uppercase tracking-wider">
                   Repeat on
                 </label>
-                <div className="grid grid-cols-4 sm:grid-cols-7 gap-1.5">
+                <div className="grid grid-cols-7 gap-1">
                   {WEEKDAYS.map(day => (
                     <button
                       key={day.key}
                       type="button"
                       onClick={() => toggleRecurringDay(day.key)}
-                      className={`py-2 rounded-lg text-xs font-semibold transition-all cursor-pointer ${recurringDays.includes(day.key)
+                      className={`py-1.5 rounded-lg text-[11px] font-semibold transition-all cursor-pointer ${recurringDays.includes(day.key)
                           ? 'bg-accent/20 text-accent ring-1 ring-accent/30'
                           : 'bg-white/[0.04] text-slate-400 hover:bg-white/[0.06]'
                         }`}
@@ -547,7 +547,7 @@ function SlotManagementLegacy() {
           </div>
 
           {/* ── Section 2: Time ─────────────────────────── */}
-          <div className="bg-white/[0.03] rounded-xl border border-white/[0.06] p-4">
+          <div className="bg-white/[0.03] rounded-xl border border-white/[0.06] p-3.5">
             <div className="flex items-center justify-between mb-3">
               <div className="flex items-center gap-2">
                 <Clock className="w-4 h-4 text-accent" />
@@ -594,7 +594,7 @@ function SlotManagementLegacy() {
           </div>
 
           {/* ── Section 3: Machines ─────────────────────── */}
-          <div className="bg-white/[0.03] rounded-xl border border-white/[0.06] p-4">
+          <div className="bg-white/[0.03] rounded-xl border border-white/[0.06] p-3.5">
             <div className="flex items-center justify-between mb-3">
               <div className="flex items-center gap-2">
                 <ShieldBan className="w-4 h-4 text-accent" />
@@ -657,7 +657,7 @@ function SlotManagementLegacy() {
           </div>
 
           {/* ── Section 4: Reason ───────────────────────── */}
-          <div className="bg-white/[0.03] rounded-xl border border-white/[0.06] p-4">
+          <div className="bg-white/[0.03] rounded-xl border border-white/[0.06] p-3.5">
             <label className="block text-[10px] font-medium text-slate-500 mb-1.5 uppercase tracking-wider">
               Reason <span className="text-slate-600 normal-case">(optional)</span>
             </label>
@@ -671,7 +671,7 @@ function SlotManagementLegacy() {
           </div>
 
           {/* ── Section 5: Apply Block To ─────────────── */}
-          <div className="bg-white/[0.03] rounded-xl border border-white/[0.06] p-4">
+          <div className="bg-white/[0.03] rounded-xl border border-white/[0.06] p-3.5">
             <label className="block text-[10px] font-medium text-slate-500 mb-2 uppercase tracking-wider">
               Apply Block To
             </label>
@@ -762,7 +762,7 @@ function SlotManagementLegacy() {
                 return (
                   <div
                     key={block.id}
-                    className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-4 flex items-start gap-3"
+                    className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-3.5 flex items-start gap-3"
                   >
                     {/* Left color bar */}
                     <div className="w-1 self-stretch rounded-full bg-red-500/40 flex-shrink-0" />
@@ -907,35 +907,6 @@ function SlotManagementLegacy() {
                   <option value="">All Machines</option>
                   {MACHINES.map(m => <option key={m.id} value={m.id}>{m.label}</option>)}
                 </select>
-              </div>
-
-              {/* Pitch Selection */}
-              <div className="mb-6">
-                <label className="block text-[10px] font-medium text-slate-400 mb-1.5 uppercase tracking-wider">
-                  Pitch Type (optional)
-                </label>
-                <div className="flex flex-wrap gap-1.5">
-                  {['ASTRO', 'TURF', 'CEMENT', 'NATURAL'].map((p) => {
-                    const selected = pitchType === p;
-                    return (
-                      <button
-                        key={p}
-                        type="button"
-                        onClick={() => setPitchType(selected ? '' : p)}
-                        className={`px-2.5 py-1.5 rounded-lg text-[11px] font-medium transition-all cursor-pointer ${
-                          selected
-                            ? 'bg-accent/20 text-accent ring-1 ring-accent/30'
-                            : 'bg-white/[0.04] text-slate-400 hover:bg-white/[0.06]'
-                        }`}
-                      >
-                        {p}
-                      </button>
-                    );
-                  })}
-                </div>
-                <p className="text-[10px] text-slate-500 mt-1.5">
-                  Empty = all pitch types
-                </p>
               </div>
 
               {/* Pitch Selection */}
