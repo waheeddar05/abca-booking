@@ -4,6 +4,7 @@ import { requireAdmin } from '@/lib/adminAuth';
 import { getAuthenticatedUser } from '@/lib/auth';
 import { resolveCurrentCenter } from '@/lib/centers';
 import { getISTTodayUTC, getISTLastMonthRange, dateStringToUTC, formatIST } from '@/lib/time';
+import { getDisplayStatus } from '@/lib/booking-utils';
 
 const SAFE_BOOKING_SELECT = {
   id: true,
@@ -49,6 +50,9 @@ export async function GET(req: NextRequest) {
     const from = searchParams.get('from');
     const to = searchParams.get('to');
     const status = searchParams.get('status');
+    const customer = searchParams.get('customer');
+    const machineId = searchParams.get('machineId');
+    const categoryFilter = searchParams.get('categoryFilter');
     const allCenters = searchParams.get('allCenters') === 'true';
 
     const adminUser = await getAuthenticatedUser(req);
@@ -88,8 +92,57 @@ export async function GET(req: NextRequest) {
       };
     }
 
-    if (status) {
+    // Status filter mirrors the admin list view: IN_PROGRESS / BOOKED
+    // (Upcoming) / DONE (Completed) are time-derived, not stored, so an
+    // export filtered to "Completed" must include BOOKED sessions whose
+    // end time has passed — not just rows literally marked DONE. Without
+    // this, exporting "Completed" silently returned nothing and exporting
+    // an unfiltered list mislabeled past sessions as "BOOKED".
+    const nowExport = new Date();
+    if (status === 'IN_PROGRESS') {
+      where.status = 'BOOKED';
+      where.startTime = { lte: nowExport };
+      where.endTime = { gt: nowExport };
+    } else if (status === 'BOOKED') {
+      where.status = 'BOOKED';
+      where.startTime = { gt: nowExport };
+    } else if (status === 'DONE') {
+      where.AND = [
+        ...(where.AND || []),
+        {
+          OR: [
+            { status: 'DONE' },
+            { status: 'BOOKED', endTime: { lte: nowExport } },
+          ],
+        },
+      ];
+    } else if (status) {
       where.status = status;
+    }
+
+    // Customer / machine / booking-category filters — kept in sync with
+    // the list view so "what you filtered is what you export".
+    if (customer) {
+      where.OR = [
+        { playerName: { contains: customer, mode: 'insensitive' } },
+        { user: { name: { contains: customer, mode: 'insensitive' } } },
+        { user: { email: { contains: customer, mode: 'insensitive' } } },
+      ];
+    }
+    if (machineId) {
+      where.machineId = machineId;
+    }
+    if (categoryFilter) {
+      const validCategories = new Set(['MACHINE', 'SIDEARM', 'COACHING', 'NET', 'FULL_COURT', 'CORPORATE_BATCH']);
+      if (validCategories.has(categoryFilter)) {
+        if (categoryFilter === 'MACHINE') {
+          // ABCA legacy rows store NULL category but are bowling-machine
+          // sessions — treat NULL as MACHINE for filtering.
+          where.OR = [...(where.OR ?? []), { category: 'MACHINE' }, { category: null }];
+        } else {
+          where.category = categoryFilter;
+        }
+      }
     }
 
     // Try full query; fall back to safe select if new columns don't exist yet
@@ -231,6 +284,10 @@ export async function GET(req: NextRequest) {
       'Operation Mode',
       'Status',
       'Amount',
+      // Booking amount net of any refunds — the figure actually retained
+      // for the booking. Equals Amount when nothing was refunded; equals
+      // (Amount − Refund Amount) for partial/full refunds.
+      'Net Amount',
       // Split of the booking amount across the two funding sources.
       // For a mixed payment (some wallet + some Razorpay), the wallet
       // portion comes from Payment.metadata.walletDeduction and the
@@ -253,6 +310,16 @@ export async function GET(req: NextRequest) {
       'Refund Method',
     ];
 
+    // Human-readable display status — same derivation the admin list and
+    // booking cards use. Raw DB status alone mislabels past sessions
+    // (stored as BOOKED) and in-progress ones.
+    const STATUS_LABELS: Record<string, string> = {
+      BOOKED: 'Upcoming',
+      IN_PROGRESS: 'In Progress',
+      DONE: 'Completed',
+      CANCELLED: 'Cancelled',
+    };
+
     const rows = bookings.map((b: any) => {
       const pkg = isPackage(b);
 
@@ -261,12 +328,14 @@ export async function GET(req: NextRequest) {
       let refundStatus = 'NA';
       let refundAmount = 'NA';
       let refundMethodCol = 'NA';
+      let totalRefundedAmt = 0;
 
       if (pkg) {
         // Package bookings: refund fields stay NA
       } else if (refunds.length > 0) {
         const activeRefunds = refunds.filter((r: any) => r.status !== 'FAILED');
         const totalRefunded = activeRefunds.reduce((sum: number, r: any) => sum + r.amount, 0);
+        totalRefundedAmt = totalRefunded;
         const hasInitiated = activeRefunds.some((r: any) => r.status === 'INITIATED');
 
         if (totalRefunded > 0) {
@@ -339,8 +408,13 @@ export async function GET(req: NextRequest) {
         b.assignedCoach?.name || 'Not Applicable',
         b.assignedStaff?.name || 'Not Applicable',
         machineRow ? (b.operationMode || '') : 'Not Applicable',
-        b.status,
+        STATUS_LABELS[getDisplayStatus({ status: b.status, startTime: b.startTime, endTime: b.endTime })] || b.status,
         pkg ? ((b.packageBooking?.extraCharge || 0) + (b.kitRentalCharge || 0)).toString() : (b.price?.toString() || ''),
+        // Net Amount = booking amount minus refunds. Package rows carry
+        // no refundable booking price, so net mirrors the extra-charge total.
+        pkg
+          ? ((b.packageBooking?.extraCharge || 0) + (b.kitRentalCharge || 0)).toString()
+          : Math.max(0, (b.price || 0) - totalRefundedAmt).toString(),
         // Wallet / online amounts paired with the same row as the
         // total so a quick sum check is obvious in Excel.
         split.wallet.toString(),

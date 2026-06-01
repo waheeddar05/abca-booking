@@ -255,8 +255,8 @@ export async function GET(req: NextRequest) {
                 machineType: { select: { code: true, name: true } },
               },
             },
-            assignedCoach: { select: { id: true, name: true } },
-            assignedStaff: { select: { id: true, name: true } },
+            assignedCoach: { select: { id: true, name: true, mobileNumber: true } },
+            assignedStaff: { select: { id: true, name: true, mobileNumber: true } },
             resourceAssignments: {
               select: {
                 resource: { select: { id: true, name: true, type: true, category: true } },
@@ -276,6 +276,20 @@ export async function GET(req: NextRequest) {
                 contactPhone: true,
                 contactEmail: true,
                 mapUrl: true,
+                // Ground staff are the default contact for Cricket Nets
+                // (NET) and Full Indoor Court (FULL_COURT) bookings, which
+                // have no per-booking operator / coach / sidearm row. Pull
+                // the highest-priority active GROUND_STAFF membership so the
+                // admin list can surface the assigned ground staff name the
+                // same way the user "My Bookings" page does.
+                memberships: {
+                  where: { role: 'GROUND_STAFF', isActive: true },
+                  orderBy: [{ priority: 'asc' }, { createdAt: 'asc' }],
+                  take: 1,
+                  select: {
+                    user: { select: { id: true, name: true, mobileNumber: true } },
+                  },
+                },
               },
             },
             packageBooking: {
@@ -358,7 +372,7 @@ export async function PATCH(req: NextRequest) {
     }
 
     const body = await req.json();
-    const { bookingId, status, price, cancellationReason, operatorId } = body;
+    const { bookingId, status, price, cancellationReason, operatorId, assignedStaffId } = body;
 
     if (!bookingId) {
       return NextResponse.json({ error: 'Booking ID is required' }, { status: 400 });
@@ -366,6 +380,10 @@ export async function PATCH(req: NextRequest) {
 
     const authUser = await getAuthenticatedUser(req);
     const adminName = authUser?.name || authUser?.id || 'Admin';
+
+    // Resolve the admin's current center up-front — used to validate that
+    // reassigned staff actually belong to this center.
+    const patchCenter = authUser ? await resolveCurrentCenter(req, authUser) : null;
 
     const data: any = {};
 
@@ -390,20 +408,44 @@ export async function PATCH(req: NextRequest) {
       }
     }
 
-    // Handle status update
+    // Handle sidearm-specialist reassignment. Mirrors the operator flow:
+    // null clears the assignment, otherwise the target must hold an active
+    // SIDEARM_SPECIALIST membership at the admin's current center.
+    if (assignedStaffId !== undefined) {
+      if (assignedStaffId === null) {
+        data.assignedStaffId = null;
+      } else {
+        if (!patchCenter) {
+          return NextResponse.json({ error: 'No center selected' }, { status: 400 });
+        }
+        const membership = await prisma.centerMembership.findFirst({
+          where: {
+            userId: assignedStaffId,
+            centerId: patchCenter.id,
+            role: 'SIDEARM_SPECIALIST',
+            isActive: true,
+          },
+          select: { id: true },
+        });
+        if (!membership) {
+          return NextResponse.json(
+            { error: 'User is not a sidearm specialist at this center' },
+            { status: 400 },
+          );
+        }
+        data.assignedStaffId = assignedStaffId;
+      }
+    }
+
+    // Handle status update. Restore was removed — admins can only cancel a
+    // booking here; reactivating a cancelled booking is no longer supported.
     if (status) {
-      if (!['BOOKED', 'CANCELLED'].includes(status)) {
-        return NextResponse.json({ error: 'Invalid status. Use BOOKED or CANCELLED.' }, { status: 400 });
+      if (status !== 'CANCELLED') {
+        return NextResponse.json({ error: 'Invalid status. Only CANCELLED is supported.' }, { status: 400 });
       }
       data.status = status;
-      if (status === 'CANCELLED') {
-        data.cancelledBy = adminName;
-        data.cancellationReason = cancellationReason || `Cancelled by Admin (${adminName})`;
-      } else if (status === 'BOOKED') {
-        // Restoring a booking - clear cancellation info
-        data.cancelledBy = null;
-        data.cancellationReason = null;
-      }
+      data.cancelledBy = adminName;
+      data.cancellationReason = cancellationReason || `Cancelled by Admin (${adminName})`;
     }
 
     // Handle price update
