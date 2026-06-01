@@ -1,8 +1,9 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Plus, Loader2, Trash2, Pencil, Check, X, Eye, EyeOff } from 'lucide-react';
+import { Plus, Loader2, Trash2, Pencil, Check, X, Eye, EyeOff, Power, PowerOff } from 'lucide-react';
 import { Field, TextInput, NumberInput, SelectInput, PrimaryButton, SecondaryButton, Banner } from './centerForms';
+import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 
 type ResourceRow = {
   id: string;
@@ -43,6 +44,14 @@ export function CenterResourcesTab({ centerId }: { centerId: string }) {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [showInactive, setShowInactive] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [pendingConfirm, setPendingConfirm] = useState<{
+    title: string;
+    message: string;
+    warning?: string;
+    confirmLabel: string;
+    onConfirm: () => Promise<void> | void;
+  } | null>(null);
+  const [confirmLoading, setConfirmLoading] = useState(false);
 
   const refresh = async () => {
     setLoading(true);
@@ -59,8 +68,16 @@ export function CenterResourcesTab({ centerId }: { centerId: string }) {
   // Soft delete — sets isActive=false. Existing bookings keep their
   // BookingResourceAssignment refs intact; the resource just stops
   // appearing in pickers and counting toward live capacity.
-  const deactivate = async (id: string) => {
-    if (!confirm('Deactivate this pitch type? Existing bookings retain their reference; new bookings cannot use it.')) return;
+  const deactivate = (id: string) => {
+    setPendingConfirm({
+      title: 'Deactivate pitch type?',
+      message: 'Existing bookings retain their reference; new bookings cannot use it. You can re-activate it later.',
+      confirmLabel: 'Deactivate',
+      onConfirm: () => doDeactivate(id),
+    });
+  };
+
+  const doDeactivate = async (id: string) => {
     setActionError(null);
     const res = await fetch(`/api/admin/centers/${centerId}/resources/${id}`, { method: 'DELETE' });
     if (res.ok) refresh();
@@ -70,11 +87,36 @@ export function CenterResourcesTab({ centerId }: { centerId: string }) {
     }
   };
 
+  // Re-activate a previously deactivated pitch type. Non-destructive, so
+  // it applies immediately without a confirmation dialog.
+  const activate = async (id: string) => {
+    setActionError(null);
+    const res = await fetch(`/api/admin/centers/${centerId}/resources/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ isActive: true }),
+    });
+    if (res.ok) refresh();
+    else {
+      const data = await res.json().catch(() => ({}));
+      setActionError(data?.error || `Activate failed (HTTP ${res.status})`);
+    }
+  };
+
   // Hard delete — only allowed when nothing references the resource.
   // The server rejects with 409 + a count of linked bookings / machines
   // when refs exist; we render that message so the admin knows why.
-  const hardDelete = async (r: ResourceRow) => {
-    if (!confirm(`Permanently delete "${r.name}"? This cannot be undone. Bookings or machines that reference this resource will block the delete.`)) return;
+  const hardDelete = (r: ResourceRow) => {
+    setPendingConfirm({
+      title: 'Delete permanently?',
+      message: `Permanently delete "${r.name}"? Bookings or machines that reference this pitch type will block the delete.`,
+      warning: 'This cannot be undone.',
+      confirmLabel: 'Delete',
+      onConfirm: () => doHardDelete(r),
+    });
+  };
+
+  const doHardDelete = async (r: ResourceRow) => {
     setActionError(null);
     const res = await fetch(`/api/admin/centers/${centerId}/resources/${r.id}?hard=true`, { method: 'DELETE' });
     if (res.ok) {
@@ -83,6 +125,17 @@ export function CenterResourcesTab({ centerId }: { centerId: string }) {
     }
     const data = await res.json().catch(() => ({}));
     setActionError(data?.error || `Delete failed (HTTP ${res.status})`);
+  };
+
+  const handleConfirm = async () => {
+    if (!pendingConfirm) return;
+    setConfirmLoading(true);
+    try {
+      await pendingConfirm.onConfirm();
+    } finally {
+      setConfirmLoading(false);
+      setPendingConfirm(null);
+    }
   };
 
   if (loading) {
@@ -166,16 +219,25 @@ export function CenterResourcesTab({ centerId }: { centerId: string }) {
                         className="p-1.5 rounded-lg text-amber-400/70 hover:bg-amber-500/10 hover:text-amber-400 cursor-pointer"
                         title="Deactivate"
                       >
-                        <Trash2 className="w-3.5 h-3.5" />
+                        <PowerOff className="w-3.5 h-3.5" />
                       </button>
                     ) : (
-                      <button
-                        onClick={() => hardDelete(r)}
-                        className="p-1.5 rounded-lg text-red-400/70 hover:bg-red-500/10 hover:text-red-400 cursor-pointer"
-                        title="Delete permanently"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
+                      <>
+                        <button
+                          onClick={() => activate(r.id)}
+                          className="p-1.5 rounded-lg text-emerald-400/70 hover:bg-emerald-500/10 hover:text-emerald-400 cursor-pointer"
+                          title="Activate"
+                        >
+                          <Power className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          onClick={() => hardDelete(r)}
+                          className="p-1.5 rounded-lg text-red-400/70 hover:bg-red-500/10 hover:text-red-400 cursor-pointer"
+                          title="Delete permanently"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </>
                     )}
                   </div>
                 </div>
@@ -184,6 +246,18 @@ export function CenterResourcesTab({ centerId }: { centerId: string }) {
           ))}
         </div>
       )}
+
+      <ConfirmDialog
+        open={pendingConfirm !== null}
+        title={pendingConfirm?.title || ''}
+        message={pendingConfirm?.message || ''}
+        warning={pendingConfirm?.warning}
+        confirmLabel={pendingConfirm?.confirmLabel || 'Confirm'}
+        variant="danger"
+        loading={confirmLoading}
+        onConfirm={handleConfirm}
+        onCancel={() => setPendingConfirm(null)}
+      />
     </div>
   );
 }
