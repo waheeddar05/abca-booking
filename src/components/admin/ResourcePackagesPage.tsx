@@ -29,6 +29,8 @@ import {
   Search,
   Check,
   Download,
+  ArrowDownAZ,
+  ArrowUpAZ,
 } from 'lucide-react';
 import { useToast } from '@/components/ui/Toast';
 import { AdminPageHeader } from '@/components/admin/AdminPageHeader';
@@ -116,6 +118,7 @@ export function ResourcePackagesPage() {
   const [userPkgStatusFilter, setUserPkgStatusFilter] = useState<string>('');
   const [userPkgSearchInput, setUserPkgSearchInput] = useState('');
   const [userPkgSearch, setUserPkgSearch] = useState('');
+  const [userPkgSort, setUserPkgSort] = useState<'NAME_ASC' | 'NAME_DESC'>('NAME_ASC');
 
   const fetchUserPackages = async () => {
     setUserPkgLoading(true);
@@ -141,6 +144,17 @@ export function ResourcePackagesPage() {
     if (tab === 'users') fetchUserPackages();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab, userPkgStatusFilter, userPkgSearch]);
+
+  // Sort user packages alphabetically by the holder's name (falling back to
+  // email/mobile so unnamed users still order predictably).
+  const sortedUserPackages = useMemo(() => {
+    const nameOf = (up: UserPackageRow) =>
+      (up.user.name || up.user.email || up.user.mobileNumber || '').toLowerCase();
+    return [...userPackages].sort((a, b) => {
+      const cmp = nameOf(a).localeCompare(nameOf(b));
+      return userPkgSort === 'NAME_ASC' ? cmp : -cmp;
+    });
+  }, [userPackages, userPkgSort]);
 
   // ─── Reports tab ─────────────────────────────────────────────────
   const [reports, setReports] = useState<ReportData | null>(null);
@@ -347,6 +361,17 @@ export function ResourcePackagesPage() {
                 Search
               </button>
             </form>
+            <button
+              type="button"
+              onClick={() => setUserPkgSort((s) => (s === 'NAME_ASC' ? 'NAME_DESC' : 'NAME_ASC'))}
+              title={userPkgSort === 'NAME_ASC' ? 'Sorted A–Z (tap for Z–A)' : 'Sorted Z–A (tap for A–Z)'}
+              className="inline-flex items-center gap-1 px-3 py-2 rounded-lg text-xs font-semibold bg-white/[0.04] border border-white/[0.1] text-slate-200 hover:bg-white/[0.08] cursor-pointer"
+            >
+              {userPkgSort === 'NAME_ASC'
+                ? <ArrowDownAZ className="w-3.5 h-3.5" />
+                : <ArrowUpAZ className="w-3.5 h-3.5" />}
+              {userPkgSort === 'NAME_ASC' ? 'A–Z' : 'Z–A'}
+            </button>
           </div>
 
           {userPkgLoading ? (
@@ -357,7 +382,7 @@ export function ResourcePackagesPage() {
             <p className="text-xs text-slate-500 italic py-10 text-center">No user packages match the current filters.</p>
           ) : (
             <div className="space-y-2">
-              {userPackages.map((up) => (
+              {sortedUserPackages.map((up) => (
                 <div
                   key={up.id}
                   className="rounded-xl bg-white/[0.03] border border-white/[0.07] p-3 flex flex-wrap items-start justify-between gap-3"
@@ -415,15 +440,15 @@ export function ResourcePackagesPage() {
       )}
 
       {tab === 'assign' && (
-        <div className="space-y-4">
+        <div className="space-y-3 max-w-2xl">
           {/* User picker */}
-          <div className="bg-white/[0.03] border border-white/[0.07] rounded-2xl p-4">
-            <h3 className="text-sm font-bold text-white mb-3 flex items-center gap-2">
-              <Search className="w-4 h-4 text-accent" />
+          <div className="bg-white/[0.03] border border-white/[0.07] rounded-xl p-3">
+            <h3 className="text-xs font-bold text-white mb-2 flex items-center gap-2">
+              <Search className="w-3.5 h-3.5 text-accent" />
               Select user
             </h3>
             {selectedUser ? (
-              <div className="flex items-center justify-between bg-accent/10 border border-accent/30 rounded-xl px-4 py-3">
+              <div className="flex items-center justify-between bg-accent/10 border border-accent/30 rounded-lg px-3 py-2">
                 <div className="min-w-0">
                   <div className="text-sm font-semibold text-white truncate">
                     {selectedUser.name || '(no name)'}
@@ -448,9 +473,9 @@ export function ResourcePackagesPage() {
                     value={assignSearch}
                     onChange={(e) => setAssignSearch(e.target.value)}
                     placeholder="Search by name, mobile, or email…"
-                    className="w-full bg-white/[0.04] border border-white/[0.1] text-white text-sm rounded-xl px-4 py-3 outline-none focus:border-accent placeholder:text-slate-500"
+                    className="w-full bg-white/[0.04] border border-white/[0.1] text-white text-sm rounded-lg px-3 py-2 outline-none focus:border-accent placeholder:text-slate-500"
                   />
-                  {assignSearching && <Loader2 className="w-4 h-4 animate-spin text-slate-400 absolute right-3 top-3.5" />}
+                  {assignSearching && <Loader2 className="w-4 h-4 animate-spin text-slate-400 absolute right-3 top-3" />}
                 </div>
                 {assignSearchResults.length > 0 && (
                   <div className="mt-2 max-h-48 overflow-y-auto space-y-1">
@@ -472,9 +497,9 @@ export function ResourcePackagesPage() {
           </div>
 
           {/* Custom package form (resource-based fields) */}
-          <form onSubmit={handleAssign} className="bg-white/[0.03] border border-white/[0.07] rounded-2xl p-4 space-y-4">
-            <h3 className="text-sm font-bold text-white flex items-center gap-2">
-              <Package className="w-4 h-4 text-accent" />
+          <form onSubmit={handleAssign} className="bg-white/[0.03] border border-white/[0.07] rounded-xl p-3 space-y-3">
+            <h3 className="text-xs font-bold text-white flex items-center gap-2">
+              <Package className="w-3.5 h-3.5 text-accent" />
               Package details
             </h3>
 
@@ -485,7 +510,7 @@ export function ResourcePackagesPage() {
                 value={assignForm.name}
                 onChange={(e) => setAssignForm((f) => ({ ...f, name: e.target.value }))}
                 placeholder="e.g. Custom 10 sessions for John"
-                className="w-full bg-white/[0.04] border border-white/[0.1] text-white text-sm rounded-xl px-4 py-3 outline-none focus:border-accent placeholder:text-slate-500"
+                className="w-full bg-white/[0.04] border border-white/[0.1] text-white text-sm rounded-lg px-3 py-2 outline-none focus:border-accent placeholder:text-slate-500"
                 required
               />
             </div>
@@ -496,7 +521,7 @@ export function ResourcePackagesPage() {
                 <select
                   value={assignForm.category}
                   onChange={(e) => setAssignForm((f) => ({ ...f, category: e.target.value, machineRowId: '' }))}
-                  className="w-full bg-white/[0.04] border border-white/[0.1] text-white text-sm rounded-xl px-3 py-3 outline-none focus:border-accent"
+                  className="w-full bg-white/[0.04] border border-white/[0.1] text-white text-sm rounded-lg px-3 py-2 outline-none focus:border-accent"
                 >
                   {ASSIGN_CATEGORY_OPTIONS.map((c) => (
                     <option key={c.id} value={c.id}>{c.label}</option>
@@ -509,7 +534,7 @@ export function ResourcePackagesPage() {
                   <select
                     value={assignForm.machineRowId}
                     onChange={(e) => setAssignForm((f) => ({ ...f, machineRowId: e.target.value }))}
-                    className="w-full bg-white/[0.04] border border-white/[0.1] text-white text-sm rounded-xl px-3 py-3 outline-none focus:border-accent"
+                    className="w-full bg-white/[0.04] border border-white/[0.1] text-white text-sm rounded-lg px-3 py-2 outline-none focus:border-accent"
                   >
                     <option value="">Any machine</option>
                     {machines.filter((m) => m.isActive).map((m) => (
@@ -526,7 +551,7 @@ export function ResourcePackagesPage() {
                 <select
                   value={assignForm.timingType}
                   onChange={(e) => setAssignForm((f) => ({ ...f, timingType: e.target.value }))}
-                  className="w-full bg-white/[0.04] border border-white/[0.1] text-white text-sm rounded-xl px-3 py-3 outline-none focus:border-accent"
+                  className="w-full bg-white/[0.04] border border-white/[0.1] text-white text-sm rounded-lg px-3 py-2 outline-none focus:border-accent"
                 >
                   {TIMING_OPTIONS.map((t) => (
                     <option key={t.id} value={t.id}>{t.label}</option>
@@ -540,7 +565,7 @@ export function ResourcePackagesPage() {
                   min={1}
                   value={assignForm.totalSessions}
                   onChange={(e) => setAssignForm((f) => ({ ...f, totalSessions: parseInt(e.target.value) || 0 }))}
-                  className="w-full bg-white/[0.04] border border-white/[0.1] text-white text-sm rounded-xl px-4 py-3 outline-none focus:border-accent"
+                  className="w-full bg-white/[0.04] border border-white/[0.1] text-white text-sm rounded-lg px-3 py-2 outline-none focus:border-accent"
                   required
                 />
               </div>
@@ -551,7 +576,7 @@ export function ResourcePackagesPage() {
                   min={1}
                   value={assignForm.validityDays}
                   onChange={(e) => setAssignForm((f) => ({ ...f, validityDays: parseInt(e.target.value) || 0 }))}
-                  className="w-full bg-white/[0.04] border border-white/[0.1] text-white text-sm rounded-xl px-4 py-3 outline-none focus:border-accent"
+                  className="w-full bg-white/[0.04] border border-white/[0.1] text-white text-sm rounded-lg px-3 py-2 outline-none focus:border-accent"
                   required
                 />
               </div>
@@ -576,7 +601,7 @@ export function ResourcePackagesPage() {
           </div>
         ) : reports ? (
           <div className="space-y-4">
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+            <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2">
               {[
                 { label: 'Active packages',     value: reports.activePackages },
                 { label: 'Expired packages',    value: reports.expiredPackages },
@@ -586,9 +611,9 @@ export function ResourcePackagesPage() {
                 { label: 'Extra charges',       value: `₹${reports.extraChargesCollected ?? 0}` },
                 { label: 'Total revenue',       value: `₹${reports.totalRevenue ?? 0}` },
               ].map((stat) => (
-                <div key={stat.label} className="bg-white/[0.03] border border-white/[0.07] rounded-2xl p-4">
-                  <p className="text-[11px] text-slate-400 mb-1">{stat.label}</p>
-                  <p className="text-lg font-bold text-white">{stat.value}</p>
+                <div key={stat.label} className="bg-white/[0.03] border border-white/[0.07] rounded-xl p-3">
+                  <p className="text-[10px] text-slate-400 mb-0.5 leading-tight">{stat.label}</p>
+                  <p className="text-base font-bold text-white">{stat.value}</p>
                 </div>
               ))}
             </div>
@@ -597,9 +622,9 @@ export function ResourcePackagesPage() {
                 page. The handler is already center-scoped and emits
                 the new Booking Category column + "Not Applicable"
                 ball-type cells for non-machine packages. */}
-            <div className="bg-white/[0.03] border border-white/[0.07] rounded-2xl p-4">
-              <h3 className="text-sm font-bold text-white mb-3 flex items-center gap-2">
-                <Download className="w-4 h-4 text-accent" />
+            <div className="bg-white/[0.03] border border-white/[0.07] rounded-xl p-3">
+              <h3 className="text-xs font-bold text-white mb-3 flex items-center gap-2">
+                <Download className="w-3.5 h-3.5 text-accent" />
                 Export Packages Report
               </h3>
               <button

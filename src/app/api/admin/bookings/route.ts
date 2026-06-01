@@ -276,6 +276,20 @@ export async function GET(req: NextRequest) {
                 contactPhone: true,
                 contactEmail: true,
                 mapUrl: true,
+                // Ground staff are the default on-site contact for Cricket
+                // Nets (NET) and Full Indoor Court (FULL_COURT) bookings,
+                // which have no per-booking operator / coach / sidearm row.
+                // Pull the highest-priority active GROUND_STAFF membership so
+                // the admin Bookings view can surface the name the same way
+                // the user My Bookings page does.
+                memberships: {
+                  where: { role: 'GROUND_STAFF', isActive: true },
+                  orderBy: [{ priority: 'asc' }, { createdAt: 'asc' }],
+                  take: 1,
+                  select: {
+                    user: { select: { id: true, name: true, mobileNumber: true } },
+                  },
+                },
               },
             },
             packageBooking: {
@@ -358,7 +372,7 @@ export async function PATCH(req: NextRequest) {
     }
 
     const body = await req.json();
-    const { bookingId, status, price, cancellationReason, operatorId } = body;
+    const { bookingId, status, price, cancellationReason, operatorId, assignedStaffId } = body;
 
     if (!bookingId) {
       return NextResponse.json({ error: 'Booking ID is required' }, { status: 400 });
@@ -387,6 +401,41 @@ export async function PATCH(req: NextRequest) {
           return NextResponse.json({ error: 'User is not an operator' }, { status: 400 });
         }
         data.operatorId = operatorId;
+      }
+    }
+
+    // Handle sidearm specialist reassignment. Mirrors the operator flow
+    // above: null unassigns, otherwise the target must hold an active
+    // SIDEARM_SPECIALIST membership at THIS booking's center (the role
+    // lives on CenterMembership, not User.role, so we validate against
+    // the booking's center to keep cross-center reassignment honest).
+    if (assignedStaffId !== undefined) {
+      if (assignedStaffId === null) {
+        data.assignedStaffId = null;
+      } else {
+        const target = await prisma.booking.findUnique({
+          where: { id: bookingId },
+          select: { centerId: true },
+        });
+        if (!target) {
+          return NextResponse.json({ error: 'Booking not found' }, { status: 404 });
+        }
+        const membership = await prisma.centerMembership.findFirst({
+          where: {
+            userId: assignedStaffId,
+            centerId: target.centerId,
+            role: 'SIDEARM_SPECIALIST',
+            isActive: true,
+          },
+          select: { id: true },
+        });
+        if (!membership) {
+          return NextResponse.json(
+            { error: 'User is not a sidearm specialist at this center' },
+            { status: 400 },
+          );
+        }
+        data.assignedStaffId = assignedStaffId;
       }
     }
 

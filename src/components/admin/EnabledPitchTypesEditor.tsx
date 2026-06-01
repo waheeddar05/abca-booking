@@ -162,32 +162,32 @@ export function EnabledPitchTypesEditor({
   }
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-start gap-3 p-3 rounded-xl bg-blue-500/5 border border-blue-500/10">
+    <div className="space-y-4">
+      <div className="flex items-start gap-2.5 p-2.5 rounded-xl bg-blue-500/5 border border-blue-500/10">
         <div className="mt-0.5">
           <svg className="w-4 h-4 text-blue-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
           </svg>
         </div>
         <p className="text-[11px] text-slate-400 leading-relaxed">
-          Select which pitch types are available for each booking category. 
+          Select which pitch types are available for each booking category.
           Disabling a pitch hides it from the user's selection for that category.
           <span className="block mt-1 text-slate-500 italic">Note: Machine pitch types are managed per-machine in the Machines tab.</span>
         </p>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
         {CATEGORIES.map((cat) => (
           <div
             key={cat.id}
-            className="rounded-2xl bg-white/[0.02] border border-white/[0.06] p-4 flex flex-col gap-4 transition-all hover:bg-white/[0.04]"
+            className="rounded-2xl bg-white/[0.02] border border-white/[0.06] p-3 flex flex-col gap-3 transition-all hover:bg-white/[0.04]"
           >
             <div className="flex flex-col gap-0.5">
               <div className="text-xs font-bold text-white tracking-tight">{cat.label}</div>
               <div className="text-[9px] text-slate-500 uppercase tracking-widest font-medium">{cat.sub}</div>
             </div>
 
-            <div className="flex flex-col gap-2">
+            <div className="flex flex-col gap-1.5">
               {PITCHES.map((p) => {
                 const on = selections[cat.id].has(p.id);
                 return (
@@ -221,7 +221,7 @@ export function EnabledPitchTypesEditor({
         ))}
       </div>
 
-      {!externalSaveTrigger && (
+      {externalSaveTrigger === undefined && (
         <div className="flex items-center justify-between gap-3 pt-2 px-1">
           <div className="min-w-0">
             {message && (

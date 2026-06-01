@@ -21,6 +21,8 @@ import {
   Clock,
   RotateCcw,
   Trash2,
+  ArrowDownAZ,
+  ArrowUpAZ,
 } from 'lucide-react';
 import { NumberInputDialog } from '@/components/ui/NumberInputDialog';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
@@ -131,6 +133,7 @@ function AdminPackagesLegacy() {
   const [userPkgStatusFilter, setUserPkgStatusFilter] = useState('');
   const [userPkgSearch, setUserPkgSearch] = useState('');
   const [userPkgSearchInput, setUserPkgSearchInput] = useState('');
+  const [userPkgSort, setUserPkgSort] = useState<'NAME_ASC' | 'NAME_DESC'>('NAME_ASC');
   const [reportsLoading, setReportsLoading] = useState(false);
   const [userPkgLoading, setUserPkgLoading] = useState(false);
   const [numberDialog, setNumberDialog] = useState<{
@@ -521,6 +524,18 @@ function AdminPackagesLegacy() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [packages, machineFilter, timingFilter, centerMachines]);
 
+  // Sort user packages alphabetically by the holder's name (falling back to
+  // email/mobile so unnamed users still order predictably).
+  const sortedUserPackages = useMemo(() => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const nameOf = (up: any) =>
+      (up.user?.name || up.user?.email || up.user?.mobileNumber || '').toLowerCase();
+    return [...userPackages].sort((a, b) => {
+      const cmp = nameOf(a).localeCompare(nameOf(b));
+      return userPkgSort === 'NAME_ASC' ? cmp : -cmp;
+    });
+  }, [userPackages, userPkgSort]);
+
   // Tabs definition — matches the visual treatment of /admin/centers/[id]
   // (border-bottom strip with active border accent). Keeps the surface
   // consistent across the admin app.
@@ -794,6 +809,17 @@ function AdminPackagesLegacy() {
                   Clear
                 </button>
               )}
+              <button
+                type="button"
+                onClick={() => setUserPkgSort(s => (s === 'NAME_ASC' ? 'NAME_DESC' : 'NAME_ASC'))}
+                title={userPkgSort === 'NAME_ASC' ? 'Sorted A–Z (tap for Z–A)' : 'Sorted Z–A (tap for A–Z)'}
+                className="flex-shrink-0 inline-flex items-center gap-1 px-3 py-1.5 bg-white/[0.04] text-slate-300 border border-white/[0.07] text-[11px] font-medium rounded-lg hover:bg-white/[0.08] transition-colors cursor-pointer"
+              >
+                {userPkgSort === 'NAME_ASC'
+                  ? <ArrowDownAZ className="w-3.5 h-3.5" />
+                  : <ArrowUpAZ className="w-3.5 h-3.5" />}
+                {userPkgSort === 'NAME_ASC' ? 'A–Z' : 'Z–A'}
+              </button>
             </form>
           </div>
 
@@ -809,7 +835,7 @@ function AdminPackagesLegacy() {
           ) : (
             <div className="space-y-2">
               {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
-              {userPackages.map((up: any) => (
+              {sortedUserPackages.map((up: any) => (
                 <div key={up.id} className="bg-white/[0.03] backdrop-blur-sm rounded-2xl border border-white/[0.07] p-4">
                   <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
                     <div className="min-w-0">
@@ -905,7 +931,7 @@ function AdminPackagesLegacy() {
 
       {/* ASSIGN TAB */}
       {tab === 'assign' && (
-        <div className="space-y-4">
+        <div className="space-y-3 max-w-2xl">
           {assignMessage.text && (
             <p className={`text-sm ${assignMessage.type === 'success' ? 'text-green-400' : 'text-red-400'}`}>
               {assignMessage.text}
@@ -913,13 +939,13 @@ function AdminPackagesLegacy() {
           )}
 
           {/* User Search */}
-          <div className="bg-white/[0.03] backdrop-blur-sm rounded-2xl border border-white/[0.07] p-4">
-            <h3 className="text-sm font-bold text-white mb-3 flex items-center gap-2">
-              <Search className="w-4 h-4 text-accent" />
+          <div className="bg-white/[0.03] backdrop-blur-sm rounded-xl border border-white/[0.07] p-3">
+            <h3 className="text-xs font-bold text-white mb-2 flex items-center gap-2">
+              <Search className="w-3.5 h-3.5 text-accent" />
               Select User
             </h3>
             {selectedUser ? (
-              <div className="flex items-center justify-between bg-accent/10 border border-accent/30 rounded-xl px-4 py-3">
+              <div className="flex items-center justify-between bg-accent/10 border border-accent/30 rounded-lg px-3 py-2">
                 <div>
                   <span className="text-sm font-semibold text-white">{selectedUser.name || 'No name'}</span>
                   <span className="text-xs text-slate-400 ml-2">{selectedUser.mobileNumber || selectedUser.email}</span>
@@ -939,9 +965,9 @@ function AdminPackagesLegacy() {
                     value={assignSearch}
                     onChange={e => setAssignSearch(e.target.value)}
                     placeholder="Search by name, mobile, or email..."
-                    className="w-full bg-white/[0.04] border border-white/[0.1] text-white text-sm rounded-lg px-3 py-2.5 outline-none focus:border-accent placeholder:text-slate-500"
+                    className="w-full bg-white/[0.04] border border-white/[0.1] text-white text-sm rounded-lg px-3 py-2 outline-none focus:border-accent placeholder:text-slate-500"
                   />
-                  {assignSearching && <Loader2 className="w-4 h-4 animate-spin text-slate-400 absolute right-3 top-3.5" />}
+                  {assignSearching && <Loader2 className="w-4 h-4 animate-spin text-slate-400 absolute right-3 top-3" />}
                 </div>
                 {assignSearchResults.length > 0 && (
                   <div className="mt-2 max-h-48 overflow-y-auto space-y-1">
@@ -963,9 +989,9 @@ function AdminPackagesLegacy() {
           </div>
 
           {/* Package Config Form */}
-          <form onSubmit={handleAssign} className="bg-white/[0.03] backdrop-blur-sm rounded-2xl border border-white/[0.07] p-4 space-y-4">
-            <h3 className="text-sm font-bold text-white mb-1 flex items-center gap-2">
-              <Package className="w-4 h-4 text-accent" />
+          <form onSubmit={handleAssign} className="bg-white/[0.03] backdrop-blur-sm rounded-xl border border-white/[0.07] p-3 space-y-3">
+            <h3 className="text-xs font-bold text-white mb-1 flex items-center gap-2">
+              <Package className="w-3.5 h-3.5 text-accent" />
               Package Details
             </h3>
 
@@ -976,7 +1002,7 @@ function AdminPackagesLegacy() {
                 value={assignForm.name}
                 onChange={e => setAssignForm(prev => ({ ...prev, name: e.target.value }))}
                 placeholder="e.g. Custom 10 Sessions for John"
-                className="w-full bg-white/[0.04] border border-white/[0.1] text-white text-sm rounded-lg px-3 py-2.5 outline-none focus:border-accent placeholder:text-slate-500"
+                className="w-full bg-white/[0.04] border border-white/[0.1] text-white text-sm rounded-lg px-3 py-2 outline-none focus:border-accent placeholder:text-slate-500"
                 required
               />
             </div>
@@ -999,7 +1025,7 @@ function AdminPackagesLegacy() {
                       ballType: m?.machineType.ballType === 'TENNIS' ? 'MACHINE' : prev.ballType,
                     }));
                   }}
-                  className="w-full bg-white/[0.04] border border-white/[0.1] text-white text-sm rounded-lg px-3 py-2.5 outline-none focus:border-accent"
+                  className="w-full bg-white/[0.04] border border-white/[0.1] text-white text-sm rounded-lg px-3 py-2 outline-none focus:border-accent"
                   required
                 >
                   {/* No "Any Bowling Machine" option — admin must pick a
@@ -1020,7 +1046,7 @@ function AdminPackagesLegacy() {
                   <select
                     value={assignForm.ballType}
                     onChange={e => setAssignForm(prev => ({ ...prev, ballType: e.target.value }))}
-                    className="w-full bg-white/[0.04] border border-white/[0.1] text-white text-sm rounded-lg px-3 py-2.5 outline-none focus:border-accent"
+                    className="w-full bg-white/[0.04] border border-white/[0.1] text-white text-sm rounded-lg px-3 py-2 outline-none focus:border-accent"
                   >
                     {PACKAGE_BALL_OPTIONS.map(b => (
                       <option key={b.value} value={b.value}>{b.label}</option>
@@ -1036,7 +1062,7 @@ function AdminPackagesLegacy() {
                 <select
                   value={assignForm.wicketType}
                   onChange={e => setAssignForm(prev => ({ ...prev, wicketType: e.target.value }))}
-                  className="w-full bg-white/[0.04] border border-white/[0.1] text-white text-sm rounded-lg px-3 py-2.5 outline-none focus:border-accent"
+                  className="w-full bg-white/[0.04] border border-white/[0.1] text-white text-sm rounded-lg px-3 py-2 outline-none focus:border-accent"
                 >
                   {PACKAGE_WICKET_OPTIONS.map(w => (
                     <option key={w.value} value={w.value}>{w.label}</option>
@@ -1050,7 +1076,7 @@ function AdminPackagesLegacy() {
                 <select
                   value={assignForm.timingType}
                   onChange={e => setAssignForm(prev => ({ ...prev, timingType: e.target.value }))}
-                  className="w-full bg-white/[0.04] border border-white/[0.1] text-white text-sm rounded-lg px-3 py-2.5 outline-none focus:border-accent"
+                  className="w-full bg-white/[0.04] border border-white/[0.1] text-white text-sm rounded-lg px-3 py-2 outline-none focus:border-accent"
                   required
                 >
                   {/* Only Day / Evening — "Anytime" / "Both" intentionally
@@ -1070,7 +1096,7 @@ function AdminPackagesLegacy() {
                   min={1}
                   value={assignForm.totalSessions}
                   onChange={e => setAssignForm(prev => ({ ...prev, totalSessions: parseInt(e.target.value) || 0 }))}
-                  className="w-full bg-white/[0.04] border border-white/[0.1] text-white text-sm rounded-xl px-4 py-3 outline-none focus:border-accent"
+                  className="w-full bg-white/[0.04] border border-white/[0.1] text-white text-sm rounded-lg px-3 py-2 outline-none focus:border-accent"
                   required
                 />
               </div>
@@ -1081,7 +1107,7 @@ function AdminPackagesLegacy() {
                   min={1}
                   value={assignForm.validityDays}
                   onChange={e => setAssignForm(prev => ({ ...prev, validityDays: parseInt(e.target.value) || 0 }))}
-                  className="w-full bg-white/[0.04] border border-white/[0.1] text-white text-sm rounded-xl px-4 py-3 outline-none focus:border-accent"
+                  className="w-full bg-white/[0.04] border border-white/[0.1] text-white text-sm rounded-lg px-3 py-2 outline-none focus:border-accent"
                   required
                 />
               </div>
@@ -1095,7 +1121,7 @@ function AdminPackagesLegacy() {
                 !assignForm.machineId ||
                 (assignForm.timingType !== 'DAY' && assignForm.timingType !== 'EVENING')
               }
-              className="w-full bg-accent hover:bg-accent-light text-primary font-semibold py-3 rounded-xl text-sm transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+              className="w-full bg-accent hover:bg-accent-light text-primary font-semibold py-2.5 rounded-lg text-sm transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
             >
               {assigning ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
               {assigning ? 'Assigning...' : 'Assign Custom Package'}
@@ -1114,7 +1140,7 @@ function AdminPackagesLegacy() {
         ) : reports ? (
           <div className="space-y-5">
             {/* Stats Grid */}
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2">
               {[
                 { label: 'Active Packages', value: reports.activePackages },
                 { label: 'Expired Packages', value: reports.expiredPackages },
@@ -1123,17 +1149,17 @@ function AdminPackagesLegacy() {
                 { label: 'Extra Charges', value: `₹${reports.extraChargesCollected || 0}` },
                 { label: 'Total Revenue', value: `₹${reports.totalRevenue || 0}` },
               ].map(stat => (
-                <div key={stat.label} className="bg-white/[0.03] backdrop-blur-sm rounded-2xl border border-white/[0.07] p-4">
-                  <p className="text-[11px] text-slate-400 mb-1">{stat.label}</p>
-                  <p className="text-lg font-bold text-white">{stat.value}</p>
+                <div key={stat.label} className="bg-white/[0.03] backdrop-blur-sm rounded-xl border border-white/[0.07] p-3">
+                  <p className="text-[10px] text-slate-400 mb-0.5 leading-tight">{stat.label}</p>
+                  <p className="text-base font-bold text-white">{stat.value}</p>
                 </div>
               ))}
             </div>
 
             {/* CSV Export with Filters */}
-            <div className="bg-white/[0.03] backdrop-blur-sm rounded-2xl border border-white/[0.07] p-4">
-              <h3 className="text-sm font-bold text-white mb-3 flex items-center gap-2">
-                <Download className="w-4 h-4 text-accent" />
+            <div className="bg-white/[0.03] backdrop-blur-sm rounded-xl border border-white/[0.07] p-3">
+              <h3 className="text-xs font-bold text-white mb-3 flex items-center gap-2">
+                <Download className="w-3.5 h-3.5 text-accent" />
                 Export Packages Report
               </h3>
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-3">
@@ -1142,7 +1168,7 @@ function AdminPackagesLegacy() {
                   <select
                     value={csvFilters.status}
                     onChange={e => setCsvFilters(prev => ({ ...prev, status: e.target.value }))}
-                    className="w-full bg-white/[0.04] border border-white/[0.1] text-white text-sm rounded-lg px-3 py-2.5 outline-none focus:border-accent"
+                    className="w-full bg-white/[0.04] border border-white/[0.1] text-white text-sm rounded-lg px-3 py-2 outline-none focus:border-accent"
                   >
                     <option value="">All</option>
                     <option value="ACTIVE">Active</option>
@@ -1155,7 +1181,7 @@ function AdminPackagesLegacy() {
                   <select
                     value={csvFilters.packageId}
                     onChange={e => setCsvFilters(prev => ({ ...prev, packageId: e.target.value }))}
-                    className="w-full bg-white/[0.04] border border-white/[0.1] text-white text-sm rounded-lg px-3 py-2.5 outline-none focus:border-accent"
+                    className="w-full bg-white/[0.04] border border-white/[0.1] text-white text-sm rounded-lg px-3 py-2 outline-none focus:border-accent"
                   >
                     <option value="">All Packages</option>
                     {packages.map(p => (
@@ -1169,7 +1195,7 @@ function AdminPackagesLegacy() {
                     type="date"
                     value={csvFilters.fromDate}
                     onChange={e => setCsvFilters(prev => ({ ...prev, fromDate: e.target.value }))}
-                    className="w-full bg-white/[0.04] border border-white/[0.1] text-white text-sm rounded-lg px-3 py-2.5 outline-none focus:border-accent"
+                    className="w-full bg-white/[0.04] border border-white/[0.1] text-white text-sm rounded-lg px-3 py-2 outline-none focus:border-accent"
                   />
                 </div>
                 <div>
@@ -1178,7 +1204,7 @@ function AdminPackagesLegacy() {
                     type="date"
                     value={csvFilters.toDate}
                     onChange={e => setCsvFilters(prev => ({ ...prev, toDate: e.target.value }))}
-                    className="w-full bg-white/[0.04] border border-white/[0.1] text-white text-sm rounded-lg px-3 py-2.5 outline-none focus:border-accent"
+                    className="w-full bg-white/[0.04] border border-white/[0.1] text-white text-sm rounded-lg px-3 py-2 outline-none focus:border-accent"
                   />
                 </div>
               </div>

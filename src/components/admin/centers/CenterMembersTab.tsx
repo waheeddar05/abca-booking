@@ -62,45 +62,42 @@ export function CenterMembersTab({ centerId }: { centerId: string }) {
 
   useEffect(() => { refresh(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [centerId, filter]);
 
-  const remove = async (id: string) => {
-    const target = members.find((m) => m.id === id);
-    const label = target ? ROLE_LABEL[target.role] : 'membership';
-    if (!confirm(`Remove the ${label} role at this center? Other roles for this user are unaffected.`)) return;
-    setActionError(null);
+  // Persist a member's role set in one shot from the per-row checkboxes.
+  // Diffs the desired roles against what the user currently holds: grants
+  // newly-checked roles via a single POST and revokes unchecked ones by
+  // deleting their membership rows. Returns null on success or an error
+  // string so the row can surface it inline next to its Save button.
+  const saveRoles = async (
+    group: { userId: string; memberships: MembershipRow[] },
+    desired: Set<MembershipRole>,
+  ): Promise<string | null> => {
+    const current = new Set(group.memberships.map((m) => m.role));
+    const toAdd = Array.from(desired).filter((r) => !current.has(r));
+    const toRemove = group.memberships.filter((m) => !desired.has(m.role));
+    if (toAdd.length === 0 && toRemove.length === 0) return null;
     try {
-      const res = await fetch(`/api/admin/centers/${centerId}/members/${id}`, { method: 'DELETE' });
-      if (res.ok) {
-        refresh();
-        return;
+      if (toAdd.length > 0) {
+        const res = await fetch(`/api/admin/centers/${centerId}/members`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ userId: group.userId, roles: toAdd }),
+        });
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          return data?.error || `Save failed (HTTP ${res.status})`;
+        }
       }
-      const data = await res.json().catch(() => ({}));
-      setActionError(data?.error || `Remove failed (HTTP ${res.status})`);
-    } catch (e) {
-      setActionError(e instanceof Error ? e.message : 'Remove failed');
-    }
-  };
-
-  // Grant an additional role to a user who is already a member of this
-  // center. Used by the inline "+ Add role" chip on each row so the
-  // admin doesn't have to go back to "Assign user" → search → pick the
-  // same person again just to give them one more role. Returns null on
-  // success or an error string on failure (so the row can show it
-  // locally instead of stealing focus with the top-level banner).
-  const addRole = async (userId: string, role: MembershipRole): Promise<string | null> => {
-    try {
-      const res = await fetch(`/api/admin/centers/${centerId}/members`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId, roles: [role] }),
-      });
-      if (res.ok) {
-        await refresh();
-        return null;
+      for (const m of toRemove) {
+        const res = await fetch(`/api/admin/centers/${centerId}/members/${m.id}`, { method: 'DELETE' });
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          return data?.error || `Save failed (HTTP ${res.status})`;
+        }
       }
-      const data = await res.json().catch(() => ({}));
-      return data?.error || `Add failed (HTTP ${res.status})`;
+      await refresh();
+      return null;
     } catch (e) {
-      return e instanceof Error ? e.message : 'Add failed';
+      return e instanceof Error ? e.message : 'Save failed';
     }
   };
 
@@ -134,31 +131,31 @@ export function CenterMembersTab({ centerId }: { centerId: string }) {
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap justify-between items-center gap-2">
-        <div className="flex flex-wrap items-center gap-1.5 flex-1 min-w-0">
+        <div className="flex flex-wrap items-center gap-2 flex-1 min-w-0">
           <SelectInput
             value={filter}
             onChange={(e) => setFilter(e.target.value as MembershipRole | 'ALL')}
-            className="!w-auto !py-1 !text-[10px]"
+            className="!w-auto !text-xs"
           >
             <option value="ALL">All roles</option>
             <option value="ADMIN">Admins</option>
             <option value="OPERATOR">Operators</option>
             <option value="COACH">Coaches</option>
-            <option value="SIDEARM_SPECIALIST">Sidearm</option>
-            <option value="GROUND_STAFF">Ground</option>
+            <option value="SIDEARM_SPECIALIST">Sidearm Specialist</option>
+            <option value="GROUND_STAFF">Ground Staff</option>
           </SelectInput>
-          <form onSubmit={(e) => { e.preventDefault(); refresh(); }} className="flex items-center gap-1.5 flex-1 min-w-[150px]">
+          <form onSubmit={(e) => { e.preventDefault(); refresh(); }} className="flex items-center gap-2 flex-1 min-w-[200px]">
             <TextInput
               value={q}
               onChange={(e) => setQ(e.target.value)}
-              placeholder="Search..."
-              className="flex-1 !py-1 !text-[10px]"
+              placeholder="Search by name / email / mobile"
+              className="flex-1 !text-xs"
             />
-            <SecondaryButton type="submit" className="px-2 py-1 text-[10px]">Search</SecondaryButton>
+            <SecondaryButton type="submit" className="!text-xs shrink-0">Search</SecondaryButton>
           </form>
         </div>
-        <PrimaryButton onClick={() => setShowNew(true)} className="!px-2 !py-1 !text-[9px] rounded-md shrink-0">
-          <UserPlus className="w-3 h-3" /> Assign
+        <PrimaryButton onClick={() => setShowNew(true)} className="shrink-0">
+          <UserPlus className="w-4 h-4" /> Assign
         </PrimaryButton>
       </div>
 
@@ -178,16 +175,15 @@ export function CenterMembersTab({ centerId }: { centerId: string }) {
       ) : members.length === 0 ? (
         <div className="text-center text-slate-500 py-6 text-sm">No members yet.</div>
       ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+        <div className="grid grid-cols-1 xl:grid-cols-2 gap-3">
           {groupByUser(members).map((group) => (
             <UserMembershipsRow
               key={group.userId}
               centerId={centerId}
               group={group}
               isSuperAdmin={isSuperAdmin}
-              onRemoveRole={remove}
+              onSaveRoles={saveRoles}
               onRemoveUser={removeUserEntirely}
-              onAddRole={addRole}
               onUserUpdated={refresh}
             />
           ))}
@@ -547,149 +543,182 @@ function NewMembershipForm({
 const DAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
 
+// All assignable roles, in a stable display order, with their labels.
+const ALL_ROLES: MembershipRole[] = ['ADMIN', 'OPERATOR', 'COACH', 'SIDEARM_SPECIALIST', 'GROUND_STAFF'];
+
 /**
- * One row per user, listing every role they hold at this center as a
- * coloured chip + a per-role delete + (for COACH / SPECIALIST) a
- * schedule toggle. Lets a person be assigned to multiple roles
- * without spawning duplicate rows in the list.
+ * One card per user. Row 1 shows the member's name + contact + edit/remove
+ * actions; Row 2 lays out every role as a checkbox in a clean horizontal
+ * row; Row 3 is a Save button that commits the checked role set in one shot
+ * (granting newly-checked roles and revoking unchecked ones). COACH /
+ * SIDEARM_SPECIALIST roles the user currently holds expose a schedule
+ * toggle next to their checkbox.
  */
 function UserMembershipsRow({
   centerId,
   group,
   isSuperAdmin,
-  onRemoveRole,
+  onSaveRoles,
   onRemoveUser,
-  onAddRole,
   onUserUpdated,
 }: {
   centerId: string;
   group: { userId: string; user: MembershipRow['user']; memberships: MembershipRow[] };
   isSuperAdmin: boolean;
-  onRemoveRole: (membershipId: string) => void;
+  onSaveRoles: (
+    group: { userId: string; memberships: MembershipRow[] },
+    desired: Set<MembershipRole>,
+  ) => Promise<string | null>;
   onRemoveUser: (userId: string) => void;
-  onAddRole: (userId: string, role: MembershipRole) => Promise<string | null>;
   onUserUpdated: () => void;
 }) {
-  const [expandedMembershipId, setExpandedMembershipId] = useState<string | null>(null);
-  const [editing, setEditing] = useState(false);
-  const [addingRole, setAddingRole] = useState(false);
-  const [savingRole, setSavingRole] = useState<MembershipRole | null>(null);
-  const [addError, setAddError] = useState<string | null>(null);
-
   const currentRoles = new Set<MembershipRole>(group.memberships.map((m) => m.role));
-  const ALL_ROLES: MembershipRole[] = ['ADMIN', 'OPERATOR', 'COACH', 'SIDEARM_SPECIALIST', 'GROUND_STAFF'];
-  const assignableRoles = ALL_ROLES.filter(
-    (r) => !currentRoles.has(r) && (isSuperAdmin || r !== 'ADMIN'),
+  const membershipIdByRole = new Map<MembershipRole, string>(
+    group.memberships.map((m) => [m.role, m.id]),
   );
+  // Stable signature of the held roles — used to re-seed the checkboxes and
+  // collapse any open schedule panel whenever the parent refreshes this row.
+  const rolesSignature = group.memberships.map((m) => m.role).sort().join(',');
 
-  const handleAddRole = async (role: MembershipRole) => {
-    setSavingRole(role);
-    setAddError(null);
-    const err = await onAddRole(group.userId, role);
-    setSavingRole(null);
-    if (err) {
-      setAddError(err);
+  const [checked, setChecked] = useState<Set<MembershipRole>>(() => new Set(currentRoles));
+  const [saving, setSaving] = useState(false);
+  const [saveMsg, setSaveMsg] = useState<{ text: string; ok: boolean } | null>(null);
+  const [editing, setEditing] = useState(false);
+  const [expandedMembershipId, setExpandedMembershipId] = useState<string | null>(null);
+
+  useEffect(() => {
+    setChecked(new Set(group.memberships.map((m) => m.role)));
+    setExpandedMembershipId(null);
+    setSaveMsg(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rolesSignature]);
+
+  const toggle = (role: MembershipRole) => {
+    // Center admins (non-super) can neither grant nor revoke ADMIN.
+    if (role === 'ADMIN' && !isSuperAdmin) return;
+    setSaveMsg(null);
+    setChecked((prev) => {
+      const next = new Set(prev);
+      if (next.has(role)) next.delete(role);
+      else next.add(role);
+      return next;
+    });
+  };
+
+  const dirty =
+    checked.size !== currentRoles.size ||
+    Array.from(checked).some((r) => !currentRoles.has(r));
+
+  const handleSave = async () => {
+    if (checked.size === 0 &&
+        !confirm('No roles selected — this removes the member from the center. Continue?')) {
       return;
     }
-    setAddingRole(false);
+    setSaving(true);
+    setSaveMsg(null);
+    const err = await onSaveRoles(group, checked);
+    setSaving(false);
+    if (err) {
+      setSaveMsg({ text: err, ok: false });
+      return;
+    }
+    setSaveMsg({ text: 'Saved', ok: true });
+    setTimeout(() => setSaveMsg(null), 2500);
   };
 
   return (
     <div className="rounded-xl bg-white/[0.02] border border-white/[0.06] overflow-hidden">
-      <div className="p-2 flex flex-wrap items-center justify-between gap-2">
-        <div className="min-w-0 flex-1 flex items-center gap-3">
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2">
-              <span className="text-xs font-semibold text-white truncate">
-                {group.user.name || group.user.email || group.user.mobileNumber || '(no name)'}
-              </span>
-              <div className="flex gap-1 shrink-0">
-                {group.user.email && (
-                  <span title={group.user.email}>
-                    <Mail className="w-3 h-3 text-slate-500" />
-                  </span>
-                )}
-                {group.user.mobileNumber && (
-                  <span title={group.user.mobileNumber}>
-                    <Phone className="w-3 h-3 text-slate-500" />
-                  </span>
-                )}
-              </div>
-            </div>
-            <div className="flex flex-wrap gap-1 mt-1">
-              {group.memberships.map((m) => {
-                const supportsSchedule = m.role === 'COACH' || m.role === 'SIDEARM_SPECIALIST';
-                const expanded = expandedMembershipId === m.id;
-                return (
-                  <span
-                    key={m.id}
-                    className={`inline-flex items-center gap-1 pl-1.5 pr-0.5 py-0.5 rounded-full border text-[9px] uppercase tracking-wide ${ROLE_COLOR[m.role]}`}
-                  >
-                    {ROLE_LABEL[m.role]}
-                    {supportsSchedule && (
-                      <button
-                        onClick={() => setExpandedMembershipId(expanded ? null : m.id)}
-                        className={`ml-0.5 p-0.5 rounded-full cursor-pointer ${
-                          expanded ? 'bg-white/15' : 'hover:bg-white/10'
-                        }`}
-                        title="Schedule"
-                      >
-                        <CalendarClock className="w-3 h-3" />
-                      </button>
-                    )}
-                    <button
-                      onClick={() => onRemoveRole(m.id)}
-                      className="p-0.5 rounded-full hover:bg-red-500/20 cursor-pointer"
-                    >
-                      <X className="w-2.5 h-2.5" />
-                    </button>
-                  </span>
-                );
-              })}
-              {assignableRoles.length > 0 && !addingRole && (
-                <button
-                  onClick={() => setAddingRole(true)}
-                  className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full border border-dashed border-white/10 text-[9px] text-slate-500 hover:text-slate-300 cursor-pointer"
-                >
-                  <Plus className="w-2.5 h-2.5" /> Role
-                </button>
+      <div className="p-3 space-y-2.5">
+        {/* Row 1 — member name + contact + actions */}
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2 min-w-0">
+            <span className="text-sm font-semibold text-white truncate">
+              {group.user.name || group.user.email || group.user.mobileNumber || '(no name)'}
+            </span>
+            <div className="flex gap-1 shrink-0">
+              {group.user.email && (
+                <span title={group.user.email}><Mail className="w-3.5 h-3.5 text-slate-500" /></span>
               )}
-              {addingRole && (
-                <div className="flex items-center gap-1">
-                  {assignableRoles.map(r => (
-                    <button
-                      key={r}
-                      onClick={() => handleAddRole(r)}
-                      disabled={!!savingRole}
-                      className={`text-[9px] px-1.5 py-0.5 rounded-full border ${ROLE_COLOR[r]} cursor-pointer`}
-                    >
-                      {savingRole === r ? '...' : r}
-                    </button>
-                  ))}
-                  <button onClick={() => setAddingRole(false)} className="p-0.5 text-slate-500 cursor-pointer"><X className="w-3 h-3" /></button>
-                </div>
+              {group.user.mobileNumber && (
+                <span title={group.user.mobileNumber}><Phone className="w-3.5 h-3.5 text-slate-500" /></span>
               )}
             </div>
           </div>
+          <div className="flex items-center gap-1 shrink-0">
+            <button
+              onClick={() => setEditing(!editing)}
+              title="Edit profile"
+              className={`p-1.5 rounded-lg border text-slate-400 hover:text-white cursor-pointer ${editing ? 'bg-accent/10 border-accent/30 text-accent' : 'border-transparent'}`}
+            >
+              <Pencil className="w-3.5 h-3.5" />
+            </button>
+            <button
+              onClick={() => onRemoveUser(group.userId)}
+              title="Remove from center"
+              className="p-1.5 rounded-lg border border-transparent text-red-400/70 hover:bg-red-500/10 hover:text-red-400 cursor-pointer"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+            </button>
+          </div>
         </div>
-        <div className="flex items-center gap-1">
+
+        {/* Row 2 — role checkboxes */}
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+          {ALL_ROLES.map((role) => {
+            const disabled = role === 'ADMIN' && !isSuperAdmin;
+            const supportsSchedule = role === 'COACH' || role === 'SIDEARM_SPECIALIST';
+            const scheduleId = membershipIdByRole.get(role);
+            const scheduleOpen = !!scheduleId && expandedMembershipId === scheduleId;
+            return (
+              <div key={role} className="inline-flex items-center gap-1.5">
+                <label
+                  className={`inline-flex items-center gap-1.5 text-xs font-medium select-none ${disabled ? 'text-slate-600 cursor-not-allowed' : 'text-slate-200 cursor-pointer'}`}
+                >
+                  <input
+                    type="checkbox"
+                    checked={checked.has(role)}
+                    disabled={disabled}
+                    onChange={() => toggle(role)}
+                    className="w-4 h-4 rounded accent-emerald-500 cursor-pointer disabled:cursor-not-allowed"
+                  />
+                  {ROLE_LABEL[role]}
+                </label>
+                {supportsSchedule && scheduleId && currentRoles.has(role) && (
+                  <button
+                    onClick={() => setExpandedMembershipId(scheduleOpen ? null : scheduleId)}
+                    title="Schedule"
+                    className={`p-0.5 rounded cursor-pointer ${scheduleOpen ? 'bg-white/15 text-white' : 'text-slate-500 hover:text-slate-300'}`}
+                  >
+                    <CalendarClock className="w-3.5 h-3.5" />
+                  </button>
+                )}
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Row 3 — save */}
+        <div className="flex items-center gap-2">
           <button
-            onClick={() => setEditing(!editing)}
-            className={`p-1.5 rounded-lg border text-slate-400 hover:text-white cursor-pointer ${editing ? 'bg-accent/10 border-accent/30 text-accent' : 'border-transparent'}`}
+            onClick={handleSave}
+            disabled={saving || !dirty}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-accent text-black text-xs font-semibold hover:bg-accent/90 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
           >
-            <Pencil className="w-3.5 h-3.5" />
+            {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
+            Save
           </button>
-          <button
-            onClick={() => onRemoveUser(group.userId)}
-            className="p-1.5 rounded-lg border border-transparent text-red-400/70 hover:bg-red-500/10 hover:text-red-400 cursor-pointer"
-          >
-            <Trash2 className="w-3.5 h-3.5" />
-          </button>
+          {saveMsg ? (
+            <span className={`text-xs font-medium ${saveMsg.ok ? 'text-emerald-400' : 'text-red-400'}`}>
+              {saveMsg.text}
+            </span>
+          ) : dirty ? (
+            <span className="text-[11px] text-slate-500">Unsaved changes</span>
+          ) : null}
         </div>
       </div>
 
       {editing && (
-        <div className="px-2.5 pb-2.5">
+        <div className="px-3 pb-3">
           <UserProfileEditor
             centerId={centerId}
             membershipId={group.memberships[0].id}

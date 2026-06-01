@@ -196,16 +196,19 @@ export default function ConfigurationPage() {
   const [showMachineConfigConfirm, setShowMachineConfigConfirm] = useState(false);
   const [activePricingTab, setActivePricingTab] = useState<string>('leather');
 
-  // Unified Settings state
+  // Unified Settings state. A single counter (`settingsSaveTrigger`)
+  // drives the trigger-based child editors (Booking Categories, Pitch
+  // Types, Resource Pricing); each reports its save status back so the
+  // page can surface a combined message next to the global Save button.
   const [settingsSaveTrigger, setSettingsSaveTrigger] = useState(0);
   const [categoriesSaveStatus, setCategoriesSaveStatus] = useState<{ saving: boolean; message: { text: string; ok: boolean } | null }>({ saving: false, message: null });
   const [pitchTypesSaveStatus, setPitchTypesSaveStatus] = useState<{ saving: boolean; message: { text: string; ok: boolean } | null }>({ saving: false, message: null });
-  const isSettingsSaving = categoriesSaveStatus.saving || pitchTypesSaveStatus.saving;
-  const settingsMessage = categoriesSaveStatus.message || pitchTypesSaveStatus.message;
-
-  const handleSaveSettings = () => {
-    setSettingsSaveTrigger(prev => prev + 1);
-  };
+  const [resourcePricingSaveStatus, setResourcePricingSaveStatus] = useState<{ saving: boolean; message: { text: string; ok: boolean } | null }>({ saving: false, message: null });
+  const isSettingsSaving = categoriesSaveStatus.saving || pitchTypesSaveStatus.saving || resourcePricingSaveStatus.saving;
+  const settingsError =
+    [categoriesSaveStatus, pitchTypesSaveStatus, resourcePricingSaveStatus]
+      .map((s) => s.message)
+      .find((m) => m && !m.ok) ?? null;
 
 
   // Payment settings state
@@ -258,8 +261,6 @@ export default function ConfigurationPage() {
     isActive: boolean;
     machineType: { code: string; name: string; ballType: string };
   }>>([]);
-  const [savingKitRental, setSavingKitRental] = useState(false);
-  const [kitRentalMessage, setKitRentalMessage] = useState({ text: '', type: '' });
 
   useEffect(() => {
     async function fetchMachineConfig() {
@@ -406,47 +407,43 @@ export default function ConfigurationPage() {
     }
   };
 
-  const handleSaveKitRental = async (updatedConfig?: typeof kitRentalConfig) => {
-    const configToSave = updatedConfig || kitRentalConfig;
-    setSavingKitRental(true);
-    setKitRentalMessage({ text: '', type: '' });
-    try {
-      const res = await fetch(`/api/admin/policies?scope=${scope}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ key: 'KIT_RENTAL_CONFIG', value: JSON.stringify(configToSave) }),
-      });
-      if (!res.ok) throw new Error('Failed to save');
-      setKitRentalConfig(configToSave);
-      setKitRentalMessage({ text: 'Saved', type: 'success' });
-      setTimeout(() => setKitRentalMessage({ text: '', type: '' }), 2000);
-    } catch {
-      setKitRentalMessage({ text: 'Failed to save', type: 'error' });
-    } finally {
-      setSavingKitRental(false);
-    }
-  };
-
+  // Single global save for the whole Settings page. Persists everything
+  // the page owns directly (machine config — pricing/timing/compat — and
+  // kit rental), then bumps `settingsSaveTrigger` so the trigger-based
+  // child editors (Booking Categories, Pitch Types, Resource Pricing)
+  // save in lockstep. Those report their own status via onSaveStatus,
+  // surfaced next to this button.
   const handleSaveMachine = async () => {
     setSavingMachine(true);
     setMachineMessage({ text: '', type: '' });
     const errors: string[] = [];
     try {
-      // 1. Save machine config (pricing, time slabs, machine-pitch config)
+      // 1. Machine config (pricing, time slabs, machine-pitch config).
       const machineRes = await fetch(`/api/admin/machine-config?scope=${scope}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(machineConfig),
       });
       if (!machineRes.ok) {
-        const data = await machineRes.json();
+        const data = await machineRes.json().catch(() => ({}));
         errors.push(data.error || 'Failed to save machine config');
       }
+
+      // 2. Kit rental config (folded in from its old per-section button).
+      const kitRes = await fetch(`/api/admin/policies?scope=${scope}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ key: 'KIT_RENTAL_CONFIG', value: JSON.stringify(kitRentalConfig) }),
+      });
+      if (!kitRes.ok) errors.push('Failed to save kit rental settings');
+
+      // 3. Fire the trigger-based child editors (resource-based centers).
+      setSettingsSaveTrigger(prev => prev + 1);
 
       if (errors.length > 0) {
         setMachineMessage({ text: errors.join('; '), type: 'error' });
       } else {
-        setMachineMessage({ text: 'All configuration saved successfully', type: 'success' });
+        setMachineMessage({ text: 'All settings saved successfully', type: 'success' });
       }
     } catch {
       setMachineMessage({ text: 'Failed to save configuration', type: 'error' });
@@ -556,27 +553,17 @@ export default function ConfigurationPage() {
         icon={<ShoppingBag className="w-4 h-4 text-accent" />}
         collapsible
         defaultOpen={false}
-        headerRight={
-          kitRentalMessage.text ? (
-            <span className={`text-xs font-medium ${kitRentalMessage.type === 'success' ? 'text-green-400' : 'text-red-400'}`}>
-              {kitRentalMessage.text}
-            </span>
-          ) : undefined
-        }
       >
         <div className="space-y-4">
-          {/* Enable/Disable Toggle */}
+          {/* Enable/Disable Toggle. Persisted by the single global Save
+              button at the bottom of the page (no per-section save). */}
           <AdminToggle
             enabled={kitRentalConfig.enabled}
-            onToggle={() => {
-              const updated = { ...kitRentalConfig, enabled: !kitRentalConfig.enabled };
-              setKitRentalConfig(updated);
-              handleSaveKitRental(updated);
-            }}
+            onToggle={() => setKitRentalConfig(prev => ({ ...prev, enabled: !prev.enabled }))}
             label="Enable Kit Rental"
             description="Show kit rental option on booking page for selected machines"
             icon={ShoppingBag}
-            disabled={savingKitRental}
+            disabled={savingMachine}
           />
 
           {kitRentalConfig.enabled && (
@@ -774,16 +761,6 @@ export default function ConfigurationPage() {
                   </div>
                 </div>
               )}
-
-              {/* Save Button */}
-              <button
-                onClick={() => handleSaveKitRental()}
-                disabled={savingKitRental}
-                className="inline-flex items-center gap-2 bg-accent/15 hover:bg-accent/25 text-accent border border-accent/25 px-5 py-2.5 rounded-xl text-sm font-semibold transition-all cursor-pointer disabled:opacity-40"
-              >
-                {savingKitRental ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-                {savingKitRental ? 'Saving...' : 'Save Kit Rental Settings'}
-              </button>
             </div>
           )}
         </div>
@@ -808,10 +785,10 @@ export default function ConfigurationPage() {
             <span className="text-sm">Loading configuration...</span>
           </div>
         ) : (
-          <div className="space-y-4">
+          <div className="space-y-3">
             {/* Leather Ball Machine */}
-            <div className="bg-white/[0.02] rounded-xl border border-white/[0.05] p-4">
-              <h3 className="text-xs font-bold text-slate-300 uppercase tracking-wider mb-3 flex items-center gap-2">
+            <div className="bg-white/[0.02] rounded-xl border border-white/[0.05] p-3">
+              <h3 className="text-xs font-bold text-slate-300 uppercase tracking-wider mb-2.5 flex items-center gap-2">
                 <span className="w-2 h-2 rounded-full bg-red-400" />
                 Leather Ball Machine
               </h3>
@@ -840,8 +817,8 @@ export default function ConfigurationPage() {
             </div>
 
             {/* Tennis Ball Machine */}
-            <div className="bg-white/[0.02] rounded-xl border border-white/[0.05] p-4">
-              <h3 className="text-xs font-bold text-slate-300 uppercase tracking-wider mb-3 flex items-center gap-2">
+            <div className="bg-white/[0.02] rounded-xl border border-white/[0.05] p-3">
+              <h3 className="text-xs font-bold text-slate-300 uppercase tracking-wider mb-2.5 flex items-center gap-2">
                 <span className="w-2 h-2 rounded-full bg-green-400" />
                 Tennis Ball Machine
               </h3>
@@ -858,10 +835,10 @@ export default function ConfigurationPage() {
             </div>
 
             {/* Machine-Pitch Compatibility */}
-            <div className="bg-white/[0.02] rounded-xl border border-white/[0.05] p-4">
+            <div className="bg-white/[0.02] rounded-xl border border-white/[0.05] p-3">
               <h3 className="text-xs font-bold text-slate-300 uppercase tracking-wider mb-1">Machine — Pitch Compatibility</h3>
-              <p className="text-[10px] text-slate-500 mb-3">Toggle which pitch types are available for each machine</p>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <p className="text-[10px] text-slate-500 mb-2.5">Toggle which pitch types are available for each machine</p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                 {ALL_MACHINE_IDS.map(machineId => {
                   const label = MACHINE_LABELS[machineId];
                   const enabled = machineConfig.machinePitchConfig?.[machineId] || [];
@@ -896,10 +873,10 @@ export default function ConfigurationPage() {
             </div>
 
             {/* Time Slab Configuration */}
-            <div className="bg-white/[0.02] rounded-xl border border-white/[0.05] p-4">
-              <h3 className="text-xs font-bold text-slate-300 uppercase tracking-wider mb-3">Slot Timing Configuration</h3>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div className="bg-white/[0.02] rounded-xl p-3 border border-white/[0.05]">
+            <div className="bg-white/[0.02] rounded-xl border border-white/[0.05] p-3">
+              <h3 className="text-xs font-bold text-slate-300 uppercase tracking-wider mb-2.5">Slot Timing Configuration</h3>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                <div className="bg-white/[0.02] rounded-xl p-2.5 border border-white/[0.05]">
                   <p className="text-[11px] font-bold text-slate-300 mb-2 flex items-center gap-1.5">
                     <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
                     Morning Hours
@@ -927,7 +904,7 @@ export default function ConfigurationPage() {
                     </div>
                   </div>
                 </div>
-                <div className="bg-white/[0.02] rounded-xl p-3 border border-white/[0.05]">
+                <div className="bg-white/[0.02] rounded-xl p-2.5 border border-white/[0.05]">
                   <p className="text-[11px] font-bold text-slate-300 mb-2 flex items-center gap-1.5">
                     <span className="w-1.5 h-1.5 rounded-full bg-indigo-400" />
                     Evening Hours
@@ -959,11 +936,11 @@ export default function ConfigurationPage() {
             </div>
 
             {/* Pricing Configuration - Tabbed */}
-            <div className="bg-white/[0.02] rounded-xl border border-white/[0.05] p-4">
-              <h3 className="text-xs font-bold text-slate-300 uppercase tracking-wider mb-3">Slot Pricing Configuration</h3>
+            <div className="bg-white/[0.02] rounded-xl border border-white/[0.05] p-3">
+              <h3 className="text-xs font-bold text-slate-300 uppercase tracking-wider mb-2.5">Slot Pricing Configuration</h3>
 
               {/* Tab Selector */}
-              <div className="flex gap-1 overflow-x-auto pb-3 mb-3 scrollbar-hide">
+              <div className="flex gap-1 overflow-x-auto pb-2 mb-2.5 scrollbar-hide">
                 {PRICING_TABS.map(tab => (
                   <button
                     key={tab.key}
@@ -984,28 +961,28 @@ export default function ConfigurationPage() {
                 if (!pitchPricing) return null;
 
                 return (
-                  <div key={`${activePricingTab}-${pitch}`} className="bg-white/[0.02] rounded-xl p-3 border border-white/[0.05] mb-2.5">
-                    <p className="text-[11px] font-bold text-slate-300 mb-2">
+                  <div key={`${activePricingTab}-${pitch}`} className="bg-white/[0.02] rounded-xl p-2.5 border border-white/[0.05] mb-2">
+                    <p className="text-[11px] font-bold text-slate-300 mb-1.5">
                       {pitch === 'ASTRO' ? 'Astro Turf' : pitch === 'CEMENT' ? 'Cement Wicket' : 'Natural Turf'}
                     </p>
                     <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                       <PriceField
-                        label="Morning · Single slot"
+                        label="Morning Slot 1"
                         value={pitchPricing.morning.single}
                         onChange={v => updatePricing([activePricingTab, pitch, 'morning', 'single'], v)}
                       />
                       <PriceField
-                        label="Morning · 2 consecutive"
+                        label="Morning Slot 2"
                         value={pitchPricing.morning.consecutive}
                         onChange={v => updatePricing([activePricingTab, pitch, 'morning', 'consecutive'], v)}
                       />
                       <PriceField
-                        label="Evening · Single slot"
+                        label="Evening Slot 1"
                         value={pitchPricing.evening.single}
                         onChange={v => updatePricing([activePricingTab, pitch, 'evening', 'single'], v)}
                       />
                       <PriceField
-                        label="Evening · 2 consecutive"
+                        label="Evening Slot 2"
                         value={pitchPricing.evening.consecutive}
                         onChange={v => updatePricing([activePricingTab, pitch, 'evening', 'consecutive'], v)}
                       />
@@ -1036,14 +1013,14 @@ export default function ConfigurationPage() {
           collapsible
           defaultOpen={false}
         >
-          <div className="space-y-4">
+          <div className="space-y-3">
             {/* ─── Slot Timing Configuration ────────── */}
-            <div className="bg-white/[0.02] rounded-xl border border-white/[0.05] p-4">
-              <h3 className="text-xs font-bold text-slate-300 uppercase tracking-wider mb-3">
+            <div className="bg-white/[0.02] rounded-xl border border-white/[0.05] p-3">
+              <h3 className="text-xs font-bold text-slate-300 uppercase tracking-wider mb-2.5">
                 Slot Timing Configuration
               </h3>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div className="bg-white/[0.02] rounded-xl p-3 border border-white/[0.05]">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                <div className="bg-white/[0.02] rounded-xl p-2.5 border border-white/[0.05]">
                   <p className="text-[11px] font-bold text-slate-300 mb-2 flex items-center gap-1.5">
                     <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
                     Morning Hours
@@ -1071,7 +1048,7 @@ export default function ConfigurationPage() {
                     </div>
                   </div>
                 </div>
-                <div className="bg-white/[0.02] rounded-xl p-3 border border-white/[0.05]">
+                <div className="bg-white/[0.02] rounded-xl p-2.5 border border-white/[0.05]">
                   <p className="text-[11px] font-bold text-slate-300 mb-2 flex items-center gap-1.5">
                     <span className="w-1.5 h-1.5 rounded-full bg-indigo-400" />
                     Evening Hours
@@ -1103,11 +1080,11 @@ export default function ConfigurationPage() {
             </div>
 
             {/* ─── Slot Pricing Configuration ───────── */}
-            <div className="bg-white/[0.02] rounded-xl border border-white/[0.05] p-4">
-              <h3 className="text-xs font-bold text-slate-300 uppercase tracking-wider mb-3">
+            <div className="bg-white/[0.02] rounded-xl border border-white/[0.05] p-3">
+              <h3 className="text-xs font-bold text-slate-300 uppercase tracking-wider mb-2">
                 Slot Pricing Configuration
               </h3>
-              <p className="text-[11px] text-slate-500 leading-relaxed mb-3">
+              <p className="text-[11px] text-slate-500 leading-relaxed mb-2.5">
                 Per-Machine pricing with single + consecutive rates per
                 pitch and ball type. Per-machine pitch / ball
                 compatibility live under{' '}
@@ -1122,15 +1099,17 @@ export default function ConfigurationPage() {
               <ResourcePricingEditor
                 scope={scope}
                 centerLabel={currentCenter.shortName ?? currentCenter.name}
+                externalSaveTrigger={settingsSaveTrigger}
+                onSaveStatus={setResourcePricingSaveStatus}
               />
             </div>
           </div>
         </AdminCard>
       )}
 
-      {/* Unified Booking Settings — merged Booking Categories and Pitch Types
-          per Category into a single streamlined section. Consolidates
-          everything onto one 'Save All' button. */}
+      {/* Unified Booking Settings — Booking Categories + Pitch Types per
+          Category. No per-section Save button: everything on this page is
+          persisted by the single global Save button at the bottom. */}
       {currentCenter?.bookingModel === 'RESOURCE_BASED' && (
         <AdminCard
           title="Booking Settings"
@@ -1138,10 +1117,10 @@ export default function ConfigurationPage() {
           collapsible
           defaultOpen={true}
         >
-          <div className="space-y-8">
+          <div className="space-y-5">
             {/* Booking categories */}
             <div>
-              <div className="flex items-center gap-2 mb-3">
+              <div className="flex items-center gap-2 mb-2.5">
                 <Ticket className="w-3.5 h-3.5 text-accent/70" />
                 <h4 className="text-[11px] font-bold text-white uppercase tracking-wider">Booking Categories</h4>
               </div>
@@ -1154,8 +1133,8 @@ export default function ConfigurationPage() {
             </div>
 
             {/* Pitch types per category */}
-            <div className="pt-6 border-t border-white/[0.06]">
-              <div className="flex items-center gap-2 mb-3">
+            <div className="pt-4 border-t border-white/[0.06]">
+              <div className="flex items-center gap-2 mb-2.5">
                 <Zap className="w-3.5 h-3.5 text-accent/70" />
                 <h4 className="text-[11px] font-bold text-white uppercase tracking-wider">Pitch Types Per Category</h4>
               </div>
@@ -1164,27 +1143,6 @@ export default function ConfigurationPage() {
                 externalSaveTrigger={settingsSaveTrigger}
                 onSaveStatus={setPitchTypesSaveStatus}
               />
-            </div>
-
-            {/* Save Button */}
-            <div className="pt-4 flex items-center justify-between gap-4 border-t border-white/[0.06]">
-              <div className="min-w-0">
-                {settingsMessage && (
-                  <div className={`flex items-center gap-1.5 text-[11px] font-medium animate-in fade-in slide-in-from-left-2 duration-300 ${settingsMessage.ok ? 'text-emerald-400' : 'text-red-400'}`}>
-                    <div className={`w-1.5 h-1.5 rounded-full ${settingsMessage.ok ? 'bg-emerald-400' : 'bg-red-400'} animate-pulse`} />
-                    {settingsMessage.text}
-                  </div>
-                )}
-              </div>
-              <button
-                type="button"
-                onClick={handleSaveSettings}
-                disabled={isSettingsSaving}
-                className="flex items-center gap-2 px-8 py-2.5 rounded-xl bg-accent text-primary text-xs font-bold hover:bg-accent-light active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer transition-all shadow-lg shadow-accent/10"
-              >
-                {isSettingsSaving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
-                Save All Settings
-              </button>
             </div>
           </div>
         </AdminCard>
@@ -1252,14 +1210,14 @@ export default function ConfigurationPage() {
         </AdminCard>
       )}
 
-      {/* Machine Config Save Confirmation */}
+      {/* Global Save Confirmation */}
       <ConfirmDialog
         open={showMachineConfigConfirm}
-        title="Save Machine Configuration"
-        message="Are you sure you want to save these configuration changes?"
+        title="Save Settings"
+        message="Save all changes on this page (machine configuration, slot timing & pricing, booking settings)?"
         confirmLabel="Save"
         cancelLabel="Cancel"
-        loading={savingMachine}
+        loading={savingMachine || isSettingsSaving}
         onConfirm={() => {
           setShowMachineConfigConfirm(false);
           handleSaveMachine();
@@ -1268,21 +1226,27 @@ export default function ConfigurationPage() {
       />
 
 
-      {/* ─── Unified Save Button (bottom of page) ─── */}
+      {/* ─── Single global Save button (bottom of page) ───
+          Saves everything on the page: machine configuration, slot
+          timing, slot pricing, kit rental and (resource-based centers)
+          booking categories + pitch types. All other per-section save
+          buttons were removed in favour of this one. */}
       <div className="sticky bottom-4 z-40 flex items-center gap-3 p-4 rounded-2xl bg-[#0b1726]/95 backdrop-blur-xl border border-white/[0.08] shadow-xl shadow-black/30">
         <button
           onClick={() => setShowMachineConfigConfirm(true)}
-          disabled={savingMachine}
+          disabled={savingMachine || isSettingsSaving}
           className="inline-flex items-center gap-2 bg-accent hover:bg-accent-light text-primary px-6 py-3 rounded-xl text-sm font-semibold transition-all cursor-pointer disabled:opacity-50 shadow-sm shadow-accent/20 hover:shadow-accent/30"
         >
-          {savingMachine ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-          Save Machine Configuration
+          {(savingMachine || isSettingsSaving) ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+          Save All Settings
         </button>
-        {machineMessage.text && (
+        {settingsError ? (
+          <span className="text-sm font-medium text-red-400">{settingsError.text}</span>
+        ) : machineMessage.text ? (
           <span className={`text-sm font-medium ${machineMessage.type === 'success' ? 'text-green-400' : 'text-red-400'}`}>
             {machineMessage.text}
           </span>
-        )}
+        ) : null}
       </div>
     </div>
   );

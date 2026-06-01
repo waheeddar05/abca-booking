@@ -138,11 +138,12 @@ export function EnabledCategoriesEditor({
         for {centerLabel}. At least one must stay on.
       </div>
 
-      {/* Selection tiles match the "Pitch Types Per Category" control
-          (label + circular check indicator) so every selectable option
-          across Settings uses one consistent, readable pattern instead of
-          a mix of native checkboxes and boxes. */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
+      {/* Compact list — one category per row, label on the left and a
+          circular check on the far right. Matches the "Pitch Types Per
+          Category" control so every selectable option across Settings
+          uses one consistent, readable pattern, and packs the five
+          categories into far less vertical space than the old tile grid. */}
+      <div className="space-y-1.5">
         {ALL_CATEGORIES.map((c) => {
           const on = enabled.has(c.id);
           return (
@@ -150,31 +151,31 @@ export function EnabledCategoriesEditor({
               key={c.id}
               type="button"
               onClick={() => toggle(c.id)}
-              className={`group relative flex flex-col gap-1 px-3 py-2.5 rounded-xl text-left border transition-all cursor-pointer ${
+              className={`group relative w-full flex items-center justify-between gap-3 px-3 py-2 rounded-xl text-left border transition-all cursor-pointer ${
                 on
                   ? 'bg-accent/10 text-accent border-accent/20 shadow-sm shadow-accent/5'
                   : 'bg-black/20 text-slate-500 border-white/[0.05] hover:border-white/[0.1] hover:text-slate-400'
               }`}
             >
-              <div className="flex items-center justify-between gap-2">
+              <div className="min-w-0">
                 <span className={`text-xs font-semibold ${on ? 'text-white' : 'text-slate-400'}`}>{c.label}</span>
-                <div className={`w-3.5 h-3.5 flex-shrink-0 rounded-full border flex items-center justify-center transition-all ${
-                  on ? 'bg-accent border-accent text-primary' : 'border-white/10 bg-white/5'
-                }`}>
-                  {on && (
-                    <svg className="w-2 h-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={4} d="M5 13l4 4L19 7" />
-                    </svg>
-                  )}
-                </div>
+                <span className="ml-2 text-[9px] text-slate-500 uppercase tracking-tight">{c.sub}</span>
               </div>
-              <div className="text-[9px] text-slate-500 uppercase tracking-tight">{c.sub}</div>
+              <div className={`w-4 h-4 flex-shrink-0 rounded-full border flex items-center justify-center transition-all ${
+                on ? 'bg-accent border-accent text-primary' : 'border-white/10 bg-white/5'
+              }`}>
+                {on && (
+                  <svg className="w-2 h-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={4} d="M5 13l4 4L19 7" />
+                  </svg>
+                )}
+              </div>
             </button>
           );
         })}
       </div>
 
-      {!externalSaveTrigger && (
+      {externalSaveTrigger === undefined && (
         <div className="flex items-center justify-end gap-2 pt-1">
           {message && (
             <span className={`text-xs font-medium ${message.ok ? 'text-green-400' : 'text-red-400'}`}>

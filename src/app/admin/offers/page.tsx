@@ -147,13 +147,102 @@ function ChipSelect({ label, hint, options, selected, onChange }: {
   );
 }
 
-// ─── Applied-On Detail Strip ────────────────────────────────────────
-// Renders a labelled chip row for each non-empty targeting axis on an
-// offer / recurring rule. Mirrors what the admin picked on the create
-// form so the listing view is self-documenting (the previous design
-// just appended raw IDs as tiny grey text, which made it impossible to
-// tell at a glance which offer applied to which category).
-function AppliedOnRows({
+// ─── Offer card display helpers ─────────────────────────────────────
+// Shared chip/badge styling so every offer card reads consistently and
+// scans well on a phone. The previous design crammed name, status,
+// dates, time, days and targeting into a couple of tightly-wrapped
+// rows of tiny grey text; these helpers break that into clearly
+// labelled rows with colour-coded badges instead.
+
+const badgeBase =
+  'inline-flex items-center text-[10px] font-medium px-2 py-0.5 rounded-md border whitespace-nowrap';
+const badgeColors: Record<string, string> = {
+  green: 'bg-green-500/15 text-green-400 border-green-500/30',
+  red: 'bg-red-500/15 text-red-400 border-red-500/30',
+  blue: 'bg-blue-500/15 text-blue-300 border-blue-500/30',
+  purple: 'bg-purple-500/15 text-purple-300 border-purple-500/30',
+  amber: 'bg-amber-500/15 text-amber-300 border-amber-500/30',
+  cyan: 'bg-cyan-500/15 text-cyan-300 border-cyan-500/30',
+  emerald: 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30',
+  indigo: 'bg-indigo-500/15 text-indigo-300 border-indigo-500/30',
+  slate: 'bg-white/[0.05] text-slate-300 border-white/[0.1]',
+};
+
+function Badge({ color, children }: { color: string; children: React.ReactNode }) {
+  return <span className={`${badgeBase} ${badgeColors[color] ?? badgeColors.slate}`}>{children}</span>;
+}
+
+// A labelled detail row: a small uppercase label that stacks above its
+// value on narrow (mobile) screens and sits in a fixed-width column on
+// wider ones, with the value chips wrapping neatly to the next line.
+function CardRow({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="flex flex-col gap-1 sm:flex-row sm:items-start sm:gap-3">
+      <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 sm:w-[5.5rem] sm:shrink-0 sm:pt-0.5">
+        {label}
+      </span>
+      <div className="flex min-w-0 flex-wrap items-center gap-1.5 text-[11px] text-slate-300">
+        {children}
+      </div>
+    </div>
+  );
+}
+
+// Audience (applicable user type) badge.
+function audienceBadge(appliesTo: string) {
+  if (appliesTo === 'SPECIAL') return <Badge color="purple">Special Users</Badge>;
+  if (appliesTo === 'NON_SPECIAL') return <Badge color="amber">Non-Special Users</Badge>;
+  return <Badge color="blue">All Users</Badge>;
+}
+
+// All seven weekday chips with the active days highlighted, so the
+// applicable days read like a mini calendar at a glance. Collapses to a
+// single "Every day" pill when the offer runs all week (or has no
+// day filter set).
+function DayChips({ days }: { days: number[] }) {
+  if (!days || days.length === 0 || days.length === 7) {
+    return <Badge color="slate">Every day</Badge>;
+  }
+  return (
+    <>
+      {DAYS_OF_WEEK.map((d) => {
+        const on = days.includes(d.id);
+        return (
+          <span
+            key={d.id}
+            className={`inline-flex min-w-[2.1rem] items-center justify-center rounded-md border px-1.5 py-0.5 text-[10px] font-medium ${
+              on
+                ? 'bg-sky-500/15 text-sky-300 border-sky-500/30'
+                : 'border-white/[0.06] text-slate-600'
+            }`}
+          >
+            {d.label}
+          </span>
+        );
+      })}
+    </>
+  );
+}
+
+// A descriptive time-of-day label derived from the offer's start time,
+// e.g. "Morning Offer" / "Evening Offer". Surfaced next to the name as
+// the secondary "timing" hint requested for the primary row. Returns
+// null when the offer has no time window (applies all day).
+function timingLabel(start?: string | null): string | null {
+  if (!start) return null;
+  const h = parseInt(start.split(':')[0], 10);
+  if (Number.isNaN(h)) return null;
+  if (h < 12) return 'Morning Offer';
+  if (h < 16) return 'Afternoon Offer';
+  if (h < 21) return 'Evening Offer';
+  return 'Night Offer';
+}
+
+// The category / machine / pitch targeting rows shared by both card
+// types. Each axis renders as its own labelled CardRow of badges, and
+// falls back to an "All …" hint when no filter is set, so the card is
+// self-documenting without opening the edit form.
+function TargetingRows({
   legacyMachineIds,
   legacyPitchTypes,
   categories,
@@ -168,105 +257,70 @@ function AppliedOnRows({
   centerMachines: CenterMachineLite[];
   isResourceBased: boolean;
 }) {
-  const hasCategories = categories && categories.length > 0;
-  const hasMachineRows = machineRowIds && machineRowIds.length > 0;
-  const hasLegacyMachines = legacyMachineIds && legacyMachineIds.length > 0;
-  const hasLegacyPitches = legacyPitchTypes && legacyPitchTypes.length > 0;
-
-  if (!hasCategories && !hasMachineRows && !hasLegacyMachines && !hasLegacyPitches) {
-    return (
-      <div className="flex items-center gap-1.5 mt-2 text-[10px] text-slate-500 italic">
-        <span className="font-medium uppercase tracking-wider not-italic text-slate-400">
-          Applied On:
-        </span>
-        <span>All bookings (no targeting filter set)</span>
-      </div>
-    );
-  }
+  const hasCategories = !!categories && categories.length > 0;
+  const hasMachineRows = !!machineRowIds && machineRowIds.length > 0;
+  const hasLegacyMachines = !!legacyMachineIds && legacyMachineIds.length > 0;
+  const hasLegacyPitches = !!legacyPitchTypes && legacyPitchTypes.length > 0;
+  const hasMachines = hasMachineRows || hasLegacyMachines;
 
   const machineRowLabel = (id: string): string => {
     const m = centerMachines.find((x) => x.id === id);
     return m?.shortName || m?.name || id;
   };
 
+  const allHint = (text: string) => <span className="text-slate-500 italic">{text}</span>;
+
   return (
-    <div className="mt-2 space-y-1">
-      {/* Booking categories — the top-level "Applied On" line. The
-          card layout above shows the offer name + date/time/days; this
-          one answers the user's question: WHAT does it apply to? */}
-      {(hasCategories || (isResourceBased && !hasCategories)) && (
-        <div className="flex flex-wrap items-center gap-1.5">
-          <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">
-            Applied On:
-          </span>
-          {hasCategories ? (
-            categories!.map((c) => {
-              const label = RESOURCE_CATEGORY_OPTIONS.find((o) => o.id === c)?.label ?? c;
-              return (
-                <span
-                  key={c}
-                  className="text-[10px] font-medium px-2 py-0.5 rounded-md bg-purple-500/15 text-purple-300 border border-purple-500/30"
-                >
-                  {label}
-                </span>
-              );
-            })
-          ) : (
-            <span className="text-[10px] text-slate-500 italic">All categories</span>
-          )}
-        </div>
+    <>
+      {/* Booking categories — only meaningful for RESOURCE_BASED centers. */}
+      {isResourceBased && (
+        <CardRow label="Categories">
+          {hasCategories
+            ? categories!.map((c) => (
+                <Badge key={c} color="purple">
+                  {RESOURCE_CATEGORY_OPTIONS.find((o) => o.id === c)?.label ?? c}
+                </Badge>
+              ))
+            : allHint('All categories')}
+        </CardRow>
       )}
 
-      {/* Machines — both the legacy ABCA enum chips and the
-          RESOURCE_BASED (per-Machine-row) chips. We surface them under
-          the same label since admins think of them as "the machine
-          this applies to". */}
-      {(hasMachineRows || hasLegacyMachines) && (
-        <div className="flex flex-wrap items-center gap-1.5">
-          <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">
-            Machines:
-          </span>
-          {hasMachineRows && (
-            machineRowIds!.map((id) => (
-              <span
-                key={`mrow-${id}`}
-                className="text-[10px] font-medium px-2 py-0.5 rounded-md bg-cyan-500/15 text-cyan-300 border border-cyan-500/30"
-              >
-                {machineRowLabel(id)}
-              </span>
-            ))
-          )}
-          {hasLegacyMachines && (
-            legacyMachineIds!.map((id) => (
-              <span
-                key={`mlegacy-${id}`}
-                className="text-[10px] font-medium px-2 py-0.5 rounded-md bg-cyan-500/15 text-cyan-300 border border-cyan-500/30"
-              >
-                {MACHINE_OPTIONS.find((o) => o.id === id)?.label ?? id}
-              </span>
-            ))
-          )}
-        </div>
-      )}
+      {/* Machines — legacy ABCA enum chips and/or RESOURCE_BASED machine
+          rows under one label, since admins think of them as one axis. */}
+      <CardRow label="Machines">
+        {hasMachines ? (
+          <>
+            {hasMachineRows &&
+              machineRowIds!.map((id) => (
+                <Badge key={`mr-${id}`} color="cyan">
+                  {machineRowLabel(id)}
+                </Badge>
+              ))}
+            {hasLegacyMachines &&
+              legacyMachineIds!.map((id) => (
+                <Badge key={`ml-${id}`} color="cyan">
+                  {MACHINE_OPTIONS.find((o) => o.id === id)?.label ?? id}
+                </Badge>
+              ))}
+          </>
+        ) : (
+          allHint('All machines')
+        )}
+      </CardRow>
 
-      {/* Pitch types — ABCA legacy axis. Toplay doesn't use this on
-          offers (pitch lives on Machine.supportedPitchTypes instead). */}
-      {hasLegacyPitches && (
-        <div className="flex flex-wrap items-center gap-1.5">
-          <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">
-            Pitch Types:
-          </span>
-          {legacyPitchTypes!.map((p) => (
-            <span
-              key={`p-${p}`}
-              className="text-[10px] font-medium px-2 py-0.5 rounded-md bg-emerald-500/15 text-emerald-300 border border-emerald-500/30"
-            >
-              {PITCH_TYPES.find((o) => o.id === p)?.label ?? p}
-            </span>
-          ))}
-        </div>
+      {/* Pitch types — ABCA legacy axis only. */}
+      {!isResourceBased && (
+        <CardRow label="Pitch Types">
+          {hasLegacyPitches
+            ? legacyPitchTypes!.map((p) => (
+                <Badge key={`p-${p}`} color="emerald">
+                  {PITCH_TYPES.find((o) => o.id === p)?.label ?? p}
+                </Badge>
+              ))
+            : allHint('All pitch types')}
+        </CardRow>
       )}
-    </div>
+    </>
   );
 }
 
@@ -804,44 +858,23 @@ function AdminOffersLegacy({ isResourceBased, centerMachines }: AdminOffersInjec
             {recurringRules.map(rule => (
               <div key={rule.id}>
                 {/* Card */}
-                <div className={`bg-white/[0.03] rounded-xl border ${editingId === rule.id ? 'border-blue-500/30' : 'border-white/[0.07]'} p-3 transition-all`}>
-                  <div className="flex items-center justify-between gap-3">
-                    <div className="flex-1 min-w-0">
-                      <div className="flex flex-wrap items-center gap-1.5 mb-1">
-                        <span className="text-sm font-medium text-white">
-                          {rule.slotStartTime} – {rule.slotEndTime}
-                        </span>
-                        <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${rule.enabled ? 'bg-green-500/15 text-green-400' : 'bg-red-500/15 text-red-400'}`}>
-                          {rule.enabled ? 'Active' : 'Off'}
-                        </span>
-                        {rule.appliesTo === 'SPECIAL' ? (
-                          <span className="text-[10px] px-1.5 py-0.5 rounded-full font-medium bg-purple-500/15 text-purple-400">Special Users</span>
-                        ) : rule.appliesTo === 'NON_SPECIAL' ? (
-                          <span className="text-[10px] px-1.5 py-0.5 rounded-full font-medium bg-amber-500/15 text-amber-400">Non-Special Users</span>
-                        ) : (
-                          <span className="text-[10px] px-1.5 py-0.5 rounded-full font-medium bg-blue-500/15 text-blue-400">All Users</span>
+                <div className={`bg-white/[0.03] rounded-xl border ${editingId === rule.id ? 'border-blue-500/30' : 'border-white/[0.07]'} p-3.5 sm:p-4 transition-all`}>
+                  {/* Row 1 — primary: slot window + timing hint + actions */}
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0 flex-1">
+                      <h3 className="text-[15px] font-semibold leading-snug text-white">
+                        {rule.slotStartTime} – {rule.slotEndTime}
+                      </h3>
+                      <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1">
+                        {timingLabel(rule.slotStartTime) && (
+                          <Badge color="indigo">{timingLabel(rule.slotStartTime)}</Badge>
                         )}
+                        <span className="text-xs font-semibold text-emerald-400">
+                          -₹{rule.oneSlotDiscount} (1 slot) · -₹{rule.twoSlotDiscount} (2 slots)
+                        </span>
                       </div>
-                      <div className="flex flex-wrap items-center gap-1.5 text-[11px] text-slate-400">
-                        {rule.days?.length > 0 && (
-                          <span className="text-sky-400">{rule.days.map(d => DAYS_OF_WEEK.find(dw => dw.id === d)?.label).join(', ')}</span>
-                        )}
-                        <span className="text-emerald-400 font-medium">-₹{rule.oneSlotDiscount} / -₹{rule.twoSlotDiscount}</span>
-                      </div>
-                      {/* Applied On — surface every targeting axis so admins
-                          can see at a glance what the offer covers without
-                          opening the edit form. Mirrors what the user picked
-                          when creating the rule. */}
-                      <AppliedOnRows
-                        legacyMachineIds={rule.machineIds}
-                        legacyPitchTypes={rule.pitchTypes}
-                        categories={rule.categories}
-                        machineRowIds={rule.machineRowIds}
-                        centerMachines={centerMachines}
-                        isResourceBased={isResourceBased}
-                      />
                     </div>
-                    <div className="flex items-center gap-0.5 flex-shrink-0">
+                    <div className="flex flex-shrink-0 items-center gap-0.5">
                       <button onClick={() => startEditRule(rule)} title="Edit"
                         className="p-1.5 text-slate-400 hover:text-accent hover:bg-accent/10 rounded-lg transition-colors cursor-pointer">
                         <Pencil className="w-3.5 h-3.5" />
@@ -855,6 +888,27 @@ function AdminOffersLegacy({ isResourceBased, centerMachines }: AdminOffersInjec
                         <Trash2 className="w-3.5 h-3.5" />
                       </button>
                     </div>
+                  </div>
+
+                  <div className="my-3 h-px bg-white/[0.06]" />
+
+                  {/* Detail rows — status/audience, days, then targeting */}
+                  <div className="space-y-2">
+                    <CardRow label="Status">
+                      {rule.enabled ? <Badge color="green">Active</Badge> : <Badge color="red">Inactive</Badge>}
+                      {audienceBadge(rule.appliesTo)}
+                    </CardRow>
+                    <CardRow label="Days">
+                      <DayChips days={rule.days} />
+                    </CardRow>
+                    <TargetingRows
+                      legacyMachineIds={rule.machineIds}
+                      legacyPitchTypes={rule.pitchTypes}
+                      categories={rule.categories}
+                      machineRowIds={rule.machineRowIds}
+                      centerMachines={centerMachines}
+                      isResourceBased={isResourceBased}
+                    />
                   </div>
                 </div>
 
@@ -900,49 +954,23 @@ function AdminOffersLegacy({ isResourceBased, centerMachines }: AdminOffersInjec
             {offers.map(offer => (
               <div key={offer.id}>
                 {/* Card */}
-                <div className={`bg-white/[0.03] rounded-xl border ${editingId === offer.id ? 'border-accent/30' : 'border-white/[0.07]'} p-3 transition-all`}>
-                  <div className="flex items-center justify-between gap-3">
-                    <div className="flex-1 min-w-0">
-                      <div className="flex flex-wrap items-center gap-1.5 mb-1">
-                        <span className="text-sm font-medium text-white">{offer.name}</span>
-                        <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${offer.isActive ? 'bg-green-500/15 text-green-400' : 'bg-red-500/15 text-red-400'}`}>
-                          {offer.isActive ? 'Active' : 'Off'}
-                        </span>
-                        {offer.appliesTo === 'SPECIAL' ? (
-                          <span className="text-[10px] px-1.5 py-0.5 rounded-full font-medium bg-purple-500/15 text-purple-400">Special Users</span>
-                        ) : offer.appliesTo === 'NON_SPECIAL' ? (
-                          <span className="text-[10px] px-1.5 py-0.5 rounded-full font-medium bg-amber-500/15 text-amber-400">Non-Special Users</span>
-                        ) : (
-                          <span className="text-[10px] px-1.5 py-0.5 rounded-full font-medium bg-blue-500/15 text-blue-400">All Users</span>
+                <div className={`bg-white/[0.03] rounded-xl border ${editingId === offer.id ? 'border-accent/30' : 'border-white/[0.07]'} p-3.5 sm:p-4 transition-all`}>
+                  {/* Row 1 — primary: name + timing hint + discount + actions */}
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0 flex-1">
+                      <h3 className="text-[15px] font-semibold leading-snug text-white break-words">
+                        {offer.name}
+                      </h3>
+                      <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1">
+                        {timingLabel(offer.timeSlotStart) && (
+                          <Badge color="indigo">{timingLabel(offer.timeSlotStart)}</Badge>
                         )}
-                        <span className="text-[10px] text-emerald-400 font-medium">
+                        <span className="text-xs font-semibold text-emerald-400">
                           {offer.discountType === 'PERCENTAGE' ? `${offer.discountValue}%` : `₹${offer.discountValue}`} off
                         </span>
                       </div>
-                      <div className="flex flex-wrap items-center gap-1.5 text-[11px] text-slate-400">
-                        <span>
-                          {new Date(offer.startDate).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })} – {new Date(offer.endDate).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })}
-                        </span>
-                        {offer.timeSlotStart && offer.timeSlotEnd && (
-                          <span>{offer.timeSlotStart}–{offer.timeSlotEnd}</span>
-                        )}
-                        {offer.days?.length > 0 && (
-                          <span className="text-sky-400">{offer.days.map(d => DAYS_OF_WEEK.find(dw => dw.id === d)?.label).join(', ')}</span>
-                        )}
-                      </div>
-                      {/* Applied On — see RecurringOffers cards above for
-                          rationale. Shows category, machine, pitch chips
-                          inline so admins can audit coverage at a glance. */}
-                      <AppliedOnRows
-                        legacyMachineIds={offer.machineIds}
-                        legacyPitchTypes={offer.pitchTypes}
-                        categories={offer.categories}
-                        machineRowIds={offer.machineRowIds}
-                        centerMachines={centerMachines}
-                        isResourceBased={isResourceBased}
-                      />
                     </div>
-                    <div className="flex items-center gap-0.5 flex-shrink-0">
+                    <div className="flex flex-shrink-0 items-center gap-0.5">
                       <button onClick={() => startEditPromo(offer)} title="Edit"
                         className="p-1.5 text-slate-400 hover:text-accent hover:bg-accent/10 rounded-lg transition-colors cursor-pointer">
                         <Pencil className="w-3.5 h-3.5" />
@@ -956,6 +984,41 @@ function AdminOffersLegacy({ isResourceBased, centerMachines }: AdminOffersInjec
                         <Trash2 className="w-3.5 h-3.5" />
                       </button>
                     </div>
+                  </div>
+
+                  <div className="my-3 h-px bg-white/[0.06]" />
+
+                  {/* Detail rows — status, validity, time, days, targeting */}
+                  <div className="space-y-2">
+                    <CardRow label="Status">
+                      {offer.isActive ? <Badge color="green">Active</Badge> : <Badge color="red">Inactive</Badge>}
+                      {audienceBadge(offer.appliesTo)}
+                    </CardRow>
+                    <CardRow label="Validity">
+                      <span>
+                        {new Date(offer.startDate).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}
+                        {' → '}
+                        {new Date(offer.endDate).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}
+                      </span>
+                    </CardRow>
+                    <CardRow label="Time">
+                      {offer.timeSlotStart && offer.timeSlotEnd ? (
+                        <span>{offer.timeSlotStart} – {offer.timeSlotEnd}</span>
+                      ) : (
+                        <span className="text-slate-500 italic">All day</span>
+                      )}
+                    </CardRow>
+                    <CardRow label="Days">
+                      <DayChips days={offer.days} />
+                    </CardRow>
+                    <TargetingRows
+                      legacyMachineIds={offer.machineIds}
+                      legacyPitchTypes={offer.pitchTypes}
+                      categories={offer.categories}
+                      machineRowIds={offer.machineRowIds}
+                      centerMachines={centerMachines}
+                      isResourceBased={isResourceBased}
+                    />
                   </div>
                 </div>
 

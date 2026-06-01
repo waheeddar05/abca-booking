@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, Suspense } from 'react';
 import { format } from 'date-fns';
 import { useSearchParams } from 'next/navigation';
-import { Search, Filter, XCircle, RotateCcw, Calendar, Loader2, Download, ChevronLeft, ChevronRight, ChevronDown, ArrowUpDown, IndianRupee, Copy, Pencil, X, Check, CalendarPlus, UserPlus, Undo2 } from 'lucide-react';
+import { Search, Filter, XCircle, Calendar, Loader2, Download, ChevronLeft, ChevronRight, ChevronDown, ArrowUpDown, IndianRupee, Copy, Pencil, X, Check, CalendarPlus, UserPlus, Undo2 } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
@@ -11,6 +11,7 @@ import { AdminPageHeader } from '@/components/admin/AdminPageHeader';
 import { CancellationDialog } from '@/components/ui/CancellationDialog';
 import { TextInputDialog } from '@/components/ui/TextInputDialog';
 import { RefundDialog } from '@/components/ui/RefundDialog';
+import { BookingDetailsList } from '@/components/BookingDetailsList';
 import { useToast } from '@/components/ui/Toast';
 import { getDisplayStatus } from '@/lib/booking-utils';
 
@@ -62,11 +63,14 @@ function AdminBookingsContent() {
   const [showBookOnBehalf, setShowBookOnBehalf] = useState(false);
   const [operators, setOperators] = useState<Array<{ id: string; name: string }>>([]);
   const [changingOperator, setChangingOperator] = useState<string | null>(null);
+  // Sidearm specialists for the SIDEARM-booking reassignment dropdown —
+  // mirrors the operator list/flow.
+  const [sidearmStaff, setSidearmStaff] = useState<Array<{ id: string; name: string }>>([]);
+  const [changingStaff, setChangingStaff] = useState<string | null>(null);
   const toast = useToast();
 
   // Dialog states
   const [cancelDialog, setCancelDialog] = useState<{ bookingId: string; playerName: string } | null>(null);
-  const [restoreDialog, setRestoreDialog] = useState<{ bookingId: string; playerName: string } | null>(null);
   const [copyDialog, setCopyDialog] = useState<string | null>(null);
   const [customNameDialog, setCustomNameDialog] = useState(false);
   const [refundDialog, setRefundDialog] = useState<{
@@ -122,6 +126,18 @@ function AdminBookingsContent() {
       .then(data => {
         if (data.operators) {
           setOperators(data.operators.map((op: any) => ({ id: op.id, name: op.name || op.email })));
+        }
+      })
+      .catch(() => { });
+  }, []);
+
+  // Fetch sidearm specialists list for the SIDEARM reassignment dropdown.
+  useEffect(() => {
+    fetch('/api/admin/sidearm-staff')
+      .then(res => (res.ok ? res.json() : { staff: [] }))
+      .then(data => {
+        if (Array.isArray(data.staff)) {
+          setSidearmStaff(data.staff.map((s: any) => ({ id: s.id, name: s.name })));
         }
       })
       .catch(() => { });
@@ -201,12 +217,30 @@ function AdminBookingsContent() {
     }
   };
 
-  const handleCancelClick = (bookingId: string, playerName: string) => {
-    setCancelDialog({ bookingId, playerName });
+  const handleStaffChange = async (bookingId: string, assignedStaffId: string | null) => {
+    setChangingStaff(bookingId);
+    try {
+      const res = await fetch('/api/admin/bookings', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ bookingId, assignedStaffId }),
+      });
+      if (res.ok) {
+        toast.success('Sidearm specialist updated');
+        fetchBookings();
+      } else {
+        const data = await res.json();
+        toast.error(data.error || 'Failed to update specialist');
+      }
+    } catch {
+      toast.error('Failed to update specialist');
+    } finally {
+      setChangingStaff(null);
+    }
   };
 
-  const handleRestoreClick = (bookingId: string, playerName: string) => {
-    setRestoreDialog({ bookingId, playerName });
+  const handleCancelClick = (bookingId: string, playerName: string) => {
+    setCancelDialog({ bookingId, playerName });
   };
 
   const handleCancelConfirm = async (reason: string) => {
@@ -229,31 +263,6 @@ function AdminBookingsContent() {
       }
     } catch {
       toast.error('Failed to cancel booking');
-    } finally {
-      setActionLoading(null);
-    }
-  };
-
-  const handleRestoreConfirm = async () => {
-    const bookingId = restoreDialog?.bookingId;
-    if (!bookingId) return;
-    setRestoreDialog(null);
-    setActionLoading(bookingId);
-    try {
-      const res = await fetch('/api/admin/bookings', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ bookingId, status: 'BOOKED' }),
-      });
-      if (res.ok) {
-        toast.success('Booking restored successfully');
-        fetchBookings();
-      } else {
-        const data = await res.json();
-        toast.error(data.error || 'Failed to restore booking');
-      }
-    } catch {
-      toast.error('Failed to restore booking');
     } finally {
       setActionLoading(null);
     }
@@ -380,9 +389,15 @@ function AdminBookingsContent() {
   };
 
   const handleExport = () => {
+    // Pass EVERY active filter so the CSV is exactly the rows on screen.
+    // Previously category/customer were dropped, so an admin who filtered
+    // to e.g. "Cricket Nets" or a single customer still got a full-table
+    // export — the data looked wrong because it ignored the view.
     const params = new URLSearchParams();
     if (category !== 'all') params.set('category', category);
     if (filters.status) params.set('status', filters.status);
+    if (filters.customer) params.set('customer', filters.customer);
+    if (filters.categoryFilter) params.set('categoryFilter', filters.categoryFilter);
     if (filters.date) params.set('date', filters.date);
     if (filters.from && filters.to) {
       params.set('from', filters.from);
@@ -429,12 +444,6 @@ function AdminBookingsContent() {
     CANCELLED: { label: 'Cancelled', bg: 'bg-white/[0.04]', text: 'text-slate-400', dot: 'bg-gray-400' },
   };
 
-  const ballTypeConfig: Record<string, string> = {
-    TENNIS: 'bg-green-500',
-    LEATHER: 'bg-red-500',
-    MACHINE: 'bg-blue-500',
-  };
-
   const tabs: Array<{ key: Category; label: string }> = [
     { key: 'all', label: 'All' },
     { key: 'today', label: 'Today' },
@@ -447,6 +456,37 @@ function AdminBookingsContent() {
     setEditingPriceId(booking.id);
     setEditPriceValue(booking.price != null ? String(booking.price) : '');
   };
+
+  // Inline reassignment controls injected into the standardized details
+  // list (BookingDetailsList) for the Operator and Sidearm Specialist rows.
+  // Same dropdown UX for both so admins reassign either the same way.
+  const renderOperatorAssignment = (booking: any) => (
+    <select
+      value={booking.operatorId || ''}
+      onChange={(e) => handleOperatorChange(booking.id, e.target.value || null)}
+      disabled={changingOperator === booking.id}
+      className="text-[11px] bg-white/[0.06] border border-white/[0.08] text-slate-200 rounded px-2 py-1 outline-none cursor-pointer disabled:opacity-50 max-w-[160px]"
+    >
+      <option value="">Unassigned</option>
+      {operators.map((op) => (
+        <option key={op.id} value={op.id}>{op.name}</option>
+      ))}
+    </select>
+  );
+
+  const renderStaffAssignment = (booking: any) => (
+    <select
+      value={booking.assignedStaffId || ''}
+      onChange={(e) => handleStaffChange(booking.id, e.target.value || null)}
+      disabled={changingStaff === booking.id}
+      className="text-[11px] bg-white/[0.06] border border-white/[0.08] text-slate-200 rounded px-2 py-1 outline-none cursor-pointer disabled:opacity-50 max-w-[160px]"
+    >
+      <option value="">Unassigned</option>
+      {sidearmStaff.map((s) => (
+        <option key={s.id} value={s.id}>{s.name}</option>
+      ))}
+    </select>
+  );
 
   return (
     <div>
@@ -804,151 +844,16 @@ function AdminBookingsContent() {
                       )}
                     </div>
 
-                    {/* Row 3: Tags
-                        Same MACHINE-only gating as BookingCard — ballType
-                        and operationMode are placeholder values on
-                        NET / SIDEARM / COACHING / FULL_COURT /
-                        CORPORATE_BATCH bookings; showing them as chips
-                        was confusing admins ("Sidearm Tennis Operator"
-                        on a sidearm session, etc.). */}
-                    <div className="flex flex-wrap items-center gap-1 mb-2">
-                      {(!booking.category || booking.category === 'MACHINE') && (
-                        <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${booking.ballType === 'LEATHER' ? 'bg-red-500/10 text-red-400' :
-                          booking.ballType === 'TENNIS' ? 'bg-green-500/10 text-green-400' :
-                            'bg-blue-500/10 text-blue-400'
-                          }`}>
-                          {booking.ballType}
-                        </span>
-                      )}
-                      {booking.machineId && (!booking.category || booking.category === 'MACHINE') && (
-                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-white/[0.04] text-slate-400 font-medium">
-                          {booking.machineId === 'GRAVITY' ? 'Gravity' : booking.machineId === 'YANTRA' ? 'Yantra' : booking.machineId === 'LEVERAGE_INDOOR' ? 'Tennis In' : 'Tennis Out'}
-                        </span>
-                      )}
-                      {booking.pitchType && (
-                        !booking.category
-                        || booking.category === 'MACHINE'
-                        || booking.category === 'SIDEARM'
-                        || booking.category === 'NET'
-                      ) && (
-                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-white/[0.04] text-slate-400 font-medium">
-                          {booking.pitchType === 'ASTRO' ? 'Astro' : booking.pitchType === 'CEMENT' ? 'Cement' : 'Natural'}
-                        </span>
-                      )}
-                      {/* Resource-based booking chips (Toplay). Hidden
-                          on ABCA rows because category defaults to
-                          MACHINE everywhere — only show the category
-                          chip for non-MACHINE categories or when the
-                          legacy machineId is null. */}
-                      {booking.category && booking.category !== 'MACHINE' && (
-                        <span className="text-[10px] px-1.5 py-0.5 rounded font-medium bg-indigo-500/10 text-indigo-300">
-                          {booking.category === 'SIDEARM' ? 'Sidearm'
-                            : booking.category === 'COACHING' ? 'Coaching'
-                            : booking.category === 'FULL_COURT' ? 'Full Court'
-                            : booking.category === 'CORPORATE_BATCH' ? 'Corporate'
-                            : booking.category === 'NET' ? 'Net only'
-                            : booking.category}
-                        </span>
-                      )}
-                      {booking.assignedMachine && (
-                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-white/[0.04] text-slate-400 font-medium">
-                          {booking.assignedMachine.name}
-                        </span>
-                      )}
-                      {booking.assignedCoach && (
-                        <span className="text-[10px] px-1.5 py-0.5 rounded font-medium bg-amber-500/10 text-amber-300">
-                          Coach: {booking.assignedCoach.name}
-                        </span>
-                      )}
-                      {booking.assignedStaff && (
-                        <span className="text-[10px] px-1.5 py-0.5 rounded font-medium bg-cyan-500/10 text-cyan-300">
-                          Staff: {booking.assignedStaff.name}
-                        </span>
-                      )}
-                      {Array.isArray(booking.resourceAssignments)
-                        && booking.resourceAssignments.length > 0
-                        && booking.category !== 'MACHINE' && (
-                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-white/[0.04] text-slate-400 font-medium"
-                          title={booking.resourceAssignments.map((ra: { resource: { name: string } }) => ra.resource.name).join(', ')}>
-                          {booking.resourceAssignments.length === 1
-                            ? booking.resourceAssignments[0].resource.name
-                            : `${booking.resourceAssignments.length} nets`}
-                        </span>
-                      )}
-                      {booking.operationMode && (!booking.category || booking.category === 'MACHINE') && (
-                        <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${booking.operationMode === 'SELF_OPERATE' ? 'bg-orange-500/10 text-orange-400' : 'bg-blue-500/10 text-blue-400'}`}>
-                          {booking.operationMode === 'SELF_OPERATE' ? 'Self' : 'Operator'}
-                        </span>
-                      )}
-                      {booking.kitRental && (
-                        <span className="text-[10px] px-1.5 py-0.5 rounded font-medium bg-teal-500/10 text-teal-400">
-                          Cricket Kit{booking.kitRentalCharge ? ` (₹${booking.kitRentalCharge})` : ''}
-                        </span>
-                      )}
-                      {booking.packageBooking ? (
-                        <div className="flex flex-col">
-                          <span className="text-sm font-medium text-slate-300">Package Session</span>
-                          <span className="text-[10px] text-slate-500">
-                            📦 {booking.packageBooking.userPackage.package.name}
-                          </span>
-                        </div>
-                      ) : (
-                        <div className="flex flex-col">
-                          <div className="flex items-center gap-1.5">
-                            <span className="text-sm font-bold text-white flex items-center">
-                              <IndianRupee className="w-3 h-3" />{booking.price || 0}
-                            </span>
-                            {(() => {
-                              if (booking.paymentMethod === 'CASH') {
-                                return <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-400 font-medium">Cash</span>;
-                              }
-                              const payment = booking.payments?.[0];
-                              if (!payment) {
-                                if (booking.paymentMethod === 'WALLET') return <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-400 font-medium">Wallet</span>;
-                                if (booking.paymentMethod === 'ONLINE') return <span className="text-[10px] px-1.5 py-0.5 rounded bg-purple-500/10 text-purple-400 font-medium">Online</span>;
-                                return booking.paymentMethod ? <span className="text-[10px] px-1.5 py-0.5 rounded bg-white/5 text-slate-400 font-medium">{booking.paymentMethod}</span> : null;
-                              }
-                              const meta = payment.metadata as any;
-                              const wallet = meta?.walletDeduction || 0;
-                              const online = payment.amount || 0;
-                              if (wallet > 0 && online > 0) {
-                                return (
-                                  <div className="flex items-center gap-1">
-                                    <span className="text-[9px] px-1 py-0.5 rounded bg-blue-500/10 text-blue-400 border border-blue-500/20">W: ₹{wallet}</span>
-                                    <span className="text-[9px] px-1 py-0.5 rounded bg-purple-500/10 text-purple-400 border border-purple-500/20">O: ₹{online}</span>
-                                  </div>
-                                );
-                              }
-                              if (wallet > 0) return <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-400 font-medium">Wallet</span>;
-                              return <span className="text-[10px] px-1.5 py-0.5 rounded bg-purple-500/10 text-purple-400 font-medium">Online</span>;
-                            })()}
-                          </div>
-                        </div>
-                      )}
-                    </div>
-
-                    {/* Operator Assignment — MACHINE only. NET / SIDEARM /
-                        COACHING / FULL_COURT / CORPORATE_BATCH have
-                        their staff (coach / specialist) shown above as
-                        chips; surfacing an operator selector on those
-                        rows was misleading. */}
-                    {booking.operationMode === 'WITH_OPERATOR'
-                      && (!booking.category || booking.category === 'MACHINE') && (
-                      <div className="flex items-center gap-2 mb-2.5">
-                        <span className="text-[10px] text-slate-500">Operator:</span>
-                        <select
-                          value={booking.operatorId || ''}
-                          onChange={(e) => handleOperatorChange(booking.id, e.target.value || null)}
-                          disabled={changingOperator === booking.id}
-                          className="text-[11px] bg-white/[0.06] border border-white/[0.08] text-slate-300 rounded px-2 py-1 outline-none cursor-pointer disabled:opacity-50"
-                        >
-                          <option value="">Unassigned</option>
-                          {operators.map(op => (
-                            <option key={op.id} value={op.id}>{op.name}</option>
-                          ))}
-                        </select>
-                      </div>
-                    )}
+                    {/* Standardized labeled details (same component &
+                        sequence as the user My Bookings card). The Operator
+                        and Sidearm Specialist rows get inline reassignment
+                        dropdowns. The booking amount is shown once, in Row 2
+                        above — it is intentionally NOT repeated here. */}
+                    <BookingDetailsList
+                      booking={booking}
+                      renderOperatorAssignment={renderOperatorAssignment}
+                      renderStaffAssignment={renderStaffAssignment}
+                    />
 
                     {/* Row 4: Actions */}
                     <div className="flex gap-1.5 pt-2 border-t border-white/[0.04]">
@@ -970,15 +875,6 @@ function AdminBookingsContent() {
                             Cancel
                           </button>
                         </>
-                      )}
-                      {booking.status === 'CANCELLED' && (
-                        <button
-                          onClick={() => handleRestoreClick(booking.id, booking.playerName)}
-                          className="flex-1 flex items-center justify-center gap-1.5 py-1.5 text-[11px] font-medium text-slate-400 bg-white/[0.04] rounded-lg hover:bg-white/[0.08] transition-colors cursor-pointer"
-                        >
-                          <RotateCcw className="w-3 h-3" />
-                          Restore
-                        </button>
                       )}
                       {canRefund(booking) && (
                         <button
@@ -1003,9 +899,8 @@ function AdminBookingsContent() {
                     <th className="px-5 py-3 text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Customer</th>
                     <th className="px-5 py-3 text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Date / Time</th>
                     <th className="px-5 py-3 text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Created</th>
-                    <th className="px-5 py-3 text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Type</th>
+                    <th className="px-5 py-3 text-[11px] font-semibold text-slate-400 uppercase tracking-wider min-w-[260px]">Details</th>
                     <th className="px-5 py-3 text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Price</th>
-                    <th className="px-5 py-3 text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Operator</th>
                     <th className="px-5 py-3 text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Status</th>
                     <th className="px-5 py-3 text-[11px] font-semibold text-slate-400 uppercase tracking-wider text-right">Actions</th>
                   </tr>
@@ -1017,7 +912,7 @@ function AdminBookingsContent() {
                     const isEditing = editingPriceId === booking.id;
                     const isActionLoading = actionLoading === booking.id;
                     return (
-                      <tr key={booking.id} className="hover:bg-white/[0.04] transition-colors">
+                      <tr key={booking.id} className="hover:bg-white/[0.04] transition-colors [&>td]:align-top">
                         <td className="px-5 py-3.5">
                           <div className="text-sm font-medium text-white">{booking.playerName}</div>
                           <div className="text-[10px] text-slate-400 mt-0.5">
@@ -1047,49 +942,17 @@ function AdminBookingsContent() {
                             <span className="text-[10px] text-slate-500">—</span>
                           )}
                         </td>
-                        <td className="px-5 py-3.5">
-                          <div className="flex items-center gap-1.5 flex-wrap">
-                            <span className={`w-2 h-2 rounded-full ${ballTypeConfig[booking.ballType] || 'bg-gray-400'}`}></span>
-                            <span className="text-sm text-slate-300">{booking.ballType}</span>
-                            {/* Machine name pill — shows the specific
-                                machine the booking landed on. For ABCA
-                                bookings this comes from the legacy
-                                `machineId` enum (GRAVITY/YANTRA/...);
-                                for Toplay (resource-based) it comes
-                                from `assignedMachine.shortName ??
-                                assignedMachine.name`. Previously the
-                                TYPE column only showed the ball type
-                                + Op/Self pills, so admins couldn't tell
-                                Yantra-vs-Leverage at a glance. */}
-                            {(() => {
-                              const machineLabel = booking.machineId
-                                ? (booking.machineId === 'GRAVITY' ? 'Gravity'
-                                  : booking.machineId === 'YANTRA' ? 'Yantra'
-                                  : booking.machineId === 'LEVERAGE_INDOOR' ? 'Tennis In'
-                                  : booking.machineId === 'LEVERAGE_OUTDOOR' ? 'Tennis Out'
-                                  : booking.machineId)
-                                : booking.assignedMachine
-                                  ? (booking.assignedMachine.shortName || booking.assignedMachine.name)
-                                  : null;
-                              return machineLabel
-                                ? (
-                                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-white/[0.06] text-slate-300 font-medium">
-                                    {machineLabel}
-                                  </span>
-                                )
-                                : null;
-                            })()}
-                            {booking.operationMode && (
-                              <span className={`text-[10px] px-1.5 py-0.5 rounded ${booking.operationMode === 'SELF_OPERATE' ? 'bg-orange-500/10 text-orange-400' : 'bg-blue-500/10 text-blue-400'}`}>
-                                {booking.operationMode === 'SELF_OPERATE' ? 'Self' : 'Op'}
-                              </span>
-                            )}
-                            {booking.kitRental && (
-                              <span className="text-[10px] px-1.5 py-0.5 rounded bg-teal-500/10 text-teal-400">
-                                Kit
-                              </span>
-                            )}
-                          </div>
+                        <td className="px-5 py-3.5 align-top">
+                          {/* Standardized labeled details — same component &
+                              sequence as the mobile cards and the user My
+                              Bookings page. Includes the Operator / Sidearm
+                              Specialist reassignment dropdowns and the ground
+                              staff name for Cricket Net bookings. */}
+                          <BookingDetailsList
+                            booking={booking}
+                            renderOperatorAssignment={renderOperatorAssignment}
+                            renderStaffAssignment={renderStaffAssignment}
+                          />
                         </td>
                         <td className="px-5 py-3.5">
                           {booking.packageBooking ? (
@@ -1125,53 +988,16 @@ function AdminBookingsContent() {
                                   <Pencil className="w-3 h-3 ml-1 opacity-0 group-hover:opacity-50" />
                                 </span>
                               </button>
-                              {(() => {
-                                if (booking.paymentMethod === 'CASH') {
-                                  return <span className="text-[9px] px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-400 font-medium w-fit border border-emerald-500/20">Cash Payment</span>;
-                                }
-                                const payment = booking.payments?.[0];
-                                if (!payment) {
-                                  if (booking.paymentMethod === 'WALLET') return <span className="text-[9px] px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-400 font-medium w-fit border border-blue-500/20">Wallet Only</span>;
-                                  if (booking.paymentMethod === 'ONLINE') return <span className="text-[9px] px-1.5 py-0.5 rounded bg-purple-500/10 text-purple-400 font-medium w-fit border border-purple-500/20">Online Only</span>;
-                                  return booking.paymentMethod ? <span className="text-[9px] px-1.5 py-0.5 rounded bg-white/5 text-slate-500 font-medium w-fit border border-white/10">{booking.paymentMethod}</span> : null;
-                                }
-                                const meta = payment.metadata as any;
-                                const wallet = meta?.walletDeduction || 0;
-                                const online = payment.amount || 0;
-                                if (wallet > 0 && online > 0) {
-                                  return (
-                                    <div className="flex flex-col gap-0.5">
-                                      <span className="text-[9px] text-blue-400/80">Wallet: ₹{wallet}</span>
-                                      <span className="text-[9px] text-purple-400/80">Online: ₹{online}</span>
-                                    </div>
-                                  );
-                                }
-                                if (wallet > 0) return <span className="text-[9px] px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-400 font-medium w-fit border border-blue-500/20">Wallet Payment</span>;
-                                return <span className="text-[9px] px-1.5 py-0.5 rounded bg-purple-500/10 text-purple-400 font-medium w-fit border border-purple-500/20">Online Payment</span>;
-                              })()}
+                              {/* Payment method now lives in the Details column
+                                  (standardized labeled list), so it's no longer
+                                  duplicated here — the Price column shows the
+                                  amount once, plus any discount applied. */}
                               {booking.discountAmount > 0 && (
                                 <div className="text-[9px] text-green-400/70 italic">₹{booking.discountAmount} discount applied</div>
                               )}
                             </div>
                           ) : (
                             <button onClick={() => startEditPrice(booking)} className="text-xs text-slate-500 hover:text-accent cursor-pointer italic">No price set</button>
-                          )}
-                        </td>
-                        <td className="px-5 py-3.5">
-                          {booking.operationMode === 'WITH_OPERATOR' ? (
-                            <select
-                              value={booking.operatorId || ''}
-                              onChange={(e) => handleOperatorChange(booking.id, e.target.value || null)}
-                              disabled={changingOperator === booking.id}
-                              className="text-xs bg-white/[0.06] border border-white/[0.08] text-slate-300 rounded px-2 py-1.5 outline-none cursor-pointer disabled:opacity-50 min-w-[100px]"
-                            >
-                              <option value="">Unassigned</option>
-                              {operators.map(op => (
-                                <option key={op.id} value={op.id}>{op.name}</option>
-                              ))}
-                            </select>
-                          ) : (
-                            <span className="text-[10px] text-slate-500">—</span>
                           )}
                         </td>
                         <td className="px-5 py-3.5">
@@ -1205,14 +1031,6 @@ function AdminBookingsContent() {
                                   Cancel
                                 </button>
                               </>
-                            )}
-                            {booking.status === 'CANCELLED' && (
-                              <button
-                                onClick={() => handleRestoreClick(booking.id, booking.playerName)}
-                                className="px-2.5 py-1.5 text-xs font-medium text-slate-400 hover:bg-white/[0.06] rounded-lg transition-colors cursor-pointer"
-                              >
-                                Restore
-                              </button>
                             )}
                             {canRefund(booking) && (
                               <button
@@ -1272,17 +1090,6 @@ function AdminBookingsContent() {
         loading={!!actionLoading}
         onConfirm={handleCancelConfirm}
         onCancel={() => setCancelDialog(null)}
-      />
-
-      {/* Restore Confirm Dialog */}
-      <ConfirmDialog
-        open={!!restoreDialog}
-        title="Restore Booking"
-        message={`Are you sure you want to restore the booking for "${restoreDialog?.playerName}"?`}
-        confirmLabel="Restore"
-        cancelLabel="Cancel"
-        onConfirm={handleRestoreConfirm}
-        onCancel={() => setRestoreDialog(null)}
       />
 
       {/* Copy Next Slot Confirm */}

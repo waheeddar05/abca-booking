@@ -20,6 +20,7 @@ import {
   UserCog,
 } from 'lucide-react';
 import Link from 'next/link';
+import Image from 'next/image';
 import { differenceInDays, startOfDay, format } from 'date-fns';
 import { useRazorpay, usePaymentConfig } from '@/lib/useRazorpay';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
@@ -60,6 +61,11 @@ interface CenterMachine {
    *  newly-added machines at resource-based centers. */
   legacyMachineId?: string | null;
   isActive: boolean;
+  /** Catalog metadata — drives the image + ball-type subtitle so the
+   *  machine chips here render exactly like the Book Your Slot machine
+   *  picker (image badge + name + ball/surface line). */
+  machineType?: { code: string; name: string; ballType: string; imageUrl?: string | null } | null;
+  resource?: { id: string; name: string; type: string } | null;
 }
 
 interface PackageInfo {
@@ -387,21 +393,21 @@ export default function PackagesPage() {
   };
 
   /** Visible category cards = canonical list ∩ center's enabled
-   *  categories. We always show MACHINE for legacy ABCA installs where
-   *  the policy hasn't been initialised, because every ABCA package is
-   *  effectively MACHINE-category. */
+   *  categories — identical to the "Book Your Slot" picker, so every
+   *  category bookable at this center is also browsable here regardless
+   *  of whether a package already exists for it. */
   const visibleCategoryCards = useMemo(() => {
     if (!enabledCategories || enabledCategories.length === 0) {
-      // Either pre-policy or the API returned the legacy array shape.
-      // Fall back to the categories actually represented in the
-      // package list — that way ABCA still shows just "Bowling Machine"
-      // while a multi-category center shows everything it really has.
-      const present = new Set<BookingCategory>(packages.map(packageCategory));
-      return CATEGORY_CARDS.filter((c) => present.has(c.id));
+      // Enabled list unknown (pre-policy load or a legacy bare-array
+      // API response). Mirror the slot picker, which shows every
+      // canonical category when the enabled list isn't available, so
+      // categories like Bowling Machine / Full Indoor Court never
+      // vanish just because no package has been created for them yet.
+      return CATEGORY_CARDS;
     }
     const enabledSet = new Set(enabledCategories);
     return CATEGORY_CARDS.filter((c) => enabledSet.has(c.id));
-  }, [enabledCategories, packages]);
+  }, [enabledCategories]);
 
   // Filter the package list by the active category + timing + machine
   // chips. Machine filter is only meaningful when the active category is
@@ -590,12 +596,33 @@ export default function PackagesPage() {
                     )}
                   </div>
                   {/* Machine boxes mirror the "Book Your Slot" machine
-                      picker — equal-width grid cells with an icon badge and
-                      accent-solid selection — for a single UI standard. */}
-                  <div className="grid grid-cols-2 gap-1.5">
+                      picker exactly — equal-width grid cells (dynamic column
+                      count by machine total) with an image badge and a
+                      two-line name + ball/surface label, accent-solid when
+                      selected — so both flows share one UI standard. */}
+                  {/* Equal-width cells. Capped at 2 columns on phones (the
+                      two-line image cards need width) and expanded on `sm+`
+                      so the layout reads cleanly on mobile while keeping the
+                      Book Your Slot machine-card look. */}
+                  <div
+                    className={`grid gap-1.5 ${
+                      centerMachines.length === 1
+                        ? 'grid-cols-1'
+                        : centerMachines.length === 3
+                          ? 'grid-cols-2 sm:grid-cols-3'
+                          : centerMachines.length >= 4
+                            ? 'grid-cols-2 sm:grid-cols-4'
+                            : 'grid-cols-2'
+                    }`}
+                  >
                     {centerMachines.map((m) => {
                       const isActive = machineFilter === m.id;
-                      const label = m.shortName ?? m.name;
+                      const imageUrl = m.machineType?.imageUrl;
+                      const ballType = m.machineType?.ballType;
+                      const ballLabel = ballType
+                        ? ballType.charAt(0) + ballType.slice(1).toLowerCase()
+                        : '';
+                      const displayName = m.name || m.machineType?.name || (m.shortName ?? '');
                       return (
                         <button
                           key={m.id}
@@ -606,12 +633,29 @@ export default function PackagesPage() {
                               : 'bg-white/[0.04] text-slate-300 border-white/[0.08] hover:border-accent/30'
                           }`}
                         >
-                          <div className={`w-7 h-7 rounded-md flex items-center justify-center flex-shrink-0 ${
-                            isActive ? 'bg-primary/15' : 'bg-white/5'
-                          }`}>
-                            <Settings2 className={`w-3.5 h-3.5 ${isActive ? 'text-primary/70' : 'text-slate-500'}`} />
-                          </div>
-                          <span className="truncate">{label}</span>
+                          {imageUrl ? (
+                            <Image
+                              src={imageUrl}
+                              alt={displayName}
+                              width={28}
+                              height={28}
+                              className="w-7 h-7 rounded-md object-cover bg-white/5 flex-shrink-0"
+                            />
+                          ) : (
+                            <div className="w-7 h-7 rounded-md bg-white/5 flex items-center justify-center flex-shrink-0">
+                              <Settings2 className={`w-3.5 h-3.5 ${isActive ? 'text-primary/70' : 'text-slate-500'}`} />
+                            </div>
+                          )}
+                          <span className="leading-tight text-left min-w-0 flex-1">
+                            <span className="block truncate text-[11px]">
+                              {displayName}
+                            </span>
+                            {(ballLabel || m.resource) && (
+                              <span className={`block text-[10px] font-medium truncate ${isActive ? 'text-primary/70' : 'text-slate-500'}`}>
+                                {ballLabel}{m.resource ? `${ballLabel ? ' • ' : ''}${m.resource.name}` : ''}
+                              </span>
+                            )}
+                          </span>
                         </button>
                       );
                     })}
@@ -642,8 +686,8 @@ export default function PackagesPage() {
                     visually identical, matching the Book Your Slot flow. */}
                 <div className="grid grid-cols-2 gap-1.5">
                   {([
-                    { key: 'DAY' as const,     label: 'Day',     Icon: Sun },
-                    { key: 'EVENING' as const, label: 'Evening', Icon: Moon },
+                    { key: 'DAY' as const,     label: 'Day',     range: PACKAGE_TIMING_DAY_LABEL,     Icon: Sun },
+                    { key: 'EVENING' as const, label: 'Evening', range: PACKAGE_TIMING_EVENING_LABEL, Icon: Moon },
                   ]).map(t => {
                     const isActive = timingFilter === t.key;
                     return (
@@ -661,7 +705,12 @@ export default function PackagesPage() {
                         }`}>
                           <t.Icon className={`w-3.5 h-3.5 ${isActive ? 'text-primary' : 'text-accent'}`} />
                         </div>
-                        <span className="truncate">{t.label}</span>
+                        <span className="leading-tight text-left min-w-0 flex-1">
+                          <span className="block truncate">{t.label}</span>
+                          <span className={`block text-[10px] font-medium truncate ${isActive ? 'text-primary/70' : 'text-slate-500'}`}>
+                            {t.range}
+                          </span>
+                        </span>
                       </button>
                     );
                   })}

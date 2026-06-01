@@ -134,8 +134,8 @@ const CATEGORY_ORDER: CategoryKey[] = [
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <div className="space-y-3 bg-white/[0.02] border border-white/[0.06] rounded-xl p-4">
-      <div className="text-xs uppercase tracking-wider font-bold text-slate-300 border-b border-white/[0.04] pb-2 mb-2">
+    <div className="space-y-2.5 bg-white/[0.02] border border-white/[0.06] rounded-xl p-3">
+      <div className="text-xs uppercase tracking-wider font-bold text-slate-300 border-b border-white/[0.04] pb-2">
         {title}
       </div>
       {children}
@@ -246,11 +246,18 @@ function normalize(raw: Partial<ResourcePricingValue> | null | undefined): Resou
 export function ResourcePricingEditor({
   scope,
   centerLabel,
+  externalSaveTrigger,
+  onSaveStatus,
 }: {
   /** 'center' writes to CenterPolicy(currentCenter); 'global' writes to Policy. */
   scope: 'center' | 'global';
   /** Display name used in the "Saved for X" toast. */
   centerLabel: string;
+  /** When provided, this editor's own Save bar is hidden and saving is
+   *  driven by the page's single global Save button (counter increments
+   *  trigger a save). Status is reported back via `onSaveStatus`. */
+  externalSaveTrigger?: number;
+  onSaveStatus?: (status: { saving: boolean; message: { text: string; ok: boolean } | null }) => void;
 }) {
   const [value, setValue] = useState<ResourcePricingValue>(DEFAULT_VALUE);
   const [centerMachines, setCenterMachines] = useState<CenterMachineLite[]>([]);
@@ -339,6 +346,20 @@ export function ResourcePricingEditor({
     }
   };
 
+  // Driven by the page's single global Save button. Each increment of
+  // the counter fires a save; the initial 0 is ignored so we don't save
+  // on mount.
+  useEffect(() => {
+    if (externalSaveTrigger && externalSaveTrigger > 0) {
+      save();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [externalSaveTrigger]);
+
+  useEffect(() => {
+    onSaveStatus?.({ saving, message });
+  }, [saving, message, onSaveStatus]);
+
   if (loading) {
     return (
       <div className="flex items-center gap-2 text-slate-400 py-6 justify-center text-sm">
@@ -348,7 +369,7 @@ export function ResourcePricingEditor({
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-3">
       <Section title="Bowling Machine — per machine">
         {scope === 'center' && centerMachines.length > 0 ? (
           <TabbedMachinePricing
@@ -483,9 +504,9 @@ export function ResourcePricingEditor({
       </Section>
 
       <Section title="Full Indoor Court Booking">
-        <p className="text-[10px] text-slate-500 leading-relaxed mb-3">
+        <p className="text-[10px] text-slate-500 leading-relaxed mb-2.5">
           Platform-wide flat rate for the Full Indoor Court category.
-          2 Cons. is the TOTAL for a back-to-back pair.
+          &ldquo;Slot 2&rdquo; is the TOTAL for a back-to-back pair.
         </p>
         {(() => {
           const cell = value.fullCourtRate!;
@@ -496,32 +517,36 @@ export function ResourcePricingEditor({
             }));
           };
           return (
-            <div className="grid grid-cols-2 gap-x-4 gap-y-3">
-              <LabeledPriceInput label="Morn. Single" value={cell.morning.single} onChange={(n) => update('morning', 'single', n)} />
-              <LabeledPriceInput label="Morn. 2 Cons." value={cell.morning.consecutive} onChange={(n) => update('morning', 'consecutive', n)} />
-              <LabeledPriceInput label="Eve. Single" value={cell.evening.single} onChange={(n) => update('evening', 'single', n)} />
-              <LabeledPriceInput label="Eve. 2 Cons." value={cell.evening.consecutive} onChange={(n) => update('evening', 'consecutive', n)} />
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-x-3 gap-y-2.5">
+              <LabeledPriceInput label="Morning Slot 1" value={cell.morning.single} onChange={(n) => update('morning', 'single', n)} />
+              <LabeledPriceInput label="Morning Slot 2" value={cell.morning.consecutive} onChange={(n) => update('morning', 'consecutive', n)} />
+              <LabeledPriceInput label="Evening Slot 1" value={cell.evening.single} onChange={(n) => update('evening', 'single', n)} />
+              <LabeledPriceInput label="Evening Slot 2" value={cell.evening.consecutive} onChange={(n) => update('evening', 'consecutive', n)} />
             </div>
           );
         })()}
       </Section>
 
-      {/* Save bar */}
-      <div className="sticky bottom-0 bg-[#0f1d2f]/95 backdrop-blur-sm border-t border-white/[0.08] -mx-6 px-6 py-4 flex items-center justify-end gap-3 z-10">
-        {message && (
-          <span className={`text-xs font-medium ${message.ok ? 'text-green-400' : 'text-red-400'}`}>
-            {message.text}
-          </span>
-        )}
-        <button
-          onClick={save}
-          disabled={saving}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-accent text-black text-xs font-semibold hover:bg-accent/90 active:scale-95 disabled:opacity-60 disabled:cursor-not-allowed cursor-pointer transition-all"
-        >
-          {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
-          Save
-        </button>
-      </div>
+      {/* Save bar — only shown when this editor is used standalone. In
+          the Settings page the single global Save button at the bottom
+          drives the save (externalSaveTrigger), so we hide it here. */}
+      {externalSaveTrigger === undefined && (
+        <div className="sticky bottom-0 bg-[#0f1d2f]/95 backdrop-blur-sm border-t border-white/[0.08] -mx-6 px-6 py-4 flex items-center justify-end gap-3 z-10">
+          {message && (
+            <span className={`text-xs font-medium ${message.ok ? 'text-green-400' : 'text-red-400'}`}>
+              {message.text}
+            </span>
+          )}
+          <button
+            onClick={save}
+            disabled={saving}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-accent text-black text-xs font-semibold hover:bg-accent/90 active:scale-95 disabled:opacity-60 disabled:cursor-not-allowed cursor-pointer transition-all"
+          >
+            {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
+            Save
+          </button>
+        </div>
+      )}
     </div>
   );
 }
@@ -718,26 +743,27 @@ function TabbedMachinePricing({
                     <Trash2 className="w-3 h-3" />
                   </button>
                 </div>
-                {/* Four inputs per pitch — Morn/Slot, Morn/2 Cons.,
-                    Eve/Slot, Eve/2 Cons. Mirrors the prod layout. */}
+                {/* Four inputs per pitch — Morning Slot 1 / 2,
+                    Evening Slot 1 / 2. Slot 2 is the back-to-back pair
+                    total. Mirrors the standardized slot naming. */}
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                   <LabeledPriceInput
-                    label="Morn / Slot"
+                    label="Morning Slot 1"
                     value={cell?.morning?.single ?? 0}
                     onChange={(n) => onChange(active.machineId, pitch, active.ball, 'morning', 'single', n)}
                   />
                   <LabeledPriceInput
-                    label="Morn / 2 Cons."
+                    label="Morning Slot 2"
                     value={cell?.morning?.consecutive ?? 0}
                     onChange={(n) => onChange(active.machineId, pitch, active.ball, 'morning', 'consecutive', n)}
                   />
                   <LabeledPriceInput
-                    label="Eve / Slot"
+                    label="Evening Slot 1"
                     value={cell?.evening?.single ?? 0}
                     onChange={(n) => onChange(active.machineId, pitch, active.ball, 'evening', 'single', n)}
                   />
                   <LabeledPriceInput
-                    label="Eve / 2 Cons."
+                    label="Evening Slot 2"
                     value={cell?.evening?.consecutive ?? 0}
                     onChange={(n) => onChange(active.machineId, pitch, active.ball, 'evening', 'consecutive', n)}
                   />
@@ -800,25 +826,15 @@ function SimplePitchSection({
   ) => void;
   onClear: (pitch: PitchKey) => void;
 }) {
-  // Responsive layout. On wide screens (sm+) we keep the dense 1-row
-  // grid (pitch · 4 prices · clear). On mobile we stack each pitch as
-  // a card with a 2×2 grid of labeled inputs so the four prices stay
-  // readable without horizontal scroll. Admins reported the dense
-  // grid was cramped on phone-sized screens.
+  // Single compact responsive layout — each pitch is a card with its
+  // name + clear button on top, then a 2-col (mobile) / 4-col (sm+) grid
+  // of labeled price inputs. Replaces the old split dense-desktop /
+  // stacked-mobile markup with one consistent, denser layout that uses
+  // the standardized "Morning Slot 1/2 · Evening Slot 1/2" naming.
   return (
-    <div className="space-y-2 pt-3 border-t border-white/[0.04]">
+    <div className="space-y-2 pt-2.5 border-t border-white/[0.04]">
       <div className="text-[10px] uppercase tracking-wider text-slate-500 font-semibold">
         {title}
-      </div>
-
-      {/* Desktop header row — hidden on mobile (we use card titles instead). */}
-      <div className="hidden sm:grid grid-cols-[1fr_repeat(4,minmax(0,_5rem))_auto] gap-2 items-center text-[10px] uppercase tracking-wider text-slate-500">
-        <div>Pitch</div>
-        <div className="text-center">M. Single</div>
-        <div className="text-center">M. 2 Cons.</div>
-        <div className="text-center">E. Single</div>
-        <div className="text-center">E. 2 Cons.</div>
-        <div className="w-7" />
       </div>
 
       {PITCH_KEYS.map((pitch) => {
@@ -827,47 +843,25 @@ function SimplePitchSection({
         return (
           <div
             key={pitch}
-            className="rounded-lg sm:rounded-none sm:bg-transparent sm:border-0 sm:p-0 bg-white/[0.02] border border-white/[0.05] p-3"
+            className="rounded-lg bg-white/[0.02] border border-white/[0.05] p-2.5"
           >
-            {/* Desktop: single row. Mobile: header line + 2x2 input grid below. */}
-            <div className="hidden sm:grid grid-cols-[1fr_repeat(4,minmax(0,_5rem))_auto] gap-2 items-center">
-              <div className="text-sm text-white truncate">{PITCH_LABELS[pitch]}</div>
-              <PriceInput value={cell?.morning?.single ?? 0}      onChange={(n) => onChange(pitch, 'morning', 'single', n)} />
-              <PriceInput value={cell?.morning?.consecutive ?? 0} onChange={(n) => onChange(pitch, 'morning', 'consecutive', n)} />
-              <PriceInput value={cell?.evening?.single ?? 0}      onChange={(n) => onChange(pitch, 'evening', 'single', n)} />
-              <PriceInput value={cell?.evening?.consecutive ?? 0} onChange={(n) => onChange(pitch, 'evening', 'consecutive', n)} />
+            <div className="flex items-center justify-between mb-1.5">
+              <div className="text-xs font-semibold text-white">{PITCH_LABELS[pitch]}</div>
               <button
                 type="button"
                 onClick={() => onClear(pitch)}
                 disabled={!has}
-                className="p-1.5 rounded-lg text-red-400/70 hover:bg-red-500/10 hover:text-red-400 cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
+                className="p-1 rounded-lg text-red-400/70 hover:bg-red-500/10 hover:text-red-400 cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
                 title="Clear (fall back to category default)"
               >
                 <Trash2 className="w-3.5 h-3.5" />
               </button>
             </div>
-
-            {/* Mobile: stacked card layout. Pitch name + clear on top,
-                then 2×2 grid of labeled inputs. */}
-            <div className="sm:hidden">
-              <div className="flex items-center justify-between mb-2">
-                <div className="text-sm font-semibold text-white">{PITCH_LABELS[pitch]}</div>
-                <button
-                  type="button"
-                  onClick={() => onClear(pitch)}
-                  disabled={!has}
-                  className="p-1.5 rounded-lg text-red-400/70 hover:bg-red-500/10 hover:text-red-400 cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
-                  title="Clear (fall back to category default)"
-                >
-                  <Trash2 className="w-3.5 h-3.5" />
-                </button>
-              </div>
-              <div className="grid grid-cols-2 gap-2">
-                <LabeledPriceInput label="M. Single"   value={cell?.morning?.single ?? 0}      onChange={(n) => onChange(pitch, 'morning', 'single', n)} />
-                <LabeledPriceInput label="M. 2 Cons."  value={cell?.morning?.consecutive ?? 0} onChange={(n) => onChange(pitch, 'morning', 'consecutive', n)} />
-                <LabeledPriceInput label="E. Single"   value={cell?.evening?.single ?? 0}      onChange={(n) => onChange(pitch, 'evening', 'single', n)} />
-                <LabeledPriceInput label="E. 2 Cons."  value={cell?.evening?.consecutive ?? 0} onChange={(n) => onChange(pitch, 'evening', 'consecutive', n)} />
-              </div>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+              <LabeledPriceInput label="Morning Slot 1" value={cell?.morning?.single ?? 0}      onChange={(n) => onChange(pitch, 'morning', 'single', n)} />
+              <LabeledPriceInput label="Morning Slot 2" value={cell?.morning?.consecutive ?? 0} onChange={(n) => onChange(pitch, 'morning', 'consecutive', n)} />
+              <LabeledPriceInput label="Evening Slot 1" value={cell?.evening?.single ?? 0}      onChange={(n) => onChange(pitch, 'evening', 'single', n)} />
+              <LabeledPriceInput label="Evening Slot 2" value={cell?.evening?.consecutive ?? 0} onChange={(n) => onChange(pitch, 'evening', 'consecutive', n)} />
             </div>
           </div>
         );
