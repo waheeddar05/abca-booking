@@ -504,19 +504,17 @@ export function ResourceBlockManagement() {
 
       {/* ═══ Block Slots tab ═══ */}
       {activeTab === 'block' && (
-        <div className="bg-white/[0.03] border border-white/[0.07] rounded-xl p-4">
-          <div className="flex items-center gap-2 mb-3">
+        <div className="bg-white/[0.03] border border-white/[0.07] rounded-xl p-3.5 space-y-3.5">
+          <div className="flex items-center gap-2">
             <ShieldBan className="w-4 h-4 text-accent" />
             <h3 className="text-xs font-bold text-white uppercase tracking-wider">Add Block</h3>
+            <span className="text-[10px] text-slate-500 ml-auto hidden sm:block">
+              Empty filters = block everything in the window
+            </span>
           </div>
-          <p className="text-[11px] text-slate-500 mb-4 leading-relaxed">
-            Block bookings at this center for a date range. Leave time empty for an all-day block.
-            Scope the block by pitch type, machine, or category — empty axes mean
-            &ldquo;no filter on that axis&rdquo;. A block with no axes set blocks every booking in
-            the time window.
-          </p>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4">
+          {/* ── When: dates + time, grouped on one compact row ── */}
+          <div className="grid grid-cols-2 gap-2">
             <div>
               <label className="block text-[10px] font-medium text-slate-400 mb-1">Start date</label>
               <input
@@ -527,9 +525,7 @@ export function ResourceBlockManagement() {
               />
             </div>
             <div>
-              <label className="block text-[10px] font-medium text-slate-400 mb-1">
-                End date (defaults to start)
-              </label>
+              <label className="block text-[10px] font-medium text-slate-400 mb-1">End date</label>
               <input
                 type="date"
                 value={endDate}
@@ -541,8 +537,8 @@ export function ResourceBlockManagement() {
           </div>
 
           {/* Time row with Full Day toggle. */}
-          <div className="mb-4">
-            <div className="flex items-center justify-between mb-2">
+          <div>
+            <div className="flex items-center justify-between mb-1.5">
               <label className="text-[10px] font-medium text-slate-400 uppercase tracking-wider">Time</label>
               <button
                 type="button"
@@ -555,7 +551,7 @@ export function ResourceBlockManagement() {
               </button>
             </div>
             {!isFullDay && (
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-2 gap-2">
                 <input
                   type="time"
                   value={startTime}
@@ -572,172 +568,170 @@ export function ResourceBlockManagement() {
             )}
           </div>
 
-          {/* Recurring days */}
-          <div className="mb-4">
-            <label className="block text-[10px] font-medium text-slate-400 mb-1.5 uppercase tracking-wider">
-              Repeat on (optional)
-            </label>
-            <div className="grid grid-cols-4 sm:grid-cols-7 gap-1.5">
-              {DAY_NUMBERS.map((day) => {
-                const selected = recurringDays.includes(day);
-                return (
-                  <button
-                    key={day}
-                    type="button"
-                    onClick={() => setRecurringDays((prev) => toggleInArray(prev, day))}
-                    className={`py-1.5 rounded-lg text-[11px] font-semibold transition-all cursor-pointer ${
-                      selected
-                        ? 'bg-accent/20 text-accent ring-1 ring-accent/30'
-                        : 'bg-white/[0.04] text-slate-400 hover:bg-white/[0.06]'
-                    }`}
-                  >
-                    {DAY_LABELS[day]}
-                  </button>
-                );
-              })}
-            </div>
-            <p className="text-[10px] text-slate-500 mt-1.5">
-              Empty = applies every day in the date range.
-            </p>
-          </div>
-
-          {/* Pitch Type */}
-          <div className="mb-4">
-            <label className="block text-[10px] font-medium text-slate-400 mb-1.5 uppercase tracking-wider">
-              Pitch Type (optional)
-            </label>
-            <div className="flex flex-wrap gap-1.5">
-              {['ASTRO', 'NATURAL', 'CEMENT'].map((p) => {
-                const selected = pitchType === p;
-                return (
-                  <button
-                    key={p}
-                    type="button"
-                    onClick={() => setPitchType(selected ? '' : p)}
-                    className={`px-2.5 py-1.5 rounded-lg text-[11px] font-medium transition-all cursor-pointer ${
-                      selected
-                        ? 'bg-accent/20 text-accent ring-1 ring-accent/30'
-                        : 'bg-white/[0.04] text-slate-400 hover:bg-white/[0.06]'
-                    }`}
-                  >
-                    {p === 'ASTRO' ? 'Astro Turf' : p === 'NATURAL' ? 'Natural Turf' : 'Cement Wicket'}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-
-          {/* Categories */}
-          <div className="mb-4">
-            <label className="block text-[10px] font-medium text-slate-400 mb-1.5 uppercase tracking-wider">
-              Categories (optional)
-            </label>
-            <div className="flex flex-wrap gap-1.5">
-              {ALL_CATEGORIES.map((c) => {
-                const selected = pickedCategories.includes(c);
-                return (
-                  <button
-                    key={c}
-                    type="button"
-                    onClick={() => setPickedCategories((prev) => toggleInArray(prev, c))}
-                    className={`px-2.5 py-1.5 rounded-lg text-[11px] font-medium transition-all cursor-pointer ${
-                      selected
-                        ? 'bg-accent/20 text-accent ring-1 ring-accent/30'
-                        : 'bg-white/[0.04] text-slate-400 hover:bg-white/[0.06]'
-                    }`}
-                  >
-                    {CATEGORY_LABELS[c] ?? c}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-
-          {/* Machines */}
-          {machines.length > 0 && (
-            <div className="mb-4">
+          {/* ── What is being blocked: Category → Machine → Pitch ──
+              Ordered to follow the admin's decision flow: pick the kind
+              of booking first, then narrow to a machine, then a pitch. */}
+          <div className="border-t border-white/[0.06] pt-3.5 space-y-3.5">
+            {/* Booking Category */}
+            <div>
               <label className="block text-[10px] font-medium text-slate-400 mb-1.5 uppercase tracking-wider">
-                Machines (optional)
+                Booking Category (optional)
               </label>
               <div className="flex flex-wrap gap-1.5">
-                {machines.filter((m) => m.isActive).map((m) => {
-                  const selected = pickedMachineIds.includes(m.id);
+                {ALL_CATEGORIES.map((c) => {
+                  const selected = pickedCategories.includes(c);
                   return (
                     <button
-                      key={m.id}
+                      key={c}
                       type="button"
-                      onClick={() => setPickedMachineIds((prev) => toggleInArray(prev, m.id))}
+                      onClick={() => setPickedCategories((prev) => toggleInArray(prev, c))}
                       className={`px-2.5 py-1.5 rounded-lg text-[11px] font-medium transition-all cursor-pointer ${
                         selected
                           ? 'bg-accent/20 text-accent ring-1 ring-accent/30'
                           : 'bg-white/[0.04] text-slate-400 hover:bg-white/[0.06]'
                       }`}
                     >
-                      {m.shortName ?? m.name}
+                      {CATEGORY_LABELS[c] ?? c}
                     </button>
                   );
                 })}
               </div>
             </div>
-          )}
 
-          {/* Resource pinning was removed in favour of the Pitch Type
-              picker above — admins scope a block by surface (Astro /
-              Natural / Cement) rather than by individual net rows, and
-              "Full Indoor Court" is a Category, not a resource. */}
+            {/* Bowling Machine */}
+            {machines.length > 0 && (
+              <div>
+                <label className="block text-[10px] font-medium text-slate-400 mb-1.5 uppercase tracking-wider">
+                  Bowling Machine (optional)
+                </label>
+                <div className="flex flex-wrap gap-1.5">
+                  {machines.filter((m) => m.isActive).map((m) => {
+                    const selected = pickedMachineIds.includes(m.id);
+                    return (
+                      <button
+                        key={m.id}
+                        type="button"
+                        onClick={() => setPickedMachineIds((prev) => toggleInArray(prev, m.id))}
+                        className={`px-2.5 py-1.5 rounded-lg text-[11px] font-medium transition-all cursor-pointer ${
+                          selected
+                            ? 'bg-accent/20 text-accent ring-1 ring-accent/30'
+                            : 'bg-white/[0.04] text-slate-400 hover:bg-white/[0.06]'
+                        }`}
+                      >
+                        {m.shortName ?? m.name}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
 
-          {/* Count block: reserve N units of the selected pitch's pool
-              (e.g. "block 3 of 4 Astro Turf"). Only offered for a pure
-              pitch block — no machine and no category — so the meaning is
-              unambiguous. Empty = block the whole pitch. */}
-          {pitchType && pickedMachineIds.length === 0 && pickedCategories.length === 0 && (
-            <div className="mb-4">
-              <label className="block text-[10px] font-medium text-slate-400 mb-1 uppercase tracking-wider">
-                Number of {pitchLabel(pitchType)} units to block (optional)
-              </label>
-              <input
-                type="number"
-                min={1}
-                placeholder={`Leave empty to block all ${pitchLabel(pitchType)}`}
-                value={netCount}
-                onChange={(e) => setNetCount(e.target.value)}
-                className="w-full bg-white/[0.04] border border-white/[0.1] text-white rounded-lg px-2 py-2 text-xs outline-none focus:border-accent placeholder:text-slate-600"
-              />
-              <p className="text-[10px] text-slate-500 mt-1">
-                Empty = block all {pitchLabel(pitchType)}. Setting a number
-                reserves that many units and leaves the rest available to
-                book. Other pitches and machines are unaffected.
-              </p>
-            </div>
-          )}
-
-          {/* Reason + audience */}
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-4">
-            <div className="sm:col-span-2">
-              <label className="block text-[10px] font-medium text-slate-400 mb-1">Reason (optional)</label>
-              <input
-                type="text"
-                placeholder="e.g. Maintenance"
-                value={reason}
-                onChange={(e) => setReason(e.target.value)}
-                className="w-full bg-white/[0.04] border border-white/[0.1] text-white rounded-lg px-2 py-2 text-xs outline-none focus:border-accent placeholder:text-slate-600"
-              />
-            </div>
+            {/* Pitch Type */}
             <div>
-              <label className="block text-[10px] font-medium text-slate-400 mb-1">Applies to</label>
-              <select
-                value={appliesTo}
-                onChange={(e) => setAppliesTo(e.target.value as 'ALL' | 'SPECIAL' | 'NON_SPECIAL')}
-                className="w-full bg-white/[0.04] border border-white/[0.1] text-white rounded-lg px-2 py-2 text-xs outline-none focus:border-accent"
-              >
-                <option value="ALL">All users</option>
-                <option value="SPECIAL">Special users only</option>
-                <option value="NON_SPECIAL">Non-special users only</option>
-              </select>
+              <label className="block text-[10px] font-medium text-slate-400 mb-1.5 uppercase tracking-wider">
+                Pitch Type (optional)
+              </label>
+              <div className="flex flex-wrap gap-1.5">
+                {['ASTRO', 'NATURAL', 'CEMENT'].map((p) => {
+                  const selected = pitchType === p;
+                  return (
+                    <button
+                      key={p}
+                      type="button"
+                      onClick={() => setPitchType(selected ? '' : p)}
+                      className={`px-2.5 py-1.5 rounded-lg text-[11px] font-medium transition-all cursor-pointer ${
+                        selected
+                          ? 'bg-accent/20 text-accent ring-1 ring-accent/30'
+                          : 'bg-white/[0.04] text-slate-400 hover:bg-white/[0.06]'
+                      }`}
+                    >
+                      {p === 'ASTRO' ? 'Astro Turf' : p === 'NATURAL' ? 'Natural Turf' : 'Cement Wicket'}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Count block: reserve N units of the selected pitch's pool
+                (e.g. "block 3 of 4 Astro Turf"). Only offered for a pure
+                pitch block — no machine and no category — so the meaning is
+                unambiguous. Empty = block the whole pitch. */}
+            {pitchType && pickedMachineIds.length === 0 && pickedCategories.length === 0 && (
+              <div>
+                <label className="block text-[10px] font-medium text-slate-400 mb-1 uppercase tracking-wider">
+                  {pitchLabel(pitchType)} units to block (optional)
+                </label>
+                <input
+                  type="number"
+                  min={1}
+                  placeholder={`Leave empty to block all ${pitchLabel(pitchType)}`}
+                  value={netCount}
+                  onChange={(e) => setNetCount(e.target.value)}
+                  className="w-full bg-white/[0.04] border border-white/[0.1] text-white rounded-lg px-2 py-2 text-xs outline-none focus:border-accent placeholder:text-slate-600"
+                />
+                <p className="text-[10px] text-slate-500 mt-1">
+                  Empty = block all. A number reserves that many units and leaves the rest bookable.
+                </p>
+              </div>
+            )}
+          </div>
+
+          {/* ── Schedule & remaining options ── */}
+          <div className="border-t border-white/[0.06] pt-3.5 space-y-3.5">
+            {/* Recurring days */}
+            <div>
+              <label className="block text-[10px] font-medium text-slate-400 mb-1.5 uppercase tracking-wider">
+                Repeat on <span className="text-slate-600 normal-case">— empty = every day in range</span>
+              </label>
+              <div className="grid grid-cols-7 gap-1.5">
+                {DAY_NUMBERS.map((day) => {
+                  const selected = recurringDays.includes(day);
+                  return (
+                    <button
+                      key={day}
+                      type="button"
+                      onClick={() => setRecurringDays((prev) => toggleInArray(prev, day))}
+                      className={`py-1.5 rounded-lg text-[10px] sm:text-[11px] font-semibold transition-all cursor-pointer ${
+                        selected
+                          ? 'bg-accent/20 text-accent ring-1 ring-accent/30'
+                          : 'bg-white/[0.04] text-slate-400 hover:bg-white/[0.06]'
+                      }`}
+                    >
+                      {DAY_LABELS[day]}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Reason + audience */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+              <div className="sm:col-span-2">
+                <label className="block text-[10px] font-medium text-slate-400 mb-1">Reason (optional)</label>
+                <input
+                  type="text"
+                  placeholder="e.g. Maintenance"
+                  value={reason}
+                  onChange={(e) => setReason(e.target.value)}
+                  className="w-full bg-white/[0.04] border border-white/[0.1] text-white rounded-lg px-2 py-2 text-xs outline-none focus:border-accent placeholder:text-slate-600"
+                />
+              </div>
+              <div>
+                <label className="block text-[10px] font-medium text-slate-400 mb-1">Applies to</label>
+                <select
+                  value={appliesTo}
+                  onChange={(e) => setAppliesTo(e.target.value as 'ALL' | 'SPECIAL' | 'NON_SPECIAL')}
+                  className="w-full bg-white/[0.04] border border-white/[0.1] text-white rounded-lg px-2 py-2 text-xs outline-none focus:border-accent"
+                >
+                  <option value="ALL">All users</option>
+                  <option value="SPECIAL">Special users only</option>
+                  <option value="NON_SPECIAL">Non-special users only</option>
+                </select>
+              </div>
             </div>
           </div>
 
-          <div className="flex justify-end gap-2">
+          <div className="flex justify-end gap-2 pt-1">
             <button
               type="button"
               onClick={resetForm}
@@ -1020,36 +1014,10 @@ export function ResourceBlockManagement() {
                 </div>
               </div>
 
-              {/* Pitch Type */}
+              {/* Booking Category */}
               <div>
                 <label className="block text-[10px] font-medium text-slate-500 mb-1.5 uppercase tracking-wider">
-                  Pitch Type (optional)
-                </label>
-                <div className="flex flex-wrap gap-1.5">
-                  {['ASTRO', 'NATURAL', 'CEMENT'].map((p) => {
-                    const selected = editForm.pitchType === p;
-                    return (
-                      <button
-                        key={p}
-                        type="button"
-                        onClick={() => setEditForm((f) => ({ ...f, pitchType: selected ? '' : p }))}
-                        className={`px-2.5 py-1.5 rounded-lg text-[11px] font-medium transition-all cursor-pointer ${
-                          selected
-                            ? 'bg-accent/20 text-accent ring-1 ring-accent/30'
-                            : 'bg-white/[0.04] text-slate-400 hover:bg-white/[0.06]'
-                        }`}
-                      >
-                        {p === 'ASTRO' ? 'Astro Turf' : p === 'NATURAL' ? 'Natural Turf' : 'Cement Wicket'}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-
-              {/* Categories */}
-              <div>
-                <label className="block text-[10px] font-medium text-slate-500 mb-1.5 uppercase tracking-wider">
-                  Categories (optional)
+                  Booking Category (optional)
                 </label>
                 <div className="flex flex-wrap gap-1.5">
                   {ALL_CATEGORIES.map((c) => {
@@ -1077,11 +1045,11 @@ export function ResourceBlockManagement() {
                 </div>
               </div>
 
-              {/* Machines */}
+              {/* Bowling Machine */}
               {machines.length > 0 && (
                 <div>
                   <label className="block text-[10px] font-medium text-slate-500 mb-1.5 uppercase tracking-wider">
-                    Machines (optional)
+                    Bowling Machine (optional)
                   </label>
                   <div className="flex flex-wrap gap-1.5">
                     {machines.filter((m) => m.isActive).map((m) => {
@@ -1109,6 +1077,32 @@ export function ResourceBlockManagement() {
                   </div>
                 </div>
               )}
+
+              {/* Pitch Type */}
+              <div>
+                <label className="block text-[10px] font-medium text-slate-500 mb-1.5 uppercase tracking-wider">
+                  Pitch Type (optional)
+                </label>
+                <div className="flex flex-wrap gap-1.5">
+                  {['ASTRO', 'NATURAL', 'CEMENT'].map((p) => {
+                    const selected = editForm.pitchType === p;
+                    return (
+                      <button
+                        key={p}
+                        type="button"
+                        onClick={() => setEditForm((f) => ({ ...f, pitchType: selected ? '' : p }))}
+                        className={`px-2.5 py-1.5 rounded-lg text-[11px] font-medium transition-all cursor-pointer ${
+                          selected
+                            ? 'bg-accent/20 text-accent ring-1 ring-accent/30'
+                            : 'bg-white/[0.04] text-slate-400 hover:bg-white/[0.06]'
+                        }`}
+                      >
+                        {p === 'ASTRO' ? 'Astro Turf' : p === 'NATURAL' ? 'Natural Turf' : 'Cement Wicket'}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
 
               {/* Resource pinning removed — scope by Pitch Type instead. */}
 
