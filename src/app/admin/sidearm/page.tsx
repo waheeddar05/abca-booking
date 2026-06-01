@@ -363,7 +363,7 @@ export default function AdminSidearmPage() {
                   {/* Date-range availability summary. */}
                   <div>
                     <div className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wider text-slate-500 mb-1">
-                      <CalendarRange className="w-3 h-3" /> Date overrides
+                      <CalendarRange className="w-3 h-3" /> Date ranges
                     </div>
                     {s.dateAvailability.length === 0 ? (
                       <p className="text-[11px] text-slate-600 italic">None</p>
@@ -409,7 +409,7 @@ export default function AdminSidearmPage() {
                       }`}
                     >
                       <Pencil className="w-3 h-3" />
-                      Edit date overrides
+                      Edit date ranges
                     </button>
                   </div>
                 </div>
