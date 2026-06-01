@@ -49,6 +49,8 @@ export async function GET(req: NextRequest) {
     const from = searchParams.get('from');
     const to = searchParams.get('to');
     const status = searchParams.get('status');
+    const customer = searchParams.get('customer');
+    const categoryFilter = searchParams.get('categoryFilter');
     const allCenters = searchParams.get('allCenters') === 'true';
 
     const adminUser = await getAuthenticatedUser(req);
@@ -63,6 +65,7 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: 'allCenters requires super admin' }, { status: 403 });
     }
     const todayUTC = getISTTodayUTC();
+    const now = new Date();
 
     if (category === 'today') {
       where.date = todayUTC;
@@ -88,8 +91,56 @@ export async function GET(req: NextRequest) {
       };
     }
 
-    if (status) {
+    // Status filter mirrors the admin bookings list: IN_PROGRESS / BOOKED
+    // (Upcoming) / DONE (Completed) are *derived* from BOOKED + the current
+    // time, not stored verbatim. The export previously did a naive
+    // `where.status = status`, so a CSV pulled while the list was filtered to
+    // "Completed" silently excluded BOOKED-but-already-ended sessions — the
+    // file disagreed with the screen. Match the list logic exactly.
+    if (status === 'IN_PROGRESS') {
+      where.status = 'BOOKED';
+      where.startTime = { lte: now };
+      where.endTime = { gt: now };
+    } else if (status === 'BOOKED') {
+      where.status = 'BOOKED';
+      where.startTime = { gt: now };
+    } else if (status === 'DONE') {
+      where.AND = [
+        ...(where.AND || []),
+        {
+          OR: [
+            { status: 'DONE' },
+            { status: 'BOOKED', endTime: { lte: now } },
+          ],
+        },
+      ];
+    } else if (status) {
       where.status = status;
+    }
+
+    // Customer search — same name/email match the list uses, so the CSV
+    // reflects exactly the rows the admin is looking at.
+    if (customer) {
+      where.OR = [
+        { playerName: { contains: customer, mode: 'insensitive' } },
+        { user: { name: { contains: customer, mode: 'insensitive' } } },
+        { user: { email: { contains: customer, mode: 'insensitive' } } },
+      ];
+    }
+
+    // Booking-category filter — same handling as the list, including the
+    // ABCA legacy rule that a NULL category counts as MACHINE. Previously
+    // the export ignored this param entirely, so exporting a "Cricket Nets"
+    // filtered view produced a CSV of every category.
+    if (categoryFilter) {
+      const validCategories = new Set(['MACHINE', 'SIDEARM', 'COACHING', 'NET', 'FULL_COURT', 'CORPORATE_BATCH']);
+      if (validCategories.has(categoryFilter)) {
+        if (categoryFilter === 'MACHINE') {
+          where.OR = [...(where.OR ?? []), { category: 'MACHINE' }, { category: null }];
+        } else {
+          where.category = categoryFilter;
+        }
+      }
     }
 
     // Try full query; fall back to safe select if new columns don't exist yet
@@ -323,7 +374,7 @@ export async function GET(req: NextRequest) {
         formatIST(b.createdAt, 'yyyy-MM-dd HH:mm:ss'),
         formatIST(b.startTime, 'HH:mm'),
         formatIST(b.endTime, 'HH:mm'),
-        `"${(b.playerName || '').replace(/"/g, '""')}"`,
+        b.playerName || '',
         b.user?.email || 'Not Applicable',
         b.user?.mobileNumber || 'Not Applicable',
         pkg ? 'Package' : 'Regular',
@@ -347,8 +398,8 @@ export async function GET(req: NextRequest) {
         split.online.toString(),
         paymentMethodCol,
         ...(hasPackageBookings ? [pkg ? (b.packageBooking?.extraCharge ? b.packageBooking.extraCharge.toString() : '0') : '0'] : []),
-        `"${(b.createdBy || '').replace(/"/g, '""')}"`,
-        `"${(b.cancelledBy || '').replace(/"/g, '""')}"`,
+        b.createdBy || '',
+        b.cancelledBy || '',
         b.status === 'CANCELLED' && b.updatedAt ? formatIST(b.updatedAt, 'yyyy-MM-dd HH:mm:ss') : '',
         pkg ? 'NA' : (b.paymentStatus || ''),
         b.kitRental ? 'Yes' : 'No',
@@ -359,13 +410,27 @@ export async function GET(req: NextRequest) {
       ];
     });
 
-    const csv = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
+    // Escape EVERY cell: quote when it contains a comma, double-quote,
+    // or newline (doubling embedded quotes per RFC 4180). Without this a
+    // machine / coach / player name containing a comma shifted every
+    // following column, which is what made the export look "wrong".
+    const escapeCsv = (val: unknown): string => {
+      if (val === null || val === undefined) return '';
+      const s = String(val);
+      return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+    };
 
-    const now = new Date();
+    // Prefix a UTF-8 BOM so Excel renders non-ASCII names correctly and use
+    // CRLF line endings (the CSV/Excel standard).
+    const csv = '\uFEFF' + [
+      headers.map(escapeCsv).join(','),
+      ...rows.map((r) => r.map(escapeCsv).join(',')),
+    ].join('\r\n');
+
     return new NextResponse(csv, {
       headers: {
-        'Content-Type': 'text/csv',
-        'Content-Disposition': `attachment; filename=bookings-export-${formatIST(now, 'yyyy-MM-dd')}.csv`,
+        'Content-Type': 'text/csv; charset=utf-8',
+        'Content-Disposition': `attachment; filename=bookings-export-${formatIST(new Date(), 'yyyy-MM-dd')}.csv`,
       },
     });
   } catch (error: any) {
