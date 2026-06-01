@@ -378,7 +378,22 @@ function NewMembershipForm({
       .map((m) => m.role as MembershipRole);
 
   return (
-    <form onSubmit={submit} className="space-y-3 rounded-xl bg-white/[0.02] border border-white/[0.06] p-3">
+    <form onSubmit={submit} className="space-y-3.5 rounded-xl bg-white/[0.02] border border-white/[0.06] p-3.5">
+      <div className="flex items-center justify-between border-b border-white/[0.06] pb-2.5">
+        <div className="flex items-center gap-2">
+          <UserPlus className="w-4 h-4 text-accent" />
+          <h3 className="text-sm font-semibold text-white">Assign a member</h3>
+        </div>
+        <button
+          type="button"
+          onClick={onCancel}
+          className="p-1 rounded-md text-slate-400 hover:bg-white/[0.08] hover:text-white cursor-pointer"
+          title="Close"
+        >
+          <X className="w-4 h-4" />
+        </button>
+      </div>
+
       <Field
         label="Roles"
         required
@@ -511,7 +526,9 @@ function NewMembershipForm({
         </div>
       )}
 
-      <div className="flex items-center justify-between">
+      {err && <Banner kind="error">{err}</Banner>}
+
+      <div className="flex items-center justify-between gap-2 pt-2.5 border-t border-white/[0.06]">
         <button
           type="button"
           onClick={() => {
@@ -523,20 +540,17 @@ function NewMembershipForm({
           }}
           className="text-[11px] text-accent hover:underline cursor-pointer"
         >
-          {manualMode ? '← Back to user search' : 'Add new user instead →'}
+          {manualMode ? '← Back to user search' : '+ Add new user instead'}
         </button>
-      </div>
-
-      {err && <Banner kind="error">{err}</Banner>}
-
-      <div className="flex justify-end gap-2">
-        <SecondaryButton type="button" onClick={onCancel}>
-          <X className="w-4 h-4" /> Cancel
-        </SecondaryButton>
-        <PrimaryButton type="submit" disabled={saving}>
-          {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
-          Assign {roles.size > 1 ? `(${roles.size} roles)` : ''}
-        </PrimaryButton>
+        <div className="flex gap-2">
+          <SecondaryButton type="button" onClick={onCancel}>
+            Cancel
+          </SecondaryButton>
+          <PrimaryButton type="submit" disabled={saving}>
+            {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
+            Assign {roles.size > 1 ? `(${roles.size} roles)` : ''}
+          </PrimaryButton>
+        </div>
       </div>
     </form>
   );

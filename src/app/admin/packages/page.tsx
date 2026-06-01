@@ -494,6 +494,16 @@ function AdminPackagesLegacy() {
     return machineKey === 'GRAVITY' || machineKey === 'YANTRA';
   };
 
+  /** True when the selected machine is a tennis machine (Leverage).
+   *  Tennis machines have no Leather/Machine ball-type axis — they
+   *  always use tennis balls — so the Ball Type field shows a fixed
+   *  "Tennis" value instead of the Leather/Machine picker. */
+  const isTennisSelectedMachine = (machineKey: string): boolean => {
+    const m = findMachineOption(machineKey);
+    if (m) return m.machineType.ballType === 'TENNIS';
+    return machineKey === 'LEVERAGE_INDOOR' || machineKey === 'LEVERAGE_OUTDOOR';
+  };
+
   const hasActiveFilter = machineFilter !== 'all' || timingFilter !== '';
   const clearFilters = () => { setMachineFilter('all'); setTimingFilter(''); };
 
@@ -1028,6 +1038,14 @@ function AdminPackagesLegacy() {
                   </select>
                 </div>
               )}
+              {isTennisSelectedMachine(assignForm.machineId) && (
+                <div>
+                  <label className="block text-[10px] font-medium text-slate-400 mb-1">Ball Type</label>
+                  <div className="w-full bg-white/[0.02] border border-white/[0.08] text-slate-400 text-sm rounded-lg px-3 py-2.5">
+                    Tennis
+                  </div>
+                </div>
+              )}
             </div>
 
             <div className="grid grid-cols-2 gap-3">
@@ -1437,8 +1455,9 @@ function PackageForm({
               ))}
             </select>
           </div>
-          {/* Ball Type — only shown for leather machines (Gravity /
-              Yantra). Tennis machines don't have a ball-type axis. */}
+          {/* Ball Type — leather machines (Gravity / Yantra) pick between
+              Leather / Machine balls. Tennis machines (Leverage) always
+              use tennis balls, so they show a fixed "Tennis" value. */}
           {isLeatherSelectedMachine(form.machineId) && (
             <div>
               <label className="block text-[11px] font-medium text-slate-400 mb-1">Ball Type</label>
@@ -1451,6 +1470,14 @@ function PackageForm({
                   <option key={t.value} value={t.value} className="bg-[#1a2a40]">{t.label}</option>
                 ))}
               </select>
+            </div>
+          )}
+          {isTennisSelectedMachine(form.machineId) && (
+            <div>
+              <label className="block text-[11px] font-medium text-slate-400 mb-1">Ball Type</label>
+              <div className="w-full bg-white/[0.02] border border-white/[0.08] rounded-lg px-3 py-2.5 text-sm text-slate-400">
+                Tennis
+              </div>
             </div>
           )}
           {/* Wicket / Pitch Type */}

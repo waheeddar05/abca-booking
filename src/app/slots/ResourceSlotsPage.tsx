@@ -1452,17 +1452,17 @@ export default function ResourceSlotsPage() {
             // its content. A 2-column grid (single column on phone-
             // narrow) gives every machine the same footprint and lines
             // them up visually — admins specifically asked for this.
+            // Four machines wrap to two rows of two rather than a single
+            // cramped four-across row.
             <div
               className={`grid gap-1.5 ${
                 filteredMachines.length === 1
                   ? 'grid-cols-1'
                   : filteredMachines.length === 3
                     ? 'grid-cols-3'
-                    : filteredMachines.length === 4
-                      ? 'grid-cols-4'
-                      : filteredMachines.length > 4
-                        ? 'grid-cols-2 sm:grid-cols-4'
-                        : 'grid-cols-2'
+                    : filteredMachines.length > 4
+                      ? 'grid-cols-2 sm:grid-cols-4'
+                      : 'grid-cols-2'
               }`}
             >
               {filteredMachines.map((m) => {
