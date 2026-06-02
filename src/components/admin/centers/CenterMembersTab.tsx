@@ -157,12 +157,15 @@ export function CenterMembersTab({ centerId }: { centerId: string }) {
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap justify-between items-center gap-2">
-        <div className="flex flex-wrap items-center gap-2 flex-1 min-w-0">
+      {/* Toolbar: search/filter controls stack above the Assign button on
+          mobile (so the button never overlaps the search), and sit on one
+          row with Assign pushed to the right on larger screens. */}
+      <div className="flex flex-col gap-2.5 sm:flex-row sm:items-center sm:gap-3">
+        <div className="flex flex-col gap-2.5 flex-1 min-w-0 sm:flex-row sm:items-center">
           <SelectInput
             value={filter}
             onChange={(e) => setFilter(e.target.value as MembershipRole | 'ALL')}
-            className="!w-auto !text-xs"
+            className="w-full sm:!w-44 !text-sm !py-2.5"
           >
             <option value="ALL">All roles</option>
             <option value="ADMIN">Admins</option>
@@ -171,17 +174,17 @@ export function CenterMembersTab({ centerId }: { centerId: string }) {
             <option value="SIDEARM_SPECIALIST">Sidearm Specialist</option>
             <option value="GROUND_STAFF">Ground Staff</option>
           </SelectInput>
-          <form onSubmit={(e) => { e.preventDefault(); refresh(); }} className="flex items-center gap-2 flex-1 min-w-[200px]">
+          <form onSubmit={(e) => { e.preventDefault(); refresh(); }} className="flex items-center gap-2 flex-1 sm:min-w-[240px]">
             <TextInput
               value={q}
               onChange={(e) => setQ(e.target.value)}
               placeholder="Search by name / email / mobile"
-              className="flex-1 !text-xs"
+              className="flex-1 !text-sm !py-2.5"
             />
-            <SecondaryButton type="submit" className="!text-xs shrink-0">Search</SecondaryButton>
+            <SecondaryButton type="submit" className="!text-sm !py-2.5 shrink-0">Search</SecondaryButton>
           </form>
         </div>
-        <PrimaryButton onClick={() => setShowNew(true)} className="shrink-0">
+        <PrimaryButton onClick={() => setShowNew(true)} className="shrink-0 w-full sm:w-auto sm:self-start">
           <UserPlus className="w-4 h-4" /> Assign
         </PrimaryButton>
       </div>
@@ -600,8 +603,8 @@ const ALL_ROLES: MembershipRole[] = ['ADMIN', 'OPERATOR', 'COACH', 'SIDEARM_SPEC
 
 /**
  * One card per user. Row 1 shows the member's name + contact + edit/remove
- * actions; Row 2 lays out every role as a checkbox in a clean horizontal
- * row; Row 3 is a Save button that commits the checked role set in one shot
+ * actions; Row 2 lays out every role as a checkbox, one per line for
+ * readability; Row 3 is a Save button that commits the checked role set in one shot
  * (granting newly-checked roles and revoking unchecked ones). COACH /
  * SIDEARM_SPECIALIST roles the user currently holds expose a schedule
  * toggle next to their checkbox.
@@ -719,17 +722,19 @@ function UserMembershipsRow({
           </div>
         </div>
 
-        {/* Row 2 — role checkboxes */}
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+        {/* Row 2 — role checkboxes, one role per line for readability.
+            Each label fills the row so the schedule toggle aligns to the
+            right; text never wraps or crowds against neighbouring roles. */}
+        <div className="flex flex-col gap-1">
           {ALL_ROLES.map((role) => {
             const disabled = role === 'ADMIN' && !isSuperAdmin;
             const supportsSchedule = role === 'COACH' || role === 'SIDEARM_SPECIALIST';
             const scheduleId = membershipIdByRole.get(role);
             const scheduleOpen = !!scheduleId && expandedMembershipId === scheduleId;
             return (
-              <div key={role} className="inline-flex items-center gap-1.5">
+              <div key={role} className="flex items-center justify-between gap-2 py-0.5">
                 <label
-                  className={`inline-flex items-center gap-1.5 text-xs font-medium select-none ${disabled ? 'text-slate-600 cursor-not-allowed' : 'text-slate-200 cursor-pointer'}`}
+                  className={`inline-flex items-center gap-2 text-sm font-medium select-none whitespace-nowrap ${disabled ? 'text-slate-600 cursor-not-allowed' : 'text-slate-200 cursor-pointer'}`}
                 >
                   <input
                     type="checkbox"
@@ -744,7 +749,7 @@ function UserMembershipsRow({
                   <button
                     onClick={() => setExpandedMembershipId(scheduleOpen ? null : scheduleId)}
                     title="Schedule"
-                    className={`p-0.5 rounded cursor-pointer ${scheduleOpen ? 'bg-white/15 text-white' : 'text-slate-500 hover:text-slate-300'}`}
+                    className={`p-1 rounded cursor-pointer shrink-0 ${scheduleOpen ? 'bg-white/15 text-white' : 'text-slate-500 hover:text-slate-300'}`}
                   >
                     <CalendarClock className="w-3.5 h-3.5" />
                   </button>

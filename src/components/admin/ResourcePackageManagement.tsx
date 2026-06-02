@@ -20,7 +20,7 @@ import { Package, Plus, Pencil, Loader2, Trash2, ToggleLeft, ToggleRight, Sun, M
 import { useToast } from '@/components/ui/Toast';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { useCenter } from '@/lib/center-context';
-import { PACKAGE_WICKET_LABEL, PACKAGE_CATEGORY_LABEL } from '@/lib/package-admin-labels';
+import { PACKAGE_WICKET_LABEL, PACKAGE_CATEGORY_LABEL, ballOptionsForMachineType, coerceBallTypeForMachineType } from '@/lib/package-admin-labels';
 import { LABEL_MAP } from '@/lib/client-constants';
 
 const labelMap = LABEL_MAP;
@@ -47,6 +47,11 @@ interface CenterMachineLite {
   name: string;
   shortName?: string | null;
   isActive: boolean;
+  // Machine catalog category. `ballType` is 'LEATHER' for leather
+  // machines (Gravity/Yantra) and 'TENNIS' for tennis machines
+  // (Master 200/iWinner/Leverage) — it drives the valid Ball Type
+  // options when this machine is pinned to a package.
+  machineType?: { ballType?: string } | null;
 }
 
 interface PackageRow {
@@ -190,6 +195,13 @@ export function ResourcePackageManagement() {
       // actual pitch to upgrade between.
       const wicketRelevantCategories = new Set(['MACHINE', 'SIDEARM', 'NET']);
 
+      // Resolve the pinned machine's ball-type category. Tennis machines
+      // get machineType=TENNIS so the (Machine/Tennis) ballType passes
+      // the server-side compatibility check; everything else stays
+      // LEATHER (the placeholder the resource model has always used).
+      const submitMachine = machines.find((m) => m.id === form.machineRowId);
+      const submitMachineType = submitMachine?.machineType?.ballType === 'TENNIS' ? 'TENNIS' : 'LEATHER';
+
       // Assemble `extraChargeRules`:
       //   - timingUpgrade: applies only when timingType=DAY
       //   - ballTypeUpgrade: applies only when category=MACHINE AND
@@ -209,6 +221,7 @@ export function ResourcePackageManagement() {
       if (
         form.category === 'MACHINE'
         && form.ballType === 'MACHINE'
+        && submitMachineType !== 'TENNIS'
         && form.ballTypeUpgrade > 0
       ) {
         rules.ballTypeUpgrade = form.ballTypeUpgrade;
@@ -242,7 +255,7 @@ export function ResourcePackageManagement() {
         name: form.name,
         category: form.category,
         machineRowId: form.machineRowId || null,
-        machineType: 'LEATHER',
+        machineType: submitMachineType,
         ballType,
         wicketType,
         timingType: form.timingType,
@@ -326,6 +339,15 @@ export function ResourcePackageManagement() {
     );
   }
 
+  // Ball-type category of the currently pinned machine. When no machine
+  // is pinned ("Any machine of this category") we fall back to LEATHER
+  // semantics (Machine / Leather). A pinned tennis machine flips the
+  // Ball Type options to Machine / Tennis and hides the leather-only
+  // upgrade fee.
+  const selectedMachine = machines.find((m) => m.id === form.machineRowId);
+  const machineBallType = selectedMachine?.machineType?.ballType === 'TENNIS' ? 'TENNIS' : 'LEATHER';
+  const isTennisMachine = machineBallType === 'TENNIS';
+
   return (
     <div className="space-y-5">
       <div className="flex items-center justify-between gap-3">
@@ -394,7 +416,7 @@ export function ResourcePackageManagement() {
               <label className="block text-[11px] font-medium text-slate-400 mb-1">Category *</label>
               <select
                 value={form.category}
-                onChange={(e) => setForm({ ...form, category: e.target.value, machineRowId: '' })}
+                onChange={(e) => setForm({ ...form, category: e.target.value, machineRowId: '', ballType: 'MACHINE' })}
                 className={inputClass}
               >
                 {CATEGORY_OPTIONS.map((c) => (
@@ -413,7 +435,14 @@ export function ResourcePackageManagement() {
               </label>
               <select
                 value={form.machineRowId}
-                onChange={(e) => setForm({ ...form, machineRowId: e.target.value })}
+                onChange={(e) => {
+                  const m = machines.find((mm) => mm.id === e.target.value);
+                  const bt = m?.machineType?.ballType === 'TENNIS' ? 'TENNIS' : 'LEATHER';
+                  // Auto-clear an incompatible ball type when pinning a
+                  // machine of a different category (e.g. Leather → tennis
+                  // machine drops the now-invalid "Leather" selection).
+                  setForm({ ...form, machineRowId: e.target.value, ballType: coerceBallTypeForMachineType(bt, form.ballType) });
+                }}
                 className={inputClass}
               >
                 <option value="" className="bg-[#1a2a40]">Any machine of this category</option>
@@ -459,7 +488,10 @@ export function ResourcePackageManagement() {
             </div>
           </div>
 
-          {/* Ball type — only meaningful for MACHINE category packages. */}
+          {/* Ball type — only meaningful for MACHINE category packages.
+              Options follow the pinned machine's category: leather
+              machines → Machine / Leather, tennis machines → Machine /
+              Tennis. */}
           {form.category === 'MACHINE' && (
             <div className="mt-3">
               <label className="block text-[11px] font-medium text-slate-400 mb-1">Ball type</label>
@@ -468,14 +500,16 @@ export function ResourcePackageManagement() {
                 onChange={(e) => setForm({ ...form, ballType: e.target.value })}
                 className={inputClass}
               >
-                <option value="MACHINE" className="bg-[#1a2a40]">Machine</option>
-                <option value="LEATHER" className="bg-[#1a2a40]">Leather</option>
+                {ballOptionsForMachineType(machineBallType).map((o) => (
+                  <option key={o.value} value={o.value} className="bg-[#1a2a40]">{o.label}</option>
+                ))}
               </select>
             </div>
           )}
 
-          {/* Leather upgrade fee */}
-          {form.category === 'MACHINE' && form.ballType === 'MACHINE' && (
+          {/* Leather upgrade fee — leather machines only. Tennis machines
+              have no leather-ball axis, so the fee doesn't apply. */}
+          {form.category === 'MACHINE' && form.ballType === 'MACHINE' && !isTennisMachine && (
             <div className="mt-3">
               <label className="block text-[11px] font-medium text-slate-400 mb-1">
                 Leather upgrade (₹ per slot)

@@ -62,10 +62,16 @@ interface CenterContextValue {
   adminCenterIds: string[];
   /** Centers where the user holds any staff (OPERATOR / COACH / SIDEARM) membership. */
   staffCenterIds: string[];
+  /** Centers where the user holds a SIDEARM_SPECIALIST membership. */
+  sidearmCenterIds: string[];
   /** True if super admin, or ADMIN membership at the currently-selected center. */
   isAdminAtCurrentCenter: boolean;
   /** True if super admin, ADMIN, or any staff membership at the currently-selected center. */
   isStaffAtCurrentCenter: boolean;
+  /** True if the user is a SIDEARM_SPECIALIST at the currently-selected center.
+   *  Drives the user-side Sidearm tab. (Super admins do NOT get this — it's a
+   *  membership-specific capability, not an admin privilege.) */
+  isSidearmSpecialistAtCurrentCenter: boolean;
   /** True until the first /api/centers/me response. */
   loading: boolean;
   /** Switches the cookie + reloads. Resolves true on success. */
@@ -82,6 +88,7 @@ export function CenterProvider({ children }: { children: ReactNode }) {
   const [isSuperAdmin, setIsSuperAdmin] = useState(false);
   const [adminCenterIds, setAdminCenterIds] = useState<string[]>([]);
   const [staffCenterIds, setStaffCenterIds] = useState<string[]>([]);
+  const [sidearmCenterIds, setSidearmCenterIds] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
 
   const refresh = useCallback(async () => {
@@ -94,6 +101,7 @@ export function CenterProvider({ children }: { children: ReactNode }) {
       setIsSuperAdmin(Boolean(data.user?.isSuperAdmin));
       setAdminCenterIds((data.user?.adminCenterIds ?? []) as string[]);
       setStaffCenterIds((data.user?.staffCenterIds ?? []) as string[]);
+      setSidearmCenterIds((data.user?.sidearmCenterIds ?? []) as string[]);
     } catch {
       // Network failure or auth route blip — keep stale state.
     } finally {
@@ -131,6 +139,11 @@ export function CenterProvider({ children }: { children: ReactNode }) {
   const isStaffAtCurrentCenter =
     isAdminAtCurrentCenter ||
     (currentCenterId != null && staffCenterIds.includes(currentCenterId));
+  // Membership-specific — deliberately NOT granted to super admins, since
+  // there's no "own availability" to manage unless they actually hold a
+  // SIDEARM_SPECIALIST membership here.
+  const isSidearmSpecialistAtCurrentCenter =
+    currentCenterId != null && sidearmCenterIds.includes(currentCenterId);
 
   const value = useMemo<CenterContextValue>(
     () => ({
@@ -140,8 +153,10 @@ export function CenterProvider({ children }: { children: ReactNode }) {
       isSuperAdmin,
       adminCenterIds,
       staffCenterIds,
+      sidearmCenterIds,
       isAdminAtCurrentCenter,
       isStaffAtCurrentCenter,
+      isSidearmSpecialistAtCurrentCenter,
       loading,
       switchTo,
       refresh,
@@ -153,8 +168,10 @@ export function CenterProvider({ children }: { children: ReactNode }) {
       isSuperAdmin,
       adminCenterIds,
       staffCenterIds,
+      sidearmCenterIds,
       isAdminAtCurrentCenter,
       isStaffAtCurrentCenter,
+      isSidearmSpecialistAtCurrentCenter,
       loading,
       switchTo,
       refresh,
@@ -176,8 +193,10 @@ export function useCenter(): CenterContextValue {
       isSuperAdmin: false,
       adminCenterIds: [],
       staffCenterIds: [],
+      sidearmCenterIds: [],
       isAdminAtCurrentCenter: false,
       isStaffAtCurrentCenter: false,
+      isSidearmSpecialistAtCurrentCenter: false,
       loading: false,
       switchTo: async () => false,
       refresh: async () => {},
