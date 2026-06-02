@@ -39,9 +39,9 @@ import {
   PACKAGE_TIMING_DAY_LABEL,
   PACKAGE_TIMING_EVENING_LABEL,
   packageCategoryLabel,
-  ballOptionsForMachineType,
+  ballOptionsFromEffective,
   isBallTypeValidForMachineType,
-  coerceBallTypeForMachineType,
+  coerceBallTypeFromEffective,
 } from '@/lib/package-admin-labels';
 
 interface PackageData {
@@ -76,6 +76,10 @@ interface CenterMachineRow {
   isActive: boolean;
   legacyMachineId: string | null;
   machineType: { code: string; name: string; ballType: string; imageUrl: string | null };
+  // Ball types this machine actually supports (server-computed). Tennis
+  // machines resolve to ['TENNIS']; leather machines to ['LEATHER','MACHINE'].
+  // Drives the Ball Type dropdown so it mirrors the real machine.
+  effectiveBallTypes?: string[] | null;
 }
 
 // Wicket-upgrade paths (Pitch). Labels reuse the standardized
@@ -212,7 +216,7 @@ function AdminPackagesLegacy() {
             ...f,
             machineId: first.legacyMachineId || first.id,
             machineType: mt,
-            ballType: coerceBallTypeForMachineType(mt, f.ballType),
+            ballType: coerceBallTypeFromEffective(first.effectiveBallTypes, f.ballType),
           };
         });
         setAssignForm((f) => {
@@ -224,7 +228,7 @@ function AdminPackagesLegacy() {
             ...f,
             machineId: first.legacyMachineId || first.id,
             machineType: mt,
-            ballType: coerceBallTypeForMachineType(mt, f.ballType),
+            ballType: coerceBallTypeFromEffective(first.effectiveBallTypes, f.ballType),
           };
         });
       })
@@ -305,7 +309,7 @@ function AdminPackagesLegacy() {
           name: '',
           machineId: first ? (first.legacyMachineId || first.id) : '',
           machineType: firstMachineType,
-          ballType: coerceBallTypeForMachineType(firstMachineType, 'LEATHER'),
+          ballType: coerceBallTypeFromEffective(first?.effectiveBallTypes, 'LEATHER'),
           wicketType: 'ASTRO',
           timingType: 'DAY',
           totalSessions: 4,
@@ -471,9 +475,10 @@ function AdminPackagesLegacy() {
       machineId: storedMachineId,
       machineType: pkg.machineType,
       // BOTH (legacy leather option) collapses to Leather in the editor;
-      // coerce guards against any value that's invalid for the machine
-      // category (e.g. a tennis package that predates the Tennis option).
-      ballType: coerceBallTypeForMachineType(pkg.machineType, pkg.ballType === 'BOTH' ? 'LEATHER' : pkg.ballType),
+      // coerce against the machine's supported ball types so a value the
+      // machine no longer offers (e.g. a stale "Machine" on a tennis
+      // machine) snaps to a valid option.
+      ballType: coerceBallTypeFromEffective(findMachineOption(storedMachineId)?.effectiveBallTypes, pkg.ballType === 'BOTH' ? 'LEATHER' : pkg.ballType),
       wicketType: pkg.wicketType || 'ASTRO',
       timingType: pkg.timingType === 'BOTH' ? 'DAY' : pkg.timingType,
       totalSessions: pkg.totalSessions,
@@ -1061,9 +1066,9 @@ function AdminPackagesLegacy() {
                       ...prev,
                       machineId: e.target.value,
                       machineType: nextMachineType,
-                      // Auto-clear an incompatible ball type when the
-                      // machine category changes.
-                      ballType: coerceBallTypeForMachineType(nextMachineType, prev.ballType),
+                      // Auto-clear a ball type the new machine doesn't
+                      // support (e.g. a tennis machine offers Tennis only).
+                      ballType: coerceBallTypeFromEffective(m?.effectiveBallTypes, prev.ballType),
                     }));
                   }}
                   className="w-full bg-white/[0.04] border border-white/[0.1] text-white text-sm rounded-lg px-3 py-2 outline-none focus:border-accent"
@@ -1089,7 +1094,7 @@ function AdminPackagesLegacy() {
                     onChange={e => setAssignForm(prev => ({ ...prev, ballType: e.target.value }))}
                     className="w-full bg-white/[0.04] border border-white/[0.1] text-white text-sm rounded-lg px-3 py-2 outline-none focus:border-accent"
                   >
-                    {ballOptionsForMachineType(isTennisSelectedMachine(assignForm.machineId) ? 'TENNIS' : 'LEATHER').map(b => (
+                    {ballOptionsFromEffective(findMachineOption(assignForm.machineId)?.effectiveBallTypes).map(b => (
                       <option key={b.value} value={b.value}>{b.label}</option>
                     ))}
                   </select>
@@ -1515,10 +1520,10 @@ function PackageForm({
                   ...form,
                   machineId: e.target.value,
                   machineType: nextMachineType,
-                  // Auto-clear an incompatible ball type when the machine
-                  // category changes (e.g. switching a Leather selection
-                  // to a tennis machine drops the now-invalid "Leather").
-                  ballType: coerceBallTypeForMachineType(nextMachineType, form.ballType),
+                  // Auto-clear a ball type the new machine doesn't support
+                  // (e.g. switching to a tennis machine that offers Tennis
+                  // only drops the now-invalid "Leather").
+                  ballType: coerceBallTypeFromEffective(selected?.effectiveBallTypes, form.ballType),
                 });
               }}
               className="w-full bg-white/[0.04] border border-white/[0.1] rounded-lg px-3 py-2.5 text-sm text-white outline-none focus:border-accent"
@@ -1533,11 +1538,11 @@ function PackageForm({
               ))}
             </select>
           </div>
-          {/* Ball Type — leather machines (Gravity / Yantra) pick between
-              Leather / Machine balls. Tennis machines (Master 200 /
-              iWinner / Leverage) pick between Machine / Tennis balls.
-              The option list is driven by the selected machine's
-              category so incompatible combinations can't be chosen. */}
+          {/* Ball Type — options mirror the selected machine's actual
+              supported ball types. Leather machines (Gravity / Yantra)
+              offer Leather / Machine; tennis machines (Master 200 /
+              iWinner / Leverage) support tennis only, so they offer just
+              Tennis. Incompatible combinations can't be chosen. */}
           {(isLeatherSelectedMachine(form.machineId) || isTennisSelectedMachine(form.machineId)) && (
             <div>
               <label className="block text-[11px] font-medium text-slate-400 mb-1">Ball Type</label>
@@ -1546,7 +1551,7 @@ function PackageForm({
                 onChange={e => setForm({ ...form, ballType: e.target.value })}
                 className="w-full bg-white/[0.04] border border-white/[0.1] rounded-lg px-3 py-2.5 text-sm text-white outline-none focus:border-accent"
               >
-                {ballOptionsForMachineType(isTennisSelectedMachine(form.machineId) ? 'TENNIS' : 'LEATHER').map(t => (
+                {ballOptionsFromEffective(findMachineOption(form.machineId)?.effectiveBallTypes).map(t => (
                   <option key={t.value} value={t.value} className="bg-[#1a2a40]">{t.label}</option>
                 ))}
               </select>
