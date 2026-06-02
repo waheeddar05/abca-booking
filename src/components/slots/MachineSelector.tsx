@@ -10,30 +10,15 @@ interface MachineSelectorProps {
 }
 
 export const MachineSelector = memo(function MachineSelector({ selectedMachineId, onSelect }: MachineSelectorProps) {
-  const leatherMachines = MACHINE_CARDS.filter(c => c.category === 'LEATHER');
-  const tennisMachines = MACHINE_CARDS.filter(c => c.category === 'TENNIS');
-
   return (
     <div className="mb-4" role="radiogroup" aria-label="Machine Type">
-      <label className="block text-[10px] font-medium text-accent mb-2 uppercase tracking-wider">
+      <label className="block text-[10px] font-medium text-accent mb-1 uppercase tracking-wider">
         Machine Type
       </label>
 
-      {/* Leather Machines */}
-      <div className="grid grid-cols-2 gap-1.5 mb-1.5">
-        {leatherMachines.map((card) => (
-          <MachineCardButton
-            key={card.id}
-            card={card}
-            isSelected={selectedMachineId === card.id}
-            onSelect={onSelect}
-          />
-        ))}
-      </div>
-
-      {/* Tennis Machines */}
-      <div className="grid grid-cols-2 gap-1.5">
-        {tennisMachines.map((card) => (
+      {/* Single grid: max two boxes per row, remaining wrap to the next row */}
+      <div className="grid grid-cols-2 gap-2">
+        {MACHINE_CARDS.map((card) => (
           <MachineCardButton
             key={card.id}
             card={card}
@@ -61,10 +46,10 @@ const MachineCardButton = memo(function MachineCardButton({
       aria-checked={isSelected}
       aria-label={`${card.label} – ${card.shortLabel}`}
       onClick={() => onSelect(card.id)}
-      className={`flex items-center gap-1.5 pl-1.5 pr-2 py-1 rounded-lg text-xs font-semibold border cursor-pointer transition-all text-left min-w-0 ${
+      className={`flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg text-xs font-semibold border cursor-pointer transition-all ${
         isSelected
           ? 'bg-accent text-primary border-accent shadow-sm'
-          : 'bg-white/[0.04] text-slate-300 border-white/[0.08] hover:border-accent/30'
+          : 'bg-white/[0.04] text-slate-400 border-white/[0.08] hover:border-accent/20'
       }`}
     >
       {/* eslint-disable-next-line @next/next/no-img-element */}
