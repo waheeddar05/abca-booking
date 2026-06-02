@@ -3,7 +3,7 @@ import { prisma } from '@/lib/prisma';
 import { requireCenterAdmin } from '@/lib/adminAuth';
 import { getTimeSlab, getTimeSlabConfig, timeToMinutes } from '@/lib/pricing';
 import { creditWallet } from '@/lib/wallet';
-import { notifyBookingCancelled, notifyWalletCredit, notifyOperatorBookingCancelled } from '@/lib/notifications';
+import { notifyBookingCancelled, notifyWalletCredit, notifyAssignedStaffBookingCancelled } from '@/lib/notifications';
 
 interface OverrideRange {
   from: string;
@@ -204,17 +204,11 @@ export async function POST(req: NextRequest) {
             refundInfo: refundAmount > 0 ? `₹${refundAmount} refunded to wallet` : undefined,
           }).catch(err => console.warn('[OverrideCancel] Cancellation notification failed:', err));
 
-          // 5. Notify operator if assigned
-          if (booking.operatorId) {
-            await notifyOperatorBookingCancelled(booking.id, {
-              customerName: user.name || 'Customer',
-              date: dateStr,
-              time: timeStr,
-              machine: booking.machineId || 'Unknown',
-              cancelledBy: 'Admin',
-              reason: 'Operator schedule override — zero operators',
-            }).catch(err => console.warn('[OverrideCancel] Operator notification failed:', err));
-          }
+          // 5. Notify every assigned staff member (operator / coach / specialist)
+          await notifyAssignedStaffBookingCancelled(booking.id, {
+            cancelledBy: 'Admin',
+            reason: 'Operator schedule override — zero operators',
+          }).catch(err => console.warn('[OverrideCancel] Staff notification failed:', err));
         } catch (err) {
           console.error(`[OverrideCancel] Failed to cancel booking ${booking.id}:`, err);
           // Continue with other bookings
