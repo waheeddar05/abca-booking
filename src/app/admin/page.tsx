@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { CalendarCheck, LayoutDashboard, X, IndianRupee } from 'lucide-react';
+import { CalendarCheck, LayoutDashboard, X, IndianRupee, AlertCircle } from 'lucide-react';
 import { AdminPageHeader } from '@/components/admin/AdminPageHeader';
 import { AdminStatCard } from '@/components/admin/AdminStatCard';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, CartesianGrid } from 'recharts';
@@ -91,44 +91,89 @@ function WrappedAxisTick({ x = 0, y = 0, payload }: AxisTickProps) {
   );
 }
 
+// Coerce any value coming back from the API into a finite number. Recharts
+// throws if it is handed NaN/Infinity/undefined, which would otherwise bubble
+// up to the route error boundary ("Something went wrong"). This keeps a valid
+// date selection from ever crashing the dashboard.
+function safeNumber(value: unknown): number {
+  const n = typeof value === 'number' ? value : Number(value);
+  return Number.isFinite(n) ? n : 0;
+}
+
 export default function AdminDashboard() {
   const [stats, setStats] = useState<Stats | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [defaultRange] = useState(defaultDashboardRange);
   const [from, setFrom] = useState(defaultRange.from);
   const [to, setTo] = useState(defaultRange.to);
+  // Bumped by the Retry button to re-run the fetch without changing the range.
+  const [reloadKey, setReloadKey] = useState(0);
+
+  // Guard against an inverted range on the client so we never fire a request
+  // that can only come back empty. (The API also swaps it defensively.)
+  const invalidRange = Boolean(from && to && from > to);
 
   useEffect(() => {
+    if (invalidRange) {
+      setError('Start date must be on or before the end date.');
+      setLoading(false);
+      return;
+    }
+
+    const controller = new AbortController();
+
     async function fetchStats() {
       setLoading(true);
+      setError(null);
       try {
         const params = new URLSearchParams();
         if (from) params.set('from', from);
         if (to) params.set('to', to);
-        const response = await fetch(`/api/admin/stats?${params.toString()}`);
+        const response = await fetch(`/api/admin/stats?${params.toString()}`, {
+          signal: controller.signal,
+        });
         if (response.ok) {
           const data = await response.json();
           setStats(data);
+        } else {
+          // Surface a friendly, non-generic message and clear stale data so
+          // the empty states read correctly instead of showing old numbers.
+          let message = 'Unable to load dashboard data. Please try again.';
+          try {
+            const body = await response.json();
+            if (body?.error && typeof body.error === 'string') message = body.error;
+          } catch {
+            /* response had no JSON body */
+          }
+          console.error('Failed to fetch stats:', response.status, message);
+          setStats(null);
+          setError(message);
         }
-      } catch (error) {
-        console.error('Failed to fetch stats:', error);
+      } catch (err) {
+        if ((err as Error)?.name === 'AbortError') return;
+        console.error('Failed to fetch stats:', err);
+        setStats(null);
+        setError('Unable to load dashboard data. Please check your connection and try again.');
       } finally {
         setLoading(false);
       }
     }
 
     fetchStats();
-  }, [from, to]);
+    return () => controller.abort();
+  }, [from, to, invalidRange, reloadKey]);
 
   const revenueByCategoryData = (stats?.revenueBreakdown?.entries || [])
-    .filter(entry => ['MACHINE', 'NET', 'SIDEARM', 'FULL_COURT'].includes(entry.key))
+    .filter(entry => entry && ['MACHINE', 'NET', 'SIDEARM', 'FULL_COURT'].includes(entry.key))
     .map(entry => ({
       name: CATEGORY_LABELS[entry.key] || entry.key,
-      revenue: entry._sum.price || 0,
+      revenue: safeNumber(entry?._sum?.price),
     }))
     .sort((a, b) => b.revenue - a.revenue);
 
   const revenueByMachineData = (stats?.machineTypeRevenue || [])
+    .map(item => ({ name: item?.name ?? '—', revenue: safeNumber(item?.revenue) }))
     .sort((a, b) => b.revenue - a.revenue);
 
   return (
@@ -173,6 +218,26 @@ export default function AdminDashboard() {
           )}
         </div>
       </div>
+
+      {/* Error banner — shown for failed loads or an invalid range, so a date
+          selection never silently breaks the dashboard or shows a generic crash. */}
+      {error && !loading && (
+        <div className="flex items-start gap-3 bg-red-500/10 border border-red-500/20 text-red-200 rounded-xl px-4 py-3 text-sm">
+          <AlertCircle className="w-4 h-4 mt-0.5 shrink-0 text-red-400" />
+          <div className="flex-1 min-w-0">
+            <p className="font-semibold text-red-300">Couldn&apos;t load dashboard data</p>
+            <p className="text-red-200/80 break-words">{error}</p>
+          </div>
+          {!invalidRange && (
+            <button
+              onClick={() => setReloadKey(k => k + 1)}
+              className="shrink-0 self-center text-xs font-semibold px-3 py-1.5 rounded-lg bg-red-500/15 hover:bg-red-500/25 transition-colors"
+            >
+              Retry
+            </button>
+          )}
+        </div>
+      )}
 
       {/* KPI Summary Cards — always one row (3 across), tightened on small screens */}
       <div className="grid grid-cols-3 gap-2 sm:gap-4">
@@ -247,7 +312,7 @@ export default function AdminDashboard() {
                 })
               ) : (
                 <tr>
-                  <td colSpan={3} className="px-4 py-10 text-center text-slate-500 italic">No data available for selected dates</td>
+                  <td colSpan={3} className="px-4 py-10 text-center text-slate-500 italic">No data available for the selected date range.</td>
                 </tr>
               )}
             </tbody>
@@ -296,7 +361,7 @@ export default function AdminDashboard() {
             </ResponsiveContainer>
           ) : (
             <div className="h-full flex flex-col items-center justify-center text-slate-500 italic">
-              No revenue data available for selected dates
+              No data available for the selected date range.
             </div>
           )}
         </div>
@@ -343,7 +408,7 @@ export default function AdminDashboard() {
             </ResponsiveContainer>
           ) : (
             <div className="h-full flex flex-col items-center justify-center text-slate-500 italic">
-              No machine revenue data available for selected dates
+              No data available for the selected date range.
             </div>
           )}
         </div>
