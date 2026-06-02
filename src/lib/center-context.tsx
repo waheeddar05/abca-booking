@@ -64,6 +64,8 @@ interface CenterContextValue {
   staffCenterIds: string[];
   /** Centers where the user holds a SIDEARM_SPECIALIST membership. */
   sidearmCenterIds: string[];
+  /** Centers where the user holds a COACH membership. */
+  coachCenterIds: string[];
   /** True if super admin, or ADMIN membership at the currently-selected center. */
   isAdminAtCurrentCenter: boolean;
   /** True if super admin, ADMIN, or any staff membership at the currently-selected center. */
@@ -72,6 +74,10 @@ interface CenterContextValue {
    *  Drives the user-side Sidearm tab. (Super admins do NOT get this — it's a
    *  membership-specific capability, not an admin privilege.) */
   isSidearmSpecialistAtCurrentCenter: boolean;
+  /** True if the user is a COACH at the currently-selected center. Drives the
+   *  user-side Personal Coach tab. Mirrors isSidearmSpecialistAtCurrentCenter
+   *  (super admins do NOT get this — it's a membership-specific capability). */
+  isCoachAtCurrentCenter: boolean;
   /** True until the first /api/centers/me response. */
   loading: boolean;
   /** Switches the cookie + reloads. Resolves true on success. */
@@ -89,6 +95,7 @@ export function CenterProvider({ children }: { children: ReactNode }) {
   const [adminCenterIds, setAdminCenterIds] = useState<string[]>([]);
   const [staffCenterIds, setStaffCenterIds] = useState<string[]>([]);
   const [sidearmCenterIds, setSidearmCenterIds] = useState<string[]>([]);
+  const [coachCenterIds, setCoachCenterIds] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
 
   const refresh = useCallback(async () => {
@@ -102,6 +109,7 @@ export function CenterProvider({ children }: { children: ReactNode }) {
       setAdminCenterIds((data.user?.adminCenterIds ?? []) as string[]);
       setStaffCenterIds((data.user?.staffCenterIds ?? []) as string[]);
       setSidearmCenterIds((data.user?.sidearmCenterIds ?? []) as string[]);
+      setCoachCenterIds((data.user?.coachCenterIds ?? []) as string[]);
     } catch {
       // Network failure or auth route blip — keep stale state.
     } finally {
@@ -144,6 +152,9 @@ export function CenterProvider({ children }: { children: ReactNode }) {
   // SIDEARM_SPECIALIST membership here.
   const isSidearmSpecialistAtCurrentCenter =
     currentCenterId != null && sidearmCenterIds.includes(currentCenterId);
+  // Membership-specific — same rationale as sidearm above.
+  const isCoachAtCurrentCenter =
+    currentCenterId != null && coachCenterIds.includes(currentCenterId);
 
   const value = useMemo<CenterContextValue>(
     () => ({
@@ -154,9 +165,11 @@ export function CenterProvider({ children }: { children: ReactNode }) {
       adminCenterIds,
       staffCenterIds,
       sidearmCenterIds,
+      coachCenterIds,
       isAdminAtCurrentCenter,
       isStaffAtCurrentCenter,
       isSidearmSpecialistAtCurrentCenter,
+      isCoachAtCurrentCenter,
       loading,
       switchTo,
       refresh,
@@ -169,9 +182,11 @@ export function CenterProvider({ children }: { children: ReactNode }) {
       adminCenterIds,
       staffCenterIds,
       sidearmCenterIds,
+      coachCenterIds,
       isAdminAtCurrentCenter,
       isStaffAtCurrentCenter,
       isSidearmSpecialistAtCurrentCenter,
+      isCoachAtCurrentCenter,
       loading,
       switchTo,
       refresh,
@@ -194,9 +209,11 @@ export function useCenter(): CenterContextValue {
       adminCenterIds: [],
       staffCenterIds: [],
       sidearmCenterIds: [],
+      coachCenterIds: [],
       isAdminAtCurrentCenter: false,
       isStaffAtCurrentCenter: false,
       isSidearmSpecialistAtCurrentCenter: false,
+      isCoachAtCurrentCenter: false,
       loading: false,
       switchTo: async () => false,
       refresh: async () => {},

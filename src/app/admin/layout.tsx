@@ -41,6 +41,10 @@ export default function AdminLayout({
   // to allow them into /admin, and we gate the links here.
   const hasSidearmMembership = currentCenter && sessionUser?.role === 'SIDEARM_SPECIALIST';
   const canAccessSidearmTab = isAdmin || hasSidearmMembership;
+  // Personal Coaches get the same self-service access to /admin/coach,
+  // mirroring the Sidearm tab exactly.
+  const hasCoachMembership = currentCenter && sessionUser?.role === 'COACH';
+  const canAccessCoachTab = isAdmin || hasCoachMembership;
 
   // Until we rebuild Slots/Operators/Offers/Packages for RESOURCE_BASED
   // centers (Toplay-style), the legacy forms hardcode the ABCA machine
@@ -62,6 +66,10 @@ export default function AdminLayout({
     // auto-assignment. Resource-based centers only; ABCA never had a
     // sidearm role wired into bookings.
     { href: '/admin/sidearm', label: 'Sidearm', icon: Users, models: ['RESOURCE_BASED'], hidden: !canAccessSidearmTab },
+    // Personal Coach tab — manages COACH memberships and their
+    // availability (recurring + date-range) plus priority order, exactly
+    // like the Sidearm tab. Resource-based centers only.
+    { href: '/admin/coach', label: 'Personal Coach', icon: UserCog, models: ['RESOURCE_BASED'], hidden: !canAccessCoachTab },
     { href: '/admin/offers', label: 'Offers', icon: Tag, hidden: !isAdmin },
     { href: '/admin/packages', label: 'Packages', icon: Package, hidden: !isAdmin },
     { href: '/admin/configuration', label: 'Settings', icon: SlidersHorizontal, hidden: !isAdmin },

@@ -13,10 +13,13 @@ import { prisma } from '@/lib/prisma';
 import { getCachedPolicy } from '@/lib/policy-cache';
 import {
   sendWhatsAppNotification,
+  sendWhatsAppText,
   type TemplateComponent,
   type WhatsAppSendResult,
 } from '@/lib/whatsapp';
-import type { NotificationChannel, WhatsAppMessageStatus } from '@prisma/client';
+import { formatIST } from '@/lib/time';
+import { MACHINES } from '@/lib/constants';
+import type { BookingCategory, NotificationChannel, WhatsAppMessageStatus } from '@prisma/client';
 
 // ─── Types ──────────────────────────────────────────────────────────
 
@@ -422,7 +425,6 @@ export async function notifyOperatorBookingCancelled(
     if (operator.mobileNumber) {
       const waEnabled = await isWhatsAppEnabled();
       if (waEnabled) {
-        const { sendWhatsAppText } = await import('@/lib/whatsapp');
         const result = await sendWhatsAppText(operator.mobileNumber, msg);
         if (!result?.success && !result?.outsideWindow) {
           console.warn('[Notifications] Operator cancel WhatsApp send failed:', {
@@ -434,5 +436,402 @@ export async function notifyOperatorBookingCancelled(
     }
   } catch (err) {
     console.error('[Notifications] Failed to notify operator about cancellation:', err);
+  }
+}
+
+// ─── Assigned-Staff Notification Helpers (operator + coach + specialist) ─
+//
+// The operator-only helpers above predate the resource-based booking
+// model, which can also assign a Personal Coach (`assignedCoachId`) or a
+// Trainer Specialist / sidearm staff (`assignedStaffId`). These helpers
+// load the booking with all of its relations and notify EVERY assigned
+// staff member — Machine Operator, Personal Coach, and Trainer Specialist
+// — about a new booking or a cancellation, via WhatsApp text + in-app.
+//
+// Design notes:
+//   - Notifications go only to staff actually assigned to the booking (and
+//     therefore implicitly to the booking's center + role).
+//   - WhatsApp is sent only when the staff member has a mobile number and
+//     the WHATSAPP_NOTIFICATIONS_ENABLED flag is on; in-app is always made.
+//   - Every delivery attempt is logged (success / outside-window / error)
+//     so deliveries can be audited and troubleshooting is possible.
+//   - All failures are swallowed — staff notifications must never block or
+//     fail a booking/cancellation.
+
+/** Friendly role labels used in staff-facing messages. */
+const STAFF_ROLE_LABELS = {
+  OPERATOR: 'Machine Operator',
+  COACH: 'Personal Coach',
+  SIDEARM_SPECIALIST: 'Trainer Specialist',
+} as const;
+
+/** Human-readable labels for each booking category. */
+const CATEGORY_LABELS: Record<BookingCategory, string> = {
+  MACHINE: 'Bowling Machine',
+  SIDEARM: 'Sidearm Session',
+  COACHING: 'Personal Coaching',
+  FULL_COURT: 'Full Court',
+  CORPORATE_BATCH: 'Corporate Batch',
+  NET: 'Net Practice',
+};
+
+type StaffRoleKey = keyof typeof STAFF_ROLE_LABELS;
+
+interface StaffRecipient {
+  userId: string;
+  name: string;
+  mobileNumber: string | null;
+  roleKey: StaffRoleKey;
+}
+
+/** Shape returned by the booking lookup used for staff notifications. */
+type StaffNotifyBooking = {
+  id: string;
+  playerName: string;
+  date: Date;
+  startTime: Date;
+  endTime: Date;
+  category: BookingCategory;
+  machineId: string | null;
+  cancelledBy: string | null;
+  cancellationReason: string | null;
+  center: { name: string } | null;
+  operator: { id: string; name: string | null; mobileNumber: string | null } | null;
+  assignedCoach: { id: string; name: string | null; mobileNumber: string | null } | null;
+  assignedStaff: { id: string; name: string | null; mobileNumber: string | null } | null;
+  assignedMachine: { name: string; machineType: { name: string } | null } | null;
+  resourceAssignments: { resource: { name: string } | null }[];
+};
+
+const STAFF_NOTIFY_SELECT = {
+  id: true,
+  playerName: true,
+  date: true,
+  startTime: true,
+  endTime: true,
+  category: true,
+  machineId: true,
+  cancelledBy: true,
+  cancellationReason: true,
+  center: { select: { name: true } },
+  operator: { select: { id: true, name: true, mobileNumber: true } },
+  assignedCoach: { select: { id: true, name: true, mobileNumber: true } },
+  assignedStaff: { select: { id: true, name: true, mobileNumber: true } },
+  assignedMachine: { select: { name: true, machineType: { select: { name: true } } } },
+  resourceAssignments: { select: { resource: { select: { name: true } } } },
+} as const;
+
+/** Collect every assigned staff member across a set of bookings (deduped). */
+function collectStaffRecipients(bookings: StaffNotifyBooking[]): StaffRecipient[] {
+  const byUser = new Map<string, StaffRecipient>();
+  const add = (
+    person: { id: string; name: string | null; mobileNumber: string | null } | null,
+    roleKey: StaffRoleKey,
+  ) => {
+    if (!person || byUser.has(person.id)) return;
+    byUser.set(person.id, {
+      userId: person.id,
+      name: person.name || STAFF_ROLE_LABELS[roleKey],
+      mobileNumber: person.mobileNumber || null,
+      roleKey,
+    });
+  };
+  for (const b of bookings) {
+    add(b.operator, 'OPERATOR');
+    add(b.assignedCoach, 'COACH');
+    add(b.assignedStaff, 'SIDEARM_SPECIALIST');
+  }
+  return [...byUser.values()];
+}
+
+/** Resolve the facility / resource name(s) for a booking. */
+function resolveFacility(booking: StaffNotifyBooking): string {
+  const resourceNames = booking.resourceAssignments
+    .map((a) => a.resource?.name)
+    .filter((n): n is string => !!n);
+  if (resourceNames.length > 0) return resourceNames.join(', ');
+  // Legacy MACHINE_PITCH (ABCA): no Resource rows — fall back to the
+  // machine's short name.
+  if (booking.machineId) {
+    return MACHINES[booking.machineId as keyof typeof MACHINES]?.shortName || booking.machineId;
+  }
+  return 'Net';
+}
+
+/** Resolve a display label for the assigned machine, if any. */
+function resolveMachineLabel(booking: StaffNotifyBooking): string | null {
+  if (booking.assignedMachine) {
+    const typeName = booking.assignedMachine.machineType?.name;
+    return typeName
+      ? `${booking.assignedMachine.name} (${typeName})`
+      : booking.assignedMachine.name;
+  }
+  if (booking.machineId) {
+    return MACHINES[booking.machineId as keyof typeof MACHINES]?.shortName || booking.machineId;
+  }
+  return null;
+}
+
+/** Build the "assigned details" lines shared across recipients. */
+function buildAssignmentLines(booking: StaffNotifyBooking): string[] {
+  const lines: string[] = [];
+  const machineLabel = resolveMachineLabel(booking);
+  if (machineLabel && booking.category === 'MACHINE') lines.push(`🎳 Machine: ${machineLabel}`);
+  if (booking.assignedCoach?.name) lines.push(`👨‍🏫 Coach: ${booking.assignedCoach.name}`);
+  if (booking.assignedStaff?.name) lines.push(`🏏 Specialist: ${booking.assignedStaff.name}`);
+  if (booking.operator?.name && booking.category === 'MACHINE') {
+    lines.push(`🧑‍🔧 Operator: ${booking.operator.name}`);
+  }
+  return lines;
+}
+
+/** Format a duration in minutes as "1 hr 30 min" / "45 min". */
+function formatDuration(totalMinutes: number): string {
+  if (totalMinutes <= 0) return '—';
+  const hours = Math.floor(totalMinutes / 60);
+  const mins = totalMinutes % 60;
+  if (hours > 0 && mins > 0) return `${hours} hr ${mins} min`;
+  if (hours > 0) return `${hours} hr`;
+  return `${mins} min`;
+}
+
+/**
+ * Deliver an in-app + WhatsApp message to every assigned staff recipient.
+ * Logs each delivery attempt. Never throws.
+ */
+async function dispatchStaffNotifications(opts: {
+  bookingId: string;
+  recipients: StaffRecipient[];
+  title: string;
+  type: string;
+  inAppMessage: string;
+  buildWhatsApp: (recipient: StaffRecipient) => string;
+}): Promise<void> {
+  const { bookingId, recipients, title, type, inAppMessage, buildWhatsApp } = opts;
+  if (recipients.length === 0) return;
+
+  const waEnabled = await isWhatsAppEnabled();
+
+  for (const recipient of recipients) {
+    // In-app notification is the primary, always-on signal.
+    try {
+      await notify({
+        userId: recipient.userId,
+        title,
+        message: inAppMessage,
+        type,
+      });
+    } catch (err) {
+      console.error('[Notifications] Staff in-app notification failed:', {
+        bookingId,
+        userId: recipient.userId,
+        role: recipient.roleKey,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+
+    // WhatsApp — only when enabled and the staff member has a mobile number.
+    if (!recipient.mobileNumber) {
+      console.warn('[Notifications] Staff WhatsApp skipped — no mobile number:', {
+        bookingId,
+        userId: recipient.userId,
+        role: recipient.roleKey,
+      });
+      continue;
+    }
+    if (!waEnabled) {
+      console.log('[Notifications] WhatsApp disabled — staff text skipped:', {
+        bookingId,
+        userId: recipient.userId,
+        role: recipient.roleKey,
+      });
+      continue;
+    }
+
+    try {
+      const result = await sendWhatsAppText(recipient.mobileNumber, buildWhatsApp(recipient));
+      if (result?.success) {
+        console.log('[Notifications] Staff WhatsApp sent:', {
+          bookingId,
+          userId: recipient.userId,
+          role: recipient.roleKey,
+          messageId: result.messageId,
+        });
+      } else if (result?.outsideWindow) {
+        // Expected when the staff member hasn't messaged the business in
+        // the last 24h — not an error, just logged for the audit trail.
+        console.log('[Notifications] Staff WhatsApp outside 24h window:', {
+          bookingId,
+          userId: recipient.userId,
+          role: recipient.roleKey,
+        });
+      } else {
+        console.warn('[Notifications] Staff WhatsApp send failed:', {
+          bookingId,
+          userId: recipient.userId,
+          role: recipient.roleKey,
+          error: result?.error || 'unknown',
+        });
+      }
+    } catch (err) {
+      console.error('[Notifications] Staff WhatsApp threw:', {
+        bookingId,
+        userId: recipient.userId,
+        role: recipient.roleKey,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+}
+
+/**
+ * Notify all assigned staff (Machine Operator, Personal Coach, Trainer
+ * Specialist) about a NEW booking via WhatsApp + in-app.
+ *
+ * Accepts the list of Booking ids created in one submission (a multi-slot
+ * booking produces several rows). The time window/duration spans all of
+ * them; assigned staff are collected across the whole batch (deduped).
+ *
+ * Never throws — failures are logged and swallowed so a notification
+ * problem can't fail the booking.
+ */
+export async function notifyAssignedStaffNewBooking(bookingIds: string[]): Promise<void> {
+  if (bookingIds.length === 0) return;
+  try {
+    const bookings = (await prisma.booking.findMany({
+      where: { id: { in: bookingIds } },
+      select: STAFF_NOTIFY_SELECT,
+    })) as StaffNotifyBooking[];
+    if (bookings.length === 0) return;
+
+    const recipients = collectStaffRecipients(bookings);
+    if (recipients.length === 0) return;
+
+    const primary = bookings[0];
+    const earliestStart = bookings.reduce(
+      (acc, b) => (b.startTime < acc ? b.startTime : acc),
+      bookings[0].startTime,
+    );
+    const latestEnd = bookings.reduce(
+      (acc, b) => (b.endTime > acc ? b.endTime : acc),
+      bookings[0].endTime,
+    );
+    const totalMinutes = bookings.reduce(
+      (sum, b) => sum + Math.round((b.endTime.getTime() - b.startTime.getTime()) / 60000),
+      0,
+    );
+
+    const dateStr = formatIST(new Date(primary.date), 'EEE, dd MMM yyyy');
+    const timeStr = `${formatIST(earliestStart, 'hh:mm a')} – ${formatIST(latestEnd, 'hh:mm a')}`;
+    const slotCount = bookings.length;
+    const slotSuffix = slotCount > 1 ? ` (${slotCount} slots)` : '';
+    const facility = resolveFacility(primary);
+    const bookingType = CATEGORY_LABELS[primary.category];
+    const centerName = primary.center?.name || 'PlayOrbit';
+    const durationStr = formatDuration(totalMinutes);
+    const assignmentLines = buildAssignmentLines(primary);
+
+    const inAppMessage = [
+      `New ${bookingType} booking`,
+      `Customer: ${primary.playerName}`,
+      `${dateStr}, ${timeStr}${slotSuffix}`,
+      `Facility: ${facility}`,
+    ].join(' | ');
+
+    const buildWhatsApp = (recipient: StaffRecipient): string => {
+      const lines = [
+        `🏏 *New Booking* — ${centerName}`,
+        `Hi ${recipient.name} (${STAFF_ROLE_LABELS[recipient.roleKey]}),`,
+        `A new booking has been assigned to you.`,
+        ``,
+        `👤 Customer: ${primary.playerName}`,
+        `📅 Date: ${dateStr}`,
+        `⏰ Time: ${timeStr}${slotSuffix}`,
+        `⏳ Duration: ${durationStr}`,
+        `📍 Facility: ${facility}`,
+        `🎯 Type: ${bookingType}`,
+        ...assignmentLines,
+      ];
+      return lines.join('\n');
+    };
+
+    await dispatchStaffNotifications({
+      bookingId: primary.id,
+      recipients,
+      title: 'New Booking Assigned',
+      type: 'SUCCESS',
+      inAppMessage,
+      buildWhatsApp,
+    });
+  } catch (err) {
+    console.error('[Notifications] notifyAssignedStaffNewBooking failed:', err);
+  }
+}
+
+/**
+ * Notify all assigned staff (Machine Operator, Personal Coach, Trainer
+ * Specialist) about a CANCELLED booking via WhatsApp + in-app.
+ *
+ * Load the booking AFTER it's been marked CANCELLED (so the assigned-staff
+ * FKs are still intact — cancellation doesn't clear them). Never throws.
+ */
+export async function notifyAssignedStaffBookingCancelled(
+  bookingId: string,
+  details: { cancelledBy?: string; reason?: string } = {},
+): Promise<void> {
+  try {
+    const booking = (await prisma.booking.findUnique({
+      where: { id: bookingId },
+      select: STAFF_NOTIFY_SELECT,
+    })) as StaffNotifyBooking | null;
+    if (!booking) return;
+
+    const recipients = collectStaffRecipients([booking]);
+    if (recipients.length === 0) return;
+
+    const dateStr = formatIST(new Date(booking.date), 'EEE, dd MMM yyyy');
+    const timeStr = `${formatIST(booking.startTime, 'hh:mm a')} – ${formatIST(booking.endTime, 'hh:mm a')}`;
+    const facility = resolveFacility(booking);
+    const bookingType = CATEGORY_LABELS[booking.category];
+    const centerName = booking.center?.name || 'PlayOrbit';
+    const cancelledBy = details.cancelledBy || booking.cancelledBy || 'Center';
+    const reason = details.reason || booking.cancellationReason || undefined;
+
+    const inAppMessage = [
+      `${bookingType} booking CANCELLED`,
+      `Customer: ${booking.playerName}`,
+      `${dateStr}, ${timeStr}`,
+      `Facility: ${facility}`,
+      `Cancelled by: ${cancelledBy}`,
+    ].join(' | ');
+
+    const buildWhatsApp = (recipient: StaffRecipient): string => {
+      const lines = [
+        `❌ *Booking Cancelled* — ${centerName}`,
+        `Hi ${recipient.name} (${STAFF_ROLE_LABELS[recipient.roleKey]}),`,
+        `A booking assigned to you has been cancelled.`,
+        ``,
+        `👤 Customer: ${booking.playerName}`,
+        `📅 Date: ${dateStr}`,
+        `⏰ Time: ${timeStr}`,
+        `📍 Facility: ${facility}`,
+        `🎯 Type: ${bookingType}`,
+        `🚫 Status: Cancelled`,
+        `🙍 Cancelled by: ${cancelledBy}`,
+      ];
+      if (reason) lines.push(`📝 Reason: ${reason}`);
+      return lines.join('\n');
+    };
+
+    await dispatchStaffNotifications({
+      bookingId: booking.id,
+      recipients,
+      title: 'Booking Cancelled',
+      type: 'CANCELLATION',
+      inAppMessage,
+      buildWhatsApp,
+    });
+  } catch (err) {
+    console.error('[Notifications] notifyAssignedStaffBookingCancelled failed:', err);
   }
 }

@@ -135,9 +135,16 @@ export async function middleware(req: NextRequest) {
     return NextResponse.next();
   }
 
-  // Protect Admin routes
+  // Protect Admin routes. ADMIN gets the full panel; SIDEARM_SPECIALIST
+  // and COACH are let in so they can self-manage their availability on
+  // the /admin/sidearm and /admin/coach pages (the layout gates every
+  // other link away from them).
   if (pathname.startsWith("/admin")) {
-    if (userRole !== "ADMIN" && userRole !== "SIDEARM_SPECIALIST") {
+    if (
+      userRole !== "ADMIN" &&
+      userRole !== "SIDEARM_SPECIALIST" &&
+      userRole !== "COACH"
+    ) {
       return NextResponse.redirect(new URL("/", req.url));
     }
   }

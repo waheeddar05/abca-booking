@@ -45,6 +45,13 @@ export async function GET(req: NextRequest) {
           .filter((m) => m.role === 'SIDEARM_SPECIALIST')
           .map((m) => m.centerId)
       : [];
+    // Centers where the user is specifically a coach — drives the
+    // user-side "Personal Coach" tab, mirroring sidearmCenterIds.
+    const coachCenterIds = user
+      ? user.centerMemberships
+          .filter((m) => m.role === 'COACH')
+          .map((m) => m.centerId)
+      : [];
 
     return NextResponse.json({
       user: user
@@ -55,6 +62,7 @@ export async function GET(req: NextRequest) {
             adminCenterIds,
             staffCenterIds,
             sidearmCenterIds,
+            coachCenterIds,
           }
         : null,
       centers,
