@@ -1,37 +1,35 @@
 'use client';
 
 /**
- * Admin → Sidearm tab.
+ * Admin → Personal Coach tab.
  *
- * Lists every SIDEARM_SPECIALIST membership at the current center.
- * Lets the admin:
+ * Lists every COACH membership at the current center. Lets the admin:
  *   - Reorder priority (1 = first pick by `pickStaffFor`)
- *   - Edit recurring weekly availability (reuses the existing PUT
- *     /availability endpoint)
- *   - Edit date-range availability (new PUT /date-availability)
+ *   - Edit recurring weekly availability
+ *   - Edit date-range availability
  *
- * The specialist card + availability editors are shared with the
- * user-facing Sidearm tab (`/sidearm`) via
+ * Mirrors Admin → Sidearm exactly. The coach card + availability editors
+ * are shared with the user-facing Personal Coach tab (`/coach`) via
  * `src/components/sidearm/AvailabilityEditors.tsx`, so both surfaces
  * render the exact same UI and write to the same tables.
  *
  * Resource-based centers only. The sidebar link is gated on
  * bookingModel='RESOURCE_BASED' so ABCA admins don't see this page;
  * if they manage to navigate here directly, the loader returns an
- * empty list (ABCA never has SIDEARM_SPECIALIST memberships).
+ * empty list (ABCA never has COACH memberships wired into bookings).
  */
 
 import { useEffect, useState } from 'react';
 import { useSession } from 'next-auth/react';
 import { useCenter } from '@/lib/center-context';
-import { Loader2, ArrowUp, ArrowDown, Users } from 'lucide-react';
+import { Loader2, ArrowUp, ArrowDown, UserCog } from 'lucide-react';
 import { AdminPageHeader } from '@/components/admin/AdminPageHeader';
 import { SpecialistAvailabilityCard, type Specialist } from '@/components/sidearm/AvailabilityEditors';
 
-export default function AdminSidearmPage() {
+export default function AdminCoachPage() {
   const { data: session } = useSession();
   const { currentCenter, loading: centerLoading } = useCenter();
-  const [specialists, setSpecialists] = useState<Specialist[]>([]);
+  const [coaches, setCoaches] = useState<Specialist[]>([]);
   const [loading, setLoading] = useState(true);
   const [savingPriorityId, setSavingPriorityId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -42,11 +40,11 @@ export default function AdminSidearmPage() {
     setError(null);
     try {
       const userRole = (session?.user as any)?.role;
-      const isSidearmSpecialist = userRole === 'SIDEARM_SPECIALIST';
+      const isCoach = userRole === 'COACH';
       const userId = (session?.user as any)?.id;
 
       const r = await fetch(
-        `/api/admin/centers/${currentCenter.id}/members?role=SIDEARM_SPECIALIST`,
+        `/api/admin/centers/${currentCenter.id}/members?role=COACH`,
       );
       if (!r.ok) {
         const body = await r.json().catch(() => ({}));
@@ -54,16 +52,16 @@ export default function AdminSidearmPage() {
       }
       let list = (await r.json()) as Specialist[];
 
-      // If the user is just a sidearm specialist (not an admin), only show
-      // their own row. They can edit their own availability but shouldn't
-      // see or reorder others.
-      if (isSidearmSpecialist && userId) {
+      // If the user is just a coach (not an admin), only show their own
+      // row. They can edit their own availability but shouldn't see or
+      // reorder others.
+      if (isCoach && userId) {
         list = list.filter((s) => s.user.id === userId);
       }
 
-      setSpecialists(list);
+      setCoaches(list);
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to load specialists');
+      setError(e instanceof Error ? e.message : 'Failed to load coaches');
     } finally {
       setLoading(false);
     }
@@ -91,21 +89,21 @@ export default function AdminSidearmPage() {
   const move = async (idx: number, direction: 'up' | 'down') => {
     if (!currentCenter) return;
     const otherIdx = direction === 'up' ? idx - 1 : idx + 1;
-    if (otherIdx < 0 || otherIdx >= specialists.length) return;
-    const a = specialists[idx];
-    const b = specialists[otherIdx];
+    if (otherIdx < 0 || otherIdx >= coaches.length) return;
+    const a = coaches[idx];
+    const b = coaches[otherIdx];
 
     // Use sequential integers so the list stays cleanly numbered.
     // Re-index from 1 over the entire list so a stretched legacy
     // priority (e.g. 100, 100, 100) collapses to 1..N on first move.
-    const reindexed = specialists.map((s, i) => ({
+    const reindexed = coaches.map((s, i) => ({
       ...s,
       priority: i === idx ? otherIdx + 1 : i === otherIdx ? idx + 1 : i + 1,
     }));
     // Swap the two rows in display order so the ArrowUp on the row
     // visually moves it up immediately, before the save round-trips.
     [reindexed[idx], reindexed[otherIdx]] = [reindexed[otherIdx], reindexed[idx]];
-    setSpecialists(reindexed);
+    setCoaches(reindexed);
 
     setSavingPriorityId(a.id);
     try {
@@ -149,14 +147,14 @@ export default function AdminSidearmPage() {
     return (
       <div className="space-y-3">
         <AdminPageHeader
-          icon={Users}
-          title="Sidearm"
-          description="Manage sidearm specialists, availability, and priority order."
+          icon={UserCog}
+          title="Personal Coach"
+          description="Manage personal coaches, availability, and priority order."
         />
         <p className="text-sm text-slate-400">
-          Sidearm management is only available for resource-based centers.
+          Personal Coach management is only available for resource-based centers.
           {currentCenter.shortName ?? currentCenter.name} uses the legacy
-          machine/pitch model — sidearm bookings aren&apos;t exposed there.
+          machine/pitch model — coaching bookings aren&apos;t exposed there.
         </p>
       </div>
     );
@@ -165,9 +163,9 @@ export default function AdminSidearmPage() {
   return (
     <div className="space-y-4">
       <AdminPageHeader
-        icon={Users}
-        title="Sidearm"
-        description="Specialists who appear on the Sidearm booking flow. Priority drives auto-assignment when the user doesn't pin a specialist; availability filters which slots they show up for."
+        icon={UserCog}
+        title="Personal Coach"
+        description="Coaches who appear on the Personal Coaching booking flow. Priority drives auto-assignment when the user doesn't pin a coach; availability filters which slots they show up for."
       />
 
       {error && (
@@ -176,9 +174,9 @@ export default function AdminSidearmPage() {
         </div>
       )}
 
-      {specialists.length === 0 ? (
+      {coaches.length === 0 ? (
         <div className="rounded-xl border border-white/[0.08] bg-white/[0.02] p-6 text-center text-sm text-slate-400">
-          No sidearm specialists at this center yet.
+          No personal coaches at this center yet.
           <br />
           Add one via{' '}
           <a
@@ -187,11 +185,11 @@ export default function AdminSidearmPage() {
           >
             Center → Members
           </a>
-          {' '}with role &ldquo;Sidearm Specialist&rdquo;.
+          {' '}with role &ldquo;Coach&rdquo;.
         </div>
       ) : (
         <div className="space-y-3">
-          {specialists.map((s, idx) => (
+          {coaches.map((s, idx) => (
             <SpecialistAvailabilityCard
               key={s.id}
               specialist={s}
@@ -215,7 +213,7 @@ export default function AdminSidearmPage() {
                   <button
                     type="button"
                     onClick={() => move(idx, 'down')}
-                    disabled={idx === specialists.length - 1 || savingPriorityId !== null}
+                    disabled={idx === coaches.length - 1 || savingPriorityId !== null}
                     className="p-1 rounded text-slate-400 bg-white/[0.04] hover:bg-white/[0.08] disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
                     title="Move down in priority"
                   >

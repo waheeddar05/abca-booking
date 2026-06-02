@@ -3,6 +3,7 @@ import { prisma } from '@/lib/prisma';
 import { requireCenterAdmin } from '@/lib/adminAuth';
 import { getAuthenticatedUser } from '@/lib/auth';
 import { resolveCurrentCenter } from '@/lib/centers';
+import { isBallTypeValidForMachineType } from '@/lib/package-admin-labels';
 
 // POST /api/admin/packages/assign - Assign a custom package to a user
 export async function POST(req: NextRequest) {
@@ -47,8 +48,13 @@ export async function POST(req: NextRequest) {
     if (!['DAY', 'EVENING', 'BOTH'].includes(timingType)) {
       return NextResponse.json({ error: 'Invalid timingType' }, { status: 400 });
     }
-    if (ballType && !['MACHINE', 'LEATHER', 'BOTH'].includes(ballType)) {
+    if (ballType && !['MACHINE', 'LEATHER', 'BOTH', 'TENNIS'].includes(ballType)) {
       return NextResponse.json({ error: 'Invalid ballType' }, { status: 400 });
+    }
+    // Leather machines accept Machine/Leather; tennis machines accept
+    // Machine/Tennis. Reject incompatible combinations server-side.
+    if (!isBallTypeValidForMachineType(machineType, ballType)) {
+      return NextResponse.json({ error: 'Ball type is not valid for the selected machine type' }, { status: 400 });
     }
     if (wicketType && !['CEMENT', 'ASTRO', 'NATURAL', 'BOTH'].includes(wicketType)) {
       return NextResponse.json({ error: 'Invalid wicketType' }, { status: 400 });

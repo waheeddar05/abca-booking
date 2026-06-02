@@ -23,6 +23,7 @@ import {
   Trash2,
   ArrowDownAZ,
   ArrowUpAZ,
+  X,
 } from 'lucide-react';
 import { NumberInputDialog } from '@/components/ui/NumberInputDialog';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
@@ -31,7 +32,6 @@ import { ResourcePackagesPage } from '@/components/admin/ResourcePackagesPage';
 import { useCenter } from '@/lib/center-context';
 import {
   PACKAGE_WICKET_OPTIONS,
-  PACKAGE_BALL_OPTIONS,
   PACKAGE_TIMING_OPTIONS,
   PACKAGE_WICKET_LABEL,
   PACKAGE_BALL_LABEL,
@@ -39,6 +39,9 @@ import {
   PACKAGE_TIMING_DAY_LABEL,
   PACKAGE_TIMING_EVENING_LABEL,
   packageCategoryLabel,
+  ballOptionsFromEffective,
+  isBallTypeValidForMachineType,
+  coerceBallTypeFromEffective,
 } from '@/lib/package-admin-labels';
 
 interface PackageData {
@@ -73,6 +76,10 @@ interface CenterMachineRow {
   isActive: boolean;
   legacyMachineId: string | null;
   machineType: { code: string; name: string; ballType: string; imageUrl: string | null };
+  // Ball types this machine actually supports (server-computed). Tennis
+  // machines resolve to ['TENNIS']; leather machines to ['LEATHER','MACHINE'].
+  // Drives the Ball Type dropdown so it mirrors the real machine.
+  effectiveBallTypes?: string[] | null;
 }
 
 // Wicket-upgrade paths (Pitch). Labels reuse the standardized
@@ -155,9 +162,11 @@ function AdminPackagesLegacy() {
   const [csvFilters, setCsvFilters] = useState({
     status: '',
     packageId: '',
-    fromDate: '',
-    toDate: '',
   });
+  // Top-level date range for the Reports tab. Empty = existing default
+  // behaviour (all-time data). Drives both the summary metrics and the
+  // CSV export. Mirrors the Admin Dashboard date filter.
+  const [reportRange, setReportRange] = useState({ from: '', to: '' });
   const [downloadingCsv, setDownloadingCsv] = useState(false);
 
   // Assign tab state
@@ -202,20 +211,24 @@ function AdminPackagesLegacy() {
           if (f.machineId) return f;
           const first = active.find((m) => m.legacyMachineId) || active[0];
           if (!first) return f;
+          const mt = first.machineType.ballType === 'TENNIS' ? 'TENNIS' : 'LEATHER';
           return {
             ...f,
             machineId: first.legacyMachineId || first.id,
-            machineType: first.machineType.ballType === 'TENNIS' ? 'TENNIS' : 'LEATHER',
+            machineType: mt,
+            ballType: coerceBallTypeFromEffective(first.effectiveBallTypes, f.ballType),
           };
         });
         setAssignForm((f) => {
           if (f.machineId) return f;
           const first = active.find((m) => m.legacyMachineId) || active[0];
           if (!first) return f;
+          const mt = first.machineType.ballType === 'TENNIS' ? 'TENNIS' : 'LEATHER';
           return {
             ...f,
             machineId: first.legacyMachineId || first.id,
-            machineType: first.machineType.ballType === 'TENNIS' ? 'TENNIS' : 'LEATHER',
+            machineType: mt,
+            ballType: coerceBallTypeFromEffective(first.effectiveBallTypes, f.ballType),
           };
         });
       })
@@ -271,6 +284,10 @@ function AdminPackagesLegacy() {
     }
     if (!assignForm.totalSessions || assignForm.totalSessions <= 0) { setAssignMessage({ text: 'Sessions must be a positive number', type: 'error' }); return; }
     if (!assignForm.validityDays || assignForm.validityDays <= 0) { setAssignMessage({ text: 'Validity days must be a positive number', type: 'error' }); return; }
+    if (!isBallTypeValidForMachineType(assignForm.machineType, assignForm.ballType)) {
+      setAssignMessage({ text: 'Selected ball type is not valid for this machine type', type: 'error' });
+      return;
+    }
 
     setAssigning(true);
     setAssignMessage({ text: '', type: '' });
@@ -287,11 +304,12 @@ function AdminPackagesLegacy() {
         setAssignSearchResults([]);
         // Reset but keep the first machine as default again.
         const first = centerMachines.find((m) => m.legacyMachineId) || centerMachines[0];
+        const firstMachineType = first?.machineType.ballType === 'TENNIS' ? 'TENNIS' : 'LEATHER';
         setAssignForm({
           name: '',
           machineId: first ? (first.legacyMachineId || first.id) : '',
-          machineType: first?.machineType.ballType === 'TENNIS' ? 'TENNIS' : 'LEATHER',
-          ballType: 'LEATHER',
+          machineType: firstMachineType,
+          ballType: coerceBallTypeFromEffective(first?.effectiveBallTypes, 'LEATHER'),
           wicketType: 'ASTRO',
           timingType: 'DAY',
           totalSessions: 4,
@@ -314,8 +332,10 @@ function AdminPackagesLegacy() {
       const params = new URLSearchParams();
       if (csvFilters.status) params.set('status', csvFilters.status);
       if (csvFilters.packageId) params.set('packageId', csvFilters.packageId);
-      if (csvFilters.fromDate) params.set('fromDate', csvFilters.fromDate);
-      if (csvFilters.toDate) params.set('toDate', csvFilters.toDate);
+      // Respect the top-level Reports date range so the export matches
+      // the on-screen summary.
+      if (reportRange.from) params.set('fromDate', reportRange.from);
+      if (reportRange.to) params.set('toDate', reportRange.to);
       const res = await fetch(`/api/admin/packages/reports/csv?${params.toString()}`);
       if (!res.ok) throw new Error('Failed to download');
       const blob = await res.blob();
@@ -349,7 +369,11 @@ function AdminPackagesLegacy() {
   const fetchReports = async () => {
     setReportsLoading(true);
     try {
-      const res = await fetch('/api/admin/packages/reports');
+      const params = new URLSearchParams();
+      if (reportRange.from) params.set('from', reportRange.from);
+      if (reportRange.to) params.set('to', reportRange.to);
+      const qs = params.toString();
+      const res = await fetch(`/api/admin/packages/reports${qs ? `?${qs}` : ''}`);
       if (res.ok) setReports(await res.json());
     } catch (e) {
       console.error('Failed to fetch reports', e);
@@ -383,13 +407,18 @@ function AdminPackagesLegacy() {
   useEffect(() => {
     if (tab === 'reports') fetchReports();
     if (tab === 'users') fetchUserPackages();
-  }, [tab]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab, reportRange.from, reportRange.to]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setMessage({ text: '', type: '' });
     if (!form.price || isNaN(Number(form.price)) || Number(form.price) <= 0) {
       setMessage({ text: 'Please enter a valid price', type: 'error' });
+      return;
+    }
+    if (!isBallTypeValidForMachineType(form.machineType, form.ballType)) {
+      setMessage({ text: 'Selected ball type is not valid for this machine type', type: 'error' });
       return;
     }
     try {
@@ -445,7 +474,11 @@ function AdminPackagesLegacy() {
       name: pkg.name,
       machineId: storedMachineId,
       machineType: pkg.machineType,
-      ballType: pkg.ballType === 'BOTH' ? 'LEATHER' : pkg.ballType,
+      // BOTH (legacy leather option) collapses to Leather in the editor;
+      // coerce against the machine's supported ball types so a value the
+      // machine no longer offers (e.g. a stale "Machine" on a tennis
+      // machine) snaps to a valid option.
+      ballType: coerceBallTypeFromEffective(findMachineOption(storedMachineId)?.effectiveBallTypes, pkg.ballType === 'BOTH' ? 'LEATHER' : pkg.ballType),
       wicketType: pkg.wicketType || 'ASTRO',
       timingType: pkg.timingType === 'BOTH' ? 'DAY' : pkg.timingType,
       totalSessions: pkg.totalSessions,
@@ -1028,13 +1061,14 @@ function AdminPackagesLegacy() {
                   value={assignForm.machineId}
                   onChange={e => {
                     const m = findMachineOption(e.target.value);
+                    const nextMachineType = m?.machineType.ballType === 'TENNIS' ? 'TENNIS' : 'LEATHER';
                     setAssignForm(prev => ({
                       ...prev,
                       machineId: e.target.value,
-                      machineType: m?.machineType.ballType === 'TENNIS' ? 'TENNIS' : 'LEATHER',
-                      // Tennis machines don't carry a ball-type axis,
-                      // so collapse to MACHINE (any) for the API.
-                      ballType: m?.machineType.ballType === 'TENNIS' ? 'MACHINE' : prev.ballType,
+                      machineType: nextMachineType,
+                      // Auto-clear a ball type the new machine doesn't
+                      // support (e.g. a tennis machine offers Tennis only).
+                      ballType: coerceBallTypeFromEffective(m?.effectiveBallTypes, prev.ballType),
                     }));
                   }}
                   className="w-full bg-white/[0.04] border border-white/[0.1] text-white text-sm rounded-lg px-3 py-2 outline-none focus:border-accent"
@@ -1052,7 +1086,7 @@ function AdminPackagesLegacy() {
                   ))}
                 </select>
               </div>
-              {isLeatherSelectedMachine(assignForm.machineId) && (
+              {(isLeatherSelectedMachine(assignForm.machineId) || isTennisSelectedMachine(assignForm.machineId)) && (
                 <div>
                   <label className="block text-[10px] font-medium text-slate-400 mb-1">Ball Type</label>
                   <select
@@ -1060,18 +1094,10 @@ function AdminPackagesLegacy() {
                     onChange={e => setAssignForm(prev => ({ ...prev, ballType: e.target.value }))}
                     className="w-full bg-white/[0.04] border border-white/[0.1] text-white text-sm rounded-lg px-3 py-2 outline-none focus:border-accent"
                   >
-                    {PACKAGE_BALL_OPTIONS.map(b => (
+                    {ballOptionsFromEffective(findMachineOption(assignForm.machineId)?.effectiveBallTypes).map(b => (
                       <option key={b.value} value={b.value}>{b.label}</option>
                     ))}
                   </select>
-                </div>
-              )}
-              {isTennisSelectedMachine(assignForm.machineId) && (
-                <div>
-                  <label className="block text-[10px] font-medium text-slate-400 mb-1">Ball Type</label>
-                  <div className="w-full bg-white/[0.02] border border-white/[0.08] text-slate-400 text-sm rounded-lg px-3 py-2">
-                    Tennis
-                  </div>
                 </div>
               )}
             </div>
@@ -1152,13 +1178,49 @@ function AdminPackagesLegacy() {
 
       {/* REPORTS TAB */}
       {tab === 'reports' && (
-        reportsLoading ? (
-          <div className="flex items-center justify-center py-16 text-slate-400">
-            <Loader2 className="w-5 h-5 animate-spin mr-2" />
-            <span className="text-sm">Loading reports...</span>
+        <div className="space-y-5">
+          {/* Date Filter — identical design/behaviour to the Admin Dashboard */}
+          <div className="bg-white/[0.03] backdrop-blur-sm rounded-xl border border-white/[0.07] p-4">
+            <div className="flex flex-col sm:flex-row items-end gap-4">
+              <div className="grid grid-cols-2 gap-4 flex-1 w-full max-w-md">
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1.5 ml-1">From Date</label>
+                  <input
+                    type="date"
+                    value={reportRange.from}
+                    onChange={e => setReportRange(prev => ({ ...prev, from: e.target.value }))}
+                    className="w-full bg-slate-900/50 border border-white/[0.1] text-white rounded-lg px-3 py-2 text-sm outline-none focus:border-accent focus:ring-1 focus:ring-accent/20 [color-scheme:dark]"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1.5 ml-1">To Date</label>
+                  <input
+                    type="date"
+                    value={reportRange.to}
+                    onChange={e => setReportRange(prev => ({ ...prev, to: e.target.value }))}
+                    className="w-full bg-slate-900/50 border border-white/[0.1] text-white rounded-lg px-3 py-2 text-sm outline-none focus:border-accent focus:ring-1 focus:ring-accent/20 [color-scheme:dark]"
+                  />
+                </div>
+              </div>
+              {(reportRange.from || reportRange.to) && (
+                <button
+                  onClick={() => setReportRange({ from: '', to: '' })}
+                  className="flex items-center gap-1.5 text-xs font-medium text-slate-400 hover:text-white transition-colors px-3 py-2 bg-white/[0.05] rounded-lg border border-white/[0.05] mb-0.5"
+                >
+                  <X className="w-3.5 h-3.5" />
+                  Reset
+                </button>
+              )}
+            </div>
           </div>
-        ) : reports ? (
-          <div className="space-y-5">
+
+          {reportsLoading ? (
+            <div className="flex items-center justify-center py-16 text-slate-400">
+              <Loader2 className="w-5 h-5 animate-spin mr-2" />
+              <span className="text-sm">Loading reports...</span>
+            </div>
+          ) : reports ? (
+          <>
             {/* Stats Grid */}
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2">
               {[
@@ -1166,7 +1228,7 @@ function AdminPackagesLegacy() {
                 { label: 'Expired Packages', value: reports.expiredPackages },
                 { label: 'Total Sessions Sold', value: reports.totalSessionsSold },
                 { label: 'Sessions Consumed', value: reports.totalSessionsConsumed },
-                { label: 'Extra Charges', value: `₹${reports.extraChargesCollected || 0}` },
+                { label: 'Extra Charges', value: `₹${reports.totalExtraChargesCollected || 0}` },
                 { label: 'Total Revenue', value: `₹${reports.totalRevenue || 0}` },
               ].map(stat => (
                 <div key={stat.label} className="bg-white/[0.03] backdrop-blur-sm rounded-xl border border-white/[0.07] p-3">
@@ -1182,7 +1244,7 @@ function AdminPackagesLegacy() {
                 <Download className="w-3.5 h-3.5 text-accent" />
                 Export Packages Report
               </h3>
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-3">
+              <div className="grid grid-cols-2 gap-2 mb-3">
                 <div>
                   <label className="block text-[10px] font-medium text-slate-400 mb-1">Status</label>
                   <select
@@ -1209,25 +1271,12 @@ function AdminPackagesLegacy() {
                     ))}
                   </select>
                 </div>
-                <div>
-                  <label className="block text-[10px] font-medium text-slate-400 mb-1">From Date</label>
-                  <input
-                    type="date"
-                    value={csvFilters.fromDate}
-                    onChange={e => setCsvFilters(prev => ({ ...prev, fromDate: e.target.value }))}
-                    className="w-full bg-white/[0.04] border border-white/[0.1] text-white text-sm rounded-lg px-3 py-2 outline-none focus:border-accent"
-                  />
-                </div>
-                <div>
-                  <label className="block text-[10px] font-medium text-slate-400 mb-1">To Date</label>
-                  <input
-                    type="date"
-                    value={csvFilters.toDate}
-                    onChange={e => setCsvFilters(prev => ({ ...prev, toDate: e.target.value }))}
-                    className="w-full bg-white/[0.04] border border-white/[0.1] text-white text-sm rounded-lg px-3 py-2 outline-none focus:border-accent"
-                  />
-                </div>
               </div>
+              <p className="text-[10px] text-slate-500 mb-3">
+                {(reportRange.from || reportRange.to)
+                  ? 'Export is limited to the selected date range above.'
+                  : 'Set a date range above to limit the export to a specific period.'}
+              </p>
               <div className="flex items-center gap-2">
                 <button
                   onClick={handleDownloadCsv}
@@ -1237,9 +1286,9 @@ function AdminPackagesLegacy() {
                   {downloadingCsv ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
                   Download CSV
                 </button>
-                {(csvFilters.status || csvFilters.packageId || csvFilters.fromDate || csvFilters.toDate) && (
+                {(csvFilters.status || csvFilters.packageId) && (
                   <button
-                    onClick={() => setCsvFilters({ status: '', packageId: '', fromDate: '', toDate: '' })}
+                    onClick={() => setCsvFilters({ status: '', packageId: '' })}
                     className="text-xs text-slate-400 hover:text-white px-3 py-2 cursor-pointer"
                   >
                     Clear Filters
@@ -1247,10 +1296,11 @@ function AdminPackagesLegacy() {
                 )}
               </div>
             </div>
-          </div>
-        ) : (
-          <p className="text-sm text-slate-400 text-center py-16">No report data</p>
-        )
+          </>
+          ) : (
+            <p className="text-sm text-slate-400 text-center py-16">No report data</p>
+          )}
+        </div>
       )}
 
       <NumberInputDialog
@@ -1310,8 +1360,9 @@ function AdminPackageCard({
   const categoryLabel = packageCategoryLabel(pkg.category);
   // The Ball Type axis only applies to bowling-machine packages — for
   // every other category the user-side card omits it entirely; we
-  // mirror that omission here so the chip rows stay clean.
-  const showBallType = (!pkg.category || pkg.category === 'MACHINE') && pkg.machineType !== 'TENNIS';
+  // mirror that omission here so the chip rows stay clean. Both leather
+  // (Machine/Leather) and tennis (Machine/Tennis) machines carry the axis.
+  const showBallType = !pkg.category || pkg.category === 'MACHINE';
 
   return (
     <div className={`bg-white/[0.04] backdrop-blur-sm rounded-xl border ${editing ? 'border-accent/30' : 'border-white/[0.08]'} hover:border-white/[0.12] transition-colors`}>
@@ -1464,13 +1515,15 @@ function PackageForm({
               value={form.machineId}
               onChange={e => {
                 const selected = findMachineOption(e.target.value);
+                const nextMachineType = selected?.machineType.ballType === 'TENNIS' ? 'TENNIS' : 'LEATHER';
                 setForm({
                   ...form,
                   machineId: e.target.value,
-                  machineType: selected?.machineType.ballType === 'TENNIS' ? 'TENNIS' : 'LEATHER',
-                  // Reset ball type for tennis machines (no ball-type
-                  // axis there — `MACHINE` is the canonical fallback).
-                  ballType: selected?.machineType.ballType === 'TENNIS' ? 'MACHINE' : form.ballType,
+                  machineType: nextMachineType,
+                  // Auto-clear a ball type the new machine doesn't support
+                  // (e.g. switching to a tennis machine that offers Tennis
+                  // only drops the now-invalid "Leather").
+                  ballType: coerceBallTypeFromEffective(selected?.effectiveBallTypes, form.ballType),
                 });
               }}
               className="w-full bg-white/[0.04] border border-white/[0.1] rounded-lg px-3 py-2.5 text-sm text-white outline-none focus:border-accent"
@@ -1485,10 +1538,12 @@ function PackageForm({
               ))}
             </select>
           </div>
-          {/* Ball Type — leather machines (Gravity / Yantra) pick between
-              Leather / Machine balls. Tennis machines (Leverage) always
-              use tennis balls, so they show a fixed "Tennis" value. */}
-          {isLeatherSelectedMachine(form.machineId) && (
+          {/* Ball Type — options mirror the selected machine's actual
+              supported ball types. Leather machines (Gravity / Yantra)
+              offer Leather / Machine; tennis machines (Master 200 /
+              iWinner / Leverage) support tennis only, so they offer just
+              Tennis. Incompatible combinations can't be chosen. */}
+          {(isLeatherSelectedMachine(form.machineId) || isTennisSelectedMachine(form.machineId)) && (
             <div>
               <label className="block text-[11px] font-medium text-slate-400 mb-1">Ball Type</label>
               <select
@@ -1496,18 +1551,10 @@ function PackageForm({
                 onChange={e => setForm({ ...form, ballType: e.target.value })}
                 className="w-full bg-white/[0.04] border border-white/[0.1] rounded-lg px-3 py-2.5 text-sm text-white outline-none focus:border-accent"
               >
-                {PACKAGE_BALL_OPTIONS.map(t => (
+                {ballOptionsFromEffective(findMachineOption(form.machineId)?.effectiveBallTypes).map(t => (
                   <option key={t.value} value={t.value} className="bg-[#1a2a40]">{t.label}</option>
                 ))}
               </select>
-            </div>
-          )}
-          {isTennisSelectedMachine(form.machineId) && (
-            <div>
-              <label className="block text-[11px] font-medium text-slate-400 mb-1">Ball Type</label>
-              <div className="w-full bg-white/[0.02] border border-white/[0.08] rounded-lg px-3 py-2.5 text-sm text-slate-400">
-                Tennis
-              </div>
             </div>
           )}
           {/* Wicket / Pitch Type */}

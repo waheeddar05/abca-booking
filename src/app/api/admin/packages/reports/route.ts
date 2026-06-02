@@ -12,6 +12,8 @@ export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
     const allCenters = searchParams.get('allCenters') === 'true';
+    const fromDate = searchParams.get('from');
+    const toDate = searchParams.get('to');
     const adminUser = await getAuthenticatedUser(req);
     const center = adminUser ? await resolveCurrentCenter(req, adminUser) : null;
     let centerId: string | null = null;
@@ -23,10 +25,33 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: 'allCenters requires super admin' }, { status: 403 });
     }
 
+    // Optional date range — filters UserPackages by activationDate, matching
+    // the CSV export so the on-screen summary and the download agree.
+    // Empty range = existing all-time behaviour.
+    let activationFilter: { gte?: Date; lte?: Date } | undefined;
+    if (fromDate || toDate) {
+      activationFilter = {};
+      if (fromDate) activationFilter.gte = new Date(fromDate);
+      if (toDate) {
+        const end = new Date(toDate);
+        end.setHours(23, 59, 59, 999);
+        activationFilter.lte = end;
+      }
+    }
+
     // UserPackage doesn't carry centerId directly — derive via Package.centerId.
-    const upCenterFilter = centerId ? { package: { centerId } } : {};
-    const pbCenterFilter = centerId
-      ? { userPackage: { package: { centerId } } }
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const upCenterFilter: any = {};
+    if (centerId) upCenterFilter.package = { centerId };
+    if (activationFilter) upCenterFilter.activationDate = activationFilter;
+
+    // PackageBooking scopes through its UserPackage relation.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const upSubFilter: any = {};
+    if (centerId) upSubFilter.package = { centerId };
+    if (activationFilter) upSubFilter.activationDate = activationFilter;
+    const pbCenterFilter = Object.keys(upSubFilter).length
+      ? { userPackage: upSubFilter }
       : {};
 
     const now = new Date();

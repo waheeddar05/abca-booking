@@ -31,6 +31,9 @@ export function AdminMobileNav() {
     // so they can manage their own availability.
     const hasSidearmMembership = currentCenter && sessionUser?.role === 'SIDEARM_SPECIALIST';
     const canAccessSidearmTab = isAdmin || hasSidearmMembership;
+    // Personal Coaches get the same self-service access to /admin/coach.
+    const hasCoachMembership = currentCenter && sessionUser?.role === 'COACH';
+    const canAccessCoachTab = isAdmin || hasCoachMembership;
 
     // Same parity gating as the desktop sidebar: legacy ABCA-only forms
     // hide on RESOURCE_BASED centers until their resource-aware versions
@@ -42,6 +45,9 @@ export function AdminMobileNav() {
         { href: '/admin/users', label: 'Users', icon: Users, hidden: !isAdmin },
         { href: '/admin/operators', label: 'Operators', icon: UserCog, hidden: !isAdmin },
         { href: '/admin/sidearm', label: 'Sidearm', icon: Users, models: ['RESOURCE_BASED'], hidden: !canAccessSidearmTab },
+        // Short "Coach" label keeps the bottom-nav cell tidy on phones;
+        // the page itself is titled "Personal Coach".
+        { href: '/admin/coach', label: 'Coach', icon: UserCog, models: ['RESOURCE_BASED'], hidden: !canAccessCoachTab },
         { href: '/admin/packages', label: 'Packages', icon: Package, hidden: !isAdmin },
         { href: '/admin/offers', label: 'Offers', icon: Tag, hidden: !isAdmin },
         { href: '/admin/configuration', label: 'Settings', icon: SlidersHorizontal, hidden: !isAdmin },

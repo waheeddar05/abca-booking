@@ -8,7 +8,7 @@ import {
   isValidMachineId, getBallTypeForMachine, getMachineCategory, LEATHER_MACHINES, MACHINES,
 } from '@/lib/constants';
 import { dateStringToUTC, formatIST } from '@/lib/time';
-import { notifyBookingConfirmed, notifyOperatorNewBooking } from '@/lib/notifications';
+import { notifyBookingConfirmed, notifyAssignedStaffNewBooking } from '@/lib/notifications';
 import { getPricingConfig, getTimeSlabConfig, calculateNewPricing, getTimeSlab } from '@/lib/pricing';
 import { getCachedPolicies } from '@/lib/policy-cache';
 import { getPolicyValue, isPolicyEnabled } from '@/lib/policy';
@@ -978,36 +978,16 @@ export async function executeSlotBooking(
       console.error('Failed to create booking notification:', notifErr);
     } })();
 
-    // ─── Notify Assigned Operator via WhatsApp + In-App ───────────────
+    // ─── Notify Assigned Staff via WhatsApp + In-App ──────────────────
     // Same fire-and-forget pattern — the operator dashboard subscribes
-    // to bookings independently; the WhatsApp ping is best-effort.
+    // to bookings independently; the WhatsApp ping is best-effort. The
+    // helper derives every assigned staff member (operator / coach /
+    // specialist) and the full booking detail from the created rows, so
+    // ABCA's operator-only bookings still get pinged exactly as before.
     void (async () => { try {
-      const firstSlot = validatedSlots[0];
-      const machineName = firstSlot.machineId ? MACHINES[firstSlot.machineId]?.shortName : (firstBallType === 'TENNIS' ? 'Tennis' : 'Leather');
-      const pitchLabels: Record<string, string> = {
-        ASTRO: 'Astro Turf', CEMENT: 'Cement', NATURAL: 'Natural Turf', TURF: 'Cement Wicket',
-      };
-      const pitchLabel = firstSlot.pitchType ? (pitchLabels[firstSlot.pitchType] || firstSlot.pitchType) : 'N/A';
-      // Span the full booking window from earliest start to latest end so
-      // multi-slot bookings don't get truncated to a single slot.
-      const earliestStart = validatedSlots.reduce(
-        (acc, s) => (s.startTime < acc ? s.startTime : acc),
-        validatedSlots[0].startTime,
-      );
-      const latestEnd = validatedSlots.reduce(
-        (acc, s) => (s.endTime > acc ? s.endTime : acc),
-        validatedSlots[0].endTime,
-      );
-      await notifyOperatorNewBooking(results.map(r => r.id), {
-        customerName: firstSlot.playerName,
-        date: formatIST(firstSlot.date, 'EEE, dd MMM yyyy'),
-        time: `${formatIST(earliestStart, 'hh:mm a')} – ${formatIST(latestEnd, 'hh:mm a')}`,
-        machine: machineName || 'N/A',
-        pitch: pitchLabel,
-        slotCount: validatedSlots.length,
-      });
+      await notifyAssignedStaffNewBooking(results.map(r => r.id));
     } catch (opNotifErr) {
-      console.error('Failed to notify operator about new booking:', opNotifErr);
+      console.error('Failed to notify staff about new booking:', opNotifErr);
     } })();
 
     // ─── Link Online Payment to Bookings (Server-Side) ────────────────

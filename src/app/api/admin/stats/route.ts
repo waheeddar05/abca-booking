@@ -17,10 +17,25 @@ export async function GET(req: NextRequest) {
     const toParam = searchParams.get('to');
     const allCenters = searchParams.get('allCenters') === 'true';
 
-    // Build date filter for queries
-    const dateFilter: Record<string, Date> = {};
-    if (fromParam) dateFilter.gte = dateStringToUTC(fromParam);
-    if (toParam) dateFilter.lte = dateStringToUTC(toParam);
+    // Build date filter for queries.
+    // Parse defensively: an invalid/malformed date param must never reach
+    // Prisma (an `Invalid Date` makes every query throw → 500). We simply
+    // ignore anything we can't parse, and we swap an inverted range so a
+    // valid selection where the user picked the dates out of order still
+    // returns data instead of an empty/erroring result.
+    const parseDateParam = (value: string | null): Date | null => {
+      if (!value) return null;
+      const d = dateStringToUTC(value);
+      return Number.isNaN(d.getTime()) ? null : d;
+    };
+    let fromDate = parseDateParam(fromParam);
+    let toDate = parseDateParam(toParam);
+    if (fromDate && toDate && fromDate.getTime() > toDate.getTime()) {
+      [fromDate, toDate] = [toDate, fromDate];
+    }
+    const dateFilter: { gte?: Date; lte?: Date } = {};
+    if (fromDate) dateFilter.gte = fromDate;
+    if (toDate) dateFilter.lte = toDate;
     const hasDateFilter = Object.keys(dateFilter).length > 0;
 
     // Center scope. The dashboard shows the current center's numbers
@@ -210,34 +225,42 @@ export async function GET(req: NextRequest) {
           return [];
         }
       })(),
-      // Booking Distribution Table Data (Category vs Today vs Upcoming)
-      // Note: "Today" and "Upcoming" are fixed points in time, 
-      // but the issue says "Counts must dynamically update based on selected date range."
-      // This means we should filter by date range AND the definition of Today/Upcoming.
+      // Booking Distribution Table Data (Category vs Today vs Upcoming).
+      // "Today" and "Upcoming" are live operational snapshots that mean exactly
+      // what their column headers say — today's bookings and future bookings.
+      // They are intentionally NOT scoped by the dashboard date-range filter
+      // (the range drives the revenue/aggregate sections). The previous code
+      // spread `{ date: dateFilter }` over the explicit `date` key, silently
+      // overwriting it and making both columns identical whenever any range was
+      // active — which is always, since the UI auto-applies a default range.
       (async () => {
-        const categories = ['MACHINE', 'SIDEARM', 'NET', 'FULL_COURT'];
-        const results = await Promise.all(categories.map(async (cat) => {
-          const todayCount = await prisma.booking.count({
-            where: { 
-              ...centerFilter, 
-              category: cat as any, 
-              date: todayUTC, 
-              status: { not: 'CANCELLED' },
-              ...(hasDateFilter ? { date: dateFilter } : {}),
-            },
-          });
-          const upcomingCount = await prisma.booking.count({
-            where: { 
-              ...centerFilter, 
-              category: cat as any, 
-              date: { gt: todayUTC }, 
-              status: 'BOOKED',
-              ...(hasDateFilter ? { date: dateFilter } : {}),
-            },
-          });
-          return { category: cat, today: todayCount, upcoming: upcomingCount };
-        }));
-        return results;
+        try {
+          const categories = ['MACHINE', 'SIDEARM', 'NET', 'FULL_COURT'];
+          const results = await Promise.all(categories.map(async (cat) => {
+            const [todayCount, upcomingCount] = await Promise.all([
+              prisma.booking.count({
+                where: {
+                  ...centerFilter,
+                  category: cat as any,
+                  date: todayUTC,
+                  status: { not: 'CANCELLED' },
+                },
+              }).catch(() => 0),
+              prisma.booking.count({
+                where: {
+                  ...centerFilter,
+                  category: cat as any,
+                  date: { gt: todayUTC },
+                  status: 'BOOKED',
+                },
+              }).catch(() => 0),
+            ]);
+            return { category: cat, today: todayCount, upcoming: upcomingCount };
+          }));
+          return results;
+        } catch {
+          return [];
+        }
       })(),
       prisma.booking.count({
         where: {
@@ -245,17 +268,17 @@ export async function GET(req: NextRequest) {
           status: { not: 'CANCELLED' },
           ...(hasDateFilter ? { date: dateFilter } : {}),
         },
-      }),
+      }).catch(() => 0),
       // "Active admins" = ADMIN users at this center (or globally for super admin platform view).
-      centerId
+      (centerId
         ? prisma.centerMembership.count({ where: { centerId, role: 'ADMIN', isActive: true } })
-        : prisma.user.count({ where: { role: 'ADMIN' } }),
+        : prisma.user.count({ where: { role: 'ADMIN' } })).catch(() => 0),
       prisma.booking.count({
         where: { ...centerFilter, date: todayUTC, status: { not: 'CANCELLED' } },
-      }),
+      }).catch(() => 0),
       prisma.booking.count({
         where: { ...centerFilter, date: { gt: todayUTC }, status: 'BOOKED' },
-      }),
+      }).catch(() => 0),
       prisma.booking.count({
         where: {
           ...centerFilter,
@@ -265,7 +288,7 @@ export async function GET(req: NextRequest) {
           },
           status: { not: 'CANCELLED' },
         },
-      }),
+      }).catch(() => 0),
       prisma.slot.count({ where: centerFilter }).catch(() => 0),
       // Booking revenue — net of refunds
       (async () => {
