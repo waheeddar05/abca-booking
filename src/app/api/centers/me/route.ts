@@ -37,6 +37,14 @@ export async function GET(req: NextRequest) {
           .filter((m) => m.role === 'OPERATOR' || m.role === 'COACH' || m.role === 'SIDEARM_SPECIALIST')
           .map((m) => m.centerId)
       : [];
+    // Centers where the user is specifically a sidearm specialist — drives
+    // the user-side "Sidearm" tab, which lets them manage their own
+    // availability.
+    const sidearmCenterIds = user
+      ? user.centerMemberships
+          .filter((m) => m.role === 'SIDEARM_SPECIALIST')
+          .map((m) => m.centerId)
+      : [];
 
     return NextResponse.json({
       user: user
@@ -46,6 +54,7 @@ export async function GET(req: NextRequest) {
             isSuperAdmin: user.isSuperAdmin,
             adminCenterIds,
             staffCenterIds,
+            sidearmCenterIds,
           }
         : null,
       centers,
