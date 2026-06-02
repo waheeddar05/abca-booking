@@ -175,6 +175,13 @@ interface ClientPricingConfig {
   /** sidearmPricing[pitchType] → rates. */
   sidearmPricing?: Record<string, PerSlabRates>;
   netPricing?: Record<string, PerSlabRates>;
+  /** Per-pitch override for COACHING bookings (pair-shaped). Falls back
+   *  to coachingRate then categoryRates.COACHING. Mirrors the server. */
+  coachingPricing?: Record<string, ClientPerSlabRates>;
+  /** Category-level COACHING rate as a pair-shaped {single, consecutive}. */
+  coachingRate?: ClientPerSlabRates;
+  /** Category-level FULL_COURT rate as a pair-shaped {single, consecutive}. */
+  fullCourtRate?: ClientPerSlabRates;
 }
 
 interface ResourceAvailabilityResponse {
@@ -1041,6 +1048,21 @@ export default function ResourceSlotsPage() {
       const r = pickClientRate(v?.[slab], consecutive);
       if (r != null) return r;
     }
+    if (category === 'COACHING') {
+      // Mirror the server cascade: per-pitch override → pair-shaped
+      // category default (coachingRate) → legacy categoryRates.COACHING.
+      if (pitchType) {
+        const v = cfg.coachingPricing?.[pitchType];
+        const r = pickClientRate(v?.[slab], consecutive);
+        if (r != null) return r;
+      }
+      const r = pickClientRate(cfg.coachingRate?.[slab], consecutive);
+      if (r != null) return r;
+    }
+    if (category === 'FULL_COURT') {
+      const r = pickClientRate(cfg.fullCourtRate?.[slab], consecutive);
+      if (r != null) return r;
+    }
 
     return cfg.categoryRates[category]?.[slab] ?? s.prices[category] ?? 0;
   };
@@ -1459,7 +1481,7 @@ export default function ResourceSlotsPage() {
                 filteredMachines.length === 1
                   ? 'grid-cols-1'
                   : filteredMachines.length === 3
-                    ? 'grid-cols-3'
+                    ? 'grid-cols-2 sm:grid-cols-3'
                     : filteredMachines.length > 4
                       ? 'grid-cols-2 sm:grid-cols-4'
                       : 'grid-cols-2'
