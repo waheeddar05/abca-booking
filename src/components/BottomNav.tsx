@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useSession } from 'next-auth/react';
 import { useState, useEffect } from 'react';
-import { Calendar, ClipboardList, Package, Wallet, Bell, Zap } from 'lucide-react';
+import { Calendar, ClipboardList, Package, Wallet, Bell, Zap, UserCog } from 'lucide-react';
 import { useCenter } from '@/lib/center-context';
 
 const baseTabs = [
@@ -17,10 +17,12 @@ const baseTabs = [
 
 // Sidearm specialists get an extra tab to manage their own availability.
 const sidearmTab = { href: '/sidearm', label: 'Sidearm', icon: Zap };
+// Coaches get the same — a tab to manage their own coaching availability.
+const coachTab = { href: '/coach', label: 'Coach', icon: UserCog };
 
 export default function BottomNav() {
   const { data: session, status } = useSession();
-  const { isSidearmSpecialistAtCurrentCenter } = useCenter();
+  const { isSidearmSpecialistAtCurrentCenter, isCoachAtCurrentCenter } = useCenter();
   const pathname = usePathname();
   const [otpUserRole, setOtpUserRole] = useState<string | null>(null);
 
@@ -45,8 +47,13 @@ export default function BottomNav() {
 
   const isActive = (href: string) => pathname === href || pathname.startsWith(href + '/');
 
-  // Append the Sidearm tab only for specialists at the current center.
-  const tabs = isSidearmSpecialistAtCurrentCenter ? [...baseTabs, sidearmTab] : baseTabs;
+  // Append role-specific availability tabs only for staff who hold that
+  // role at the current center. A user who is both gets both tabs.
+  const tabs = [
+    ...baseTabs,
+    ...(isSidearmSpecialistAtCurrentCenter ? [sidearmTab] : []),
+    ...(isCoachAtCurrentCenter ? [coachTab] : []),
+  ];
 
   return (
     <nav className="fixed bottom-0 left-0 right-0 z-50 md:hidden">

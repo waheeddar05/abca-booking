@@ -554,7 +554,7 @@ export default function PackagesPage() {
                             // keeping their Day/Evening preference.
                             setCategoryFilter(isSelected ? null : card.id);
                           }}
-                          className={`flex items-center justify-start gap-1.5 px-2 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer min-w-0 text-left ${
+                          className={`flex items-center justify-start gap-1.5 px-2 py-1.5 min-h-[2.75rem] rounded-lg text-xs font-semibold transition-all cursor-pointer min-w-0 text-left ${
                             isSelected
                               ? 'bg-accent text-primary shadow-sm'
                               : 'bg-white/[0.04] text-slate-400 border border-white/[0.08] hover:border-accent/20'
@@ -565,7 +565,12 @@ export default function PackagesPage() {
                           }`}>
                             <Icon className={`w-3.5 h-3.5 ${isSelected ? 'text-primary' : 'text-accent'}`} />
                           </div>
-                          <span className="truncate">{card.label}</span>
+                          {/* Wrap to a second line instead of truncating so
+                              long names ("Bowling Machine", "Full Indoor
+                              Court") stay fully readable on narrow phones.
+                              `min-h` on the button keeps every tile the same
+                              height whether the label is one line or two. */}
+                          <span className="leading-tight break-words">{card.label}</span>
                         </button>
                       );
                     })}
