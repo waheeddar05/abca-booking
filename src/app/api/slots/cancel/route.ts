@@ -3,7 +3,7 @@ import { prisma } from '@/lib/prisma';
 import { getAuthenticatedUser } from '@/lib/auth';
 import { getISTTime, formatIST } from '@/lib/time';
 import { isBefore } from 'date-fns';
-import { notifyBookingCancelled, notifyOperatorBookingCancelled } from '@/lib/notifications';
+import { notifyBookingCancelled, notifyAssignedStaffBookingCancelled } from '@/lib/notifications';
 import { MACHINES } from '@/lib/constants';
 import {
   adjustSiblingPricesForCancellation,
@@ -173,27 +173,17 @@ export async function POST(req: NextRequest) {
       log.error(ctx, 'Cancellation notification failed', notifErr);
     }
 
-    // ─── Notify Assigned Operator about Cancellation ──────────────────
+    // ─── Notify Assigned Staff about Cancellation ─────────────────────
+    // Covers every assigned staff member (operator / coach / specialist),
+    // not just the machine operator — so coaching and sidearm bookings on
+    // resource-based centers also alert the right person.
     try {
-      if (booking.operatorId) {
-        const dateStr = formatIST(new Date(booking.date), 'EEE, dd MMM yyyy');
-        const timeStr = formatIST(new Date(booking.startTime), 'hh:mm a');
-        const endStr = formatIST(new Date(booking.endTime), 'hh:mm a');
-        const machineName = booking.machineId
-          ? (MACHINES[booking.machineId as keyof typeof MACHINES]?.shortName || booking.machineId)
-          : booking.ballType;
-
-        await notifyOperatorBookingCancelled(bookingId, {
-          customerName: booking.playerName,
-          date: dateStr,
-          time: `${timeStr} – ${endStr}`,
-          machine: machineName,
-          cancelledBy: cancelledByName,
-          reason: cancellationReason || undefined,
-        });
-      }
+      await notifyAssignedStaffBookingCancelled(bookingId, {
+        cancelledBy: cancelledByName,
+        reason: cancellationReason || undefined,
+      });
     } catch (opNotifErr) {
-      log.error(ctx, 'Failed to notify operator about cancellation', opNotifErr);
+      log.error(ctx, 'Failed to notify staff about cancellation', opNotifErr);
     }
 
     log.info({ ...ctx, extra: { ...ctx.extra, refundMethod: refundResult?.method ?? 'NONE', refundAmount: refundResult?.amount ?? 0 } }, 'Cancellation complete');

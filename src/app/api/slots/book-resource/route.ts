@@ -10,6 +10,7 @@ import {
   BookingResourceError,
   type BookingPlan,
 } from '@/lib/resource-booking';
+import { notifyAssignedStaffNewBooking } from '@/lib/notifications';
 import { getResourceSlotPrice } from '@/lib/resource-pricing';
 import { getAllApplicablePromoDiscounts } from '@/lib/promotionalOffers';
 import {
@@ -265,6 +266,14 @@ export async function executeResourceBooking(
   try {
     const created = await executeResourceBookingCore(user, body, center, { onlinePaymentId });
     log.info({ ...ctx, bookingIds: created.map(b => b.id) }, `Booking success — ${created.length} row(s) created`);
+
+    // ─── Notify assigned staff (operator / coach / specialist) ────────
+    // Fire-and-forget: every assigned staff member for this booking gets
+    // a WhatsApp + in-app ping. Mirrors the legacy MACHINE_PITCH flow but
+    // covers the coach + sidearm-specialist assignments unique to the
+    // resource engine. Never blocks or fails the booking.
+    void notifyAssignedStaffNewBooking(created.map(b => b.id));
+
     return created;
   } catch (error) {
     log.error(ctx, 'Booking failed', error);

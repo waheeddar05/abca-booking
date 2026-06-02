@@ -6,7 +6,7 @@ import { getAuthenticatedUser } from '@/lib/auth';
 import { resolveCurrentCenter } from '@/lib/centers';
 import { getISTTodayUTC, getISTLastMonthRange, dateStringToUTC, formatIST } from '@/lib/time';
 import { MACHINES } from '@/lib/constants';
-import { notifyBookingCancelled, notifyOperatorBookingCancelled } from '@/lib/notifications';
+import { notifyBookingCancelled, notifyAssignedStaffBookingCancelled, notifyAssignedStaffNewBooking } from '@/lib/notifications';
 import { autoAssignOperator } from '@/lib/operatorAssign';
 import {
   adjustSiblingPricesForCancellation,
@@ -588,24 +588,14 @@ export async function PATCH(req: NextRequest) {
         log.error(adminCtx, 'Failed to create cancellation notification', notifErr);
       }
 
-      // Notify assigned operator about cancellation
+      // Notify every assigned staff member (operator / coach / specialist)
       try {
-        if (booking.operatorId) {
-          const dateStr = formatIST(new Date(booking.date), 'EEE, dd MMM yyyy');
-          const timeStr = formatIST(new Date(booking.startTime), 'hh:mm a');
-          const endStr = formatIST(new Date(booking.endTime), 'hh:mm a');
-          const machineName = booking.machineId ? (MACHINES[booking.machineId as keyof typeof MACHINES]?.shortName || booking.machineId) : booking.ballType;
-          await notifyOperatorBookingCancelled(bookingId, {
-            customerName: booking.playerName,
-            date: dateStr,
-            time: `${timeStr} – ${endStr}`,
-            machine: machineName,
-            cancelledBy: adminName,
-            reason: cancellationReason || undefined,
-          });
-        }
+        await notifyAssignedStaffBookingCancelled(bookingId, {
+          cancelledBy: adminName,
+          reason: cancellationReason || undefined,
+        });
       } catch (opNotifErr) {
-        log.error(adminCtx, 'Failed to notify operator about admin cancellation', opNotifErr);
+        log.error(adminCtx, 'Failed to notify staff about admin cancellation', opNotifErr);
       }
 
       log.info({ ...adminCtx, extra: { ...adminCtx.extra, refundInfo: refundInfo ?? null } }, 'Admin cancellation complete');
@@ -759,6 +749,9 @@ export async function POST(req: NextRequest) {
           data: { price: updatedSourcePrice }
         })
       ]);
+
+      // Notify assigned staff about the newly created (consecutive) booking.
+      void notifyAssignedStaffNewBooking([newBooking.id]);
 
       return NextResponse.json(newBooking);
     }
