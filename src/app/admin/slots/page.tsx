@@ -402,7 +402,7 @@ function SlotManagementLegacy() {
       <AdminPageHeader icon={Clock} title="Slot Management" description="Block time slots & manage availability" />
 
       {/* Tabs */}
-      <div className="flex gap-1 mb-5 bg-white/[0.03] p-1 rounded-xl border border-white/[0.06]">
+      <div className="flex gap-1 overflow-x-auto -mx-1 px-1 pb-2 mb-4 border-b border-white/[0.06] no-scrollbar">
         {([
           { id: 'block' as TabId, label: 'Block Slots', icon: ShieldBan },
           { id: 'active' as TabId, label: 'Active Blocks', icon: Ban, count: blockedSlots.length },
@@ -410,12 +410,12 @@ function SlotManagementLegacy() {
           <button
             key={tab.id}
             onClick={() => setActiveTab(tab.id)}
-            className={`flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold transition-all cursor-pointer ${activeTab === tab.id
-                ? 'bg-white/[0.08] text-white shadow-sm'
-                : 'text-slate-400 hover:text-slate-300'
+            className={`flex items-center gap-1.5 px-3 py-2 rounded-t-lg text-xs font-medium whitespace-nowrap transition-colors cursor-pointer ${activeTab === tab.id
+                ? 'bg-accent/10 text-accent border-b-2 border-accent'
+                : 'text-slate-400 hover:text-slate-200 hover:bg-white/[0.04]'
               }`}
           >
-            <tab.icon className="w-4 h-4" />
+            <tab.icon className="w-3.5 h-3.5" />
             {tab.label}
             {tab.count !== undefined && tab.count > 0 && (
               <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-bold ${activeTab === tab.id ? 'bg-red-500/20 text-red-400' : 'bg-white/[0.06] text-slate-500'
