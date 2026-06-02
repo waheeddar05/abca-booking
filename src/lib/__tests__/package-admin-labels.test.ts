@@ -3,6 +3,8 @@ import {
   ballOptionsForMachineType,
   isBallTypeValidForMachineType,
   coerceBallTypeForMachineType,
+  ballOptionsFromEffective,
+  coerceBallTypeFromEffective,
   PACKAGE_BALL_OPTIONS,
   PACKAGE_BALL_TENNIS_OPTIONS,
 } from '@/lib/package-admin-labels';
@@ -70,5 +72,46 @@ describe('coerceBallTypeForMachineType', () => {
   it('falls back to the category default when current is empty', () => {
     expect(coerceBallTypeForMachineType('LEATHER', null)).toBe('LEATHER');
     expect(coerceBallTypeForMachineType('TENNIS', '')).toBe('TENNIS');
+  });
+});
+
+describe('ballOptionsFromEffective', () => {
+  it('returns Tennis only for a tennis machine (effective = [TENNIS])', () => {
+    expect(ballOptionsFromEffective(['TENNIS'])).toEqual([{ value: 'TENNIS', label: 'Tennis' }]);
+  });
+
+  it('returns Leather / Machine for a leather machine', () => {
+    expect(ballOptionsFromEffective(['LEATHER', 'MACHINE'])).toEqual([
+      { value: 'LEATHER', label: 'Leather' },
+      { value: 'MACHINE', label: 'Machine' },
+    ]);
+  });
+
+  it('honours an admin restriction to a single type', () => {
+    expect(ballOptionsFromEffective(['MACHINE'])).toEqual([{ value: 'MACHINE', label: 'Machine' }]);
+  });
+
+  it('falls back to Leather / Machine when the list is empty or missing', () => {
+    expect(ballOptionsFromEffective([]).map(o => o.value)).toEqual(['LEATHER', 'MACHINE']);
+    expect(ballOptionsFromEffective(null).map(o => o.value)).toEqual(['LEATHER', 'MACHINE']);
+    expect(ballOptionsFromEffective(undefined).map(o => o.value)).toEqual(['LEATHER', 'MACHINE']);
+  });
+});
+
+describe('coerceBallTypeFromEffective', () => {
+  it('keeps a value the machine still supports', () => {
+    expect(coerceBallTypeFromEffective(['LEATHER', 'MACHINE'], 'MACHINE')).toBe('MACHINE');
+    expect(coerceBallTypeFromEffective(['TENNIS'], 'TENNIS')).toBe('TENNIS');
+  });
+
+  it('snaps to the first supported type when the current is unsupported', () => {
+    // Was on a leather machine (Machine), pinned a tennis machine → Tennis.
+    expect(coerceBallTypeFromEffective(['TENNIS'], 'MACHINE')).toBe('TENNIS');
+    // Was on a tennis machine (Tennis), pinned a leather machine → Leather.
+    expect(coerceBallTypeFromEffective(['LEATHER', 'MACHINE'], 'TENNIS')).toBe('LEATHER');
+  });
+
+  it('defaults sensibly when nothing is pinned', () => {
+    expect(coerceBallTypeFromEffective(null, null)).toBe('LEATHER');
   });
 });
