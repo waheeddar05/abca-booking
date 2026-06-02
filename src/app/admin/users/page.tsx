@@ -574,15 +574,18 @@ export default function AdminUsers() {
                     <p className="text-xs text-slate-400 truncate">{user.email}</p>
                   </div>
 
-                  <div className="text-right flex-shrink-0 mr-1">
-                    <div className={`text-sm font-bold ${user.walletBalance > 0 ? 'text-emerald-400' : 'text-slate-500'}`}>
-                      {formatCurrency(user.walletBalance)}
+                  <div className="flex items-center gap-1.5 flex-shrink-0 mr-1">
+                    <span
+                      title={`Wallet balance: ${formatCurrency(user.walletBalance)}`}
+                      className={`inline-flex items-center gap-1 px-1.5 py-1 rounded-lg whitespace-nowrap leading-none ${user.walletBalance > 0 ? 'bg-emerald-500/10 text-emerald-400' : 'bg-white/[0.04] text-slate-500'}`}
+                    >
+                      <Wallet className="w-3 h-3 flex-shrink-0" />
+                      <span className="text-xs font-bold tabular-nums">{formatCurrency(user.walletBalance)}</span>
+                    </span>
+                    <div className="text-right">
+                      <div className="text-sm font-bold text-white leading-none tabular-nums">{user._count.bookings}</div>
+                      <div className="text-[10px] text-slate-500 leading-none mt-0.5">bookings</div>
                     </div>
-                    <div className="text-[10px] text-slate-500">wallet</div>
-                  </div>
-                  <div className="text-right flex-shrink-0 mr-1">
-                    <div className="text-sm font-bold text-white">{user._count.bookings}</div>
-                    <div className="text-[10px] text-slate-500">bookings</div>
                   </div>
 
                   {isExpanded ? (

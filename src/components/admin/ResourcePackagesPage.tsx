@@ -31,6 +31,7 @@ import {
   Download,
   ArrowDownAZ,
   ArrowUpAZ,
+  X,
 } from 'lucide-react';
 import { useToast } from '@/components/ui/Toast';
 import { AdminPageHeader } from '@/components/admin/AdminPageHeader';
@@ -102,7 +103,7 @@ interface ReportData {
   cancelledPackages?: number;
   totalSessionsSold: number;
   totalSessionsConsumed: number;
-  extraChargesCollected?: number;
+  totalExtraChargesCollected?: number;
   totalRevenue?: number;
 }
 
@@ -159,6 +160,10 @@ export function ResourcePackagesPage() {
   // ─── Reports tab ─────────────────────────────────────────────────
   const [reports, setReports] = useState<ReportData | null>(null);
   const [reportsLoading, setReportsLoading] = useState(false);
+  // Top-level date range for the Reports tab. Empty = existing default
+  // behaviour (all-time data). Drives both the summary metrics and the
+  // CSV export. Mirrors the Admin Dashboard date filter.
+  const [reportRange, setReportRange] = useState({ from: '', to: '' });
   // CSV export — shared backend with ABCA's admin packages page. The
   // route is center-scoped via `resolveCurrentCenter`, so simply
   // calling it from a RESOURCE_BASED context downloads that center's
@@ -167,7 +172,11 @@ export function ResourcePackagesPage() {
   const downloadCsv = async () => {
     setDownloadingCsv(true);
     try {
-      const res = await fetch('/api/admin/packages/reports/csv');
+      const params = new URLSearchParams();
+      if (reportRange.from) params.set('fromDate', reportRange.from);
+      if (reportRange.to) params.set('toDate', reportRange.to);
+      const qs = params.toString();
+      const res = await fetch(`/api/admin/packages/reports/csv${qs ? `?${qs}` : ''}`);
       if (!res.ok) throw new Error('Failed to download');
       const blob = await res.blob();
       const url = window.URL.createObjectURL(blob);
@@ -189,13 +198,17 @@ export function ResourcePackagesPage() {
     if (tab !== 'reports') return;
     let cancelled = false;
     setReportsLoading(true);
-    fetch('/api/admin/packages/reports')
+    const params = new URLSearchParams();
+    if (reportRange.from) params.set('from', reportRange.from);
+    if (reportRange.to) params.set('to', reportRange.to);
+    const qs = params.toString();
+    fetch(`/api/admin/packages/reports${qs ? `?${qs}` : ''}`)
       .then((r) => (r.ok ? r.json() : null))
       .then((data) => { if (!cancelled) setReports(data); })
       .catch(() => { if (!cancelled) setReports(null); })
       .finally(() => { if (!cancelled) setReportsLoading(false); });
     return () => { cancelled = true; };
-  }, [tab]);
+  }, [tab, reportRange.from, reportRange.to]);
 
   // ─── Assign tab ──────────────────────────────────────────────────
   const [machines, setMachines] = useState<MachineLite[]>([]);
@@ -595,12 +608,48 @@ export function ResourcePackagesPage() {
       )}
 
       {tab === 'reports' && (
-        reportsLoading ? (
-          <div className="flex items-center justify-center py-16 text-slate-400 text-sm gap-2">
-            <Loader2 className="w-5 h-5 animate-spin" /> Loading reports…
+        <div className="space-y-4">
+          {/* Date Filter — identical design/behaviour to the Admin Dashboard */}
+          <div className="bg-white/[0.03] backdrop-blur-sm rounded-xl border border-white/[0.07] p-4">
+            <div className="flex flex-col sm:flex-row items-end gap-4">
+              <div className="grid grid-cols-2 gap-4 flex-1 w-full max-w-md">
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1.5 ml-1">From Date</label>
+                  <input
+                    type="date"
+                    value={reportRange.from}
+                    onChange={e => setReportRange(prev => ({ ...prev, from: e.target.value }))}
+                    className="w-full bg-slate-900/50 border border-white/[0.1] text-white rounded-lg px-3 py-2 text-sm outline-none focus:border-accent focus:ring-1 focus:ring-accent/20 [color-scheme:dark]"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1.5 ml-1">To Date</label>
+                  <input
+                    type="date"
+                    value={reportRange.to}
+                    onChange={e => setReportRange(prev => ({ ...prev, to: e.target.value }))}
+                    className="w-full bg-slate-900/50 border border-white/[0.1] text-white rounded-lg px-3 py-2 text-sm outline-none focus:border-accent focus:ring-1 focus:ring-accent/20 [color-scheme:dark]"
+                  />
+                </div>
+              </div>
+              {(reportRange.from || reportRange.to) && (
+                <button
+                  onClick={() => setReportRange({ from: '', to: '' })}
+                  className="flex items-center gap-1.5 text-xs font-medium text-slate-400 hover:text-white transition-colors px-3 py-2 bg-white/[0.05] rounded-lg border border-white/[0.05] mb-0.5"
+                >
+                  <X className="w-3.5 h-3.5" />
+                  Reset
+                </button>
+              )}
+            </div>
           </div>
-        ) : reports ? (
-          <div className="space-y-4">
+
+          {reportsLoading ? (
+            <div className="flex items-center justify-center py-16 text-slate-400 text-sm gap-2">
+              <Loader2 className="w-5 h-5 animate-spin" /> Loading reports…
+            </div>
+          ) : reports ? (
+          <>
             <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2">
               {[
                 { label: 'Active packages',     value: reports.activePackages },
@@ -608,7 +657,7 @@ export function ResourcePackagesPage() {
                 { label: 'Cancelled packages',  value: reports.cancelledPackages ?? 0 },
                 { label: 'Sessions sold',       value: reports.totalSessionsSold },
                 { label: 'Sessions consumed',   value: reports.totalSessionsConsumed },
-                { label: 'Extra charges',       value: `₹${reports.extraChargesCollected ?? 0}` },
+                { label: 'Extra charges',       value: `₹${reports.totalExtraChargesCollected ?? 0}` },
                 { label: 'Total revenue',       value: `₹${reports.totalRevenue ?? 0}` },
               ].map((stat) => (
                 <div key={stat.label} className="bg-white/[0.03] border border-white/[0.07] rounded-xl p-3">
@@ -621,12 +670,18 @@ export function ResourcePackagesPage() {
             {/* Download CSV — shared route with the legacy ABCA admin
                 page. The handler is already center-scoped and emits
                 the new Booking Category column + "Not Applicable"
-                ball-type cells for non-machine packages. */}
+                ball-type cells for non-machine packages. Respects the
+                date range selected above. */}
             <div className="bg-white/[0.03] border border-white/[0.07] rounded-xl p-3">
               <h3 className="text-xs font-bold text-white mb-3 flex items-center gap-2">
                 <Download className="w-3.5 h-3.5 text-accent" />
                 Export Packages Report
               </h3>
+              <p className="text-[10px] text-slate-500 mb-3">
+                {(reportRange.from || reportRange.to)
+                  ? 'Export is limited to the selected date range above.'
+                  : 'Set a date range above to limit the export to a specific period.'}
+              </p>
               <button
                 onClick={downloadCsv}
                 disabled={downloadingCsv}
@@ -636,10 +691,11 @@ export function ResourcePackagesPage() {
                 Download CSV
               </button>
             </div>
-          </div>
-        ) : (
-          <p className="text-xs text-slate-500 italic py-16 text-center">No report data available.</p>
-        )
+          </>
+          ) : (
+            <p className="text-xs text-slate-500 italic py-16 text-center">No report data available.</p>
+          )}
+        </div>
       )}
 
       <style jsx>{`

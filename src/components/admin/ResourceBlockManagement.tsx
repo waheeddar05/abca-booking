@@ -481,13 +481,13 @@ export function ResourceBlockManagement() {
           <button
             key={tab.id}
             onClick={() => setActiveTab(tab.id)}
-            className={`flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold transition-all cursor-pointer ${
+            className={`flex-1 flex items-center justify-center gap-1.5 sm:gap-2 px-2.5 sm:px-4 py-1.5 sm:py-2.5 rounded-lg sm:rounded-xl text-[10px] sm:text-sm font-semibold transition-all cursor-pointer ${
               activeTab === tab.id
                 ? 'bg-white/[0.08] text-white shadow-sm'
                 : 'text-slate-400 hover:text-slate-300'
             }`}
           >
-            <tab.icon className="w-4 h-4" />
+            <tab.icon className="w-3 h-3 sm:w-4 sm:h-4" />
             {tab.label}
             {tab.count !== undefined && tab.count > 0 && (
               <span
