@@ -38,10 +38,65 @@ export const PACKAGE_BALL_OPTIONS = [
   { value: 'MACHINE', label: 'Machine' },
 ] as const;
 
+// Tennis machines (Master 200 / iWinner / Leverage) have a Machine /
+// Tennis ball-type axis — the mirror of the leather machines' Machine /
+// Leather axis. "Leather" is never a valid choice for a tennis machine.
+export const PACKAGE_BALL_TENNIS_OPTIONS = [
+  { value: 'MACHINE', label: 'Machine' },
+  { value: 'TENNIS', label: 'Tennis' },
+] as const;
+
 export const PACKAGE_BALL_LABEL: Record<string, string> = {
   LEATHER: 'Leather',
   MACHINE: 'Machine',
+  TENNIS: 'Tennis',
 };
+
+/**
+ * Ball-type dropdown options valid for a machine's category.
+ *   - Leather machines (Gravity / Yantra) → Machine / Leather.
+ *   - Tennis machines (Master 200 / iWinner / Leverage) → Machine / Tennis.
+ * `machineBallType` is the MachineType.ballType ('LEATHER' | 'TENNIS' | …)
+ * — which also equals the Package.machineType axis.
+ */
+export function ballOptionsForMachineType(machineBallType: string | null | undefined) {
+  return machineBallType === 'TENNIS' ? PACKAGE_BALL_TENNIS_OPTIONS : PACKAGE_BALL_OPTIONS;
+}
+
+/**
+ * Single source of truth for machine-type ↔ ball-type compatibility.
+ * Shared by the admin UI (gating + client validation) and the API
+ * routes (server-side enforcement). A null/empty ballType is allowed —
+ * the column is optional on the Package row.
+ *   - LEATHER machine → MACHINE | LEATHER | BOTH (BOTH kept for legacy rows).
+ *   - TENNIS  machine → MACHINE | TENNIS.
+ */
+export function isBallTypeValidForMachineType(
+  machineType: string | null | undefined,
+  ballType: string | null | undefined,
+): boolean {
+  if (!ballType) return true;
+  if (machineType === 'TENNIS') {
+    return ballType === 'MACHINE' || ballType === 'TENNIS';
+  }
+  return ballType === 'MACHINE' || ballType === 'LEATHER' || ballType === 'BOTH';
+}
+
+/**
+ * Pick a valid ball type for a machine category, preserving the current
+ * value when it's still valid and otherwise falling back to the natural
+ * default (Leather for leather machines, Tennis for tennis machines).
+ * Used to auto-clear an incompatible selection when the machine changes.
+ */
+export function coerceBallTypeForMachineType(
+  machineType: string | null | undefined,
+  currentBallType: string | null | undefined,
+): string {
+  if (currentBallType && isBallTypeValidForMachineType(machineType, currentBallType)) {
+    return currentBallType;
+  }
+  return machineType === 'TENNIS' ? 'TENNIS' : 'LEATHER';
+}
 
 // ─── Timing ──────────────────────────────────────────────
 // Plain "Day" / "Evening" everywhere. We drop the time-window

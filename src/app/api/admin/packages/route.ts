@@ -3,6 +3,7 @@ import { prisma } from '@/lib/prisma';
 import { requireCenterAdmin } from '@/lib/adminAuth';
 import { getAuthenticatedUser } from '@/lib/auth';
 import { resolveCurrentCenter } from '@/lib/centers';
+import { isBallTypeValidForMachineType } from '@/lib/package-admin-labels';
 
 // GET /api/admin/packages - List packages at the admin's current center
 export async function GET(req: NextRequest) {
@@ -83,8 +84,13 @@ export async function POST(req: NextRequest) {
     if (!['DAY', 'EVENING', 'BOTH'].includes(timingType)) {
       return NextResponse.json({ error: 'Invalid timingType' }, { status: 400 });
     }
-    if (ballType && !['MACHINE', 'LEATHER', 'BOTH'].includes(ballType)) {
+    if (ballType && !['MACHINE', 'LEATHER', 'BOTH', 'TENNIS'].includes(ballType)) {
       return NextResponse.json({ error: 'Invalid ballType' }, { status: 400 });
+    }
+    // Enforce machine-type ↔ ball-type compatibility: leather machines
+    // accept Machine/Leather, tennis machines accept Machine/Tennis.
+    if (!isBallTypeValidForMachineType(machineType, ballType)) {
+      return NextResponse.json({ error: 'Ball type is not valid for the selected machine type' }, { status: 400 });
     }
     if (wicketType && !['CEMENT', 'ASTRO', 'NATURAL', 'BOTH'].includes(wicketType)) {
       return NextResponse.json({ error: 'Invalid wicketType' }, { status: 400 });
@@ -155,6 +161,19 @@ export async function PUT(req: NextRequest) {
     const existing = await prisma.package.findUnique({ where: { id } });
     if (!existing) {
       return NextResponse.json({ error: 'Package not found' }, { status: 404 });
+    }
+
+    // Validate ball type against the effective (post-update) machine
+    // type. A partial update (e.g. toggling isActive) leaves the
+    // existing values in place; an explicit change is checked here so
+    // an incompatible Machine/Ball combination can never be persisted.
+    if (updateData.ballType !== undefined && !['MACHINE', 'LEATHER', 'BOTH', 'TENNIS'].includes(updateData.ballType)) {
+      return NextResponse.json({ error: 'Invalid ballType' }, { status: 400 });
+    }
+    const effectiveMachineType = updateData.machineType ?? existing.machineType;
+    const effectiveBallType = updateData.ballType ?? existing.ballType;
+    if (!isBallTypeValidForMachineType(effectiveMachineType, effectiveBallType)) {
+      return NextResponse.json({ error: 'Ball type is not valid for the selected machine type' }, { status: 400 });
     }
 
     // Only allow updating specific fields

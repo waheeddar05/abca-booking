@@ -31,7 +31,6 @@ import { ResourcePackagesPage } from '@/components/admin/ResourcePackagesPage';
 import { useCenter } from '@/lib/center-context';
 import {
   PACKAGE_WICKET_OPTIONS,
-  PACKAGE_BALL_OPTIONS,
   PACKAGE_TIMING_OPTIONS,
   PACKAGE_WICKET_LABEL,
   PACKAGE_BALL_LABEL,
@@ -39,6 +38,9 @@ import {
   PACKAGE_TIMING_DAY_LABEL,
   PACKAGE_TIMING_EVENING_LABEL,
   packageCategoryLabel,
+  ballOptionsForMachineType,
+  isBallTypeValidForMachineType,
+  coerceBallTypeForMachineType,
 } from '@/lib/package-admin-labels';
 
 interface PackageData {
@@ -202,20 +204,24 @@ function AdminPackagesLegacy() {
           if (f.machineId) return f;
           const first = active.find((m) => m.legacyMachineId) || active[0];
           if (!first) return f;
+          const mt = first.machineType.ballType === 'TENNIS' ? 'TENNIS' : 'LEATHER';
           return {
             ...f,
             machineId: first.legacyMachineId || first.id,
-            machineType: first.machineType.ballType === 'TENNIS' ? 'TENNIS' : 'LEATHER',
+            machineType: mt,
+            ballType: coerceBallTypeForMachineType(mt, f.ballType),
           };
         });
         setAssignForm((f) => {
           if (f.machineId) return f;
           const first = active.find((m) => m.legacyMachineId) || active[0];
           if (!first) return f;
+          const mt = first.machineType.ballType === 'TENNIS' ? 'TENNIS' : 'LEATHER';
           return {
             ...f,
             machineId: first.legacyMachineId || first.id,
-            machineType: first.machineType.ballType === 'TENNIS' ? 'TENNIS' : 'LEATHER',
+            machineType: mt,
+            ballType: coerceBallTypeForMachineType(mt, f.ballType),
           };
         });
       })
@@ -271,6 +277,10 @@ function AdminPackagesLegacy() {
     }
     if (!assignForm.totalSessions || assignForm.totalSessions <= 0) { setAssignMessage({ text: 'Sessions must be a positive number', type: 'error' }); return; }
     if (!assignForm.validityDays || assignForm.validityDays <= 0) { setAssignMessage({ text: 'Validity days must be a positive number', type: 'error' }); return; }
+    if (!isBallTypeValidForMachineType(assignForm.machineType, assignForm.ballType)) {
+      setAssignMessage({ text: 'Selected ball type is not valid for this machine type', type: 'error' });
+      return;
+    }
 
     setAssigning(true);
     setAssignMessage({ text: '', type: '' });
@@ -287,11 +297,12 @@ function AdminPackagesLegacy() {
         setAssignSearchResults([]);
         // Reset but keep the first machine as default again.
         const first = centerMachines.find((m) => m.legacyMachineId) || centerMachines[0];
+        const firstMachineType = first?.machineType.ballType === 'TENNIS' ? 'TENNIS' : 'LEATHER';
         setAssignForm({
           name: '',
           machineId: first ? (first.legacyMachineId || first.id) : '',
-          machineType: first?.machineType.ballType === 'TENNIS' ? 'TENNIS' : 'LEATHER',
-          ballType: 'LEATHER',
+          machineType: firstMachineType,
+          ballType: coerceBallTypeForMachineType(firstMachineType, 'LEATHER'),
           wicketType: 'ASTRO',
           timingType: 'DAY',
           totalSessions: 4,
@@ -392,6 +403,10 @@ function AdminPackagesLegacy() {
       setMessage({ text: 'Please enter a valid price', type: 'error' });
       return;
     }
+    if (!isBallTypeValidForMachineType(form.machineType, form.ballType)) {
+      setMessage({ text: 'Selected ball type is not valid for this machine type', type: 'error' });
+      return;
+    }
     try {
       const method = editingId ? 'PUT' : 'POST';
       const body = editingId ? { ...form, price: Number(form.price), id: editingId } : { ...form, price: Number(form.price) };
@@ -445,7 +460,10 @@ function AdminPackagesLegacy() {
       name: pkg.name,
       machineId: storedMachineId,
       machineType: pkg.machineType,
-      ballType: pkg.ballType === 'BOTH' ? 'LEATHER' : pkg.ballType,
+      // BOTH (legacy leather option) collapses to Leather in the editor;
+      // coerce guards against any value that's invalid for the machine
+      // category (e.g. a tennis package that predates the Tennis option).
+      ballType: coerceBallTypeForMachineType(pkg.machineType, pkg.ballType === 'BOTH' ? 'LEATHER' : pkg.ballType),
       wicketType: pkg.wicketType || 'ASTRO',
       timingType: pkg.timingType === 'BOTH' ? 'DAY' : pkg.timingType,
       totalSessions: pkg.totalSessions,
@@ -1028,13 +1046,14 @@ function AdminPackagesLegacy() {
                   value={assignForm.machineId}
                   onChange={e => {
                     const m = findMachineOption(e.target.value);
+                    const nextMachineType = m?.machineType.ballType === 'TENNIS' ? 'TENNIS' : 'LEATHER';
                     setAssignForm(prev => ({
                       ...prev,
                       machineId: e.target.value,
-                      machineType: m?.machineType.ballType === 'TENNIS' ? 'TENNIS' : 'LEATHER',
-                      // Tennis machines don't carry a ball-type axis,
-                      // so collapse to MACHINE (any) for the API.
-                      ballType: m?.machineType.ballType === 'TENNIS' ? 'MACHINE' : prev.ballType,
+                      machineType: nextMachineType,
+                      // Auto-clear an incompatible ball type when the
+                      // machine category changes.
+                      ballType: coerceBallTypeForMachineType(nextMachineType, prev.ballType),
                     }));
                   }}
                   className="w-full bg-white/[0.04] border border-white/[0.1] text-white text-sm rounded-lg px-3 py-2 outline-none focus:border-accent"
@@ -1052,7 +1071,7 @@ function AdminPackagesLegacy() {
                   ))}
                 </select>
               </div>
-              {isLeatherSelectedMachine(assignForm.machineId) && (
+              {(isLeatherSelectedMachine(assignForm.machineId) || isTennisSelectedMachine(assignForm.machineId)) && (
                 <div>
                   <label className="block text-[10px] font-medium text-slate-400 mb-1">Ball Type</label>
                   <select
@@ -1060,18 +1079,10 @@ function AdminPackagesLegacy() {
                     onChange={e => setAssignForm(prev => ({ ...prev, ballType: e.target.value }))}
                     className="w-full bg-white/[0.04] border border-white/[0.1] text-white text-sm rounded-lg px-3 py-2 outline-none focus:border-accent"
                   >
-                    {PACKAGE_BALL_OPTIONS.map(b => (
+                    {ballOptionsForMachineType(isTennisSelectedMachine(assignForm.machineId) ? 'TENNIS' : 'LEATHER').map(b => (
                       <option key={b.value} value={b.value}>{b.label}</option>
                     ))}
                   </select>
-                </div>
-              )}
-              {isTennisSelectedMachine(assignForm.machineId) && (
-                <div>
-                  <label className="block text-[10px] font-medium text-slate-400 mb-1">Ball Type</label>
-                  <div className="w-full bg-white/[0.02] border border-white/[0.08] text-slate-400 text-sm rounded-lg px-3 py-2">
-                    Tennis
-                  </div>
                 </div>
               )}
             </div>
@@ -1310,8 +1321,9 @@ function AdminPackageCard({
   const categoryLabel = packageCategoryLabel(pkg.category);
   // The Ball Type axis only applies to bowling-machine packages — for
   // every other category the user-side card omits it entirely; we
-  // mirror that omission here so the chip rows stay clean.
-  const showBallType = (!pkg.category || pkg.category === 'MACHINE') && pkg.machineType !== 'TENNIS';
+  // mirror that omission here so the chip rows stay clean. Both leather
+  // (Machine/Leather) and tennis (Machine/Tennis) machines carry the axis.
+  const showBallType = !pkg.category || pkg.category === 'MACHINE';
 
   return (
     <div className={`bg-white/[0.04] backdrop-blur-sm rounded-xl border ${editing ? 'border-accent/30' : 'border-white/[0.08]'} hover:border-white/[0.12] transition-colors`}>
@@ -1464,13 +1476,15 @@ function PackageForm({
               value={form.machineId}
               onChange={e => {
                 const selected = findMachineOption(e.target.value);
+                const nextMachineType = selected?.machineType.ballType === 'TENNIS' ? 'TENNIS' : 'LEATHER';
                 setForm({
                   ...form,
                   machineId: e.target.value,
-                  machineType: selected?.machineType.ballType === 'TENNIS' ? 'TENNIS' : 'LEATHER',
-                  // Reset ball type for tennis machines (no ball-type
-                  // axis there — `MACHINE` is the canonical fallback).
-                  ballType: selected?.machineType.ballType === 'TENNIS' ? 'MACHINE' : form.ballType,
+                  machineType: nextMachineType,
+                  // Auto-clear an incompatible ball type when the machine
+                  // category changes (e.g. switching a Leather selection
+                  // to a tennis machine drops the now-invalid "Leather").
+                  ballType: coerceBallTypeForMachineType(nextMachineType, form.ballType),
                 });
               }}
               className="w-full bg-white/[0.04] border border-white/[0.1] rounded-lg px-3 py-2.5 text-sm text-white outline-none focus:border-accent"
@@ -1486,9 +1500,11 @@ function PackageForm({
             </select>
           </div>
           {/* Ball Type — leather machines (Gravity / Yantra) pick between
-              Leather / Machine balls. Tennis machines (Leverage) always
-              use tennis balls, so they show a fixed "Tennis" value. */}
-          {isLeatherSelectedMachine(form.machineId) && (
+              Leather / Machine balls. Tennis machines (Master 200 /
+              iWinner / Leverage) pick between Machine / Tennis balls.
+              The option list is driven by the selected machine's
+              category so incompatible combinations can't be chosen. */}
+          {(isLeatherSelectedMachine(form.machineId) || isTennisSelectedMachine(form.machineId)) && (
             <div>
               <label className="block text-[11px] font-medium text-slate-400 mb-1">Ball Type</label>
               <select
@@ -1496,18 +1512,10 @@ function PackageForm({
                 onChange={e => setForm({ ...form, ballType: e.target.value })}
                 className="w-full bg-white/[0.04] border border-white/[0.1] rounded-lg px-3 py-2.5 text-sm text-white outline-none focus:border-accent"
               >
-                {PACKAGE_BALL_OPTIONS.map(t => (
+                {ballOptionsForMachineType(isTennisSelectedMachine(form.machineId) ? 'TENNIS' : 'LEATHER').map(t => (
                   <option key={t.value} value={t.value} className="bg-[#1a2a40]">{t.label}</option>
                 ))}
               </select>
-            </div>
-          )}
-          {isTennisSelectedMachine(form.machineId) && (
-            <div>
-              <label className="block text-[11px] font-medium text-slate-400 mb-1">Ball Type</label>
-              <div className="w-full bg-white/[0.02] border border-white/[0.08] rounded-lg px-3 py-2.5 text-sm text-slate-400">
-                Tennis
-              </div>
             </div>
           )}
           {/* Wicket / Pitch Type */}
