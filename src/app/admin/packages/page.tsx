@@ -1228,7 +1228,7 @@ function AdminPackagesLegacy() {
                 { label: 'Expired Packages', value: reports.expiredPackages },
                 { label: 'Total Sessions Sold', value: reports.totalSessionsSold },
                 { label: 'Sessions Consumed', value: reports.totalSessionsConsumed },
-                { label: 'Extra Charges', value: `₹${reports.extraChargesCollected || 0}` },
+                { label: 'Extra Charges', value: `₹${reports.totalExtraChargesCollected || 0}` },
                 { label: 'Total Revenue', value: `₹${reports.totalRevenue || 0}` },
               ].map(stat => (
                 <div key={stat.label} className="bg-white/[0.03] backdrop-blur-sm rounded-xl border border-white/[0.07] p-3">
