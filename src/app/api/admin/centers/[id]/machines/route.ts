@@ -37,6 +37,35 @@ const MachineCreateSchema = z.object({
 
 type Params = { id: string };
 
+/**
+ * Legacy "virtual" machine-type slugs that an older or cached admin bundle
+ * may still POST (the dropdown used to hard-code these), mapped to the real
+ * catalog `code` they correspond to. The current UI submits a real
+ * MachineType.id instead, but we keep accepting these so a stale PWA cache
+ * can't break the add-machine flow.
+ */
+const LEGACY_TYPE_SLUG_TO_CODE: Record<string, string> = {
+  yantra: 'YANTRA',
+  gravity: 'GRAVITY',
+  leverage: 'LEVERAGE',
+  'leverage-tennis': 'LEVERAGE',
+  'master-200': 'LEVERAGE',
+};
+
+/**
+ * Resolve a machine-type reference to a real MachineType row. Accepts both a
+ * real `MachineType.id` (current UI) and a legacy virtual slug (cached UI),
+ * the latter resolved via its catalog `code`. Returns null if neither hits.
+ */
+async function resolveMachineType(rawId: string) {
+  const byId = await prisma.machineType.findUnique({ where: { id: rawId } });
+  if (byId) return byId;
+  const slug = rawId.trim().toLowerCase();
+  const code = LEGACY_TYPE_SLUG_TO_CODE[slug] ?? slug.toUpperCase().replace(/[^A-Z0-9]+/g, '_');
+  return prisma.machineType.findFirst({ where: { code } });
+}
+
+
 export async function GET(req: NextRequest, ctx: { params: Promise<Params> }) {
   const { id: centerId } = await ctx.params;
   const ctxAuth = await requireCenterAdminForCenter(req, centerId);
@@ -69,20 +98,19 @@ export async function POST(req: NextRequest, ctx: { params: Promise<Params> }) {
     return NextResponse.json({ error: 'Validation failed', issues: parsed.error.issues }, { status: 400 });
   }
 
-  // Verify center & machineType exist; resource (if set) belongs to this center.
-  let finalMachineTypeId = parsed.data.machineTypeId;
+  // Resolve the machine type, tolerating both a real MachineType.id (current
+  // UI) and the legacy virtual slugs a cached bundle may still send.
+  let finalMachineTypeId: string | null = null;
 
   if (parsed.data.customMachineType) {
-    // Check if a machine type with this name already exists
-    let mt = await prisma.machineType.findFirst({
-      where: { name: parsed.data.customMachineType.trim() },
-    });
+    // "Other" — find or create a MachineType by the typed name.
+    const name = parsed.data.customMachineType.trim();
+    let mt = await prisma.machineType.findFirst({ where: { name } });
     if (!mt) {
-      // Create a new MachineType for this custom entry
-      const code = parsed.data.customMachineType.toLowerCase().replace(/\s+/g, '-').slice(0, 30);
+      const code = name.toLowerCase().replace(/\s+/g, '-').slice(0, 30);
       mt = await prisma.machineType.create({
         data: {
-          name: parsed.data.customMachineType.trim(),
+          name,
           code: `${code}-${Date.now().toString(36)}`,
           ballType: 'MACHINE', // Default for custom machines
           isActive: true,
@@ -90,20 +118,10 @@ export async function POST(req: NextRequest, ctx: { params: Promise<Params> }) {
       });
     }
     finalMachineTypeId = mt.id;
-  } else if (parsed.data.machineTypeId?.startsWith('yantra-') || parsed.data.machineTypeId?.startsWith('master-200-')) {
-    // Handle the UI-only virtual IDs for defaults
-    const name = parsed.data.machineTypeId.includes('yantra') ? 'Yantra (Leather Gravity)' : 'Master 200 (Tennis Leverage)';
-    const ballType = parsed.data.machineTypeId.includes('leather') ? 'LEATHER' : 'TENNIS';
-    let mt = await prisma.machineType.findFirst({ where: { name } });
+  } else if (parsed.data.machineTypeId) {
+    const mt = await resolveMachineType(parsed.data.machineTypeId);
     if (!mt) {
-      mt = await prisma.machineType.create({
-        data: {
-          name,
-          code: parsed.data.machineTypeId,
-          ballType,
-          isActive: true,
-        },
-      });
+      return NextResponse.json({ error: 'Machine type not found' }, { status: 404 });
     }
     finalMachineTypeId = mt.id;
   }
@@ -112,15 +130,13 @@ export async function POST(req: NextRequest, ctx: { params: Promise<Params> }) {
     return NextResponse.json({ error: 'Machine type ID or custom name required' }, { status: 400 });
   }
 
-  const [center, mt, resource] = await Promise.all([
+  const [center, resource] = await Promise.all([
     prisma.center.findUnique({ where: { id: centerId } }),
-    prisma.machineType.findUnique({ where: { id: finalMachineTypeId } }),
     parsed.data.resourceId
       ? prisma.resource.findUnique({ where: { id: parsed.data.resourceId } })
       : Promise.resolve(null),
   ]);
   if (!center) return NextResponse.json({ error: 'Center not found' }, { status: 404 });
-  if (!mt) return NextResponse.json({ error: 'Machine type not found' }, { status: 404 });
   if (parsed.data.resourceId && (!resource || resource.centerId !== centerId)) {
     return NextResponse.json({ error: 'Resource does not belong to this center' }, { status: 400 });
   }
