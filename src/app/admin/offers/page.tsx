@@ -62,8 +62,8 @@ const RESOURCE_CATEGORY_OPTIONS = [
 const MACHINE_OPTIONS = [
   { id: 'GRAVITY', label: 'Gravity' },
   { id: 'YANTRA', label: 'Yantra' },
-  { id: 'LEVERAGE_INDOOR', label: 'Leverage Tennis (Indoor)' },
-  { id: 'LEVERAGE_OUTDOOR', label: 'Leverage Tennis (Outdoor)' },
+  { id: 'LEVERAGE_INDOOR', label: 'iWinner (Indoor)' },
+  { id: 'LEVERAGE_OUTDOOR', label: 'iWinner (Outdoor)' },
 ];
 
 const PITCH_TYPES = [

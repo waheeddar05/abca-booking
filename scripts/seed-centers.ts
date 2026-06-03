@@ -30,14 +30,14 @@ const SUPER_ADMIN_EMAIL =
 const MACHINE_TYPES = [
   { id: 'mt_yantra',   code: 'YANTRA',   name: 'Yantra',          ballType: 'LEATHER' as const, imageUrl: '/images/yantra-machine.jpeg' },
   { id: 'mt_gravity',  code: 'GRAVITY',  name: 'Gravity',         ballType: 'LEATHER' as const, imageUrl: '/images/leathermachine.jpeg' },
-  { id: 'mt_leverage', code: 'LEVERAGE', name: 'Leverage Tennis', ballType: 'TENNIS'  as const, imageUrl: '/images/tennismachine.jpeg' },
+  { id: 'mt_leverage', code: 'LEVERAGE', name: 'iWinner', ballType: 'TENNIS'  as const, imageUrl: '/images/tennismachine.jpeg' },
 ];
 
 const ABCA_MACHINES = [
   { id: 'mch_abca_gravity',          legacyMachineId: 'GRAVITY'          as const, machineTypeId: 'mt_gravity',  name: 'Gravity',          shortName: 'Gravity',        displayOrder: 0 },
   { id: 'mch_abca_yantra',           legacyMachineId: 'YANTRA'           as const, machineTypeId: 'mt_yantra',   name: 'Yantra',           shortName: 'Yantra',         displayOrder: 1 },
-  { id: 'mch_abca_leverage_indoor',  legacyMachineId: 'LEVERAGE_INDOOR'  as const, machineTypeId: 'mt_leverage', name: 'Leverage Indoor',  shortName: 'Tennis Indoor',  displayOrder: 2 },
-  { id: 'mch_abca_leverage_outdoor', legacyMachineId: 'LEVERAGE_OUTDOOR' as const, machineTypeId: 'mt_leverage', name: 'Leverage Outdoor', shortName: 'Tennis Outdoor', displayOrder: 3 },
+  { id: 'mch_abca_leverage_indoor',  legacyMachineId: 'LEVERAGE_INDOOR'  as const, machineTypeId: 'mt_leverage', name: 'iWinner (Indoor)',  shortName: 'Tennis Indoor',  displayOrder: 2 },
+  { id: 'mch_abca_leverage_outdoor', legacyMachineId: 'LEVERAGE_OUTDOOR' as const, machineTypeId: 'mt_leverage', name: 'iWinner (Outdoor)', shortName: 'Tennis Outdoor', displayOrder: 3 },
 ];
 
 async function main() {

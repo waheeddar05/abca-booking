@@ -20,8 +20,8 @@ const CATEGORY_LABELS: Record<string, string> = {
 const MACHINE_LABELS: Record<string, string> = {
   GRAVITY: 'Gravity',
   YANTRA: 'Yantra',
-  LEVERAGE_INDOOR: 'Leverage Tennis (Indoor)',
-  LEVERAGE_OUTDOOR: 'Leverage Tennis (Outdoor)',
+  LEVERAGE_INDOOR: 'iWinner (Indoor)',
+  LEVERAGE_OUTDOOR: 'iWinner (Outdoor)',
 };
 
 const PITCH_LABELS: Record<string, string> = {
