@@ -463,7 +463,15 @@ const STAFF_ROLE_LABELS = {
   OPERATOR: 'Machine Operator',
   COACH: 'Personal Coach',
   SIDEARM_SPECIALIST: 'Trainer Specialist',
+  GROUND_STAFF: 'Ground Staff',
 } as const;
+
+// Categories whose on-ground handling falls to the center's ground staff
+// (they have no per-booking operator/coach/specialist that already
+// covers the floor). MACHINE is excluded — its operator is the on-ground
+// contact. Used to decide when to additionally ping the center's
+// GROUND_STAFF member about a booking.
+const GROUND_STAFF_CATEGORIES: BookingCategory[] = ['NET', 'FULL_COURT', 'SIDEARM', 'COACHING'];
 
 /** Human-readable labels for each booking category. */
 const CATEGORY_LABELS: Record<BookingCategory, string> = {
@@ -493,6 +501,7 @@ type StaffNotifyBooking = {
   endTime: Date;
   category: BookingCategory;
   machineId: string | null;
+  centerId: string;
   cancelledBy: string | null;
   cancellationReason: string | null;
   center: { name: string } | null;
@@ -511,6 +520,7 @@ const STAFF_NOTIFY_SELECT = {
   endTime: true,
   category: true,
   machineId: true,
+  centerId: true,
   cancelledBy: true,
   cancellationReason: true,
   center: { select: { name: true } },
@@ -542,6 +552,57 @@ function collectStaffRecipients(bookings: StaffNotifyBooking[]): StaffRecipient[
     add(b.assignedStaff, 'SIDEARM_SPECIALIST');
   }
   return [...byUser.values()];
+}
+
+/**
+ * Resolve the center's primary ground-staff recipient, if one is
+ * configured. Ground staff are a center-level role (not pinned per
+ * booking), so we pick the highest-priority active GROUND_STAFF
+ * membership — the same one the user-facing booking views surface as the
+ * "Call" contact for Cricket Net / Full Court sessions. Returns null when
+ * the center has no ground staff. Never throws — a lookup failure just
+ * means ground staff aren't paged (assigned staff are unaffected).
+ */
+async function loadGroundStaffRecipient(centerId: string): Promise<StaffRecipient | null> {
+  try {
+    const membership = await prisma.centerMembership.findFirst({
+      where: { centerId, role: 'GROUND_STAFF', isActive: true },
+      orderBy: [{ priority: 'asc' }, { createdAt: 'asc' }],
+      select: { user: { select: { id: true, name: true, mobileNumber: true } } },
+    });
+    if (!membership?.user) return null;
+    return {
+      userId: membership.user.id,
+      name: membership.user.name || STAFF_ROLE_LABELS.GROUND_STAFF,
+      mobileNumber: membership.user.mobileNumber || null,
+      roleKey: 'GROUND_STAFF',
+    };
+  } catch (err) {
+    console.error('[Notifications] Failed to load ground staff recipient:', {
+      centerId,
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return null;
+  }
+}
+
+/**
+ * Append the center's ground-staff recipient to an existing recipient
+ * list when at least one booking is a category that ground staff handle
+ * on the floor (Cricket Net / Full Court / Sidearm / Coaching). Deduped
+ * by userId so a ground-staff member who is also the assigned coach /
+ * specialist isn't paged twice.
+ */
+async function withGroundStaff(
+  recipients: StaffRecipient[],
+  bookings: StaffNotifyBooking[],
+): Promise<StaffRecipient[]> {
+  const needsGroundStaff = bookings.some((b) => GROUND_STAFF_CATEGORIES.includes(b.category));
+  if (!needsGroundStaff) return recipients;
+  const ground = await loadGroundStaffRecipient(bookings[0].centerId);
+  if (!ground) return recipients;
+  if (recipients.some((r) => r.userId === ground.userId)) return recipients;
+  return [...recipients, ground];
 }
 
 /** Resolve the facility / resource name(s) for a booking. */
@@ -704,7 +765,10 @@ export async function notifyAssignedStaffNewBooking(bookingIds: string[]): Promi
     })) as StaffNotifyBooking[];
     if (bookings.length === 0) return;
 
-    const recipients = collectStaffRecipients(bookings);
+    // Per-booking assigned staff (operator / coach / specialist) plus the
+    // center's ground staff for floor-handled categories (Net / Full
+    // Court / Sidearm / Coaching).
+    const recipients = await withGroundStaff(collectStaffRecipients(bookings), bookings);
     if (recipients.length === 0) return;
 
     const primary = bookings[0];
@@ -786,7 +850,7 @@ export async function notifyAssignedStaffBookingCancelled(
     })) as StaffNotifyBooking | null;
     if (!booking) return;
 
-    const recipients = collectStaffRecipients([booking]);
+    const recipients = await withGroundStaff(collectStaffRecipients([booking]), [booking]);
     if (recipients.length === 0) return;
 
     const dateStr = formatIST(new Date(booking.date), 'EEE, dd MMM yyyy');
@@ -833,5 +897,194 @@ export async function notifyAssignedStaffBookingCancelled(
     });
   } catch (err) {
     console.error('[Notifications] notifyAssignedStaffBookingCancelled failed:', err);
+  }
+}
+
+// ─── Customer Booking Confirmation (all categories) ─────────────────
+//
+// The legacy MACHINE_PITCH flow (/api/slots/book) calls
+// notifyBookingConfirmed() directly. The resource-based engine
+// (/api/slots/book-resource → executeResourceBooking) only notified the
+// assigned staff — customers booking Sidearm / Coaching / Cricket Net /
+// Full Court / Bowling Machine sessions on RESOURCE_BASED centers got no
+// confirmation at all. This helper closes that gap: it loads the created
+// booking row(s), derives category-appropriate fields, and reuses the
+// approved `booking_detail` WhatsApp template (plus the always-on in-app
+// notification) so every category confirms the same way.
+
+/** Customer-facing label per category (machine name takes over for MACHINE). */
+const CUSTOMER_CATEGORY_LABELS: Record<BookingCategory, string> = {
+  MACHINE: 'Bowling Machine',
+  SIDEARM: 'Sidearm Session',
+  COACHING: 'Personal Coaching',
+  NET: 'Cricket Net',
+  FULL_COURT: 'Full Indoor Court',
+  CORPORATE_BATCH: 'Corporate Batch',
+};
+
+const CUSTOMER_PITCH_LABELS: Record<string, string> = {
+  ASTRO: 'Astro Turf',
+  CEMENT: 'Cement Wicket',
+  NATURAL: 'Natural Turf',
+  TURF: 'Cement Wicket',
+};
+
+type CustomerNotifyBooking = {
+  id: string;
+  userId: string | null;
+  playerName: string;
+  date: Date;
+  startTime: Date;
+  endTime: Date;
+  category: BookingCategory;
+  machineId: string | null;
+  pitchType: string | null;
+  price: number | null;
+  status: string;
+  paymentMethod: string | null;
+  paymentStatus: string | null;
+  kitRental: boolean;
+  kitRentalCharge: number | null;
+  user: { mobileNumber: string | null; mobileVerified: boolean } | null;
+  center: { name: string } | null;
+  operator: { name: string | null; mobileNumber: string | null } | null;
+  assignedCoach: { name: string | null; mobileNumber: string | null } | null;
+  assignedStaff: { name: string | null; mobileNumber: string | null } | null;
+  assignedMachine: { name: string; machineType: { name: string } | null } | null;
+  resourceAssignments: { resource: { name: string } | null }[];
+  packageBooking: { id: string } | null;
+};
+
+const CUSTOMER_NOTIFY_SELECT = {
+  id: true,
+  userId: true,
+  playerName: true,
+  date: true,
+  startTime: true,
+  endTime: true,
+  category: true,
+  machineId: true,
+  pitchType: true,
+  price: true,
+  status: true,
+  paymentMethod: true,
+  paymentStatus: true,
+  kitRental: true,
+  kitRentalCharge: true,
+  user: { select: { mobileNumber: true, mobileVerified: true } },
+  center: { select: { name: true } },
+  operator: { select: { name: true, mobileNumber: true } },
+  assignedCoach: { select: { name: true, mobileNumber: true } },
+  assignedStaff: { select: { name: true, mobileNumber: true } },
+  assignedMachine: { select: { name: true, machineType: { select: { name: true } } } },
+  resourceAssignments: { select: { resource: { select: { name: true } } } },
+  packageBooking: { select: { id: true } },
+} as const;
+
+/**
+ * Confirm a newly created booking to the customer (in-app always, plus
+ * WhatsApp when enabled and the user's mobile is verified). Works for
+ * every booking category. Accepts the booking ids from one submission
+ * (a multi-slot booking produces several rows). Never throws — a
+ * notification failure must not fail the booking.
+ */
+export async function notifyCustomerNewBooking(bookingIds: string[]): Promise<void> {
+  if (bookingIds.length === 0) return;
+  try {
+    const bookings = (await prisma.booking.findMany({
+      where: { id: { in: bookingIds } },
+      select: CUSTOMER_NOTIFY_SELECT,
+    })) as CustomerNotifyBooking[];
+    if (bookings.length === 0) return;
+
+    // Defensive: only confirm live rows. Never send a "confirmed" message
+    // for a booking that was cancelled between creation and this call.
+    const active = bookings.filter((b) => b.status !== 'CANCELLED');
+    if (active.length === 0) return;
+
+    const primary = active[0];
+    if (!primary.userId) return; // walk-in with no account to notify
+
+    const earliestStart = active.reduce(
+      (acc, b) => (b.startTime < acc ? b.startTime : acc),
+      active[0].startTime,
+    );
+    const latestEnd = active.reduce(
+      (acc, b) => (b.endTime > acc ? b.endTime : acc),
+      active[0].endTime,
+    );
+    const slotCount = active.length;
+    const slotSuffix = slotCount > 1 ? ` (${slotCount} slots)` : '';
+
+    const dateStr = formatIST(new Date(primary.date), 'EEE, dd MMM yyyy');
+    const timeStr = `${formatIST(earliestStart, 'hh:mm a')} – ${formatIST(latestEnd, 'hh:mm a')}${slotSuffix}`;
+
+    // Headline ({{3}}): the machine for MACHINE bookings, otherwise the
+    // friendly category label so Sidearm / Coaching / Net / Court all
+    // read naturally.
+    const machineName =
+      primary.assignedMachine?.name ||
+      (primary.machineId
+        ? MACHINES[primary.machineId as keyof typeof MACHINES]?.shortName || primary.machineId
+        : null);
+    const headline =
+      primary.category === 'MACHINE'
+        ? machineName || CUSTOMER_CATEGORY_LABELS.MACHINE
+        : CUSTOMER_CATEGORY_LABELS[primary.category];
+
+    // Facility detail ({{4}}): pitch surface where it applies, else the
+    // assigned resource (net/court) name, else the center name.
+    const pitchLabel = primary.pitchType
+      ? CUSTOMER_PITCH_LABELS[primary.pitchType] || primary.pitchType
+      : null;
+    const resourceName =
+      primary.resourceAssignments.map((a) => a.resource?.name).find((n): n is string => !!n) || null;
+    const facility =
+      primary.category === 'FULL_COURT'
+        ? 'Full Court'
+        : pitchLabel || resourceName || primary.center?.name || '—';
+
+    // On-ground contact ({{6}}/{{7}}): the relevant assigned person for
+    // the category. Net / Full Court have no per-booking person, so the
+    // template falls back to "To be assigned".
+    const contactPerson =
+      primary.category === 'MACHINE'
+        ? primary.operator
+        : primary.category === 'SIDEARM'
+          ? primary.assignedStaff
+          : primary.category === 'COACHING'
+            ? primary.assignedCoach
+            : null;
+
+    // Price total across all slots.
+    const isPackage = !!primary.packageBooking;
+    const total = active.reduce((sum, b) => sum + (b.price ?? 0), 0);
+    let priceStr: string;
+    if (isPackage) priceStr = 'Package session';
+    else if (total <= 0) priceStr = 'FREE';
+    else if (primary.paymentMethod === 'CASH' && primary.paymentStatus === 'PENDING')
+      priceStr = `₹${total} (Pay at center)`;
+    else priceStr = `₹${total}`;
+
+    const kitRental = active.some((b) => b.kitRental);
+    const kitRentalCharge = active.reduce(
+      (sum, b) => sum + (b.kitRental ? b.kitRentalCharge ?? 0 : 0),
+      0,
+    );
+
+    await notifyBookingConfirmed(primary.userId, {
+      date: dateStr,
+      time: timeStr,
+      machine: headline,
+      pitch: facility,
+      price: priceStr,
+      operatorName: contactPerson?.name || undefined,
+      operatorPhone: contactPerson?.mobileNumber || undefined,
+      mobileNumber: primary.user?.mobileVerified ? primary.user.mobileNumber : null,
+      kitRental,
+      kitRentalCharge: kitRental ? kitRentalCharge : null,
+    });
+  } catch (err) {
+    console.error('[Notifications] notifyCustomerNewBooking failed:', err);
   }
 }

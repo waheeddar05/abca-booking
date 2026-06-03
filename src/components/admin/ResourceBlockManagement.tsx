@@ -22,11 +22,11 @@
  *     change any of them without recreating the row.
  */
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { format } from 'date-fns';
 import {
   Ban, Loader2, Plus, Trash2, AlertTriangle, ShieldBan, Calendar,
-  Pencil, X, CheckCircle2, Clock,
+  Pencil, X, CheckCircle2, Clock, ArrowUpDown, Repeat,
 } from 'lucide-react';
 import { useToast } from '@/components/ui/Toast';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
@@ -93,6 +93,11 @@ interface BlockedSlotRow {
   machineIds: string[];
   machineType: string | null;
   pitchType: string | null;
+  // Audit metadata surfaced in the Active Blocks table. `createdAt`
+  // drives the default "most recent first" sort; `blockedByName` is
+  // resolved server-side from the BlockedSlot.blockedBy user id.
+  createdAt?: string | null;
+  blockedByName?: string | null;
 }
 
 
@@ -152,6 +157,12 @@ export function ResourceBlockManagement() {
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+
+  // Active-blocks table sort. Default 'created' / 'desc' so the most
+  // recently created blocks sit at the top (per the admin spec). Date and
+  // Time columns are independently sortable via the column headers.
+  const [sortKey, setSortKey] = useState<'created' | 'date' | 'time'>('created');
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
 
   // Confirmation popup for blocks that overlap existing bookings. The
   // dry-run resolves how many bookings would be cancelled; we hold the
@@ -460,6 +471,79 @@ export function ResourceBlockManagement() {
   const toggleInArray = <T,>(arr: T[], item: T): T[] =>
     arr.includes(item) ? arr.filter((x) => x !== item) : [...arr, item];
 
+  // ─── Active-blocks sorting ──────────────────────────────────────
+  const handleSort = (key: 'date' | 'time') => {
+    if (sortKey === key) {
+      setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
+    } else {
+      setSortKey(key);
+      setSortDir('asc');
+    }
+  };
+
+  // Numeric sort key for a block on the active axis. 'created' uses the
+  // row's createdAt; 'date' the start date; 'time' the start time of day
+  // (full-day blocks sort first within a day).
+  const blockSortValue = (b: BlockedSlotRow): number => {
+    if (sortKey === 'created') return b.createdAt ? new Date(b.createdAt).getTime() : 0;
+    if (sortKey === 'date') return new Date(b.startDate).getTime();
+    if (!b.startTime) return 0;
+    const [h, m] = isoTimeToIstHHMM(b.startTime).split(':').map(Number);
+    return (h || 0) * 60 + (m || 0);
+  };
+
+  const sortedBlocks = useMemo(() => {
+    const arr = [...blocks];
+    arr.sort((a, b) => {
+      const av = blockSortValue(a);
+      const bv = blockSortValue(b);
+      if (av === bv) {
+        // Tiebreaker: newest first, so equal dates/times still lead with
+        // the most recently created block.
+        const at = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+        const bt = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+        return bt - at;
+      }
+      return sortDir === 'asc' ? av - bv : bv - av;
+    });
+    return arr;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [blocks, sortKey, sortDir]);
+
+  // Resolve the display chips/labels for one block — shared by the
+  // desktop table rows and the mobile cards so both read identically.
+  const describeBlock = (b: BlockedSlotRow) => {
+    const sameDay = b.startDate.slice(0, 10) === b.endDate.slice(0, 10);
+    const dateStr = sameDay
+      ? format(new Date(b.startDate), 'EEE, dd MMM yyyy')
+      : `${format(new Date(b.startDate), 'dd MMM')} → ${format(new Date(b.endDate), 'dd MMM yyyy')}`;
+    const isFullDay = !b.startTime || !b.endTime;
+    const timeStr = isFullDay
+      ? 'Full Day'
+      : `${isoTimeToIstHHMM(b.startTime)}–${isoTimeToIstHHMM(b.endTime)}`;
+    const recurringStr =
+      b.recurringDays.length > 0
+        ? [...b.recurringDays].sort((x, y) => x - y).map((d) => DAY_LABELS[d]).join(', ')
+        : null;
+    const machineNames = b.machineRowIds
+      .map((id) => machines.find((m) => m.id === id))
+      .filter(Boolean)
+      .map((m) => m!.shortName ?? m!.name);
+    const resourceNames = b.resourceIds
+      .map((id) => resources.find((r) => r.id === id))
+      .filter(Boolean)
+      .map((r) => r!.name);
+    const hasLegacy = !!(b.machineId || b.machineIds.length > 0 || b.machineType);
+    return { dateStr, isFullDay, timeStr, recurringStr, machineNames, resourceNames, hasLegacy };
+  };
+
+  // Applies-to (audience) badge styling, shared across table + cards.
+  const appliesToBadge = (appliesTo: string) => {
+    if (appliesTo === 'SPECIAL') return { label: 'Special Users', cls: 'bg-purple-500/10 text-purple-400' };
+    if (appliesTo === 'NON_SPECIAL') return { label: 'Non-Special', cls: 'bg-orange-500/10 text-orange-400' };
+    return { label: 'All Users', cls: 'bg-slate-500/10 text-slate-400' };
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center py-16 text-slate-500">
@@ -752,8 +836,8 @@ export function ResourceBlockManagement() {
 
       {/* ═══ Active Blocks tab ═══ */}
       {activeTab === 'active' && (
-        <div className="bg-white/[0.03] border border-white/[0.07] rounded-xl p-2.5 sm:p-3.5">
-          {blocks.length === 0 ? (
+        blocks.length === 0 ? (
+          <div className="bg-white/[0.03] border border-white/[0.07] rounded-xl p-2.5 sm:p-3.5">
             <div className="text-center py-12">
               <div className="w-14 h-14 rounded-full bg-white/[0.04] flex items-center justify-center mx-auto mb-3">
                 <Ban className="w-6 h-6 text-slate-600" />
@@ -761,150 +845,272 @@ export function ResourceBlockManagement() {
               <p className="text-sm text-slate-400 mb-1">No active blocks</p>
               <p className="text-xs text-slate-600">All slots are currently available for booking.</p>
             </div>
-          ) : (
-            <div className="space-y-2.5">
-              {blocks.map((b) => {
-                const dateStr =
-                  b.startDate.slice(0, 10) === b.endDate.slice(0, 10)
-                    ? format(new Date(b.startDate), 'EEE, dd MMM yyyy')
-                    : `${format(new Date(b.startDate), 'dd MMM')} → ${format(new Date(b.endDate), 'dd MMM yyyy')}`;
-                const timeStr =
-                  b.startTime && b.endTime
-                    ? `${isoTimeToIstHHMM(b.startTime)}–${isoTimeToIstHHMM(b.endTime)}`
-                    : 'All day';
+          </div>
+        ) : (
+          <>
+            {/* Sort controls — mirrors the Admin → Bookings page so admins
+                get the same Date / Time sorting affordance everywhere. */}
+            <div className="flex items-center gap-2 mb-2 px-0.5">
+              <span className="text-[11px] font-medium text-slate-400 uppercase tracking-wider">Sort by:</span>
+              <button
+                onClick={() => handleSort('date')}
+                className={`inline-flex items-center gap-1 px-2 py-1 rounded text-xs font-medium cursor-pointer ${
+                  sortKey === 'date' ? 'bg-accent/15 text-accent' : 'text-slate-400 hover:bg-white/[0.06]'
+                }`}
+              >
+                Date
+                {sortKey === 'date' && <ArrowUpDown className="w-3 h-3" />}
+              </button>
+              <button
+                onClick={() => handleSort('time')}
+                className={`inline-flex items-center gap-1 px-2 py-1 rounded text-xs font-medium cursor-pointer ${
+                  sortKey === 'time' ? 'bg-accent/15 text-accent' : 'text-slate-400 hover:bg-white/[0.06]'
+                }`}
+              >
+                Time
+                {sortKey === 'time' && <ArrowUpDown className="w-3 h-3" />}
+              </button>
+              {sortKey !== 'created' && (
+                <button
+                  onClick={() => { setSortKey('created'); setSortDir('desc'); }}
+                  className="text-[11px] text-slate-500 hover:text-slate-300 cursor-pointer"
+                  title="Back to most-recent-first"
+                >
+                  Reset
+                </button>
+              )}
+              <span className="ml-auto text-[11px] text-slate-500">{blocks.length} active</span>
+            </div>
 
-                const machineNames = b.machineRowIds
-                  .map((id) => machines.find((m) => m.id === id))
-                  .filter(Boolean)
-                  .map((m) => m!.shortName ?? m!.name);
-                const resourceNames = b.resourceIds
-                  .map((id) => resources.find((r) => r.id === id))
-                  .filter(Boolean)
-                  .map((r) => r!.name);
-
-                return (
-                  <div
-                    key={b.id}
-                    className="bg-white/[0.02] border border-white/[0.06] rounded-xl p-2.5 sm:p-3 flex items-start gap-2.5 sm:gap-3"
-                  >
-                    {/* Left color bar */}
-                    <div className="w-1 self-stretch rounded-full bg-red-500/40 flex-shrink-0" />
-
-                    <div className="flex-1 min-w-0">
-                      <div className="flex flex-wrap items-center gap-2 mb-1.5">
-                        <span className="text-sm font-semibold text-white flex items-center gap-1.5">
-                          <Calendar className="w-3 h-3 text-accent" /> {dateStr}
-                        </span>
-                        {b.startTime && b.endTime ? (
-                          <span className="text-[10px] font-medium text-slate-400 bg-white/[0.04] px-2 py-0.5 rounded-md">
-                            {timeStr}
-                          </span>
-                        ) : (
-                          <span className="text-[10px] font-semibold text-red-400 bg-red-500/10 px-2 py-0.5 rounded-md">
-                            Full Day
-                          </span>
-                        )}
-                        {b.recurringDays.length > 0 && (
-                          <span className="text-accent/80 text-[10px] px-1.5 py-0.5 rounded-md bg-accent/10">
-                            Every {[...b.recurringDays].sort((a, b) => a - b).map((d) => DAY_LABELS[d]).join(', ')}
-                          </span>
-                        )}
-                        <span
-                          className={`text-[10px] font-medium px-2 py-0.5 rounded-md ${
-                            b.appliesTo === 'SPECIAL'
-                              ? 'bg-purple-500/10 text-purple-400'
-                              : b.appliesTo === 'NON_SPECIAL'
-                              ? 'bg-orange-500/10 text-orange-400'
-                              : 'bg-slate-500/10 text-slate-400'
-                          }`}
-                        >
-                          {b.appliesTo === 'SPECIAL'
-                            ? 'Special Users Only'
-                            : b.appliesTo === 'NON_SPECIAL'
-                            ? 'Non-Special Users Only'
-                            : 'All Users'}
-                        </span>
-                      </div>
-
-                      {(b.categories.length > 0 || machineNames.length > 0 || resourceNames.length > 0 || b.netCount != null || !!b.pitchType) && (
-                        <div className="flex flex-wrap items-center gap-1.5 mt-1">
-                          {/* Pitch chip — the surface this block is scoped
-                              to (Astro / Natural / Cement). Shown as a
-                              first-class chip, not buried in a warning. */}
-                          {b.pitchType && (
-                            <span className="text-[10px] text-amber-300/90 px-2 py-0.5 rounded-md bg-amber-500/10">
-                              {pitchLabel(b.pitchType)}
-                            </span>
+            {/* ── Desktop table ── */}
+            <div className="hidden md:block bg-white/[0.03] backdrop-blur-sm rounded-2xl border border-white/[0.07] overflow-x-auto">
+              <table className="w-full text-left">
+                <thead className="bg-white/[0.02] border-b border-white/[0.06]">
+                  <tr>
+                    <th className="px-4 py-3 text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Booking Category</th>
+                    <th className="px-4 py-3 text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Pitch Type</th>
+                    <th className="px-4 py-3 text-[11px] font-semibold text-slate-400 uppercase tracking-wider min-w-[160px]">Machine / Resource</th>
+                    <th className="px-4 py-3 text-[11px] font-semibold text-slate-400 uppercase tracking-wider">
+                      <button onClick={() => handleSort('date')} className="inline-flex items-center gap-1 uppercase tracking-wider cursor-pointer hover:text-slate-200">
+                        Date {sortKey === 'date' && <ArrowUpDown className="w-3 h-3" />}
+                      </button>
+                    </th>
+                    <th className="px-4 py-3 text-[11px] font-semibold text-slate-400 uppercase tracking-wider">
+                      <button onClick={() => handleSort('time')} className="inline-flex items-center gap-1 uppercase tracking-wider cursor-pointer hover:text-slate-200">
+                        Time Slot {sortKey === 'time' && <ArrowUpDown className="w-3 h-3" />}
+                      </button>
+                    </th>
+                    <th className="px-4 py-3 text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Applies To</th>
+                    <th className="px-4 py-3 text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Blocked By</th>
+                    <th className="px-4 py-3 text-[11px] font-semibold text-slate-400 uppercase tracking-wider text-right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-white/[0.04]">
+                  {sortedBlocks.map((b) => {
+                    const d = describeBlock(b);
+                    const audience = appliesToBadge(b.appliesTo);
+                    return (
+                      <tr key={b.id} className="hover:bg-white/[0.04] even:bg-white/[0.015] transition-colors [&>td]:align-top">
+                        {/* Booking Category */}
+                        <td className="px-4 py-3">
+                          {b.categories.length > 0 ? (
+                            <div className="flex flex-wrap gap-1">
+                              {b.categories.map((c) => (
+                                <span key={c} className="text-[10px] font-medium text-purple-300/90 px-2 py-0.5 rounded-md bg-purple-500/10">
+                                  {CATEGORY_LABELS[c] ?? c}
+                                </span>
+                              ))}
+                            </div>
+                          ) : (
+                            <span className="text-[11px] text-slate-500">All categories</span>
                           )}
-                          {b.categories.map((c) => (
-                            <span
-                              key={c}
-                              className="text-[10px] text-purple-300/80 px-2 py-0.5 rounded-md bg-purple-500/10"
+                          {b.reason && (
+                            <p className="text-[10px] text-slate-500 italic mt-1 max-w-[160px] truncate" title={b.reason}>{b.reason}</p>
+                          )}
+                        </td>
+                        {/* Pitch Type */}
+                        <td className="px-4 py-3">
+                          {b.pitchType ? (
+                            <div className="flex flex-wrap items-center gap-1">
+                              <span className="text-[10px] font-medium text-amber-300/90 px-2 py-0.5 rounded-md bg-amber-500/10">{pitchLabel(b.pitchType)}</span>
+                              {b.netCount != null && (
+                                <span className="text-[10px] text-yellow-300/90 px-2 py-0.5 rounded-md bg-yellow-500/10">
+                                  {b.netCount} {b.netCount === 1 ? 'unit' : 'units'}
+                                </span>
+                              )}
+                            </div>
+                          ) : (
+                            <span className="text-[11px] text-slate-600">—</span>
+                          )}
+                        </td>
+                        {/* Machine / Resource */}
+                        <td className="px-4 py-3">
+                          {(d.machineNames.length > 0 || d.resourceNames.length > 0) ? (
+                            <div className="flex flex-wrap gap-1">
+                              {d.machineNames.map((n) => (
+                                <span key={`m-${n}`} className="text-[10px] text-cyan-300/90 px-2 py-0.5 rounded-md bg-cyan-500/10">{n}</span>
+                              ))}
+                              {d.resourceNames.map((n) => (
+                                <span key={`r-${n}`} className="text-[10px] text-emerald-300/90 px-2 py-0.5 rounded-md bg-emerald-500/10">{n}</span>
+                              ))}
+                            </div>
+                          ) : (
+                            <span className="text-[11px] text-slate-600">—</span>
+                          )}
+                          {d.hasLegacy && (
+                            <p className="text-[10px] text-slate-600 mt-1 flex items-center gap-1" title="Includes legacy ABCA machine targeting — editing re-saves with resource-based axes only.">
+                              <AlertTriangle className="w-3 h-3" /> legacy targeting
+                            </p>
+                          )}
+                        </td>
+                        {/* Date */}
+                        <td className="px-4 py-3">
+                          <span className="text-sm text-white whitespace-nowrap">{d.dateStr}</span>
+                        </td>
+                        {/* Time Slot */}
+                        <td className="px-4 py-3">
+                          <div className="flex flex-col gap-1">
+                            {d.isFullDay ? (
+                              <span className="text-[10px] font-semibold text-red-400 bg-red-500/10 px-2 py-0.5 rounded-md w-fit">Full Day</span>
+                            ) : (
+                              <span className="text-xs text-white whitespace-nowrap">{d.timeStr}</span>
+                            )}
+                            {d.recurringStr && (
+                              <span className="inline-flex items-center gap-1 text-accent/80 text-[10px] px-1.5 py-0.5 rounded-md bg-accent/10 w-fit">
+                                <Repeat className="w-2.5 h-2.5" /> {d.recurringStr}
+                              </span>
+                            )}
+                          </div>
+                        </td>
+                        {/* Applies To */}
+                        <td className="px-4 py-3">
+                          <span className={`text-[10px] font-medium px-2 py-0.5 rounded-md whitespace-nowrap ${audience.cls}`}>{audience.label}</span>
+                        </td>
+                        {/* Blocked By */}
+                        <td className="px-4 py-3">
+                          <div className="text-xs text-slate-300 truncate max-w-[140px]">{b.blockedByName || '—'}</div>
+                          {b.createdAt && (
+                            <div className="text-[10px] text-slate-500 mt-0.5 whitespace-nowrap">{format(new Date(b.createdAt), 'dd MMM, h:mm a')}</div>
+                          )}
+                        </td>
+                        {/* Actions */}
+                        <td className="px-4 py-3 text-right">
+                          <div className="flex items-center gap-1 justify-end">
+                            <button
+                              onClick={() => startEditBlock(b)}
+                              className="p-2 text-slate-500 hover:text-accent hover:bg-accent/10 rounded-lg transition-colors cursor-pointer"
+                              title="Edit block"
                             >
+                              <Pencil className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              onClick={() => setConfirmDeleteId(b.id)}
+                              className="p-2 text-slate-500 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-colors cursor-pointer"
+                              title="Remove block"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+
+            {/* ── Mobile cards ── */}
+            <div className="md:hidden space-y-2.5">
+              {sortedBlocks.map((b) => {
+                const d = describeBlock(b);
+                const audience = appliesToBadge(b.appliesTo);
+                return (
+                  <div key={b.id} className="bg-white/[0.03] border border-white/[0.07] rounded-xl p-3">
+                    {/* Header: category badges + applies-to */}
+                    <div className="flex items-start justify-between gap-2 mb-2">
+                      <div className="flex flex-wrap gap-1 min-w-0">
+                        {b.categories.length > 0 ? (
+                          b.categories.map((c) => (
+                            <span key={c} className="text-[10px] font-medium text-purple-300/90 px-2 py-0.5 rounded-md bg-purple-500/10">
                               {CATEGORY_LABELS[c] ?? c}
                             </span>
-                          ))}
-                          {/* Count-block badge — reserves N units of the
-                              block's pitch pool. Reads as "Astro Turf × 3
-                              units" alongside the pitch chip. */}
-                          {b.netCount != null && (
-                            <span className="text-[10px] text-yellow-300/90 px-2 py-0.5 rounded-md bg-yellow-500/10">
-                              {b.netCount} {b.netCount === 1 ? 'unit' : 'units'}
-                            </span>
-                          )}
-                          {machineNames.map((n) => (
-                            <span
-                              key={`m-${n}`}
-                              className="text-[10px] text-cyan-300/80 px-2 py-0.5 rounded-md bg-cyan-500/10"
-                            >
-                              {n}
-                            </span>
-                          ))}
-                          {resourceNames.map((n) => (
-                            <span
-                              key={`r-${n}`}
-                              className="text-[10px] text-emerald-300/80 px-2 py-0.5 rounded-md bg-emerald-500/10"
-                            >
-                              {n}
-                            </span>
-                          ))}
-                        </div>
-                      )}
+                          ))
+                        ) : (
+                          <span className="text-[10px] text-slate-400 px-2 py-0.5 rounded-md bg-white/[0.05]">All categories</span>
+                        )}
+                      </div>
+                      <span className={`flex-shrink-0 text-[10px] font-medium px-2 py-0.5 rounded-md ${audience.cls}`}>{audience.label}</span>
+                    </div>
 
-                      {b.reason && (
-                        <p className="text-[11px] text-slate-400 italic mt-1.5">{b.reason}</p>
+                    {/* Date + time */}
+                    <div className="flex flex-wrap items-center gap-2 mb-2">
+                      <span className="text-sm font-semibold text-white flex items-center gap-1.5">
+                        <Calendar className="w-3 h-3 text-accent" /> {d.dateStr}
+                      </span>
+                      {d.isFullDay ? (
+                        <span className="text-[10px] font-semibold text-red-400 bg-red-500/10 px-2 py-0.5 rounded-md">Full Day</span>
+                      ) : (
+                        <span className="text-[10px] font-medium text-slate-300 bg-white/[0.04] px-2 py-0.5 rounded-md">{d.timeStr}</span>
                       )}
-                      {(b.machineId || b.machineIds.length > 0 || b.machineType) && (
-                        <p className="text-[10px] text-slate-600 mt-1 flex items-center gap-1">
-                          <AlertTriangle className="w-3 h-3" />
-                          Includes legacy ABCA machine targeting — edit here re-saves with
-                          resource-based axes only.
-                        </p>
+                      {d.recurringStr && (
+                        <span className="inline-flex items-center gap-1 text-accent/80 text-[10px] px-1.5 py-0.5 rounded-md bg-accent/10">
+                          <Repeat className="w-2.5 h-2.5" /> {d.recurringStr}
+                        </span>
                       )}
                     </div>
 
-                    <div className="flex items-center gap-1 flex-shrink-0">
-                      <button
-                        onClick={() => startEditBlock(b)}
-                        className="p-2 text-slate-500 hover:text-accent hover:bg-accent/10 rounded-lg transition-colors cursor-pointer"
-                        title="Edit block"
-                      >
-                        <Pencil className="w-3.5 h-3.5" />
-                      </button>
-                      <button
-                        onClick={() => setConfirmDeleteId(b.id)}
-                        className="p-2 text-slate-500 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-colors cursor-pointer"
-                        title="Remove block"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
+                    {/* Pitch / machine / resource chips */}
+                    {(b.pitchType || d.machineNames.length > 0 || d.resourceNames.length > 0 || b.netCount != null) && (
+                      <div className="flex flex-wrap items-center gap-1 mb-2">
+                        {b.pitchType && (
+                          <span className="text-[10px] text-amber-300/90 px-2 py-0.5 rounded-md bg-amber-500/10">{pitchLabel(b.pitchType)}</span>
+                        )}
+                        {b.netCount != null && (
+                          <span className="text-[10px] text-yellow-300/90 px-2 py-0.5 rounded-md bg-yellow-500/10">{b.netCount} {b.netCount === 1 ? 'unit' : 'units'}</span>
+                        )}
+                        {d.machineNames.map((n) => (
+                          <span key={`m-${n}`} className="text-[10px] text-cyan-300/90 px-2 py-0.5 rounded-md bg-cyan-500/10">{n}</span>
+                        ))}
+                        {d.resourceNames.map((n) => (
+                          <span key={`r-${n}`} className="text-[10px] text-emerald-300/90 px-2 py-0.5 rounded-md bg-emerald-500/10">{n}</span>
+                        ))}
+                      </div>
+                    )}
+
+                    {b.reason && <p className="text-[11px] text-slate-400 italic mb-2">{b.reason}</p>}
+
+                    {/* Footer: blocked-by + actions */}
+                    <div className="flex items-center justify-between gap-2 pt-2 border-t border-white/[0.05]">
+                      <div className="min-w-0">
+                        <span className="text-[10px] text-slate-500">Blocked by </span>
+                        <span className="text-[10px] text-slate-300">{b.blockedByName || '—'}</span>
+                        {b.createdAt && (
+                          <span className="text-[10px] text-slate-600"> · {format(new Date(b.createdAt), 'dd MMM')}</span>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-1 flex-shrink-0">
+                        <button
+                          onClick={() => startEditBlock(b)}
+                          className="p-2 text-slate-500 hover:text-accent hover:bg-accent/10 rounded-lg transition-colors cursor-pointer"
+                          title="Edit block"
+                        >
+                          <Pencil className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          onClick={() => setConfirmDeleteId(b.id)}
+                          className="p-2 text-slate-500 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-colors cursor-pointer"
+                          title="Remove block"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
                     </div>
                   </div>
                 );
               })}
             </div>
-          )}
-        </div>
+          </>
+        )
       )}
 
       {/* ═══ Edit modal ═══ */}

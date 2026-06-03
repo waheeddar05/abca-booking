@@ -7,6 +7,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 const findManyMock = vi.fn();
 const findUniqueMock = vi.fn();
 const createMock = vi.fn();
+const membershipFindFirstMock = vi.fn();
 
 vi.mock('@/lib/prisma', () => ({
   prisma: {
@@ -16,6 +17,9 @@ vi.mock('@/lib/prisma', () => ({
     },
     notification: {
       create: (args: unknown) => createMock(args),
+    },
+    centerMembership: {
+      findFirst: (args: unknown) => membershipFindFirstMock(args),
     },
   },
 }));
@@ -57,6 +61,7 @@ function bookingRow(overrides: Record<string, unknown> = {}) {
     endTime: baseEnd,
     category: 'COACHING',
     machineId: null,
+    centerId: 'ctr_1',
     cancelledBy: null,
     cancellationReason: null,
     center: { name: 'Toplay Indoor' },
@@ -74,6 +79,9 @@ beforeEach(() => {
   getCachedPolicyMock.mockResolvedValue('true'); // WhatsApp enabled
   sendWhatsAppTextMock.mockResolvedValue({ success: true, messageId: 'wamid.1' });
   createMock.mockResolvedValue({ id: 'notif_1' });
+  // Default: no ground staff configured at the center. Tests that
+  // exercise the ground-staff path override this per-case.
+  membershipFindFirstMock.mockResolvedValue(null);
 });
 
 describe('notifyAssignedStaffNewBooking', () => {
@@ -153,6 +161,68 @@ describe('notifyAssignedStaffNewBooking', () => {
 
     await notifyAssignedStaffNewBooking(['bk_1', 'bk_2']);
 
+    expect(sendWhatsAppTextMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('notifies the center ground staff for a Cricket Net booking with no assigned staff', async () => {
+    findManyMock.mockResolvedValue([
+      bookingRow({ category: 'NET', operator: null, assignedCoach: null, assignedStaff: null }),
+    ]);
+    membershipFindFirstMock.mockResolvedValue({
+      user: { id: 'ground_1', name: 'Ground Ravi', mobileNumber: '9876500009' },
+    });
+
+    await notifyAssignedStaffNewBooking(['bk_1']);
+
+    expect(membershipFindFirstMock).toHaveBeenCalledTimes(1);
+    expect(sendWhatsAppTextMock).toHaveBeenCalledTimes(1);
+    expect(sendWhatsAppTextMock.mock.calls[0][0]).toBe('9876500009');
+    expect(createMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('notifies both the specialist and the ground staff for a Sidearm booking', async () => {
+    findManyMock.mockResolvedValue([
+      bookingRow({
+        category: 'SIDEARM',
+        assignedCoach: null,
+        assignedStaff: { id: 'staff_1', name: 'Spec Vik', mobileNumber: '9876500003' },
+      }),
+    ]);
+    membershipFindFirstMock.mockResolvedValue({
+      user: { id: 'ground_1', name: 'Ground Ravi', mobileNumber: '9876500009' },
+    });
+
+    await notifyAssignedStaffNewBooking(['bk_1']);
+
+    const recipients = sendWhatsAppTextMock.mock.calls.map((c) => c[0]).sort();
+    expect(recipients).toEqual(['9876500003', '9876500009']);
+  });
+
+  it('does not double-notify a ground-staff member who is also the assigned coach', async () => {
+    findManyMock.mockResolvedValue([
+      bookingRow({ assignedCoach: { id: 'dual_1', name: 'Dual Dev', mobileNumber: '9876500011' } }),
+    ]);
+    membershipFindFirstMock.mockResolvedValue({
+      user: { id: 'dual_1', name: 'Dual Dev', mobileNumber: '9876500011' },
+    });
+
+    await notifyAssignedStaffNewBooking(['bk_1']);
+
+    expect(sendWhatsAppTextMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not look up ground staff for a Bowling Machine booking', async () => {
+    findManyMock.mockResolvedValue([
+      bookingRow({
+        category: 'MACHINE',
+        operator: { id: 'op_1', name: 'Op Sam', mobileNumber: '9876500002' },
+        assignedCoach: null,
+      }),
+    ]);
+
+    await notifyAssignedStaffNewBooking(['bk_1']);
+
+    expect(membershipFindFirstMock).not.toHaveBeenCalled();
     expect(sendWhatsAppTextMock).toHaveBeenCalledTimes(1);
   });
 

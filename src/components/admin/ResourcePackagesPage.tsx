@@ -36,6 +36,8 @@ import {
 import { useToast } from '@/components/ui/Toast';
 import { AdminPageHeader } from '@/components/admin/AdminPageHeader';
 import { ResourcePackageManagement } from '@/components/admin/ResourcePackageManagement';
+import { NumberInputDialog } from '@/components/ui/NumberInputDialog';
+import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { useCenter } from '@/lib/center-context';
 
 type TabId = 'packages' | 'users' | 'assign' | 'reports';
@@ -121,6 +123,21 @@ export function ResourcePackagesPage() {
   const [userPkgSearch, setUserPkgSearch] = useState('');
   const [userPkgSort, setUserPkgSort] = useState<'NAME_ASC' | 'NAME_DESC'>('NAME_ASC');
 
+  // Per-package management dialogs. `numberDialog` drives the shared
+  // +Days / -Days / +Sessions / -Sessions prompt; `cancelPackageId`
+  // gates the cancel-confirmation popup. Same pattern (and same backend
+  // actions) as the legacy ABCA `/admin/packages` page so both booking
+  // models manage user packages identically.
+  const [numberDialog, setNumberDialog] = useState<{
+    title: string;
+    label: string;
+    placeholder: string;
+    confirmLabel: string;
+    variant?: 'default' | 'danger';
+    onConfirm: (value: number) => void;
+  } | null>(null);
+  const [cancelPackageId, setCancelPackageId] = useState<string | null>(null);
+
   const fetchUserPackages = async () => {
     setUserPkgLoading(true);
     try {
@@ -138,6 +155,34 @@ export function ResourcePackagesPage() {
       toast.error(e instanceof Error ? e.message : 'Failed to load user packages');
     } finally {
       setUserPkgLoading(false);
+    }
+  };
+
+  // Run an admin action against a user package (extend/reduce validity,
+  // add/remove sessions, cancel). Hits the same center-scoped endpoint
+  // the legacy page uses; the API records every change in PackageAuditLog
+  // and credits a pro-rata wallet refund on CANCEL. Balances are
+  // refreshed immediately by refetching the list on success.
+  const handleUserAction = async (
+    userPackageId: string,
+    action: string,
+    params: Record<string, number> = {},
+  ) => {
+    try {
+      const res = await fetch('/api/admin/packages/user-packages', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userPackageId, action, ...params }),
+      });
+      if (res.ok) {
+        toast.success('Package updated');
+        fetchUserPackages();
+      } else {
+        const data = await res.json().catch(() => ({}));
+        toast.error(data.error || 'Action failed');
+      }
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Failed to update package');
     }
   };
 
@@ -398,8 +443,9 @@ export function ResourcePackagesPage() {
               {sortedUserPackages.map((up) => (
                 <div
                   key={up.id}
-                  className="rounded-xl bg-white/[0.03] border border-white/[0.07] p-3 flex flex-wrap items-start justify-between gap-3"
+                  className="rounded-xl bg-white/[0.03] border border-white/[0.07] p-3"
                 >
+                  <div className="flex flex-wrap items-start justify-between gap-3">
                   <div className="min-w-0 flex-1">
                     <div className="text-sm font-semibold text-white truncate">
                       {up.user.name || '(no name)'}
@@ -441,10 +487,82 @@ export function ResourcePackagesPage() {
                     </div>
                   </div>
                   <div className="text-[10px] text-slate-500 text-right shrink-0">
-                    Activated: {new Date(up.activationDate).toLocaleDateString('en-IN')}
+                    Activated: {up.activationDate ? new Date(up.activationDate).toLocaleDateString('en-IN') : '—'}
                     <br />
-                    Expires: {new Date(up.expiryDate).toLocaleDateString('en-IN')}
+                    Expires: {up.expiryDate ? new Date(up.expiryDate).toLocaleDateString('en-IN') : '—'}
                   </div>
+                  </div>
+
+                  {/* Management actions — only for live packages. Same set
+                      and behaviour as the legacy ABCA page: extend / reduce
+                      validity, add / remove sessions, and cancel (which
+                      pro-rata refunds unused sessions to the wallet). The
+                      destructive actions all confirm before running. */}
+                  {up.status === 'ACTIVE' && (
+                    <div className="flex flex-wrap gap-1.5 mt-3 pt-3 border-t border-white/[0.05]">
+                      <button
+                        onClick={() => setNumberDialog({
+                          title: 'Extend Expiry',
+                          label: 'Days to extend',
+                          placeholder: 'e.g. 7',
+                          confirmLabel: 'Extend',
+                          onConfirm: (days) => { setNumberDialog(null); handleUserAction(up.id, 'EXTEND_EXPIRY', { days }); },
+                        })}
+                        className="px-2.5 py-1 text-[10px] font-medium bg-blue-500/15 text-blue-400 rounded-lg hover:bg-blue-500/25 cursor-pointer"
+                        title="Add days to expiry"
+                      >
+                        +Days
+                      </button>
+                      <button
+                        onClick={() => setNumberDialog({
+                          title: 'Reduce Expiry',
+                          label: 'Days to reduce',
+                          placeholder: 'e.g. 3',
+                          confirmLabel: 'Reduce',
+                          variant: 'danger',
+                          onConfirm: (days) => { setNumberDialog(null); handleUserAction(up.id, 'EXTEND_EXPIRY', { days: -days }); },
+                        })}
+                        className="px-2.5 py-1 text-[10px] font-medium bg-orange-500/15 text-orange-400 rounded-lg hover:bg-orange-500/25 cursor-pointer"
+                        title="Reduce days from expiry"
+                      >
+                        -Days
+                      </button>
+                      <button
+                        onClick={() => setNumberDialog({
+                          title: 'Add Sessions',
+                          label: 'Sessions to add',
+                          placeholder: 'e.g. 5',
+                          confirmLabel: 'Add',
+                          onConfirm: (sessions) => { setNumberDialog(null); handleUserAction(up.id, 'ADD_SESSIONS', { sessions }); },
+                        })}
+                        className="px-2.5 py-1 text-[10px] font-medium bg-green-500/15 text-green-400 rounded-lg hover:bg-green-500/25 cursor-pointer"
+                        title="Increase total sessions"
+                      >
+                        +Sessions
+                      </button>
+                      <button
+                        onClick={() => setNumberDialog({
+                          title: 'Reduce Sessions',
+                          label: 'Sessions to reduce',
+                          placeholder: 'e.g. 2',
+                          confirmLabel: 'Reduce',
+                          variant: 'danger',
+                          onConfirm: (sessions) => { setNumberDialog(null); handleUserAction(up.id, 'REDUCE_SESSIONS', { sessions }); },
+                        })}
+                        className="px-2.5 py-1 text-[10px] font-medium bg-yellow-500/15 text-yellow-400 rounded-lg hover:bg-yellow-500/25 cursor-pointer"
+                        title="Decrease total sessions (never below used)"
+                      >
+                        -Sessions
+                      </button>
+                      <button
+                        onClick={() => setCancelPackageId(up.id)}
+                        className="px-2.5 py-1 text-[10px] font-medium bg-red-500/15 text-red-400 rounded-lg hover:bg-red-500/25 cursor-pointer"
+                        title="Cancel package & refund unused sessions"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  )}
                 </div>
               ))}
             </div>
@@ -697,6 +815,29 @@ export function ResourcePackagesPage() {
           )}
         </div>
       )}
+
+      {/* Shared number prompt for +Days / -Days / +Sessions / -Sessions */}
+      <NumberInputDialog
+        open={!!numberDialog}
+        title={numberDialog?.title || ''}
+        label={numberDialog?.label || ''}
+        placeholder={numberDialog?.placeholder}
+        confirmLabel={numberDialog?.confirmLabel}
+        variant={numberDialog?.variant}
+        onConfirm={(v) => numberDialog?.onConfirm(v)}
+        onCancel={() => setNumberDialog(null)}
+      />
+
+      {/* Cancel-package confirmation */}
+      <ConfirmDialog
+        open={!!cancelPackageId}
+        title="Cancel Package"
+        message="Cancel this package? Unused sessions are refunded to the user's wallet (pro-rata) and the package can no longer be used for bookings. This cannot be undone."
+        confirmLabel="Cancel Package"
+        variant="danger"
+        onConfirm={() => { const id = cancelPackageId; setCancelPackageId(null); if (id) handleUserAction(id, 'CANCEL'); }}
+        onCancel={() => setCancelPackageId(null)}
+      />
 
       <style jsx>{`
         .no-scrollbar::-webkit-scrollbar { display: none; }
