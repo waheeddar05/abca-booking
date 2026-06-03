@@ -2322,7 +2322,11 @@ function ChipSelector({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [options.map((o) => o.id).join(','), value]);
 
-  if (options.length <= 1) return null;
+  // Render even when there is only a single option so the user can always see
+  // which pitch / ball type the booking will use (e.g. a machine that supports
+  // just one pitch type, or one ball type). Only a truly empty option set is
+  // hidden. The lone option stays selected via the auto-select effect above.
+  if (options.length === 0) return null;
 
   // Layout mirrors the Session Type tiles above: 2-col grid (3-col
   // on sm+), icon-on-the-left visual marker, left-aligned label,
