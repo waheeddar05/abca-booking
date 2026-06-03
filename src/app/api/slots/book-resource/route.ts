@@ -10,7 +10,7 @@ import {
   BookingResourceError,
   type BookingPlan,
 } from '@/lib/resource-booking';
-import { notifyAssignedStaffNewBooking } from '@/lib/notifications';
+import { notifyAssignedStaffNewBooking, notifyCustomerNewBooking } from '@/lib/notifications';
 import { getResourceSlotPrice } from '@/lib/resource-pricing';
 import { getAllApplicablePromoDiscounts } from '@/lib/promotionalOffers';
 import {
@@ -267,12 +267,17 @@ export async function executeResourceBooking(
     const created = await executeResourceBookingCore(user, body, center, { onlinePaymentId });
     log.info({ ...ctx, bookingIds: created.map(b => b.id) }, `Booking success — ${created.length} row(s) created`);
 
-    // ─── Notify assigned staff (operator / coach / specialist) ────────
-    // Fire-and-forget: every assigned staff member for this booking gets
-    // a WhatsApp + in-app ping. Mirrors the legacy MACHINE_PITCH flow but
-    // covers the coach + sidearm-specialist assignments unique to the
-    // resource engine. Never blocks or fails the booking.
-    void notifyAssignedStaffNewBooking(created.map(b => b.id));
+    // ─── Notifications (fire-and-forget) ──────────────────────────────
+    // 1. Customer confirmation — the resource engine previously skipped
+    //    this entirely, so Sidearm / Coaching / Cricket Net / Full Court /
+    //    Bowling Machine customers got no confirmation. Now every category
+    //    confirms (in-app always, WhatsApp when enabled + verified).
+    // 2. Assigned staff — operator / coach / specialist plus the center's
+    //    ground staff for floor-handled categories.
+    // Neither ever blocks or fails the booking.
+    const createdIds = created.map(b => b.id);
+    void notifyCustomerNewBooking(createdIds);
+    void notifyAssignedStaffNewBooking(createdIds);
 
     return created;
   } catch (error) {

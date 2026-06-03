@@ -70,7 +70,24 @@ export async function GET(req: NextRequest) {
       orderBy: { startDate: 'desc' },
     });
 
-    return NextResponse.json(blockedSlots);
+    // Resolve the admin who created each block so the Active Blocks table
+    // can show a "Blocked By" name instead of a raw user id. blockedBy
+    // stores a User.id; a few legacy rows may store a free-form name, so
+    // we fall back to the stored value when no user matches.
+    const blockerIds = [...new Set(blockedSlots.map((b) => b.blockedBy).filter(Boolean))];
+    const blockers = blockerIds.length
+      ? await prisma.user.findMany({
+          where: { id: { in: blockerIds } },
+          select: { id: true, name: true, email: true },
+        })
+      : [];
+    const blockerById = new Map(blockers.map((u) => [u.id, u.name || u.email]));
+    const withNames = blockedSlots.map((b) => ({
+      ...b,
+      blockedByName: blockerById.get(b.blockedBy) || b.blockedBy || null,
+    }));
+
+    return NextResponse.json(withNames);
   } catch (error) {
     console.error('Get blocked slots error:', error);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
