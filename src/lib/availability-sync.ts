@@ -6,6 +6,28 @@ import { notifyBookingCancelled } from '@/lib/notifications';
 import { log } from '@/lib/logger';
 
 /**
+ * Builds the Prisma `where` fragment that selects only the bookings tied to
+ * the role whose availability is being updated. A user can hold both the
+ * COACH and SIDEARM_SPECIALIST memberships at the same center; updating the
+ * availability of one role must never reach into the other role's bookings.
+ * Each membership stores its schedule independently, so conflicts are
+ * evaluated per role (and then per slot via slotMatchesMembershipAvailability).
+ *
+ * Returns `null` for roles that don't carry bookable assignments (e.g. ADMIN),
+ * meaning there are no bookings to impact.
+ */
+function bookingAssignmentFilter(membership: { userId: string; role: string }) {
+  switch (membership.role) {
+    case 'COACH':
+      return { assignedCoachId: membership.userId };
+    case 'SIDEARM_SPECIALIST':
+      return { assignedStaffId: membership.userId };
+    default:
+      return null;
+  }
+}
+
+/**
  * Returns the list of future bookings that would be cancelled if the
  * availability was updated to the provided new schedules.
  */
@@ -19,9 +41,12 @@ export async function getImpactedBookings(opts: {
 
   const membership = await prisma.centerMembership.findUnique({
     where: { id: membershipId },
-    select: { userId: true },
+    select: { userId: true, role: true },
   });
   if (!membership) return [];
+
+  const assignmentFilter = bookingAssignmentFilter(membership);
+  if (!assignmentFilter) return [];
 
   const now = getISTTime();
   const bookings = await prisma.booking.findMany({
@@ -29,10 +54,7 @@ export async function getImpactedBookings(opts: {
       centerId,
       status: 'BOOKED',
       startTime: { gte: now },
-      OR: [
-        { assignedCoachId: membership.userId },
-        { assignedStaffId: membership.userId },
-      ],
+      ...assignmentFilter,
     },
     select: {
       id: true,
@@ -82,17 +104,17 @@ export async function autoCancelImpactedBookings(opts: {
   });
   if (!membership) return;
 
-  // 2. Fetch future BOOKED bookings assigned to this member
+  const assignmentFilter = bookingAssignmentFilter(membership);
+  if (!assignmentFilter) return;
+
+  // 2. Fetch future BOOKED bookings assigned to this member *in this role*
   const now = getISTTime();
   const bookings = await prisma.booking.findMany({
     where: {
       centerId,
       status: 'BOOKED',
       startTime: { gte: now },
-      OR: [
-        { assignedCoachId: membership.userId },
-        { assignedStaffId: membership.userId },
-      ],
+      ...assignmentFilter,
     },
   });
 
