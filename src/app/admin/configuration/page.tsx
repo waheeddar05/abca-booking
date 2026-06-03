@@ -107,8 +107,8 @@ const DEFAULT_MACHINE_PITCH_CONFIG: MachinePitchConfig = {
 const MACHINE_LABELS: Record<MachineId, { name: string; category: string }> = {
   GRAVITY: { name: 'Gravity', category: 'Leather' },
   YANTRA: { name: 'Yantra', category: 'Leather' },
-  LEVERAGE_INDOOR: { name: 'Leverage Tennis (Indoor)', category: 'Tennis' },
-  LEVERAGE_OUTDOOR: { name: 'Leverage Tennis (Outdoor)', category: 'Tennis' },
+  LEVERAGE_INDOOR: { name: 'iWinner (Indoor)', category: 'Tennis' },
+  LEVERAGE_OUTDOOR: { name: 'iWinner (Outdoor)', category: 'Tennis' },
 };
 
 const PITCH_TYPE_LABELS: Record<PitchType, string> = {

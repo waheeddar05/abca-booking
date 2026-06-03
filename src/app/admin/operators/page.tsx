@@ -57,8 +57,8 @@ const DAY_NUMBERS = [0, 1, 2, 3, 4, 5, 6];
 const LEGACY_MACHINE_LABELS: Record<string, { name: string; short: string }> = {
   GRAVITY: { name: 'Gravity', short: 'Gravity' },
   YANTRA: { name: 'Yantra', short: 'Yantra' },
-  LEVERAGE_INDOOR: { name: 'Leverage Tennis', short: 'Tennis In' },
-  LEVERAGE_OUTDOOR: { name: 'Leverage Tennis', short: 'Tennis Out' },
+  LEVERAGE_INDOOR: { name: 'iWinner', short: 'Tennis In' },
+  LEVERAGE_OUTDOOR: { name: 'iWinner', short: 'Tennis Out' },
 };
 
 /**

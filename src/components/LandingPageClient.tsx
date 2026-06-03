@@ -223,7 +223,7 @@ export default function LandingPageClient() {
               <div className="relative aspect-[4/3] bg-[#050b14] overflow-hidden">
                 <Image
                   src="/images/tennismachine.jpeg"
-                  alt="Leverage indoor tennis machine"
+                  alt="iWinner indoor tennis machine"
                   fill
                   className="object-cover object-[center_25%] group-hover:scale-105 transition-transform duration-700 opacity-85 group-hover:opacity-100"
                   loading="lazy"
@@ -231,7 +231,7 @@ export default function LandingPageClient() {
                 />
                 <div className="absolute inset-0 bg-gradient-to-t from-[#030712]/90 via-[#030712]/20 to-transparent"></div>
                 <div className="absolute bottom-1.5 left-1.5 md:bottom-3 md:left-3">
-                  <h4 className="text-[9px] md:text-base font-black text-accent uppercase italic leading-none drop-shadow-[0_2px_8px_rgba(0,0,0,0.9)]">Leverage Tennis</h4>
+                  <h4 className="text-[9px] md:text-base font-black text-accent uppercase italic leading-none drop-shadow-[0_2px_8px_rgba(0,0,0,0.9)]">iWinner</h4>
                 </div>
                 <div className="absolute bottom-1.5 right-1.5 md:bottom-3 md:right-3">
                   <span className="px-1.5 py-0.5 md:px-2 md:py-0.5 rounded-full bg-black/40 backdrop-blur-md border border-green-500/25 text-green-400 text-[7px] md:text-[10px] font-bold uppercase tracking-wider">Indoor</span>
@@ -251,7 +251,7 @@ export default function LandingPageClient() {
               <div className="relative aspect-[4/3] bg-[#050b14] overflow-hidden">
                 <Image
                   src="/images/tennismachine.jpeg"
-                  alt="Leverage outdoor tennis machine"
+                  alt="iWinner outdoor tennis machine"
                   fill
                   className="object-cover object-[center_25%] group-hover:scale-105 transition-transform duration-700 opacity-85 group-hover:opacity-100"
                   loading="lazy"
@@ -259,7 +259,7 @@ export default function LandingPageClient() {
                 />
                 <div className="absolute inset-0 bg-gradient-to-t from-[#030712]/90 via-[#030712]/20 to-transparent"></div>
                 <div className="absolute bottom-1.5 left-1.5 md:bottom-3 md:left-3">
-                  <h4 className="text-[9px] md:text-base font-black text-accent uppercase italic leading-none drop-shadow-[0_2px_8px_rgba(0,0,0,0.9)]">Leverage Tennis</h4>
+                  <h4 className="text-[9px] md:text-base font-black text-accent uppercase italic leading-none drop-shadow-[0_2px_8px_rgba(0,0,0,0.9)]">iWinner</h4>
                 </div>
                 <div className="absolute bottom-1.5 right-1.5 md:bottom-3 md:right-3">
                   <span className="px-1.5 py-0.5 md:px-2 md:py-0.5 rounded-full bg-black/40 backdrop-blur-md border border-emerald-500/25 text-emerald-400 text-[7px] md:text-[10px] font-bold uppercase tracking-wider">Outdoor</span>
