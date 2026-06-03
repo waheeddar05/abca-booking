@@ -259,7 +259,11 @@ export function ResourcePricingEditor({
   externalSaveTrigger?: number;
   onSaveStatus?: (status: { saving: boolean; message: { text: string; ok: boolean } | null }) => void;
 }) {
-  const [value, setValue] = useState<ResourcePricingValue>(DEFAULT_VALUE);
+  // Always hold a *normalized* value so the pair-shaped fields the render
+  // dereferences (fullCourtRate / coachingRate) are guaranteed present —
+  // even before the fetch resolves or for a center that has no
+  // RESOURCE_PRICING_CONFIG policy yet (e.g. a freshly-created center).
+  const [value, setValue] = useState<ResourcePricingValue>(() => normalize(DEFAULT_VALUE));
   const [centerMachines, setCenterMachines] = useState<CenterMachineLite[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -300,9 +304,13 @@ export function ResourcePricingEditor({
           const row = rows.find((r) => r.key === 'RESOURCE_PRICING_CONFIG');
           if (row) {
             try { setValue(normalize(JSON.parse(row.value))); }
-            catch { setValue(DEFAULT_VALUE); }
+            catch { setValue(normalize(DEFAULT_VALUE)); }
           } else {
-            setValue(DEFAULT_VALUE);
+            // No policy for this center yet — start from a fully
+            // normalized default rather than the raw DEFAULT_VALUE,
+            // which lacks the pair-shaped fullCourtRate/coachingRate
+            // the render reads directly.
+            setValue(normalize(DEFAULT_VALUE));
           }
         }
       } finally {
@@ -509,7 +517,11 @@ export function ResourcePricingEditor({
           &ldquo;Slot 2&rdquo; is the TOTAL for a back-to-back pair.
         </p>
         {(() => {
-          const cell = value.fullCourtRate!;
+          // Defense-in-depth: never assume fullCourtRate is populated.
+          // safePairRates always returns a complete {morning,evening}
+          // pair, lifting the legacy flat categoryRates.FULL_COURT when
+          // the dedicated pair field is missing.
+          const cell = value.fullCourtRate ?? safePairRates(value.categoryRates?.FULL_COURT);
           const update = (slab: 'morning' | 'evening', kind: 'single' | 'consecutive', n: number) => {
             setValue((prev) => ({
               ...prev,
