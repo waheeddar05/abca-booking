@@ -493,13 +493,23 @@ export function ResourcePackagesPage() {
                   </div>
                   </div>
 
-                  {/* Management actions — only for live packages. Same set
-                      and behaviour as the legacy ABCA page: extend / reduce
-                      validity, add / remove sessions, and cancel (which
-                      pro-rata refunds unused sessions to the wallet). The
-                      destructive actions all confirm before running. */}
-                  {up.status === 'ACTIVE' && (
+                  {/* Management actions — shown for every non-cancelled
+                      package (ACTIVE and EXPIRED), matching the spec's
+                      "actions for every package purchased". Resource
+                      centers lazily flip ACTIVE→EXPIRED once expiry
+                      passes, so gating on ACTIVE-only hid the controls
+                      for expired packages. The backend handles both:
+                      +Days on an EXPIRED package reactivates it, and
+                      Cancel refunds any unused sessions. Same set and
+                      behaviour as the legacy ABCA page; destructive
+                      actions all confirm before running. */}
+                  {up.status !== 'CANCELLED' && (
                     <div className="flex flex-wrap gap-1.5 mt-3 pt-3 border-t border-white/[0.05]">
+                      {up.status === 'EXPIRED' && (
+                        <span className="w-full text-[10px] text-amber-300/80 mb-0.5">
+                          Expired — use <span className="font-semibold">+Days</span> to extend &amp; reactivate.
+                        </span>
+                      )}
                       <button
                         onClick={() => setNumberDialog({
                           title: 'Extend Expiry',
