@@ -1,6 +1,6 @@
 'use client';
 
-import { Check, AlertTriangle } from 'lucide-react';
+import { AlertTriangle } from 'lucide-react';
 import { BALL_TYPES, PITCH_TYPE_LABELS } from '@/lib/client-constants';
 import type { MachineConfig, OperationMode } from '@/lib/schemas';
 
@@ -74,18 +74,20 @@ export function OptionsPanel({
         </div>
       )}
 
-      {/* Pitch Type (single, auto-selected) */}
+      {/* Pitch Type (single option). Always shown so the Pitch Type section
+          never disappears when a machine supports just one pitch — rendered with
+          the same ToggleButton as the multi-pitch case for visual consistency. */}
       {showPitchIndicator && (
         <div>
           <label className="block text-[10px] font-medium text-accent mb-1 uppercase tracking-wider">
             Pitch Type
           </label>
           <div className="flex gap-2">
-            <div className="flex-1 flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg text-xs font-semibold bg-accent text-primary shadow-sm">
-              <Check className="w-3.5 h-3.5" />
-              {(PITCH_TYPE_LABELS[enabledPitchTypes[0]] || { label: enabledPitchTypes[0] }).label}
-              <span className="text-[10px] text-primary/60 font-normal ml-1">(Auto-selected)</span>
-            </div>
+            <ToggleButton
+              isActive
+              onClick={() => onPitchTypeChange(enabledPitchTypes[0])}
+              label={(PITCH_TYPE_LABELS[enabledPitchTypes[0]] || { label: enabledPitchTypes[0] }).label}
+            />
           </div>
         </div>
       )}

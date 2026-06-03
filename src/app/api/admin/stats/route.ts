@@ -5,6 +5,12 @@ import { getAuthenticatedUser } from '@/lib/auth';
 import { resolveCurrentCenter } from '@/lib/centers';
 import { getISTTodayUTC, getISTLastMonthRange, dateStringToUTC } from '@/lib/time';
 
+// Epoch millis for a nullable groupBy `_max.date`. Used to break ties when two
+// staff have the same session count so the most recent booking ranks higher.
+function latestTime(d: Date | null): number {
+  return d ? new Date(d).getTime() : 0;
+}
+
 export async function GET(req: NextRequest) {
   try {
     const session = await requireAdmin(req);
@@ -79,6 +85,7 @@ export async function GET(req: NextRequest) {
       prisma.booking.groupBy({
         by: ['operatorId'],
         _count: { _all: true },
+        _max: { date: true },
         where: {
           ...centerFilter,
           status: { not: 'CANCELLED' },
@@ -93,15 +100,20 @@ export async function GET(req: NextRequest) {
           select: { id: true, name: true },
         });
         const nameMap = new Map(operators.map(o => [o.id, o.name]));
-        return results.map(r => ({
-          id: r.operatorId!,
-          name: nameMap.get(r.operatorId!) || 'Unnamed',
-          sessions: r._count._all,
-        }));
+        // Sort highest session count first so top performers surface at the top;
+        // most recent booking date breaks ties (within the active date range).
+        return [...results]
+          .sort((a, b) => b._count._all - a._count._all || latestTime(b._max.date) - latestTime(a._max.date))
+          .map(r => ({
+            id: r.operatorId!,
+            name: nameMap.get(r.operatorId!) || 'Unnamed',
+            sessions: r._count._all,
+          }));
       }).catch(() => []),
       prisma.booking.groupBy({
         by: ['assignedStaffId'],
         _count: { _all: true },
+        _max: { date: true },
         where: {
           ...centerFilter,
           status: { not: 'CANCELLED' },
@@ -116,15 +128,19 @@ export async function GET(req: NextRequest) {
           select: { id: true, name: true },
         });
         const nameMap = new Map(staff.map(o => [o.id, o.name]));
-        return results.map(r => ({
-          id: r.assignedStaffId!,
-          name: nameMap.get(r.assignedStaffId!) || 'Unnamed',
-          sessions: r._count._all,
-        }));
+        // Sort highest session count first; most recent booking date breaks ties.
+        return [...results]
+          .sort((a, b) => b._count._all - a._count._all || latestTime(b._max.date) - latestTime(a._max.date))
+          .map(r => ({
+            id: r.assignedStaffId!,
+            name: nameMap.get(r.assignedStaffId!) || 'Unnamed',
+            sessions: r._count._all,
+          }));
       }).catch(() => []),
       prisma.booking.groupBy({
         by: ['assignedCoachId'],
         _count: { _all: true },
+        _max: { date: true },
         where: {
           ...centerFilter,
           status: { not: 'CANCELLED' },
@@ -139,11 +155,14 @@ export async function GET(req: NextRequest) {
           select: { id: true, name: true },
         });
         const nameMap = new Map(coaches.map(o => [o.id, o.name]));
-        return results.map(r => ({
-          id: r.assignedCoachId!,
-          name: nameMap.get(r.assignedCoachId!) || 'Unnamed',
-          sessions: r._count._all,
-        }));
+        // Sort highest session count first; most recent booking date breaks ties.
+        return [...results]
+          .sort((a, b) => b._count._all - a._count._all || latestTime(b._max.date) - latestTime(a._max.date))
+          .map(r => ({
+            id: r.assignedCoachId!,
+            name: nameMap.get(r.assignedCoachId!) || 'Unnamed',
+            sessions: r._count._all,
+          }));
       }).catch(() => []),
       // Revenue by Machine. Only for MACHINE category.
       // The label must always be the exact machine name shown in
@@ -235,13 +254,13 @@ export async function GET(req: NextRequest) {
       // active — which is always, since the UI auto-applies a default range.
       (async () => {
         try {
-          const categories = ['MACHINE', 'SIDEARM', 'NET', 'FULL_COURT'];
+          const categories = ['MACHINE', 'SIDEARM', 'NET', 'FULL_COURT'] as const;
           const results = await Promise.all(categories.map(async (cat) => {
             const [todayCount, upcomingCount] = await Promise.all([
               prisma.booking.count({
                 where: {
                   ...centerFilter,
-                  category: cat as any,
+                  category: cat,
                   date: todayUTC,
                   status: { not: 'CANCELLED' },
                 },
@@ -249,7 +268,7 @@ export async function GET(req: NextRequest) {
               prisma.booking.count({
                 where: {
                   ...centerFilter,
-                  category: cat as any,
+                  category: cat,
                   date: { gt: todayUTC },
                   status: 'BOOKED',
                 },
@@ -335,19 +354,29 @@ export async function GET(req: NextRequest) {
           ...(hasDateFilter ? { date: dateFilter } : {}),
         },
       }).then(r => r._sum.discountAmount || 0).catch(() => 0),
-      // Package revenue
-      // Mirrors the Packages → Reports total: every package except cancelled
-      // ones counts, net of refunds. We deliberately do NOT scope this by the
-      // dashboard date range — package revenue is recognised at purchase, and
-      // filtering by activationDate would silently drop packages that haven't
-      // had a booking yet (and packages purchased outside the range), which is
-      // exactly the inconsistency this fixes.
+      // Package revenue — total package SALES within the selected date range.
+      // Revenue is recognised at purchase, so we scope by the package's purchase
+      // timestamp (UserPackage.createdAt) using the dashboard From/To filter and
+      // net out refunds. Cancelled packages are excluded. Every package category
+      // (Bowling Machine, Cricket Net, Sidearm, Coaching, Court, …) is included
+      // because we don't filter by category. The createdAt bounds are shifted by
+      // the IST offset so a calendar day picked in the UI maps to the matching
+      // IST day (createdAt is a real timestamp, unlike the @db.Date booking col).
       (async () => {
         try {
+          const IST_OFFSET_MS = (5 * 60 + 30) * 60 * 1000;
+          let createdFilter: { gte?: Date; lt?: Date } | undefined;
+          if (fromDate || toDate) {
+            createdFilter = {};
+            if (fromDate) createdFilter.gte = new Date(fromDate.getTime() - IST_OFFSET_MS);
+            // toDate is UTC midnight of the end day — extend to the end of that IST day.
+            if (toDate) createdFilter.lt = new Date(toDate.getTime() + 24 * 60 * 60 * 1000 - IST_OFFSET_MS);
+          }
           const ups = await prisma.userPackage.findMany({
             where: {
               ...(centerId ? { package: { centerId } } : {}),
               status: { not: 'CANCELLED' },
+              ...(createdFilter ? { createdAt: createdFilter } : {}),
             },
             select: { id: true, amountPaid: true },
           });
