@@ -39,7 +39,7 @@ export const MACHINE_CARDS: MachineCard[] = [
   },
   {
     id: 'LEVERAGE_INDOOR',
-    label: 'Leverage Tennis',
+    label: 'iWinner',
     shortLabel: 'Indoor',
     category: 'TENNIS',
     image: '/images/tennismachine.jpeg',
@@ -49,7 +49,7 @@ export const MACHINE_CARDS: MachineCard[] = [
   },
   {
     id: 'LEVERAGE_OUTDOOR',
-    label: 'Leverage Tennis',
+    label: 'iWinner',
     shortLabel: 'Outdoor',
     category: 'TENNIS',
     image: '/images/tennismachine.jpeg',
@@ -92,8 +92,8 @@ export const BALL_TYPE_CONFIG: Record<string, { color: string; label: string }> 
 export const MACHINE_LABELS: Record<string, string> = {
   GRAVITY: 'Gravity',
   YANTRA: 'Yantra',
-  LEVERAGE_INDOOR: 'Leverage Tennis',
-  LEVERAGE_OUTDOOR: 'Leverage Tennis',
+  LEVERAGE_INDOOR: 'iWinner',
+  LEVERAGE_OUTDOOR: 'iWinner',
 };
 
 // ─── Pitch Labels (display names) ────────────────────────

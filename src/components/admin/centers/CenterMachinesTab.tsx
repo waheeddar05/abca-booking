@@ -100,7 +100,7 @@ export function CenterMachinesTab({ centerId }: { centerId: string }) {
       <Banner kind="info">
         No machine types are available yet. Ask a super admin to add one
         in the machine-type catalog before configuring a machine here.
-        ABCA&apos;s defaults (Yantra, Gravity, Leverage) are seeded
+        ABCA&apos;s defaults (Yantra, Gravity, iWinner) are seeded
         automatically on migration; if they&apos;re missing the
         catalog likely needs to be re-seeded.
       </Banner>
@@ -303,13 +303,6 @@ function MachineEditor({
     }
   };
 
-  const DEFAULT_MACHINE_TYPES = [
-    { id: 'yantra', name: 'Yantra', ballType: 'Leather' },
-    { id: 'gravity', name: 'Gravity', ballType: 'Leather' },
-    { id: 'master-200', name: 'Master200', ballType: 'Leather' },
-    { id: 'leverage-tennis', name: 'Leverage (Tennis)', ballType: 'Tennis' },
-  ];
-
   return (
     <form onSubmit={save} className="space-y-3 rounded-xl bg-white/[0.02] border border-white/[0.06] p-3">
       <div className="grid grid-cols-2 gap-3">
@@ -319,7 +312,7 @@ function MachineEditor({
               <Field label="Machine type" required>
                 <SelectInput value={machineTypeId} onChange={(e) => setMachineTypeId(e.target.value)} required className="!py-1.5 !text-xs">
                   <option value="">Select type...</option>
-                  {DEFAULT_MACHINE_TYPES.map((t) => (
+                  {types.filter((t) => t.isActive).map((t) => (
                     <option key={t.id} value={t.id}>
                       {t.name}
                     </option>

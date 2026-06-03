@@ -216,8 +216,8 @@ export async function GET(req: NextRequest) {
               typeName =
                 legacyNameMap.get(b.machineId) ||
                 (b.machineId === 'YANTRA' ? 'Yantra'
-                  : b.machineId === 'LEVERAGE_OUTDOOR' ? 'Leverage Outdoor'
-                  : b.machineId === 'LEVERAGE_INDOOR' ? 'Leverage Indoor'
+                  : b.machineId === 'LEVERAGE_OUTDOOR' ? 'iWinner (Outdoor)'
+                  : b.machineId === 'LEVERAGE_INDOOR' ? 'iWinner (Indoor)'
                   : b.machineId === 'GRAVITY' ? 'Gravity'
                   : 'Other');
             } else if (b.assignedMachine?.machineType?.name) {
