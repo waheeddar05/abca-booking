@@ -103,7 +103,12 @@ function SlotsContent() {
   const isKitRentalAvailable = isKitRentalEnabled && kitRentalMachines.includes(selectedMachineId);
   const isLeatherMachine = selectedCard.category === 'LEATHER';
   const selectedMachineInfo = machineConfig?.machines?.find(m => m.id === selectedMachineId);
-  const enabledPitchTypes = selectedMachineInfo?.enabledPitchTypes || [];
+  // The Pitch Type section must always be visible for a selected machine. If a
+  // machine resolves to no enabled pitch types (e.g. an empty override stored in
+  // MACHINE_PITCH_CONFIG), fall back to the currently-selected pitch so there is
+  // always at least one option to render instead of the section disappearing.
+  const configuredPitchTypes = selectedMachineInfo?.enabledPitchTypes ?? [];
+  const enabledPitchTypes = configuredPitchTypes.length > 0 ? configuredPitchTypes : [pitchType || 'ASTRO'];
   const showPitchSelection = enabledPitchTypes.length > 1;
   const showPitchIndicator = enabledPitchTypes.length === 1;
 
