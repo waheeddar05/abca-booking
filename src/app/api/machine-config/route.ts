@@ -48,13 +48,21 @@ export async function GET() {
     // Build per-machine info for the frontend
     const machines = ALL_MACHINE_IDS.map(id => {
       const def = MACHINES[id];
+      // An empty array is truthy in JS, so a plain `|| def.defaultPitchTypes`
+      // would NOT fall back and would leave a machine with zero pitch types —
+      // which hides the Pitch Type selector in the booking UI. Fall back to the
+      // machine's defaults whenever the override is missing or empty.
+      const configured = machinePitchConfig[id];
+      const enabledPitchTypes = Array.isArray(configured) && configured.length > 0
+        ? configured
+        : def.defaultPitchTypes;
       return {
         id: def.id,
         name: def.name,
         shortName: def.shortName,
         ballType: def.ballType,
         category: def.category,
-        enabledPitchTypes: machinePitchConfig[id] || def.defaultPitchTypes,
+        enabledPitchTypes,
       };
     });
 
@@ -84,8 +92,9 @@ export async function GET() {
         'Cache-Control': 'public, s-maxage=60, stale-while-revalidate=300',
       },
     });
-  } catch (error: any) {
+  } catch (error) {
     console.error('Public machine config fetch error:', error);
-    return NextResponse.json({ error: error?.message || 'Internal server error' }, { status: 500 });
+    const message = error instanceof Error ? error.message : 'Internal server error';
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }
