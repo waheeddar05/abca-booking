@@ -15,14 +15,14 @@ import type { Prisma } from '@prisma/client';
  *
  * Query params:
  *   role     OPERATOR | COACH | SIDEARM_SPECIALIST  (required)
- *            Determines which axis of the bookings table to filter
- *            on:
- *              - OPERATOR  → bookings on machines this user is
- *                            assigned to (legacy enum + Machine.id)
- *              - COACH     → bookings where assignedCoachId = self
- *              - SIDEARM_… → bookings where assignedStaffId = self
- *   viewAll  When 'true' AND the user is an admin/super-admin, show
- *            every booking at the center regardless of assignment.
+ *            Selects the booking *category* to show — every booking of
+ *            that category at the center, regardless of which staff
+ *            member is assigned:
+ *              - OPERATOR  → MACHINE  bookings (legacy ABCA rows are
+ *                            MACHINE too — the column is NOT NULL with
+ *                            a default of MACHINE)
+ *              - COACH     → COACHING bookings
+ *              - SIDEARM_… → SIDEARM  bookings
  *   center filter, date filters, sort, pagination — same shape as
  *   the legacy /api/operator/bookings endpoint.
  *
@@ -57,7 +57,6 @@ export async function GET(req: NextRequest) {
     }
 
     const dateParam = searchParams.get('date');
-    const viewAll = searchParams.get('viewAll') === 'true';
     const tab = searchParams.get('tab');
     const category = searchParams.get('category');
     const filterStatus = searchParams.get('status');
@@ -106,100 +105,39 @@ export async function GET(req: NextRequest) {
     }
 
     // Build the role-specific filter on the booking row. We start
-    // with the center scope, then add a role-axis predicate.
+    // with the center scope, then add a category predicate.
     const bookingWhere: Prisma.BookingWhereInput = {
       ...(centerId ? { centerId } : {}),
     };
 
-    // Track what "assigned" means for this role so the response can
-    // report it for the UI ("My machines", "Coaching sessions", etc.).
-    let assignedMachineEnumIds: string[] = [];
-    let assignedMachineRowIds: string[] = [];
-
+    // The role tab is a booking-*category* filter, not a per-staff
+    // filter: selecting a tab shows every booking of that category at
+    // the center, regardless of which operator / coach / specialist is
+    // assigned.
+    //
+    //   OPERATOR           → MACHINE  (bowling-machine sessions; legacy
+    //                        ABCA rows are MACHINE too — Booking.category
+    //                        is NOT NULL with a default of MACHINE)
+    //   COACH              → COACHING (personal-coaching sessions)
+    //   SIDEARM_SPECIALIST → SIDEARM  (sidearm-specialist sessions)
     if (role === 'OPERATOR') {
-      if (isAdmin && viewAll) {
-        // Admin viewAll mode — no machine filter.
-        assignedMachineEnumIds = ALL_LEGACY_MACHINES;
-      } else {
-        // Pull both axes of operator assignments — RESOURCE_BASED
-        // assignments use machineRowId, MACHINE_PITCH use machineId.
-        const assignments = await prisma.operatorAssignment.findMany({
-          where: {
-            userId: user.id,
-            ...(centerId ? { centerId } : {}),
-          },
-          select: { machineId: true, machineRowId: true },
-        });
-        for (const a of assignments) {
-          if (a.machineId) assignedMachineEnumIds.push(a.machineId);
-          if (a.machineRowId) assignedMachineRowIds.push(a.machineRowId);
-        }
+      bookingWhere.category = 'MACHINE';
 
-        // Build the role predicate. We OR the two machine axes — a
-        // single user can be assigned across both (super-admin
-        // managing ABCA + Toplay).
-        const orClauses: Prisma.BookingWhereInput[] = [];
-        if (assignedMachineEnumIds.length > 0) {
-          orClauses.push({
-            machineId: {
-              in: assignedMachineEnumIds as Prisma.BookingWhereInput['machineId'],
-            } as never,
-          });
-        }
-        if (assignedMachineRowIds.length > 0) {
-          orClauses.push({ assignedMachineId: { in: assignedMachineRowIds } });
-        }
-
-        if (orClauses.length === 0) {
-          // No assignments at all — admin sees everything (via
-          // isAdmin path above), but a vanilla operator with zero
-          // rows sees nothing rather than every booking.
-          if (isAdmin) {
-            assignedMachineEnumIds = ALL_LEGACY_MACHINES;
-          } else {
-            return NextResponse.json({
-              bookings: [],
-              pagination: { page, limit, total: 0, totalPages: 0 },
-              role,
-              assignedMachineIds: assignedMachineEnumIds,
-              assignedMachineRowIds,
-              currentUserId: user.id,
-              viewAll,
-            });
-          }
-        } else {
-          bookingWhere.OR = orClauses;
-        }
-      }
-
-      // Specific-machine filter from the UI dropdown. Honour both
-      // axes — UI sends either an enum string or a Machine.id. We
-      // detect by looking at the format (legacy enums are uppercase
-      // identifiers; Machine.id is a cuid).
+      // Optional machine dropdown narrows *within* machine bookings.
+      // Honour both axes — the UI sends either a legacy enum string or
+      // a Machine.id (cuid) depending on the center's booking model.
+      // The category filter above stays in force alongside it.
       if (filterMachineId) {
         if (ALL_LEGACY_MACHINES.includes(filterMachineId)) {
           bookingWhere.machineId = filterMachineId as never;
-          delete bookingWhere.OR;
         } else {
           bookingWhere.assignedMachineId = filterMachineId;
-          delete bookingWhere.OR;
         }
       }
     } else if (role === 'COACH') {
-      // A coach's own bookings = COACHING category bookings where the
-      // coach assignment matches this user. Admin viewAll widens to
-      // all COACHING category bookings at the center.
-      if (isAdmin && viewAll) {
-        bookingWhere.category = 'COACHING';
-      } else {
-        bookingWhere.assignedCoachId = user.id;
-      }
+      bookingWhere.category = 'COACHING';
     } else if (role === 'SIDEARM_SPECIALIST') {
-      if (isAdmin && viewAll) {
-        bookingWhere.category = 'SIDEARM';
-      } else {
-        bookingWhere.assignedStaffId = user.id;
-      }
+      bookingWhere.category = 'SIDEARM';
     }
 
     // Date / category filters — shared with legacy operator endpoint.
@@ -353,10 +291,7 @@ export async function GET(req: NextRequest) {
       bookings: mappedBookings,
       pagination: { page, limit, total, totalPages: Math.ceil(total / limit) },
       role,
-      assignedMachineIds: assignedMachineEnumIds,
-      assignedMachineRowIds,
       currentUserId: user.id,
-      viewAll,
     });
   } catch (error: any) {
     console.error('Staff bookings fetch error:', error);

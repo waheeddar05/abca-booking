@@ -7,16 +7,14 @@
  * machines this user was assigned to as an OPERATOR. Now a single
  * user can hold any combination of OPERATOR / COACH / SIDEARM_SPECIALIST
  * memberships at a center, and this page surfaces a tab for each role
- * the user actually has — switching tabs swaps the booking list to
- * the bookings *for that role*:
+ * the user actually has (admins see all three). Switching tabs filters
+ * the booking list by the booking *category* that role handles — every
+ * such booking at the center, regardless of which staff member is
+ * assigned:
  *
- *   - Operator → bookings on machines I'm assigned to
- *                (legacy MachineId enum + Machine.id rows)
- *   - Coach    → bookings where I'm the assigned coach
- *   - Sidearm  → bookings where I'm the assigned sidearm specialist
- *
- * Admins see all three tabs and can flip a "view all" toggle to widen
- * each tab to every booking of that kind at the center.
+ *   - Operator → MACHINE  bookings (bowling-machine sessions)
+ *   - Coach    → COACHING bookings (personal-coaching sessions)
+ *   - Sidearm  → SIDEARM  bookings (sidearm-specialist sessions)
  */
 
 import { useEffect, useState, useCallback } from 'react';
@@ -109,9 +107,9 @@ const CATEGORY_TABS = [
 ] as const;
 
 const ROLE_LABELS: Record<StaffRole, { label: string; sub: string; icon: typeof Wrench }> = {
-  OPERATOR: { label: 'Operator', sub: 'Bookings on my machines', icon: Wrench },
-  COACH: { label: 'Coach', sub: 'My coaching sessions', icon: UserCog },
-  SIDEARM_SPECIALIST: { label: 'Sidearm', sub: 'My sidearm sessions', icon: Users },
+  OPERATOR: { label: 'Operator', sub: 'Bowling machine sessions', icon: Wrench },
+  COACH: { label: 'Coach', sub: 'Personal coaching sessions', icon: UserCog },
+  SIDEARM_SPECIALIST: { label: 'Sidearm', sub: 'Sidearm specialist sessions', icon: Users },
 };
 
 export default function StaffDashboard() {
@@ -125,7 +123,6 @@ export default function StaffDashboard() {
   const [error, setError] = useState('');
   const [category, setCategory] = useState<Category>('all');
   const [pagination, setPagination] = useState<PaginationInfo>({ page: 1, limit: 20, total: 0, totalPages: 0 });
-  const [viewAll, setViewAll] = useState(false);
   const [showFilters, setShowFilters] = useState(false);
   const [showDateRange, setShowDateRange] = useState(false);
   const [sortBy, setSortBy] = useState('date');
@@ -211,7 +208,6 @@ export default function StaffDashboard() {
       params.set('limit', '20');
       params.set('sortBy', sortBy);
       params.set('sortOrder', sortOrder);
-      if (viewAll) params.set('viewAll', 'true');
       const res = await fetch(`/api/staff/bookings?${params.toString()}`);
       if (!res.ok) {
         if (res.status === 403) {
@@ -228,8 +224,7 @@ export default function StaffDashboard() {
     } finally {
       setLoading(false);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [role, category, filters, pagination.page, sortBy, sortOrder, viewAll]);
+  }, [role, category, filters, pagination.page, sortBy, sortOrder]);
 
   // Reset paging + filters when the role tab changes — different
   // role, different bookings universe, so persisting the page index
@@ -320,22 +315,6 @@ export default function StaffDashboard() {
             </p>
           </div>
         </div>
-        {me.isAdmin && (
-          <button
-            onClick={() => {
-              setViewAll((v) => !v);
-              setPagination((prev) => ({ ...prev, page: 1 }));
-            }}
-            className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-colors flex-shrink-0 cursor-pointer ${
-              viewAll
-                ? 'bg-purple-500/15 text-purple-400 border border-purple-500/30'
-                : 'bg-[#0f1d2f]/60 text-slate-400 border border-white/[0.08] hover:border-white/[0.15]'
-            }`}
-            title="Admin-only: include every booking of this kind, not just yours"
-          >
-            View all
-          </button>
-        )}
       </div>
 
       {/* Role Tabs — only the roles the user has (admins see all 3) */}
@@ -557,16 +536,10 @@ export default function StaffDashboard() {
           <p className="text-sm font-medium text-slate-300 mb-1">No bookings found</p>
           <p className="text-xs text-slate-400">
             {role === 'OPERATOR'
-              ? viewAll
-                ? 'No bookings across any machines.'
-                : 'No bookings for your assigned machines.'
+              ? 'No bowling machine bookings found.'
               : role === 'COACH'
-                ? viewAll
-                  ? 'No coaching sessions yet.'
-                  : 'No coaching sessions assigned to you.'
-                : viewAll
-                  ? 'No sidearm sessions yet.'
-                  : 'No sidearm sessions assigned to you.'}
+                ? 'No coaching sessions found.'
+                : 'No sidearm sessions found.'}
           </p>
         </div>
       ) : (
