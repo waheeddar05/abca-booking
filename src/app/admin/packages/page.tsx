@@ -42,6 +42,7 @@ import {
   ballOptionsFromEffective,
   isBallTypeValidForMachineType,
   coerceBallTypeFromEffective,
+  coerceBallTypeForMachineType,
 } from '@/lib/package-admin-labels';
 
 interface PackageData {
@@ -459,9 +460,35 @@ function AdminPackagesLegacy() {
 
 
   const startEdit = (pkg: PackageData) => {
+    // Resolve the machine this package points at. ABCA packages store the
+    // legacy MachineId enum in `pkg.machineId`; newer centers store the
+    // Machine row id. When the package predates the machineId column
+    // (null), fall back to a machine of the SAME category as the
+    // package's machineType — a TENNIS package must not resolve to a
+    // leather machine (and vice versa), or the hidden machineType ends up
+    // contradicting the visible machine/ball-type selectors.
+    const wantTennis = pkg.machineType === 'TENNIS';
+    const sameCategory = (m: CenterMachineRow) =>
+      (m.machineType.ballType === 'TENNIS') === wantTennis;
+    const fallbackMachine =
+      centerMachines.find((m) => sameCategory(m) && m.legacyMachineId)
+      || centerMachines.find((m) => sameCategory(m))
+      || centerMachines.find((m) => m.legacyMachineId)
+      || centerMachines[0];
     const storedMachineId = pkg.machineId
-      || centerMachines.find((m) => m.legacyMachineId)?.legacyMachineId
+      || fallbackMachine?.legacyMachineId
+      || fallbackMachine?.id
       || (pkg.machineType === 'LEATHER' ? 'GRAVITY' : 'LEVERAGE_INDOOR');
+
+    // Keep machineType in lockstep with the resolved machine so the
+    // hidden form.machineType can never disagree with the visible
+    // machine + ball-type selectors — that mismatch was the source of the
+    // false "Invalid Ball Type" failure on Update.
+    const machineOption = findMachineOption(storedMachineId);
+    const resolvedMachineType = machineOption
+      ? (machineOption.machineType.ballType === 'TENNIS' ? 'TENNIS' : 'LEATHER')
+      : pkg.machineType;
+
     const rules = pkg.extraChargeRules || defaultExtraChargeRules;
     // Migrate old flat wicketTypeUpgrade to new wicketTypeUpgrades object
     let wicketTypeUpgrades = rules.wicketTypeUpgrades || {};
@@ -470,15 +497,26 @@ function AdminPackagesLegacy() {
       ALL_WICKET_UPGRADE_PATHS.forEach(p => { wicketTypeUpgrades[`${p.from}_TO_${p.to}`] = rules.wicketTypeUpgrade; });
     }
     const machineUpgrades = rules.machineUpgrades || {};
+    // BOTH (legacy leather option) collapses to Leather in the editor;
+    // coerce against the machine's supported ball types so a value the
+    // machine no longer offers (e.g. a stale "Machine" on a tennis
+    // machine) snaps to a valid option. The final
+    // coerceBallTypeForMachineType pass guarantees the ball type is
+    // compatible with resolvedMachineType even before the machine list
+    // has loaded (machineOption undefined → effective fallback could
+    // otherwise leave a TENNIS package on 'LEATHER').
+    const ballType = coerceBallTypeForMachineType(
+      resolvedMachineType,
+      coerceBallTypeFromEffective(
+        machineOption?.effectiveBallTypes,
+        pkg.ballType === 'BOTH' ? 'LEATHER' : pkg.ballType,
+      ),
+    );
     setForm({
       name: pkg.name,
       machineId: storedMachineId,
-      machineType: pkg.machineType,
-      // BOTH (legacy leather option) collapses to Leather in the editor;
-      // coerce against the machine's supported ball types so a value the
-      // machine no longer offers (e.g. a stale "Machine" on a tennis
-      // machine) snaps to a valid option.
-      ballType: coerceBallTypeFromEffective(findMachineOption(storedMachineId)?.effectiveBallTypes, pkg.ballType === 'BOTH' ? 'LEATHER' : pkg.ballType),
+      machineType: resolvedMachineType,
+      ballType,
       wicketType: pkg.wicketType || 'ASTRO',
       timingType: pkg.timingType === 'BOTH' ? 'DAY' : pkg.timingType,
       totalSessions: pkg.totalSessions,
