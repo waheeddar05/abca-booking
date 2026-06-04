@@ -164,16 +164,27 @@ export async function PUT(req: NextRequest) {
     }
 
     // Validate ball type against the effective (post-update) machine
-    // type. A partial update (e.g. toggling isActive) leaves the
-    // existing values in place; an explicit change is checked here so
-    // an incompatible Machine/Ball combination can never be persisted.
-    if (updateData.ballType !== undefined && !['MACHINE', 'LEATHER', 'BOTH', 'TENNIS'].includes(updateData.ballType)) {
-      return NextResponse.json({ error: 'Invalid ballType' }, { status: 400 });
-    }
-    const effectiveMachineType = updateData.machineType ?? existing.machineType;
-    const effectiveBallType = updateData.ballType ?? existing.ballType;
-    if (!isBallTypeValidForMachineType(effectiveMachineType, effectiveBallType)) {
-      return NextResponse.json({ error: 'Ball type is not valid for the selected machine type' }, { status: 400 });
+    // type — but ONLY when this request actually touches the machine
+    // type or ball type. A partial update (toggling isActive, renaming,
+    // repricing) must never re-validate untouched data, or a legacy row
+    // whose stored combination predates the current rules would be
+    // wrongly rejected. An empty/null ball type is allowed (the column
+    // is optional), mirroring the POST route's `if (ballType && …)` guard.
+    const touchesBallAxis =
+      updateData.machineType !== undefined || updateData.ballType !== undefined;
+    if (touchesBallAxis) {
+      if (
+        updateData.ballType != null &&
+        updateData.ballType !== '' &&
+        !['MACHINE', 'LEATHER', 'BOTH', 'TENNIS'].includes(updateData.ballType)
+      ) {
+        return NextResponse.json({ error: 'Invalid ballType' }, { status: 400 });
+      }
+      const effectiveMachineType = updateData.machineType ?? existing.machineType;
+      const effectiveBallType = updateData.ballType ?? existing.ballType;
+      if (!isBallTypeValidForMachineType(effectiveMachineType, effectiveBallType)) {
+        return NextResponse.json({ error: 'Ball type is not valid for the selected machine type' }, { status: 400 });
+      }
     }
 
     // Only allow updating specific fields
