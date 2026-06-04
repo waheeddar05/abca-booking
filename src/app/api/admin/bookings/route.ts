@@ -5,8 +5,7 @@ import { requireCenterAdmin } from '@/lib/adminAuth';
 import { getAuthenticatedUser } from '@/lib/auth';
 import { resolveCurrentCenter } from '@/lib/centers';
 import { getISTTodayUTC, getISTLastMonthRange, dateStringToUTC, formatIST } from '@/lib/time';
-import { MACHINES } from '@/lib/constants';
-import { notifyBookingCancelled, notifyAssignedStaffBookingCancelled, notifyAssignedStaffNewBooking } from '@/lib/notifications';
+import { notifyBookingCancelled, notifyAssignedStaffBookingCancelled, notifyAssignedStaffNewBooking, buildCancellationDetailLines } from '@/lib/notifications';
 import { autoAssignOperator } from '@/lib/operatorAssign';
 import {
   adjustSiblingPricesForCancellation,
@@ -565,11 +564,14 @@ export async function PATCH(req: NextRequest) {
         const dateStr = formatIST(new Date(booking.date), 'EEE, dd MMM yyyy');
         const timeStr = formatIST(new Date(booking.startTime), 'hh:mm a');
         const endStr = formatIST(new Date(booking.endTime), 'hh:mm a');
-        const machineName = booking.machineId ? (MACHINES[booking.machineId as keyof typeof MACHINES]?.shortName || booking.machineId) : booking.ballType;
+        // Category-aware detail line(s): machine for MACHINE bookings,
+        // specialist/coach for SIDEARM/COACHING, type-only for the rest.
+        // Never leaks the TENNIS ballType default as a fake "Machine".
+        const detailLines = await buildCancellationDetailLines(bookingId);
         const lines = [
           `${dateStr}`,
           `${timeStr} – ${endStr}`,
-          `Machine: ${machineName}`,
+          ...detailLines,
           `Cancelled by: ${adminName}`,
         ];
         if (cancellationReason) {
