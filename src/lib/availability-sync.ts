@@ -209,6 +209,7 @@ async function cancelAndRefundBooking(opts: {
         message: lines.join(' | '),
         mobileNumber: user?.mobileVerified ? user.mobileNumber : null,
         refundInfo,
+        centerId: booking.centerId,
       });
     }
 

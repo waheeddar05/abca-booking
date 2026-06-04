@@ -126,6 +126,7 @@ export async function completePackagePurchase(
       await notifyPaymentSuccess(userId, {
         message: `Your "${pkg.name}" package (${pkg.totalSessions} sessions) is now active. Validity starts from ${expiryStr}.`,
         mobileNumber: notifUser?.mobileVerified ? notifUser.mobileNumber : null,
+        centerId: payment.centerId,
       });
     } catch (notifErr) {
       console.error('Failed to send package purchase notification:', notifErr);
