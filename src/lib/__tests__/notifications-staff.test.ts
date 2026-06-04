@@ -119,6 +119,20 @@ describe('notifyAssignedStaffNewBooking', () => {
     expect(text).toContain('Personal Coaching'); // booking type
     expect(text).toContain('30 min'); // duration
     expect(text).toContain('Coach Anil'); // assigned coach detail
+    expect(text).toContain('Booking ID'); // reference label
+    expect(text).toContain('bk_1'); // the booking id itself
+  });
+
+  it('shows a "+N more" hint on the booking id for multi-slot bookings', async () => {
+    findManyMock.mockResolvedValue([
+      bookingRow(),
+      bookingRow({ id: 'bk_2', startTime: baseEnd, endTime: new Date('2026-06-03T11:30:00.000Z') }),
+    ]);
+
+    await notifyAssignedStaffNewBooking(['bk_1', 'bk_2']);
+
+    const [, text] = sendWhatsAppTextMock.mock.calls[0];
+    expect(text).toContain('Booking ID: bk_1 (+1 more)');
   });
 
   it('skips WhatsApp for staff without a mobile number but still records in-app', async () => {
@@ -249,6 +263,8 @@ describe('notifyAssignedStaffBookingCancelled', () => {
     expect(joined).toContain('Indoor Net 2');
     expect(joined).toContain('Admin'); // cancelled by
     expect(joined).toContain('Rain'); // reason
+    expect(joined).toContain('Booking ID'); // reference label
+    expect(joined).toContain('bk_1'); // the booking id itself
   });
 
   it('does nothing for a booking with no assigned staff', async () => {

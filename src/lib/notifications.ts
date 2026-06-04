@@ -815,6 +815,7 @@ export async function notifyAssignedStaffNewBooking(bookingIds: string[]): Promi
         `📍 Facility: ${facility}`,
         `🎯 Type: ${bookingType}`,
         ...assignmentLines,
+        `🔖 Booking ID: ${primary.id}${slotCount > 1 ? ` (+${slotCount - 1} more)` : ''}`,
       ];
       return lines.join('\n');
     };
@@ -884,6 +885,7 @@ export async function notifyAssignedStaffBookingCancelled(
         `🙍 Cancelled by: ${cancelledBy}`,
       ];
       if (reason) lines.push(`📝 Reason: ${reason}`);
+      lines.push(`🔖 Booking ID: ${booking.id}`);
       return lines.join('\n');
     };
 

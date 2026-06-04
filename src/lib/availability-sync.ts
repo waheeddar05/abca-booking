@@ -2,7 +2,7 @@ import { prisma } from '@/lib/prisma';
 import { getISTTime, formatIST } from '@/lib/time';
 import { slotMatchesMembershipAvailability, type AvailabilityWindow, type DateAvailabilityWindow } from '@/lib/resource-booking';
 import { adjustSiblingPricesForCancellation, processCancellationRefund } from '@/lib/booking-cancellation';
-import { notifyBookingCancelled } from '@/lib/notifications';
+import { notifyBookingCancelled, notifyAssignedStaffBookingCancelled } from '@/lib/notifications';
 import { log } from '@/lib/logger';
 
 /**
@@ -211,6 +211,13 @@ async function cancelAndRefundBooking(opts: {
         refundInfo,
       });
     }
+
+    // Notify the assigned service provider(s) — operator / coach / sidearm
+    // specialist / ground staff — that their session was auto-cancelled.
+    await notifyAssignedStaffBookingCancelled(booking.id, {
+      cancelledBy: adminName,
+      reason: cancelReason,
+    });
 
     log.info(ctx, `Auto-cancelled booking ${booking.id} due to availability change`);
   } catch (err) {

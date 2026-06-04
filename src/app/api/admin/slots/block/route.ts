@@ -3,7 +3,7 @@ import { prisma } from '@/lib/prisma';
 import { getAuthenticatedUser, hasMembershipRole } from '@/lib/auth';
 import { dateStringToUTC, formatIST } from '@/lib/time';
 import { isValidMachineId, LEATHER_MACHINES, MACHINES } from '@/lib/constants';
-import { notifyBookingCancelled } from '@/lib/notifications';
+import { notifyBookingCancelled, notifyAssignedStaffBookingCancelled } from '@/lib/notifications';
 import { resolveCurrentCenter } from '@/lib/centers';
 import {
   adjustSiblingPricesForCancellation,
@@ -486,6 +486,14 @@ export async function POST(req: NextRequest) {
             console.warn(`[block.cancel] notify failed for booking=${booking.id}:`, notifErr);
           }
         }
+
+        // Notify the assigned service provider(s) — operator / coach /
+        // sidearm specialist / ground staff — that their session was
+        // cancelled by the block. Never throws.
+        await notifyAssignedStaffBookingCancelled(booking.id, {
+          cancelledBy: cancelledByName,
+          reason: reason || 'Slot blocked',
+        });
       } catch (cancelErr) {
         const msg = cancelErr instanceof Error ? cancelErr.message : String(cancelErr);
         console.error(`[block.cancel] failed to cancel booking=${booking.id}:`, cancelErr);
