@@ -3,8 +3,11 @@ import { prisma } from '@/lib/prisma';
 import { getAuthenticatedUser } from '@/lib/auth';
 import { getISTTime, formatIST } from '@/lib/time';
 import { isBefore } from 'date-fns';
-import { notifyBookingCancelled, notifyAssignedStaffBookingCancelled } from '@/lib/notifications';
-import { MACHINES } from '@/lib/constants';
+import {
+  notifyBookingCancelled,
+  notifyAssignedStaffBookingCancelled,
+  buildCancellationDetailLines,
+} from '@/lib/notifications';
 import {
   adjustSiblingPricesForCancellation,
   processCancellationRefund,
@@ -139,14 +142,15 @@ export async function POST(req: NextRequest) {
         const dateStr = formatIST(new Date(booking.date), 'EEE, dd MMM yyyy');
         const timeStr = formatIST(new Date(booking.startTime), 'hh:mm a');
         const endStr = formatIST(new Date(booking.endTime), 'hh:mm a');
-        const machineName = booking.machineId
-          ? (MACHINES[booking.machineId as keyof typeof MACHINES]?.shortName || booking.machineId)
-          : booking.ballType;
+        // Category-aware detail line(s): machine for MACHINE bookings,
+        // specialist/coach for SIDEARM/COACHING, type-only for the rest.
+        // Never leaks the TENNIS ballType default as a fake "Machine".
+        const detailLines = await buildCancellationDetailLines(bookingId);
 
         const lines = [
           `${dateStr}`,
           `${timeStr} – ${endStr}`,
-          `Machine: ${machineName}`,
+          ...detailLines,
           `Cancelled by: ${cancelledByName}`,
         ];
         if (cancelReason) lines.push(`Reason: ${cancelReason}`);

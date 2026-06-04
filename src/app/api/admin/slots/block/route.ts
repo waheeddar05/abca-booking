@@ -2,8 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { getAuthenticatedUser, hasMembershipRole } from '@/lib/auth';
 import { dateStringToUTC, formatIST } from '@/lib/time';
-import { isValidMachineId, LEATHER_MACHINES, MACHINES } from '@/lib/constants';
-import { notifyBookingCancelled, notifyAssignedStaffBookingCancelled } from '@/lib/notifications';
+import { isValidMachineId, LEATHER_MACHINES } from '@/lib/constants';
+import { notifyBookingCancelled, notifyAssignedStaffBookingCancelled, buildCancellationDetailLines } from '@/lib/notifications';
 import { resolveCurrentCenter } from '@/lib/centers';
 import {
   adjustSiblingPricesForCancellation,
@@ -465,9 +465,11 @@ export async function POST(req: NextRequest) {
             const dateStr = formatIST(new Date(booking.date), 'EEE, dd MMM yyyy');
             const timeStr = formatIST(new Date(booking.startTime), 'hh:mm a');
             const endStr = formatIST(new Date(booking.endTime), 'hh:mm a');
-            const machineName = booking.machineId
-              ? (MACHINES[booking.machineId]?.shortName || booking.machineId)
-              : (booking.ballType ?? booking.category ?? 'Session');
+            // Category-aware detail line(s): machine for MACHINE bookings,
+            // specialist/coach for SIDEARM/COACHING, type-only for the
+            // rest. Never leaks the TENNIS ballType default as a fake
+            // "Machine".
+            const detailLines = await buildCancellationDetailLines(booking.id);
             const u = await prisma.user.findUnique({
               where: { id: booking.userId },
               select: { mobileNumber: true, mobileVerified: true },
@@ -476,7 +478,7 @@ export async function POST(req: NextRequest) {
               message: [
                 `${dateStr}`,
                 `${timeStr} – ${endStr}`,
-                `Machine: ${machineName}`,
+                ...detailLines,
                 `Cancelled by: ${cancelledByName}`,
                 `Reason: ${reason || 'Block applied'}`,
               ].join('\n'),

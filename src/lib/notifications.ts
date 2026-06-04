@@ -268,6 +268,80 @@ export async function notifyBookingCancelled(
 }
 
 /**
+ * Customer-facing booking-type labels for cancellation alerts. Kept
+ * separate from CATEGORY_LABELS / CUSTOMER_CATEGORY_LABELS so the
+ * Sidearm wording matches what the cancellation alert is meant to read
+ * ("Sidearm Specialist").
+ */
+const CANCELLATION_TYPE_LABELS: Record<BookingCategory, string> = {
+  MACHINE: 'Bowling Machine',
+  SIDEARM: 'Sidearm Specialist',
+  COACHING: 'Personal Coaching',
+  NET: 'Cricket Nets',
+  FULL_COURT: 'Full Indoor Court',
+  CORPORATE_BATCH: 'Corporate Batch',
+};
+
+/**
+ * Build the category-aware "what was booked" line(s) for a customer
+ * cancellation notification.
+ *
+ * Machine info is surfaced ONLY for MACHINE bookings; Sidearm shows the
+ * specialist, Coaching shows the coach, and the resource categories
+ * (Cricket Nets / Full Court / Corporate) show just the booking type.
+ * This is what stops a Sidearm cancellation from rendering a bogus
+ * "Machine: TENNIS" line — the TENNIS `ballType` default must never
+ * masquerade as a machine on a non-machine booking.
+ *
+ * Best-effort: any lookup failure returns an empty array so the
+ * cancellation notification still goes out (just without the detail
+ * line). Never throws.
+ */
+export async function buildCancellationDetailLines(bookingId: string): Promise<string[]> {
+  try {
+    const booking = await prisma.booking.findUnique({
+      where: { id: bookingId },
+      select: {
+        category: true,
+        machineId: true,
+        assignedMachine: { select: { name: true, shortName: true } },
+        assignedStaff: { select: { name: true } },
+        assignedCoach: { select: { name: true } },
+      },
+    });
+    if (!booking) return [];
+
+    const { category } = booking;
+
+    // MACHINE: the only category that legitimately has a machine.
+    if (category === 'MACHINE') {
+      const machineName =
+        (booking.machineId
+          ? MACHINES[booking.machineId as keyof typeof MACHINES]?.shortName
+          : null) ||
+        booking.assignedMachine?.shortName ||
+        booking.assignedMachine?.name ||
+        booking.machineId ||
+        CANCELLATION_TYPE_LABELS.MACHINE;
+      return [`Machine: ${machineName}`];
+    }
+
+    // Non-machine categories: lead with the booking type, then the
+    // relevant assigned person (specialist / coach) when one is set.
+    const lines = [`Type: ${CANCELLATION_TYPE_LABELS[category]}`];
+    if (category === 'SIDEARM' && booking.assignedStaff?.name) {
+      lines.push(`Specialist: ${booking.assignedStaff.name}`);
+    } else if (category === 'COACHING' && booking.assignedCoach?.name) {
+      lines.push(`Coach: ${booking.assignedCoach.name}`);
+    }
+    return lines;
+  } catch (err) {
+    console.warn('[Notifications] buildCancellationDetailLines failed:', err);
+    return [];
+  }
+}
+
+/**
  * Notify user about a payment/package purchase.
  */
 export async function notifyPaymentSuccess(
