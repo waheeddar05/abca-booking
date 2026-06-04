@@ -134,6 +134,13 @@ export async function POST(req: NextRequest) {
       amount: razorpayOrder.amount, // in paise
       currency: razorpayOrder.currency,
       keyId: creds.keyId,
+      // Center identity for the Razorpay Checkout modal. Without this the
+      // client falls back to a hardcoded merchant name, so a Toplay (or any
+      // non-ABCA) booking would display "ABCA Cricket Academy" even though
+      // the order is created against the center's own Razorpay account —
+      // which reads as "it's using the wrong/env account".
+      centerName: center.name,
+      centerThemeColor: center.themeColor,
     });
   } catch (error) {
     console.error('Create order error:', error);

@@ -40,6 +40,12 @@ interface RazorpayOrderResponse {
   amount: number; // in paise
   currency: string;
   keyId: string;
+  /** Name of the center the order belongs to. Shown as the merchant name
+   *  in the Razorpay Checkout modal so each center brands its own account
+   *  instead of every center showing "ABCA Cricket Academy". */
+  centerName?: string;
+  /** Optional per-center accent color for the checkout modal. */
+  centerThemeColor?: string | null;
 }
 
 export interface PaymentResult {
@@ -153,12 +159,15 @@ export function useRazorpay(options: UseRazorpayOptions = {}, paymentEnabled = t
               key: order.keyId,
               amount: order.amount,
               currency: order.currency,
-              name: 'ABCA Cricket Academy',
+              // Merchant name shown in the Razorpay modal — use the center's
+              // own name so a Toplay booking reads "Toplay", not "ABCA". Falls
+              // back only when the server didn't supply a center name.
+              name: order.centerName || 'PlayOrbit',
               description: params.description || (params.type === 'PACKAGE_PURCHASE' ? 'Package Purchase' : 'Slot Booking'),
               order_id: order.orderId,
               prefill: params.prefill || {},
               theme: {
-                color: '#d4a843',
+                color: order.centerThemeColor || '#d4a843',
               },
               handler: async (response: {
                 razorpay_order_id: string;
