@@ -96,7 +96,10 @@ describe('notifyCustomerNewBooking', () => {
     const [mobile, template] = sendWhatsAppNotificationMock.mock.calls[0];
     expect(mobile).toBe('9876500000');
     expect(template).toBe('booking_detail');
-    // Headline ({{3}}) reads as the category for non-machine bookings.
+    // Center name leads the message ({{1}}) so the recipient can tell
+    // which center the booking is at, at a glance.
+    expect(templateParams()[0]).toBe('Toplay Indoor');
+    // Headline ({{4}}) reads as the category for non-machine bookings.
     expect(templateParams()).toContain('Personal Coaching');
   });
 

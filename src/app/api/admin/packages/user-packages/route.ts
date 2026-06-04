@@ -154,6 +154,7 @@ export async function POST(req: NextRequest) {
           reason: `Package cancelled — ${unused} unused session${unused === 1 ? '' : 's'} refunded`,
           newBalance,
           mobileNumber: userPackage.user?.mobileNumber ?? null,
+          centerId: userPackage.package?.centerId,
         }).catch(err => console.warn('[PackageCancel] Wallet notification failed:', err));
       }
 

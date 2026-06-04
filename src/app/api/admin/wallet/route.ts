@@ -102,6 +102,7 @@ export async function POST(req: NextRequest) {
           reason: desc,
           newBalance: result.newBalance,
           mobileNumber: notifUser?.mobileVerified ? notifUser.mobileNumber : null,
+          centerName: center.name,
         });
       } catch (notifErr) {
         console.error('Failed to send wallet credit notification:', notifErr);

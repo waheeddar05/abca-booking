@@ -167,6 +167,7 @@ export async function POST(req: NextRequest) {
           message: lines.join(' | '),
           mobileNumber: notifUser?.mobileVerified ? notifUser.mobileNumber : null,
           refundInfo,
+          centerId: booking.centerId,
         });
       }
     } catch (notifErr) {

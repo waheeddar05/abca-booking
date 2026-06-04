@@ -53,6 +53,49 @@ async function isWhatsAppEnabled(): Promise<boolean> {
   return val === 'true';
 }
 
+// ─── Center Name Resolution ─────────────────────────────────────────
+//
+// Every notification names the center it relates to so recipients can
+// tell ABCA from Toplay at a glance (multi-center). Callers pass the
+// name directly when they already have it (e.g. a loaded `center`
+// relation), or just the `centerId` and we look the name up. Center
+// names change rarely, so a small module-level cache keeps these
+// fire-and-forget paths from doing an extra DB round-trip every time.
+// Falls back to 'PlayOrbit' so the WhatsApp template always receives a
+// value for its leading parameter (never a param-count mismatch).
+
+const centerNameCache = new Map<string, string>();
+
+async function resolveCenterName(opts: {
+  centerName?: string | null;
+  centerId?: string | null;
+}): Promise<string> {
+  const explicit = opts.centerName?.trim();
+  if (explicit) return explicit;
+
+  const id = opts.centerId;
+  if (id) {
+    const cached = centerNameCache.get(id);
+    if (cached) return cached;
+    try {
+      const center = await prisma.center.findUnique({
+        where: { id },
+        select: { name: true },
+      });
+      if (center?.name) {
+        centerNameCache.set(id, center.name);
+        return center.name;
+      }
+    } catch (err) {
+      console.error('[Notifications] Failed to resolve center name:', {
+        centerId: id,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+  return 'PlayOrbit';
+}
+
 /**
  * Send an in-app notification (always created in DB).
  * Optionally also sends via WhatsApp if the feature is enabled
@@ -129,11 +172,14 @@ export async function notifyBookingConfirmed(
     mobileNumber?: string | null;
     kitRental?: boolean;
     kitRentalCharge?: number | null;
+    centerName?: string; // e.g. "ABCA Cricket Academy" — leads the message
+    centerId?: string; // looked up when centerName isn't supplied
   },
 ): Promise<SendResult> {
-  // Template booking_detail (7 params):
-  // "🏏 *Booking Confirmed!*\n📅 {{1}}\n⏰ {{2}}\n🎯 {{3}} — {{4}}\n💰 {{5}}\n👤 Operator: {{6}}\n📞 Contact: {{7}}\n📍 PlayOrbit Cricket Nets + maps link"
+  // Template booking_detail (8 params — center name leads, right after the title):
+  // "🏏 *Booking Confirmed!*\n🏢 Center: {{1}}\n📅 {{2}}\n⏰ {{3}}\n🎯 {{4}} — {{5}}\n💰 {{6}}\n👤 Operator: {{7}}\n📞 Contact: {{8}}\n📍 maps link"
   const kitInfo = details.kitRental ? ' + Cricket Kit' : '';
+  const centerName = await resolveCenterName(details);
   const slotSummary = `${details.machine}, ${details.pitch} — ${details.time} on ${details.date} (${details.price}${kitInfo})`;
   const operatorName = details.operatorName || 'To be assigned';
   const operatorPhone = details.operatorPhone || 'Will be shared soon';
@@ -142,7 +188,7 @@ export async function notifyBookingConfirmed(
     {
       userId,
       title: 'Booking Confirmed',
-      message: slotSummary,
+      message: `${centerName} — ${slotSummary}`,
       type: 'SUCCESS',
     },
     details.mobileNumber
@@ -153,6 +199,7 @@ export async function notifyBookingConfirmed(
             {
               type: 'body',
               parameters: [
+                { type: 'text', text: centerName },
                 { type: 'text', text: details.date },
                 { type: 'text', text: details.time },
                 { type: 'text', text: details.machine },
@@ -177,18 +224,22 @@ export async function notifyBookingCancelled(
     message: string;
     mobileNumber?: string | null;
     refundInfo?: string;
+    centerName?: string; // leads the message
+    centerId?: string; // looked up when centerName isn't supplied
   },
 ): Promise<SendResult> {
+  const centerName = await resolveCenterName(details);
   const fullMessage = details.refundInfo
     ? `${details.message}\n${details.refundInfo}`
     : details.message;
 
-  // Template: "Your PlayOrbit booking has been cancelled: {{1}}. If a refund applies, it will be credited to your wallet."
+  // Template booking_cancelled (2 params — center name leads, right after the title):
+  // "❌ *Booking Cancelled*\n🏢 Center: {{1}}\n{{2}}\nIf a refund applies, it will be credited to your wallet."
   return notify(
     {
       userId,
       title: 'Booking Cancelled',
-      message: fullMessage,
+      message: `${centerName} — ${fullMessage}`,
       type: 'CANCELLATION',
     },
     details.mobileNumber
@@ -199,7 +250,10 @@ export async function notifyBookingCancelled(
             {
               type: 'body',
               // Meta WhatsApp API rejects newlines, tabs, and 4+ consecutive spaces in template params
-              parameters: [{ type: 'text', text: details.message.replace(/[\n\t]/g, ' | ').replace(/\s{4,}/g, '   ') }],
+              parameters: [
+                { type: 'text', text: centerName },
+                { type: 'text', text: details.message.replace(/[\n\t]/g, ' | ').replace(/\s{4,}/g, '   ') },
+              ],
             },
           ],
         }
@@ -215,13 +269,18 @@ export async function notifyPaymentSuccess(
   details: {
     message: string;
     mobileNumber?: string | null;
+    centerName?: string; // leads the message
+    centerId?: string; // looked up when centerName isn't supplied
   },
 ): Promise<SendResult> {
+  const centerName = await resolveCenterName(details);
+  // Template payment_success (2 params — center name leads, right after the title):
+  // "✅ *Payment Successful*\n🏢 Center: {{1}}\n{{2}}"
   return notify(
     {
       userId,
       title: 'Payment Successful',
-      message: details.message,
+      message: `${centerName} — ${details.message}`,
       type: 'SUCCESS',
     },
     details.mobileNumber
@@ -231,7 +290,10 @@ export async function notifyPaymentSuccess(
           components: [
             {
               type: 'body',
-              parameters: [{ type: 'text', text: details.message }],
+              parameters: [
+                { type: 'text', text: centerName },
+                { type: 'text', text: details.message },
+              ],
             },
           ],
         }
@@ -249,10 +311,14 @@ export async function notifyWalletCredit(
     reason: string;
     newBalance: number;
     mobileNumber?: string | null;
+    centerName?: string; // leads the message
+    centerId?: string; // looked up when centerName isn't supplied
   },
 ): Promise<SendResult> {
-  // Template: "PlayOrbit Wallet: ₹{{1}} credited. Reason: {{2}}. New balance: ₹{{3}}. Thank you!"
-  const message = `₹${details.amount} credited to your wallet. Reason: ${details.reason}. Balance: ₹${details.newBalance}`;
+  const centerName = await resolveCenterName(details);
+  // Template wallet_credit (4 params — center name leads):
+  // "PlayOrbit Wallet ({{1}}): ₹{{2}} credited. Reason: {{3}}. New balance: ₹{{4}}. Thank you!"
+  const message = `${centerName} — ₹${details.amount} credited to your wallet. Reason: ${details.reason}. Balance: ₹${details.newBalance}`;
 
   return notify(
     {
@@ -269,6 +335,7 @@ export async function notifyWalletCredit(
             {
               type: 'body',
               parameters: [
+                { type: 'text', text: centerName },
                 { type: 'text', text: `${details.amount}` },
                 { type: 'text', text: details.reason },
                 { type: 'text', text: `${details.newBalance}` },
@@ -300,12 +367,13 @@ export async function notifyInfo(
  */
 async function getBookingOperator(
   bookingId: string,
-): Promise<{ operatorId: string; name: string; mobileNumber: string | null } | null> {
+): Promise<{ operatorId: string; name: string; mobileNumber: string | null; centerName: string } | null> {
   const booking = await prisma.booking.findUnique({
     where: { id: bookingId },
     select: {
       operatorId: true,
       operator: { select: { id: true, name: true, mobileNumber: true } },
+      center: { select: { name: true } },
     },
   });
   if (!booking?.operator) return null;
@@ -313,6 +381,7 @@ async function getBookingOperator(
     operatorId: booking.operator.id,
     name: booking.operator.name || 'Operator',
     mobileNumber: booking.operator.mobileNumber || null,
+    centerName: booking.center?.name || 'PlayOrbit',
   };
 }
 
@@ -339,6 +408,7 @@ export async function notifyOperatorNewBooking(
 
     const msg = [
       `New Booking!`,
+      `Center: ${operator.centerName}`,
       `Customer: ${details.customerName}`,
       `Date: ${details.date}`,
       `Time: ${details.time}`,
@@ -403,6 +473,7 @@ export async function notifyOperatorBookingCancelled(
 
     const lines = [
       `Booking Cancelled`,
+      `Center: ${operator.centerName}`,
       `Customer: ${details.customerName}`,
       `Date: ${details.date}`,
       `Time: ${details.time}`,
@@ -804,7 +875,8 @@ export async function notifyAssignedStaffNewBooking(bookingIds: string[]): Promi
 
     const buildWhatsApp = (recipient: StaffRecipient): string => {
       const lines = [
-        `🏏 *New Booking* — ${centerName}`,
+        `🏏 *New Booking*`,
+        `🏢 Center: ${centerName}`,
         `Hi ${recipient.name} (${STAFF_ROLE_LABELS[recipient.roleKey]}),`,
         `A new booking has been assigned to you.`,
         ``,
@@ -872,7 +944,8 @@ export async function notifyAssignedStaffBookingCancelled(
 
     const buildWhatsApp = (recipient: StaffRecipient): string => {
       const lines = [
-        `❌ *Booking Cancelled* — ${centerName}`,
+        `❌ *Booking Cancelled*`,
+        `🏢 Center: ${centerName}`,
         `Hi ${recipient.name} (${STAFF_ROLE_LABELS[recipient.roleKey]}),`,
         `A booking assigned to you has been cancelled.`,
         ``,
@@ -1085,6 +1158,7 @@ export async function notifyCustomerNewBooking(bookingIds: string[]): Promise<vo
       mobileNumber: primary.user?.mobileVerified ? primary.user.mobileNumber : null,
       kitRental,
       kitRentalCharge: kitRental ? kitRentalCharge : null,
+      centerName: primary.center?.name || undefined,
     });
   } catch (err) {
     console.error('[Notifications] notifyCustomerNewBooking failed:', err);

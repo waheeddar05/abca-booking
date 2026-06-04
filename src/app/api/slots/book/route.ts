@@ -973,6 +973,7 @@ export async function executeSlotBooking(
         mobileNumber: notifUser?.mobileVerified ? notifUser.mobileNumber : null,
         kitRental,
         kitRentalCharge,
+        centerId,
       });
     } catch (notifErr) {
       console.error('Failed to create booking notification:', notifErr);

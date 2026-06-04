@@ -186,6 +186,7 @@ export async function POST(req: NextRequest) {
               reason: 'Booking cancelled — operator unavailable',
               newBalance: walletResult.newBalance,
               mobileNumber: user.mobileNumber,
+              centerId: booking.centerId,
             }).catch(err => console.warn('[OverrideCancel] Wallet notification failed:', err));
           }
 
@@ -202,6 +203,7 @@ export async function POST(req: NextRequest) {
             message: `Your booking on ${dateStr} at ${timeStr} has been cancelled as no operator is available for the ${label} slot.${refundAmount > 0 ? ` ₹${refundAmount} has been refunded to your wallet.` : ''}`,
             mobileNumber: user.mobileNumber,
             refundInfo: refundAmount > 0 ? `₹${refundAmount} refunded to wallet` : undefined,
+            centerId: booking.centerId,
           }).catch(err => console.warn('[OverrideCancel] Cancellation notification failed:', err));
 
           // 5. Notify every assigned staff member (operator / coach / specialist)

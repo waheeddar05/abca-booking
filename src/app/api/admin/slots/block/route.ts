@@ -481,6 +481,7 @@ export async function POST(req: NextRequest) {
                 `Reason: ${reason || 'Block applied'}`,
               ].join('\n'),
               mobileNumber: u?.mobileVerified ? u.mobileNumber : null,
+              centerId: booking.centerId,
             });
           } catch (notifErr) {
             console.warn(`[block.cancel] notify failed for booking=${booking.id}:`, notifErr);
