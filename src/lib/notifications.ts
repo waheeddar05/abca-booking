@@ -176,8 +176,11 @@ export async function notifyBookingConfirmed(
     centerId?: string; // looked up when centerName isn't supplied
   },
 ): Promise<SendResult> {
-  // Template booking_detail (8 params — center name leads, right after the title):
-  // "🏏 *Booking Confirmed!*\n🏢 Center: {{1}}\n📅 {{2}}\n⏰ {{3}}\n🎯 {{4}} — {{5}}\n💰 {{6}}\n👤 Operator: {{7}}\n📞 Contact: {{8}}\n📍 maps link"
+  // Template booking_detail (7 params — UNCHANGED on the BSP). The center
+  // name is embedded into the leading {{1}} (date) param so it renders on
+  // the first line right under the title, e.g. "📅 ABCA • Wed, 26 Mar 2026",
+  // without needing a new template placeholder:
+  // "🏏 *Booking Confirmed!*\n📅 {{1}}\n⏰ {{2}}\n🎯 {{3}} — {{4}}\n💰 {{5}}\n👤 Operator: {{6}}\n📞 Contact: {{7}}\n📍 maps link"
   const kitInfo = details.kitRental ? ' + Cricket Kit' : '';
   const centerName = await resolveCenterName(details);
   const slotSummary = `${details.machine}, ${details.pitch} — ${details.time} on ${details.date} (${details.price}${kitInfo})`;
@@ -199,8 +202,7 @@ export async function notifyBookingConfirmed(
             {
               type: 'body',
               parameters: [
-                { type: 'text', text: centerName },
-                { type: 'text', text: details.date },
+                { type: 'text', text: `${centerName} • ${details.date}` },
                 { type: 'text', text: details.time },
                 { type: 'text', text: details.machine },
                 { type: 'text', text: details.pitch },
@@ -233,8 +235,10 @@ export async function notifyBookingCancelled(
     ? `${details.message}\n${details.refundInfo}`
     : details.message;
 
-  // Template booking_cancelled (2 params — center name leads, right after the title):
-  // "❌ *Booking Cancelled*\n🏢 Center: {{1}}\n{{2}}\nIf a refund applies, it will be credited to your wallet."
+  // Template booking_cancelled (1 param — UNCHANGED on the BSP). The center
+  // name leads the {{1}} detail string so it's the first thing the reader
+  // sees in the message body:
+  // "Your PlayOrbit booking has been cancelled: {{1}}. If a refund applies, it will be credited to your wallet."
   return notify(
     {
       userId,
@@ -251,8 +255,10 @@ export async function notifyBookingCancelled(
               type: 'body',
               // Meta WhatsApp API rejects newlines, tabs, and 4+ consecutive spaces in template params
               parameters: [
-                { type: 'text', text: centerName },
-                { type: 'text', text: details.message.replace(/[\n\t]/g, ' | ').replace(/\s{4,}/g, '   ') },
+                {
+                  type: 'text',
+                  text: `${centerName} • ${details.message}`.replace(/[\n\t]/g, ' | ').replace(/\s{4,}/g, '   '),
+                },
               ],
             },
           ],
@@ -274,8 +280,9 @@ export async function notifyPaymentSuccess(
   },
 ): Promise<SendResult> {
   const centerName = await resolveCenterName(details);
-  // Template payment_success (2 params — center name leads, right after the title):
-  // "✅ *Payment Successful*\n🏢 Center: {{1}}\n{{2}}"
+  // Template payment_success (1 param — UNCHANGED on the BSP). The center
+  // name leads the {{1}} message string so it's identifiable up front:
+  // "{{1}}"
   return notify(
     {
       userId,
@@ -291,8 +298,7 @@ export async function notifyPaymentSuccess(
             {
               type: 'body',
               parameters: [
-                { type: 'text', text: centerName },
-                { type: 'text', text: details.message },
+                { type: 'text', text: `${centerName} • ${details.message}` },
               ],
             },
           ],
@@ -316,8 +322,11 @@ export async function notifyWalletCredit(
   },
 ): Promise<SendResult> {
   const centerName = await resolveCenterName(details);
-  // Template wallet_credit (4 params — center name leads):
-  // "PlayOrbit Wallet ({{1}}): ₹{{2}} credited. Reason: {{3}}. New balance: ₹{{4}}. Thank you!"
+  // Template wallet_credit (3 params — UNCHANGED on the BSP). The {{1}}
+  // (amount) and {{3}} (balance) slots render with a "₹" prefix so they
+  // must stay numeric; the center name is folded into the {{2}} reason
+  // string instead so it's still named in the message:
+  // "PlayOrbit Wallet: ₹{{1}} credited. Reason: {{2}}. New balance: ₹{{3}}. Thank you!"
   const message = `${centerName} — ₹${details.amount} credited to your wallet. Reason: ${details.reason}. Balance: ₹${details.newBalance}`;
 
   return notify(
@@ -335,9 +344,8 @@ export async function notifyWalletCredit(
             {
               type: 'body',
               parameters: [
-                { type: 'text', text: centerName },
                 { type: 'text', text: `${details.amount}` },
-                { type: 'text', text: details.reason },
+                { type: 'text', text: `${centerName} • ${details.reason}` },
                 { type: 'text', text: `${details.newBalance}` },
               ],
             },
