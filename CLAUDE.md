@@ -173,6 +173,8 @@ The `User.isSuperAdmin` boolean column is the source of truth. The `SUPER_ADMIN_
 ### `?allCenters=true` convention
 Admin/operator GET routes that return aggregate or list data accept an optional `allCenters=true` query param. When set, the route ignores the current center and returns data across every center — gated to super admins only. The default (no param) always scopes to the resolved current center. Use this for the platform-wide super-admin dashboard; never for plain admin views.
 
+**Exception — `/api/admin/users`:** the admin Users listing lets *any* admin pass `allCenters=true` (the `All users` / `This center` toggle on `/admin/users`). User lookup is intentionally cross-center so a center admin can find someone who hasn't booked at their center yet. This only widens *read* visibility — mutating actions on that route stay individually gated (delete and free-user toggles remain super-admin only).
+
 ### Resource-based booking engine (phase 5)
 
 Centers with `bookingModel = RESOURCE_BASED` (e.g. Toplay) use a different booking primitive than ABCA. Instead of `(machineId, pitchType)` lanes, every booking consumes one or more `Resource` rows (nets/courts/turf wickets) plus optionally a `Machine`, a coach (User with COACH membership), or a sidearm-staff member (SIDEARM_STAFF membership).

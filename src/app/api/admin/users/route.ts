@@ -4,9 +4,11 @@
  * Before: this route returned every user in the system regardless of
  * which center the admin was looking at. After: it returns only users
  * with a presence at the admin's current center (a CenterMembership
- * OR at least one Booking). Super admins can pass `?allCenters=true`
- * to get the legacy cross-center view, mirroring the same convention
- * used by other admin endpoints.
+ * OR at least one Booking). Any admin can pass `?allCenters=true` to
+ * get the cross-center view (every user in the system) — handy for
+ * looking someone up before they've booked at that center. Mutating
+ * actions stay individually gated (delete / free-user are super-admin
+ * only) so wider visibility doesn't grant wider write access.
  *
  * Role changes write to BOTH layers:
  *   - `User.role` (legacy global gate used by middleware/getSession)
@@ -88,7 +90,7 @@ async function getActor(req: NextRequest) {
  * Query params:
  *   search       free-text match on name/email/mobile
  *   role         filter by User.role (USER | ADMIN | OPERATOR)
- *   allCenters   "true" — super admin only — returns every user in the system
+ *   allCenters   "true" — any admin — returns every user in the system
  */
 export async function GET(req: NextRequest) {
   try {
@@ -100,11 +102,12 @@ export async function GET(req: NextRequest) {
     const { searchParams } = new URL(req.url);
     const search = searchParams.get('search');
     const role = searchParams.get('role');
+    // The all-users view returns every user in the system regardless of
+    // center. This used to be super-admin only; it's now open to any
+    // admin so center admins can search the full user base (e.g. to find
+    // someone who hasn't booked at their center yet). Write actions are
+    // gated separately, so this only widens read visibility.
     const allCenters = searchParams.get('allCenters') === 'true';
-
-    if (allCenters && !actor.isSuperAdmin) {
-      return NextResponse.json({ error: 'allCenters requires super admin' }, { status: 403 });
-    }
 
     const where: Prisma.UserWhereInput = {};
     if (role && (role === 'ADMIN' || role === 'USER' || role === 'OPERATOR')) {
@@ -121,8 +124,8 @@ export async function GET(req: NextRequest) {
     // Center scoping. A user "belongs to" a center if either:
     //   - they're a member of it (staff role), or
     //   - they've ever booked there (customer).
-    // Super admins with allCenters=true skip this filter; everyone else
-    // is scoped to the resolved center.
+    // allCenters=true skips this filter (cross-center view); the default
+    // scopes to the resolved center.
     let scopedCenterId: string | null = null;
     if (!allCenters) {
       const center = await resolveCurrentCenter(req, actor);
@@ -175,9 +178,9 @@ export async function GET(req: NextRequest) {
           },
         },
         // Wallet balance(s) so the User Management list can surface
-        // funds upfront without a per-row API call. Center admins see
-        // only their current center's wallet; super admins see every
-        // wallet for the user. Pruned to the relevant scope below.
+        // funds upfront without a per-row API call. The center-scoped
+        // view shows only the current center's wallet; the all-users
+        // view sums every wallet for the user. Pruned to scope below.
         wallets: {
           select: { centerId: true, balance: true },
         },
@@ -188,9 +191,9 @@ export async function GET(req: NextRequest) {
       orderBy: { createdAt: 'desc' },
     });
 
-    // Compute a single `walletBalance` per user for the UI. For center
-    // admins this is the balance at the resolved center; for the super
-    // admin allCenters view we sum across every wallet they hold.
+    // Compute a single `walletBalance` per user for the UI. In the
+    // center-scoped view this is the balance at the resolved center; in
+    // the all-users view we sum across every wallet they hold.
     const enriched = users.map((u) => {
       const relevantWallets = scopedCenterId
         ? u.wallets.filter((w) => w.centerId === scopedCenterId)
