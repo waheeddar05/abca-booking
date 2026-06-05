@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 // ─── Mocks ──────────────────────────────────────────────────────────
 // Mock the data + delivery layers so we can assert *who* gets notified
@@ -30,9 +30,15 @@ vi.mock('@/lib/policy-cache', () => ({
 }));
 
 const sendWhatsAppTextMock = vi.fn();
+const sendWhatsAppNotificationMock = vi.fn();
 vi.mock('@/lib/whatsapp', () => ({
   sendWhatsAppText: (mobile: string, text: string) => sendWhatsAppTextMock(mobile, text),
-  sendWhatsAppNotification: vi.fn(),
+  sendWhatsAppNotification: (
+    mobile: string,
+    template: string,
+    components: unknown,
+    language?: string,
+  ) => sendWhatsAppNotificationMock(mobile, template, components, language),
 }));
 
 // MACHINES is only used for legacy fallback labels.
@@ -61,31 +67,53 @@ function bookingRow(overrides: Record<string, unknown> = {}) {
     endTime: baseEnd,
     category: 'COACHING',
     machineId: null,
+    pitchType: null,
+    price: 500,
+    paymentMethod: 'ONLINE',
+    paymentStatus: 'PAID',
     centerId: 'ctr_1',
     cancelledBy: null,
     cancellationReason: null,
     center: { name: 'Toplay Indoor' },
+    user: { mobileNumber: '9990001111' },
     operator: null,
     assignedCoach: { id: 'coach_1', name: 'Coach Anil', mobileNumber: '9876500001' },
     assignedStaff: null,
     assignedMachine: null,
     resourceAssignments: [{ resource: { name: 'Indoor Net 2' } }],
+    packageBooking: null,
     ...overrides,
   };
+}
+
+/** Flatten the body parameters of the Nth sendWhatsAppNotification call. */
+function templateParams(callIndex = 0): string[] {
+  const call = sendWhatsAppNotificationMock.mock.calls[callIndex];
+  const components = call?.[2] as { parameters?: { text?: string }[] }[] | undefined;
+  return (components?.[0]?.parameters ?? []).map((p) => p.text ?? '');
 }
 
 beforeEach(() => {
   vi.clearAllMocks();
   getCachedPolicyMock.mockResolvedValue('true'); // WhatsApp enabled
-  sendWhatsAppTextMock.mockResolvedValue({ success: true, messageId: 'wamid.1' });
+  // Default: the approved template delivers (the new primary path). Staff
+  // notifications go through sendWhatsAppNotification; the free-form text
+  // is only a fallback.
+  sendWhatsAppNotificationMock.mockResolvedValue({ success: true, messageId: 'wamid.tmpl' });
+  sendWhatsAppTextMock.mockResolvedValue({ success: true, messageId: 'wamid.text' });
   createMock.mockResolvedValue({ id: 'notif_1' });
   // Default: no ground staff configured at the center. Tests that
   // exercise the ground-staff path override this per-case.
   membershipFindFirstMock.mockResolvedValue(null);
+  delete process.env.WHATSAPP_STAFF_BOOKING_TEMPLATE;
+});
+
+afterEach(() => {
+  delete process.env.WHATSAPP_STAFF_BOOKING_TEMPLATE;
 });
 
 describe('notifyAssignedStaffNewBooking', () => {
-  it('notifies every distinct assigned staff member (operator + coach + specialist)', async () => {
+  it('notifies every distinct assigned staff member via an approved template (operator + coach + specialist)', async () => {
     findManyMock.mockResolvedValue([
       bookingRow({
         category: 'MACHINE',
@@ -98,32 +126,38 @@ describe('notifyAssignedStaffNewBooking', () => {
 
     await notifyAssignedStaffNewBooking(['bk_1']);
 
-    // 3 WhatsApp messages (one per staff member with a mobile number)
-    expect(sendWhatsAppTextMock).toHaveBeenCalledTimes(3);
-    const recipients = sendWhatsAppTextMock.mock.calls.map((c) => c[0]).sort();
+    // 3 approved-template WhatsApp messages (one per staff member with a mobile)
+    expect(sendWhatsAppNotificationMock).toHaveBeenCalledTimes(3);
+    const recipients = sendWhatsAppNotificationMock.mock.calls.map((c) => c[0]).sort();
     expect(recipients).toEqual(['9876500001', '9876500002', '9876500003']);
+    // Template succeeded → no free-form fallback
+    expect(sendWhatsAppTextMock).not.toHaveBeenCalled();
     // 3 in-app notifications too
     expect(createMock).toHaveBeenCalledTimes(3);
   });
 
-  it('includes the required booking details in the WhatsApp message', async () => {
+  it('reuses the approved booking_detail template with the booking details', async () => {
     findManyMock.mockResolvedValue([bookingRow()]);
 
     await notifyAssignedStaffNewBooking(['bk_1']);
 
-    const [, text] = sendWhatsAppTextMock.mock.calls[0];
-    expect(text).toContain('New Booking');
-    expect(text).toContain('Toplay Indoor'); // center name
-    expect(text).toContain('Rahul'); // customer
-    expect(text).toContain('Indoor Net 2'); // facility / resource
-    expect(text).toContain('Personal Coaching'); // booking type
-    expect(text).toContain('30 min'); // duration
-    expect(text).toContain('Coach Anil'); // assigned coach detail
-    expect(text).toContain('Booking ID'); // reference label
-    expect(text).toContain('bk_1'); // the booking id itself
+    // Default (no dedicated template): reuse the approved customer template.
+    const [, templateName] = sendWhatsAppNotificationMock.mock.calls[0];
+    expect(templateName).toBe('booking_detail');
+    const params = templateParams();
+    expect(params[0]).toContain('Toplay Indoor'); // center name folded into {{1}}
+    expect(params).toContain('Personal Coaching'); // booking type
+    expect(params).toContain('Indoor Net 2'); // facility / resource
+    expect(params).toContain('₹500'); // price
+    expect(params).toContain('Coach Anil'); // on-ground contact (coach for COACHING)
+
+    // The customer name still rides on the always-on in-app notification.
+    const inApp = createMock.mock.calls[0][0] as { data: { message: string } };
+    expect(inApp.data.message).toContain('Rahul');
+    expect(inApp.data.message).toContain('Indoor Net 2');
   });
 
-  it('shows a "+N more" hint on the booking id for multi-slot bookings', async () => {
+  it('reflects multi-slot bookings in the template time parameter', async () => {
     findManyMock.mockResolvedValue([
       bookingRow(),
       bookingRow({ id: 'bk_2', startTime: baseEnd, endTime: new Date('2026-06-03T11:30:00.000Z') }),
@@ -131,8 +165,63 @@ describe('notifyAssignedStaffNewBooking', () => {
 
     await notifyAssignedStaffNewBooking(['bk_1', 'bk_2']);
 
+    const params = templateParams();
+    // {{2}} is the time window; multi-slot appends a "(N slots)" suffix.
+    expect(params[1]).toContain('(2 slots)');
+  });
+
+  it('falls back to free-form text when the approved template send fails', async () => {
+    sendWhatsAppNotificationMock.mockResolvedValue({ success: false, error: 'template rejected' });
+    findManyMock.mockResolvedValue([bookingRow()]);
+
+    await notifyAssignedStaffNewBooking(['bk_1']);
+
+    expect(sendWhatsAppNotificationMock).toHaveBeenCalledTimes(1);
+    // Template failed → free-form text fallback kicks in
+    expect(sendWhatsAppTextMock).toHaveBeenCalledTimes(1);
     const [, text] = sendWhatsAppTextMock.mock.calls[0];
-    expect(text).toContain('Booking ID: bk_1 (+1 more)');
+    expect(text).toContain('New Booking');
+    expect(text).toContain('Rahul'); // customer
+    expect(text).toContain('Booking ID');
+    expect(text).toContain('bk_1');
+  });
+
+  it('does NOT send the text fallback when the WhatsApp provider is unconfigured', async () => {
+    // sendWhatsAppNotification returns null when no provider is configured;
+    // the text fallback would be unconfigured too, so it must be skipped.
+    sendWhatsAppNotificationMock.mockResolvedValue(null);
+    findManyMock.mockResolvedValue([bookingRow()]);
+
+    await notifyAssignedStaffNewBooking(['bk_1']);
+
+    expect(sendWhatsAppNotificationMock).toHaveBeenCalledTimes(1);
+    expect(sendWhatsAppTextMock).not.toHaveBeenCalled();
+    expect(createMock).toHaveBeenCalledTimes(1); // in-app still created
+  });
+
+  it('uses the dedicated staff template when WHATSAPP_STAFF_BOOKING_TEMPLATE is set', async () => {
+    process.env.WHATSAPP_STAFF_BOOKING_TEMPLATE = 'staff_booking_alert';
+    findManyMock.mockResolvedValue([
+      bookingRow({
+        category: 'SIDEARM',
+        assignedCoach: null,
+        assignedStaff: { id: 'staff_1', name: 'Spec Vik', mobileNumber: '9876500003' },
+      }),
+    ]);
+
+    await notifyAssignedStaffNewBooking(['bk_1']);
+
+    const [mobile, templateName] = sendWhatsAppNotificationMock.mock.calls[0];
+    expect(mobile).toBe('9876500003');
+    expect(templateName).toBe('staff_booking_alert');
+    const params = templateParams();
+    // Dedicated contract: {{1}} center, {{2}} role, {{3}} customer, {{4}} customer phone …
+    expect(params[0]).toBe('Toplay Indoor');
+    expect(params[1]).toBe('Trainer Specialist'); // SIDEARM_SPECIALIST role label
+    expect(params[2]).toBe('Rahul'); // customer name
+    expect(params[3]).toBe('9990001111'); // customer phone
+    expect(params).toContain('Sidearm Session'); // booking type
+    expect(params).toContain('Indoor Net 2'); // facility
   });
 
   it('skips WhatsApp for staff without a mobile number but still records in-app', async () => {
@@ -142,6 +231,7 @@ describe('notifyAssignedStaffNewBooking', () => {
 
     await notifyAssignedStaffNewBooking(['bk_1']);
 
+    expect(sendWhatsAppNotificationMock).not.toHaveBeenCalled();
     expect(sendWhatsAppTextMock).not.toHaveBeenCalled();
     expect(createMock).toHaveBeenCalledTimes(1); // in-app still created
   });
@@ -152,6 +242,7 @@ describe('notifyAssignedStaffNewBooking', () => {
 
     await notifyAssignedStaffNewBooking(['bk_1']);
 
+    expect(sendWhatsAppNotificationMock).not.toHaveBeenCalled();
     expect(sendWhatsAppTextMock).not.toHaveBeenCalled();
     expect(createMock).toHaveBeenCalledTimes(1);
   });
@@ -163,6 +254,7 @@ describe('notifyAssignedStaffNewBooking', () => {
 
     await notifyAssignedStaffNewBooking(['bk_1']);
 
+    expect(sendWhatsAppNotificationMock).not.toHaveBeenCalled();
     expect(sendWhatsAppTextMock).not.toHaveBeenCalled();
     expect(createMock).not.toHaveBeenCalled();
   });
@@ -175,7 +267,7 @@ describe('notifyAssignedStaffNewBooking', () => {
 
     await notifyAssignedStaffNewBooking(['bk_1', 'bk_2']);
 
-    expect(sendWhatsAppTextMock).toHaveBeenCalledTimes(1);
+    expect(sendWhatsAppNotificationMock).toHaveBeenCalledTimes(1);
   });
 
   it('notifies the center ground staff for a Cricket Net booking with no assigned staff', async () => {
@@ -189,8 +281,8 @@ describe('notifyAssignedStaffNewBooking', () => {
     await notifyAssignedStaffNewBooking(['bk_1']);
 
     expect(membershipFindFirstMock).toHaveBeenCalledTimes(1);
-    expect(sendWhatsAppTextMock).toHaveBeenCalledTimes(1);
-    expect(sendWhatsAppTextMock.mock.calls[0][0]).toBe('9876500009');
+    expect(sendWhatsAppNotificationMock).toHaveBeenCalledTimes(1);
+    expect(sendWhatsAppNotificationMock.mock.calls[0][0]).toBe('9876500009');
     expect(createMock).toHaveBeenCalledTimes(1);
   });
 
@@ -208,7 +300,7 @@ describe('notifyAssignedStaffNewBooking', () => {
 
     await notifyAssignedStaffNewBooking(['bk_1']);
 
-    const recipients = sendWhatsAppTextMock.mock.calls.map((c) => c[0]).sort();
+    const recipients = sendWhatsAppNotificationMock.mock.calls.map((c) => c[0]).sort();
     expect(recipients).toEqual(['9876500003', '9876500009']);
   });
 
@@ -222,7 +314,7 @@ describe('notifyAssignedStaffNewBooking', () => {
 
     await notifyAssignedStaffNewBooking(['bk_1']);
 
-    expect(sendWhatsAppTextMock).toHaveBeenCalledTimes(1);
+    expect(sendWhatsAppNotificationMock).toHaveBeenCalledTimes(1);
   });
 
   it('does not look up ground staff for a Bowling Machine booking', async () => {
@@ -237,7 +329,7 @@ describe('notifyAssignedStaffNewBooking', () => {
     await notifyAssignedStaffNewBooking(['bk_1']);
 
     expect(membershipFindFirstMock).not.toHaveBeenCalled();
-    expect(sendWhatsAppTextMock).toHaveBeenCalledTimes(1);
+    expect(sendWhatsAppNotificationMock).toHaveBeenCalledTimes(1);
   });
 
   it('never throws even if the data lookup fails', async () => {
@@ -247,13 +339,16 @@ describe('notifyAssignedStaffNewBooking', () => {
 });
 
 describe('notifyAssignedStaffBookingCancelled', () => {
-  it('notifies assigned staff with cancellation details', async () => {
+  it('notifies assigned staff with cancellation details (free-form text)', async () => {
     findUniqueMock.mockResolvedValue(
       bookingRow({ assignedStaff: { id: 'staff_1', name: 'Spec Vik', mobileNumber: '9876500003' } }),
     );
 
     await notifyAssignedStaffBookingCancelled('bk_1', { cancelledBy: 'Admin', reason: 'Rain' });
 
+    // Cancellations stay on free-form text (no approved staff-cancellation
+    // template). The booking-creation alert is the one that moved to a
+    // template; cancellations are unchanged.
     expect(sendWhatsAppTextMock).toHaveBeenCalled();
     const texts = sendWhatsAppTextMock.mock.calls.map((c) => c[1]);
     const joined = texts.join('\n');

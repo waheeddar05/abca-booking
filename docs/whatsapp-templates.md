@@ -8,8 +8,26 @@ PlayOrbit sends two kinds of WhatsApp messages:
   placeholder count doesn't match what the code sends, the message is
   rejected.**
 - **Staff notifications** (operator / coach / sidearm specialist / ground
-  staff) — sent as **free-form text** (`sendWhatsAppText`), so the code has
-  full control over the layout. No BSP template involved.
+  staff) for **new bookings** — also delivered through an **approved template**.
+
+  > **Why a template and not free-form text?** WhatsApp (both Meta and Twilio)
+  > only delivers **free-form** text to a recipient who messaged the business
+  > in the last 24 hours. Staff almost never do, so the old free-form-only
+  > path was silently dropped for them ("outside 24h window") while customers
+  > — who get a template — received theirs. **Approved templates deliver
+  > regardless of the 24-hour window**, so staff alerts now go through one.
+
+  By default the staff alert **reuses the approved customer `booking_detail`
+  template** (no new BSP approval needed — works immediately). To send a
+  richer, staff-specific message (including the customer's name + phone), set
+  the `WHATSAPP_STAFF_BOOKING_TEMPLATE` env var to a dedicated approved
+  template (see contract below). A **free-form text** (`sendWhatsAppText`) is
+  kept only as a best-effort fallback when the template send fails or the
+  provider isn't configured.
+
+  **Cancellation** alerts to staff are still sent as free-form text
+  (`sendWhatsAppText`) — there's no approved staff-cancellation template, and
+  these are out of scope of the new-booking fix.
 
 ## Center name in every notification
 
@@ -87,21 +105,73 @@ PlayOrbit Wallet: ₹500 credited. Reason: ABCA Cricket Academy • Booking canc
 | `{{2}}` | **`<Center> • <reason>`** |
 | `{{3}}` | New balance |
 
-## Staff text messages (no BSP template)
+## Staff new-booking alerts (approved template)
 
-Format produced by `notifyAssignedStaffNewBooking` /
-`notifyAssignedStaffBookingCancelled` — full control, dedicated center line:
+`notifyAssignedStaffNewBooking` delivers an in-app notification (always) plus
+an approved-template WhatsApp message to every assigned staff member (machine
+operator / coach / sidearm specialist) and the center's ground staff for
+floor-handled categories (Cricket Net / Full Court / Sidearm / Coaching).
+
+### Default — reuse `booking_detail` (7 params, already approved)
+
+Staff receive the **same approved template the customer gets**, so no new BSP
+approval is needed. Params for the staff send:
+
+| Param | Value |
+|-------|-------|
+| `{{1}}` | `<Center> • <date>` |
+| `{{2}}` | Time (+ `(N slots)` for multi-slot) |
+| `{{3}}` | Booking type (e.g. "Sidearm Session") / machine headline |
+| `{{4}}` | Facility (net / court / pitch) |
+| `{{5}}` | Price (or "Pay at center" / "Package session" / "FREE") |
+| `{{6}}` | On-ground contact name (operator / specialist / coach) |
+| `{{7}}` | On-ground contact phone |
+
+> The customer's name still rides on the always-on **in-app** notification —
+> `booking_detail` has no slot for it. Set a dedicated template (below) to put
+> the customer name + phone on the staff WhatsApp message too.
+
+### Optional — dedicated staff template (`WHATSAPP_STAFF_BOOKING_TEMPLATE`)
+
+Set the env var to the name of a **separately approved** template to send staff
+a richer, role-aware message. The code fills **8 body params** in this order —
+create the template's body to match:
+
+| Param | Value |
+|-------|-------|
+| `{{1}}` | Center name |
+| `{{2}}` | Staff role (e.g. "Machine Operator", "Personal Coach", "Trainer Specialist", "Ground Staff") |
+| `{{3}}` | Customer name |
+| `{{4}}` | Customer phone |
+| `{{5}}` | Date |
+| `{{6}}` | Time (+ `(N slots)`) |
+| `{{7}}` | Booking type |
+| `{{8}}` | Facility |
+
+Suggested body:
 
 ```
-🏏 *New Booking*
+🏏 New booking at {{1}}
+🙌 Role: {{2}}
+👤 Customer: {{3}} ({{4}})
+📅 {{5}} ⏰ {{6}}
+🎯 {{7}} · 📍 {{8}}
+```
+
+## Staff cancellation text messages (no BSP template)
+
+Format produced by `notifyAssignedStaffBookingCancelled` (still free-form —
+see the note at the top) — full control, dedicated center line:
+
+```
+❌ *Booking Cancelled*
 🏢 Center: <center name>
 Hi <staff name> (<role>),
-A new booking has been assigned to you.
+A booking assigned to you has been cancelled.
 
 👤 Customer: …
 📅 Date: …
 ⏰ Time: …
-⏳ Duration: …
 📍 Facility: …
 🎯 Type: …
 ```
