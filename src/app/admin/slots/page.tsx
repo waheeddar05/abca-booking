@@ -34,9 +34,9 @@ type ScheduleType = 'dateRange' | 'recurring';
 
 const MACHINES = [
   { id: 'GRAVITY', label: 'Gravity', sub: 'Leather', image: '/images/leathermachine.jpeg' },
-  { id: 'YANTRA', label: 'Yantra', sub: 'Premium Leather', image: '/images/yantra-machine.jpeg' },
-  { id: 'LEVERAGE_INDOOR', label: 'iWinner', sub: 'Indoor', image: '/images/tennismachine.jpeg' },
-  { id: 'LEVERAGE_OUTDOOR', label: 'iWinner', sub: 'Outdoor', image: '/images/tennismachine.jpeg' },
+  { id: 'YANTRA', label: 'Yantra', sub: 'Premium Leather', image: '/images/yantra.jpeg' },
+  { id: 'LEVERAGE_INDOOR', label: 'iWinner', sub: 'Indoor', image: '/images/leverage-tennis.jpeg' },
+  { id: 'LEVERAGE_OUTDOOR', label: 'iWinner', sub: 'Outdoor', image: '/images/leverage-tennis.jpeg' },
 ];
 
 const WEEKDAYS = [

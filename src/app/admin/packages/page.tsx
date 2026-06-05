@@ -706,9 +706,10 @@ function AdminPackagesLegacy() {
                       const filterValue = m.legacyMachineId || m.id;
                       const isSelected = machineFilter === filterValue;
                       const img = m.machineType.imageUrl
-                        || (m.machineType.code === 'YANTRA' ? '/images/yantra-machine.jpeg'
+                        || (m.machineType.code === 'YANTRA' ? '/images/yantra.jpeg'
                           : m.machineType.code === 'GRAVITY' ? '/images/leathermachine.jpeg'
-                          : m.machineType.code === 'LEVERAGE' ? '/images/tennismachine.jpeg'
+                          : m.machineType.code === 'LEVERAGE' ? '/images/leverage-tennis.jpeg'
+                          : m.machineType.code === 'iWinner' ? '/images/master-200.jpeg'
                           : '/images/leathermachine.jpeg');
                       const sub = m.machineType.ballType === 'TENNIS' ? 'Tennis' : 'Leather';
                       return (
