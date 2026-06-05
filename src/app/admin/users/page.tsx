@@ -68,9 +68,10 @@ export default function AdminUsers() {
 
   const isSuperAdmin = (session?.user as { isSuperAdmin?: boolean })?.isSuperAdmin === true;
   const { currentCenter } = useCenter();
-  // Super admins get an "all centers" toggle so they can flip back to the
-  // legacy global user list when they need to manage cross-center accounts.
-  // Regular admins are always scoped to their resolved center.
+  // Every admin gets an "all users" toggle so they can flip between the
+  // users scoped to their current center and the full cross-center list
+  // (handy for looking up someone who hasn't booked at this center yet).
+  // Defaults to the center-scoped view.
   const [allCenters, setAllCenters] = useState(false);
 
   const fetchBookingHistory = async (user: UserData) => {
@@ -138,9 +139,9 @@ export default function AdminUsers() {
       if (search) params.set('search', search);
       // SPECIAL is client-side filter, don't send to server
       if (roleFilter && roleFilter !== 'SPECIAL') params.set('role', roleFilter);
-      // Super admin can flip the all-centers toggle to bypass the
-      // per-center scope; the server enforces the gate.
-      if (allCenters && isSuperAdmin) params.set('allCenters', 'true');
+      // The all-users toggle bypasses the per-center scope and returns
+      // every user in the system. Available to any admin.
+      if (allCenters) params.set('allCenters', 'true');
       const res = await fetch(`/api/admin/users?${params.toString()}`);
       if (res.ok) {
         const data = await res.json();
@@ -344,21 +345,19 @@ export default function AdminUsers() {
   return (
     <div>
       <AdminPageHeader icon={Users} title="Manage Users" description={scopeDescription}>
-        {isSuperAdmin && (
-          <button
-            onClick={() => setAllCenters((prev) => !prev)}
-            className={`inline-flex items-center gap-2 px-3 py-2.5 rounded-xl text-xs font-semibold transition-all cursor-pointer border ${
-              allCenters
-                ? 'bg-purple-500/15 text-purple-200 border-purple-400/40'
-                : 'bg-white/[0.04] text-slate-300 border-white/[0.08] hover:border-white/[0.16]'
-            }`}
-            title={allCenters
-              ? 'Showing every user in the system. Click to scope back to the current center.'
-              : 'Currently scoped to the active center. Click to show every user in the system.'}
-          >
-            {allCenters ? 'All centers' : 'This center'}
-          </button>
-        )}
+        <button
+          onClick={() => setAllCenters((prev) => !prev)}
+          className={`inline-flex items-center gap-2 px-3 py-2.5 rounded-xl text-xs font-semibold transition-all cursor-pointer border ${
+            allCenters
+              ? 'bg-purple-500/15 text-purple-200 border-purple-400/40'
+              : 'bg-white/[0.04] text-slate-300 border-white/[0.08] hover:border-white/[0.16]'
+          }`}
+          title={allCenters
+            ? 'Showing every user in the system. Click to scope back to the current center.'
+            : 'Currently scoped to the active center. Click to show every user in the system.'}
+        >
+          {allCenters ? 'All users' : 'This center'}
+        </button>
         <button
           onClick={() => setShowAddForm(!showAddForm)}
           className="inline-flex items-center gap-2 bg-accent hover:bg-accent-light text-primary px-4 py-2.5 rounded-xl text-sm font-semibold transition-all cursor-pointer shadow-sm shadow-accent/20"
@@ -633,11 +632,11 @@ export default function AdminUsers() {
                       Auth: {user.authProvider} &middot; ID: {user.id.slice(0, 8)}...
                     </div>
 
-                    {/* Center memberships — visible in the all-centers
-                        view so the super admin can tell which centers
-                        a staff user belongs to. Hidden when the list is
-                        already scoped to a single center (would just be
-                        repeating the same name on every row). */}
+                    {/* Center memberships — visible in the all-users
+                        view so the admin can tell which centers a staff
+                        user belongs to. Hidden when the list is already
+                        scoped to a single center (would just be repeating
+                        the same name on every row). */}
                     {allCenters && user.centerMemberships && user.centerMemberships.length > 0 && (
                       <div className="flex flex-wrap items-center gap-1.5 mb-3">
                         <span className="text-[10px] text-slate-500 uppercase tracking-wider">Centers:</span>
