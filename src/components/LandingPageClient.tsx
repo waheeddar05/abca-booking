@@ -3,7 +3,7 @@
 import React, { useState } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
-import { Calendar, Zap, Clock, Instagram, Phone, Target, Shield, Users, Star, ArrowRight, MapPin, Building2, Mail } from 'lucide-react';
+import { Calendar, Zap, Instagram, Phone, Target, Shield, Users, Star, ArrowRight, MapPin, Building2, Mail, Crosshair, GraduationCap, LayoutGrid, Maximize2, Wallet } from 'lucide-react';
 import LoginModal from './LoginModal';
 import { INSTAGRAM_URL } from '@/lib/client-constants';
 import { useCenter } from '@/lib/center-context';
@@ -144,9 +144,9 @@ export default function LandingPageClient() {
           <div className="grid grid-cols-4 gap-x-2 md:gap-8">
             {[
               { label: 'Machines', value: '04', icon: Zap },
+              { label: 'Ways to Train', value: '05', icon: Crosshair },
               { label: 'Pitches', value: '03', icon: Target },
               { label: 'Players', value: '500+', icon: Users },
-              { label: 'Hours', value: '2K+', icon: Clock },
             ].map((stat, i) => (
               <div key={i} className="text-center group">
                 <stat.icon className="w-3 h-3 md:w-4 md:h-4 mx-auto mb-0.5 md:mb-1.5 text-accent/60 group-hover:text-accent transition-colors" />
@@ -161,6 +161,10 @@ export default function LandingPageClient() {
       {/* Machines Section */}
       <section id="machines" className="relative z-10 px-4 md:px-6 py-4 md:py-12">
         <div className="max-w-6xl mx-auto">
+          <div className="text-center max-w-2xl mx-auto mb-3 md:mb-8">
+            <h3 className="text-lg md:text-3xl font-black text-white mb-1 md:mb-2 leading-tight">THE <span className="text-accent/40">ARSENAL.</span></h3>
+            <p className="text-slate-500 text-[10px] md:text-sm">Pro bowling machines for every ball type.</p>
+          </div>
           <div className="grid grid-cols-2 lg:grid-cols-2 gap-2.5 md:gap-5">
             {/* Machine Card 1: Gravity */}
             <div className="group relative rounded-xl md:rounded-2xl overflow-hidden border border-white/[0.06] hover:border-accent/20 transition-all duration-500 bg-[#060d1b]/80 hover:shadow-[0_8px_40px_rgba(56,189,248,0.08)]">
@@ -194,7 +198,7 @@ export default function LandingPageClient() {
             <div className="group relative rounded-xl md:rounded-2xl overflow-hidden border border-white/[0.06] hover:border-accent/20 transition-all duration-500 bg-[#060d1b]/80 hover:shadow-[0_8px_40px_rgba(56,189,248,0.08)]">
               <div className="relative aspect-[4/3] bg-[#050b14] overflow-hidden">
                 <Image
-                  src="/images/yantra-machine.jpeg"
+                  src="/images/yantra.jpeg"
                   alt="Yantra bowling machine"
                   fill
                   className="object-cover object-[center_40%] group-hover:scale-105 transition-transform duration-700 opacity-85 group-hover:opacity-100"
@@ -222,7 +226,7 @@ export default function LandingPageClient() {
             <div className="group relative rounded-xl md:rounded-2xl overflow-hidden border border-white/[0.06] hover:border-accent/20 transition-all duration-500 bg-[#060d1b]/80 hover:shadow-[0_8px_40px_rgba(56,189,248,0.08)]">
               <div className="relative aspect-[4/3] bg-[#050b14] overflow-hidden">
                 <Image
-                  src="/images/tennismachine.jpeg"
+                  src="/images/leverage-tennis.jpeg"
                   alt="iWinner indoor tennis machine"
                   fill
                   className="object-cover object-[center_25%] group-hover:scale-105 transition-transform duration-700 opacity-85 group-hover:opacity-100"
@@ -250,7 +254,7 @@ export default function LandingPageClient() {
             <div className="group relative rounded-xl md:rounded-2xl overflow-hidden border border-white/[0.06] hover:border-accent/20 transition-all duration-500 bg-[#060d1b]/80 hover:shadow-[0_8px_40px_rgba(56,189,248,0.08)]">
               <div className="relative aspect-[4/3] bg-[#050b14] overflow-hidden">
                 <Image
-                  src="/images/tennismachine.jpeg"
+                  src="/images/leverage-tennis.jpeg"
                   alt="iWinner outdoor tennis machine"
                   fill
                   className="object-cover object-[center_25%] group-hover:scale-105 transition-transform duration-700 opacity-85 group-hover:opacity-100"
@@ -277,6 +281,59 @@ export default function LandingPageClient() {
         </div>
       </section>
 
+      {/* Ways to Train Section */}
+      <section className="relative z-10 px-4 md:px-6 py-4 md:py-10">
+        <div className="max-w-6xl mx-auto">
+          <div className="text-center max-w-2xl mx-auto mb-3 md:mb-8">
+            <h3 className="text-lg md:text-3xl font-black text-white mb-1 md:mb-2 leading-tight">WAYS TO <span className="text-accent/40">TRAIN.</span></h3>
+            <p className="text-slate-500 text-[10px] md:text-sm">Pick the session that fits your practice.</p>
+          </div>
+
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-1.5 md:gap-4">
+            {[
+              { title: 'Bowling Machine', desc: 'Leather & tennis machines', icon: Zap, color: 'text-accent' },
+              { title: 'Sidearm', desc: 'Throwdowns from our staff', icon: Crosshair, color: 'text-purple-400' },
+              { title: 'Coaching', desc: '1-on-1 with a pro coach', icon: GraduationCap, color: 'text-cyan-400' },
+              { title: 'Cricket Nets', desc: 'Bare net, self practice', icon: LayoutGrid, color: 'text-emerald-400' },
+              { title: 'Full Court', desc: 'Book the entire indoor court', icon: Maximize2, color: 'text-amber-400' },
+            ].map((item, i) => {
+              const Icon = item.icon;
+              return (
+                <div key={i} className="group p-2.5 md:p-5 rounded-lg md:rounded-2xl border border-white/[0.05] hover:border-white/[0.1] bg-[#060d1b]/60 hover:bg-[#0a1628]/80 transition-all duration-300 text-center">
+                  <div className={`w-8 h-8 md:w-11 md:h-11 rounded-lg md:rounded-xl bg-white/[0.04] flex items-center justify-center mb-1.5 md:mb-3 border border-white/[0.06] mx-auto ${item.color} group-hover:scale-110 transition-transform`}>
+                    <Icon className="w-4 h-4 md:w-5 md:h-5" />
+                  </div>
+                  <h4 className="text-[11px] md:text-base font-black text-white mb-0.5 md:mb-1.5 uppercase italic tracking-tighter leading-tight">{item.title}</h4>
+                  <p className="text-slate-500 text-[9px] md:text-xs leading-relaxed group-hover:text-slate-400 transition-colors">{item.desc}</p>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Indoor nets banner — showcases the facility photo */}
+          <div className="mt-3 md:mt-6 relative rounded-xl md:rounded-2xl overflow-hidden border border-white/[0.06] group">
+            <div className="relative aspect-[16/8] md:aspect-[16/5] bg-[#050b14] overflow-hidden">
+              <Image
+                src="/images/cricket-net.jpeg"
+                alt="PlayOrbit indoor cricket nets"
+                fill
+                className="object-cover object-center opacity-70 group-hover:opacity-90 group-hover:scale-105 transition-all duration-700"
+                loading="lazy"
+                sizes="(max-width: 768px) 100vw, 1100px"
+              />
+              <div className="absolute inset-0 bg-gradient-to-r from-[#030712] via-[#030712]/55 to-transparent"></div>
+              <div className="absolute inset-0 flex flex-col justify-center px-4 md:px-10">
+                <span className="inline-flex items-center gap-1.5 w-fit px-2.5 py-1 rounded-full bg-accent/10 border border-accent/20 text-accent text-[8px] md:text-[10px] font-bold uppercase tracking-[0.2em] mb-1.5 md:mb-3">
+                  <LayoutGrid className="w-2.5 h-2.5 md:w-3 md:h-3" /> Premium Facility
+                </span>
+                <h4 className="text-base md:text-3xl font-black text-white leading-tight max-w-md drop-shadow-[0_2px_8px_rgba(0,0,0,0.9)]">WORLD-CLASS <span className="text-shimmer">INDOOR NETS.</span></h4>
+                <p className="text-slate-300 text-[9px] md:text-sm mt-0.5 md:mt-2 max-w-sm leading-relaxed">Climate-controlled lanes, pro turf, and full enclosure netting for safe, all-weather practice.</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
       {/* Features Grid */}
       <section className="relative z-10 px-4 md:px-6 py-4 md:py-10 overflow-hidden">
         <div className="absolute inset-0 bg-gradient-to-b from-transparent via-accent/[0.02] to-transparent -z-10"></div>
@@ -287,12 +344,12 @@ export default function LandingPageClient() {
 
           <div className="grid grid-cols-3 lg:grid-cols-3 gap-1.5 md:gap-4">
             {[
-              { title: 'Pro Machines', desc: 'Leather & Tennis ball options', icon: Zap, color: 'text-accent' },
+              { title: 'Pro Machines', desc: 'Leather & tennis ball options', icon: Zap, color: 'text-accent' },
               { title: 'Triple Pitch', desc: 'Astro, Cement & Natural', icon: Target, color: 'text-purple-400' },
               { title: '1-Click Book', desc: 'Zero friction booking flow', icon: Calendar, color: 'text-emerald-400' },
-              { title: 'Anytime', desc: 'Morning to late evening', icon: Clock, color: 'text-amber-400' },
-              { title: 'Safety First', desc: 'Pro-grade enclosure nets', icon: Shield, color: 'text-red-400' },
-              { title: 'Coaching', desc: 'Available for sessions', icon: Users, color: 'text-cyan-400' },
+              { title: 'Multi-Center', desc: 'Book across our locations', icon: Building2, color: 'text-sky-400' },
+              { title: 'Wallet & Packages', desc: 'Prepaid credits & bundles', icon: Wallet, color: 'text-amber-400' },
+              { title: 'Coaching & Sidearm', desc: 'Pro coaches & throwdowns', icon: GraduationCap, color: 'text-cyan-400' },
             ].map((feature, i) => {
               const Icon = feature.icon;
               return (

@@ -28,9 +28,9 @@ const SUPER_ADMIN_EMAIL =
   'waheeddar8@gmail.com';
 
 const MACHINE_TYPES = [
-  { id: 'mt_yantra',   code: 'YANTRA',   name: 'Yantra',          ballType: 'LEATHER' as const, imageUrl: '/images/yantra-machine.jpeg' },
+  { id: 'mt_yantra',   code: 'YANTRA',   name: 'Yantra',          ballType: 'LEATHER' as const, imageUrl: '/images/yantra.jpeg' },
   { id: 'mt_gravity',  code: 'GRAVITY',  name: 'Gravity',         ballType: 'LEATHER' as const, imageUrl: '/images/leathermachine.jpeg' },
-  { id: 'mt_leverage', code: 'LEVERAGE', name: 'iWinner', ballType: 'TENNIS'  as const, imageUrl: '/images/tennismachine.jpeg' },
+  { id: 'mt_leverage', code: 'LEVERAGE', name: 'iWinner', ballType: 'TENNIS'  as const, imageUrl: '/images/leverage-tennis.jpeg' },
 ];
 
 const ABCA_MACHINES = [
