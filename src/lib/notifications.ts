@@ -654,15 +654,24 @@ type StaffNotifyBooking = {
   endTime: Date;
   category: BookingCategory;
   machineId: string | null;
+  price: number | null;
+  paymentMethod: string | null;
+  paymentStatus: string | null;
   centerId: string;
   cancelledBy: string | null;
   cancellationReason: string | null;
   center: { name: string } | null;
+  // Customer phone — surfaced to staff on the dedicated template so they
+  // can reach the booker directly. The reused `booking_detail` template
+  // has no slot for it (it's customer-facing), so it's only used when a
+  // dedicated staff template is configured.
+  user: { mobileNumber: string | null } | null;
   operator: { id: string; name: string | null; mobileNumber: string | null } | null;
   assignedCoach: { id: string; name: string | null; mobileNumber: string | null } | null;
   assignedStaff: { id: string; name: string | null; mobileNumber: string | null } | null;
   assignedMachine: { name: string; machineType: { name: string } | null } | null;
   resourceAssignments: { resource: { name: string } | null }[];
+  packageBooking: { id: string } | null;
 };
 
 const STAFF_NOTIFY_SELECT = {
@@ -673,15 +682,20 @@ const STAFF_NOTIFY_SELECT = {
   endTime: true,
   category: true,
   machineId: true,
+  price: true,
+  paymentMethod: true,
+  paymentStatus: true,
   centerId: true,
   cancelledBy: true,
   cancellationReason: true,
   center: { select: { name: true } },
+  user: { select: { mobileNumber: true } },
   operator: { select: { id: true, name: true, mobileNumber: true } },
   assignedCoach: { select: { id: true, name: true, mobileNumber: true } },
   assignedStaff: { select: { id: true, name: true, mobileNumber: true } },
   assignedMachine: { select: { name: true, machineType: { select: { name: true } } } },
   resourceAssignments: { select: { resource: { select: { name: true } } } },
+  packageBooking: { select: { id: true } },
 } as const;
 
 /** Collect every assigned staff member across a set of bookings (deduped). */
@@ -812,6 +826,20 @@ function formatDuration(totalMinutes: number): string {
 /**
  * Deliver an in-app + WhatsApp message to every assigned staff recipient.
  * Logs each delivery attempt. Never throws.
+ *
+ * WhatsApp delivery prefers an APPROVED TEMPLATE (`buildWhatsAppTemplate`)
+ * when supplied. This is the crucial fix for staff alerts: WhatsApp (Meta /
+ * Twilio) only delivers *free-form* text to a recipient who messaged the
+ * business in the last 24h. Staff almost never do, so the previous
+ * free-form-only path was silently dropped for them ("outside 24h window")
+ * while customers — who get an approved template — received theirs. Approved
+ * templates deliver regardless of the conversation window, so routing staff
+ * through one closes the gap.
+ *
+ * The free-form text (`buildWhatsApp`) is kept as a best-effort fallback:
+ * used only when no template builder is supplied, the builder returns null,
+ * or the template send fails. (Free-form still reaches staff who happen to
+ * be inside the 24h window.)
  */
 async function dispatchStaffNotifications(opts: {
   bookingId: string;
@@ -820,8 +848,9 @@ async function dispatchStaffNotifications(opts: {
   type: string;
   inAppMessage: string;
   buildWhatsApp: (recipient: StaffRecipient) => string;
+  buildWhatsAppTemplate?: (recipient: StaffRecipient) => WhatsAppTemplatePayload | null;
 }): Promise<void> {
-  const { bookingId, recipients, title, type, inAppMessage, buildWhatsApp } = opts;
+  const { bookingId, recipients, title, type, inAppMessage, buildWhatsApp, buildWhatsAppTemplate } = opts;
   if (recipients.length === 0) return;
 
   const waEnabled = await isWhatsAppEnabled();
@@ -862,36 +891,69 @@ async function dispatchStaffNotifications(opts: {
       continue;
     }
 
+    const logCtx = { bookingId, userId: recipient.userId, role: recipient.roleKey };
+
+    // ── Primary: approved template (delivers outside the 24h window) ──
+    let templateDelivered = false;
+    const templatePayload = buildWhatsAppTemplate?.(recipient) ?? null;
+    if (templatePayload) {
+      try {
+        const result = await sendWhatsAppNotification(
+          templatePayload.mobileNumber,
+          templatePayload.templateName,
+          templatePayload.components,
+          templatePayload.language,
+        );
+        if (result === null) {
+          // Provider not configured — the free-form fallback would also
+          // be unconfigured, so skip it and move on.
+          console.warn('[Notifications] Staff WhatsApp skipped — provider not configured:', logCtx);
+          continue;
+        }
+        if (result.success) {
+          console.log('[Notifications] Staff WhatsApp template sent:', {
+            ...logCtx,
+            template: templatePayload.templateName,
+            messageId: result.messageId,
+          });
+          templateDelivered = true;
+        } else {
+          console.warn('[Notifications] Staff WhatsApp template failed — trying text fallback:', {
+            ...logCtx,
+            template: templatePayload.templateName,
+            error: result.error || 'unknown',
+          });
+        }
+      } catch (err) {
+        console.error('[Notifications] Staff WhatsApp template threw — trying text fallback:', {
+          ...logCtx,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
+
+    if (templateDelivered) continue;
+
+    // ── Fallback: free-form text (best-effort, in-window only) ──
     try {
       const result = await sendWhatsAppText(recipient.mobileNumber, buildWhatsApp(recipient));
       if (result?.success) {
-        console.log('[Notifications] Staff WhatsApp sent:', {
-          bookingId,
-          userId: recipient.userId,
-          role: recipient.roleKey,
-          messageId: result.messageId,
-        });
+        console.log('[Notifications] Staff WhatsApp text sent:', { ...logCtx, messageId: result.messageId });
       } else if (result?.outsideWindow) {
         // Expected when the staff member hasn't messaged the business in
-        // the last 24h — not an error, just logged for the audit trail.
-        console.log('[Notifications] Staff WhatsApp outside 24h window:', {
-          bookingId,
-          userId: recipient.userId,
-          role: recipient.roleKey,
-        });
+        // the last 24h AND no approved template was available. Logged for
+        // the audit trail — configure WHATSAPP_STAFF_BOOKING_TEMPLATE (or
+        // rely on the booking_detail reuse) to deliver these reliably.
+        console.log('[Notifications] Staff WhatsApp outside 24h window (text fallback):', logCtx);
       } else {
-        console.warn('[Notifications] Staff WhatsApp send failed:', {
-          bookingId,
-          userId: recipient.userId,
-          role: recipient.roleKey,
+        console.warn('[Notifications] Staff WhatsApp text fallback failed:', {
+          ...logCtx,
           error: result?.error || 'unknown',
         });
       }
     } catch (err) {
-      console.error('[Notifications] Staff WhatsApp threw:', {
-        bookingId,
-        userId: recipient.userId,
-        role: recipient.roleKey,
+      console.error('[Notifications] Staff WhatsApp text fallback threw:', {
+        ...logCtx,
         error: err instanceof Error ? err.message : String(err),
       });
     }
@@ -948,6 +1010,38 @@ export async function notifyAssignedStaffNewBooking(bookingIds: string[]): Promi
     const durationStr = formatDuration(totalMinutes);
     const assignmentLines = buildAssignmentLines(primary);
 
+    // Price across the whole batch — mirrors the customer confirmation so
+    // staff see the same figure the booker paid (or "Pay at center" / a
+    // package session). Used as the {{5}} param when reusing booking_detail.
+    const isPackage = bookings.some((b) => !!b.packageBooking);
+    const total = bookings.reduce((sum, b) => sum + (b.price ?? 0), 0);
+    const anyCashPending = bookings.some(
+      (b) => b.paymentMethod === 'CASH' && b.paymentStatus === 'PENDING',
+    );
+    const priceStr = isPackage
+      ? 'Package session'
+      : total <= 0
+        ? 'FREE'
+        : anyCashPending
+          ? `₹${total} (Pay at center)`
+          : `₹${total}`;
+
+    // The on-ground contact for this booking — the operator for a machine
+    // session, the specialist for sidearm, the coach for coaching. Reused
+    // as the {{6}}/{{7}} ("Operator"/"Contact") params of booking_detail so
+    // the staff message reads exactly like the customer's confirmation.
+    const contactPerson =
+      primary.category === 'MACHINE'
+        ? primary.operator
+        : primary.category === 'SIDEARM'
+          ? primary.assignedStaff
+          : primary.category === 'COACHING'
+            ? primary.assignedCoach
+            : null;
+    const contactName = contactPerson?.name || 'To be assigned';
+    const contactPhone = contactPerson?.mobileNumber || 'Will be shared soon';
+    const customerPhone = primary.user?.mobileNumber || 'N/A';
+
     const inAppMessage = [
       `New ${bookingType} booking`,
       `Customer: ${primary.playerName}`,
@@ -974,6 +1068,60 @@ export async function notifyAssignedStaffNewBooking(bookingIds: string[]): Promi
       return lines.join('\n');
     };
 
+    // Approved-template payload per recipient. A dedicated staff template
+    // (richer — includes customer name + phone + the recipient's role) is
+    // used when WHATSAPP_STAFF_BOOKING_TEMPLATE is set; otherwise we reuse
+    // the already-approved customer `booking_detail` template so staff get
+    // alerts immediately with no BSP changes. See docs/whatsapp-templates.md.
+    const dedicatedTemplate = process.env.WHATSAPP_STAFF_BOOKING_TEMPLATE?.trim();
+    const buildWhatsAppTemplate = (recipient: StaffRecipient): WhatsAppTemplatePayload | null => {
+      if (!recipient.mobileNumber) return null;
+      if (dedicatedTemplate) {
+        // Dedicated staff template — 8 params (documented contract):
+        // {{1}} center · {{2}} role · {{3}} customer · {{4}} customer phone
+        // {{5}} date · {{6}} time · {{7}} type · {{8}} facility
+        return {
+          mobileNumber: recipient.mobileNumber,
+          templateName: dedicatedTemplate,
+          components: [
+            {
+              type: 'body',
+              parameters: [
+                { type: 'text', text: centerName },
+                { type: 'text', text: STAFF_ROLE_LABELS[recipient.roleKey] },
+                { type: 'text', text: primary.playerName },
+                { type: 'text', text: customerPhone },
+                { type: 'text', text: dateStr },
+                { type: 'text', text: `${timeStr}${slotSuffix}` },
+                { type: 'text', text: bookingType },
+                { type: 'text', text: facility },
+              ],
+            },
+          ],
+        };
+      }
+      // Reuse the approved customer template (7 params) — same shape as
+      // notifyBookingConfirmed so staff receive "the same notification".
+      return {
+        mobileNumber: recipient.mobileNumber,
+        templateName: 'booking_detail',
+        components: [
+          {
+            type: 'body',
+            parameters: [
+              { type: 'text', text: `${centerName} • ${dateStr}` },
+              { type: 'text', text: `${timeStr}${slotSuffix}` },
+              { type: 'text', text: bookingType },
+              { type: 'text', text: facility },
+              { type: 'text', text: priceStr },
+              { type: 'text', text: contactName },
+              { type: 'text', text: contactPhone },
+            ],
+          },
+        ],
+      };
+    };
+
     await dispatchStaffNotifications({
       bookingId: primary.id,
       recipients,
@@ -981,6 +1129,7 @@ export async function notifyAssignedStaffNewBooking(bookingIds: string[]): Promi
       type: 'SUCCESS',
       inAppMessage,
       buildWhatsApp,
+      buildWhatsAppTemplate,
     });
   } catch (err) {
     console.error('[Notifications] notifyAssignedStaffNewBooking failed:', err);
