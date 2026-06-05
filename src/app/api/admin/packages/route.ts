@@ -3,7 +3,7 @@ import { prisma } from '@/lib/prisma';
 import { requireCenterAdmin } from '@/lib/adminAuth';
 import { getAuthenticatedUser } from '@/lib/auth';
 import { resolveCurrentCenter } from '@/lib/centers';
-import { isBallTypeValidForMachineType } from '@/lib/package-admin-labels';
+import { isBallTypeValidForMachineType, coerceBallTypeForMachineType } from '@/lib/package-admin-labels';
 
 // GET /api/admin/packages - List packages at the admin's current center
 export async function GET(req: NextRequest) {
@@ -87,11 +87,15 @@ export async function POST(req: NextRequest) {
     if (ballType && !['MACHINE', 'LEATHER', 'BOTH', 'TENNIS'].includes(ballType)) {
       return NextResponse.json({ error: 'Invalid ballType' }, { status: 400 });
     }
-    // Enforce machine-type ↔ ball-type compatibility: leather machines
-    // accept Machine/Leather, tennis machines accept Machine/Tennis.
-    if (!isBallTypeValidForMachineType(machineType, ballType)) {
-      return NextResponse.json({ error: 'Ball type is not valid for the selected machine type' }, { status: 400 });
-    }
+    // Normalise machine-type ↔ ball-type compatibility instead of
+    // rejecting. A mismatched pair (e.g. a tennis machine with a
+    // 'LEATHER' ball type) is only ever produced by stale client UI
+    // state — the dropdowns never offer an incompatible option — so we
+    // heal it to a valid value rather than blocking the admin. Leather
+    // machines accept Machine/Leather; tennis machines accept Machine/Tennis.
+    const normalizedBallType = ballType
+      ? coerceBallTypeForMachineType(machineType, ballType)
+      : ballType;
     if (wicketType && !['CEMENT', 'ASTRO', 'NATURAL', 'BOTH'].includes(wicketType)) {
       return NextResponse.json({ error: 'Invalid wicketType' }, { status: 400 });
     }
@@ -126,7 +130,7 @@ export async function POST(req: NextRequest) {
         name,
         machineId: machineId || null,
         machineType,
-        ballType: ballType || null,
+        ballType: normalizedBallType || null,
         wicketType: wicketType || null,
         timingType,
         totalSessions,
@@ -163,7 +167,7 @@ export async function PUT(req: NextRequest) {
       return NextResponse.json({ error: 'Package not found' }, { status: 404 });
     }
 
-    // Validate ball type against the effective (post-update) machine
+    // Reconcile ball type against the effective (post-update) machine
     // type — but ONLY when this request actually touches the machine
     // type or ball type. A partial update (toggling isActive, renaming,
     // repricing) must never re-validate untouched data, or a legacy row
@@ -182,8 +186,20 @@ export async function PUT(req: NextRequest) {
       }
       const effectiveMachineType = updateData.machineType ?? existing.machineType;
       const effectiveBallType = updateData.ballType ?? existing.ballType;
-      if (!isBallTypeValidForMachineType(effectiveMachineType, effectiveBallType)) {
-        return NextResponse.json({ error: 'Ball type is not valid for the selected machine type' }, { status: 400 });
+      // Heal an incompatible machine/ball pair instead of rejecting it.
+      // Such a pair (e.g. a tennis machine left on a 'LEATHER' ball type
+      // by a stale <select> value) is never a deliberate admin choice —
+      // the dropdowns only ever offer compatible options — so coercing it
+      // to a valid value lets the edit succeed rather than failing with a
+      // false "Invalid Ball Type" error.
+      if (
+        effectiveBallType &&
+        !isBallTypeValidForMachineType(effectiveMachineType, effectiveBallType)
+      ) {
+        updateData.ballType = coerceBallTypeForMachineType(
+          effectiveMachineType,
+          effectiveBallType,
+        );
       }
     }
 

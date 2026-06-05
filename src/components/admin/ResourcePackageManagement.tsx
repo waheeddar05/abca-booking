@@ -20,7 +20,7 @@ import { Package, Plus, Pencil, Loader2, Trash2, ToggleLeft, ToggleRight, Sun, M
 import { useToast } from '@/components/ui/Toast';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { useCenter } from '@/lib/center-context';
-import { PACKAGE_WICKET_LABEL, PACKAGE_CATEGORY_LABEL, ballOptionsFromEffective, coerceBallTypeFromEffective } from '@/lib/package-admin-labels';
+import { PACKAGE_WICKET_LABEL, PACKAGE_CATEGORY_LABEL, ballOptionsFromEffective, coerceBallTypeFromEffective, coerceBallTypeForMachineType } from '@/lib/package-admin-labels';
 import { LABEL_MAP } from '@/lib/client-constants';
 
 const labelMap = LABEL_MAP;
@@ -205,6 +205,13 @@ export function ResourcePackageManagement() {
       // LEATHER (the placeholder the resource model has always used).
       const submitMachine = machines.find((m) => m.id === form.machineRowId);
       const submitMachineType = submitMachine?.machineType?.ballType === 'TENNIS' ? 'TENNIS' : 'LEATHER';
+      // Keep the ball type compatible with the pinned machine. A tennis
+      // machine (iWinner/Master 200) only supports Machine/Tennis, but a
+      // stale <select> value can leave `form.ballType` on an option the
+      // machine doesn't offer (e.g. 'LEATHER'). Coerce here so the saved
+      // value always matches the machine — and never trips the server's
+      // machine/ball-type check.
+      const submitBallType = coerceBallTypeForMachineType(submitMachineType, form.ballType);
 
       // Assemble `extraChargeRules`:
       //   - timingUpgrade: applies only when timingType=DAY
@@ -224,7 +231,7 @@ export function ResourcePackageManagement() {
       }
       if (
         form.category === 'MACHINE'
-        && form.ballType === 'MACHINE'
+        && submitBallType === 'MACHINE'
         && submitMachineType !== 'TENNIS'
         && form.ballTypeUpgrade > 0
       ) {
@@ -250,7 +257,7 @@ export function ResourcePackageManagement() {
 
       // ballType + wicketType are only meaningful for the relevant
       // categories. Sending null elsewhere keeps the columns clean.
-      const ballType = form.category === 'MACHINE' ? form.ballType : null;
+      const ballType = form.category === 'MACHINE' ? submitBallType : null;
       const wicketType = wicketRelevantCategories.has(form.category)
         ? form.wicketType
         : null;
