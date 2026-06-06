@@ -905,6 +905,26 @@ export default function ResourceSlotsPage() {
     return { ok: false };
   };
 
+  // ─── Drop selections that are no longer bookable ─────────────────
+  // Changing the machine / coach / sidearm specialist / pitch can turn a
+  // previously-valid selection invalid — e.g. a slot that's free for
+  // machine A but whose net is full for machine B, or a coach who's busy
+  // in that window. Availability is keyed by date only (the API doesn't
+  // refetch per machine), so the captured slot snapshots stay accurate
+  // and re-running slotIsBookable here returns the same verdict the grid
+  // shows. Without this prune the stale slot rendered "Not Available" yet
+  // stayed in the cart — counted in the total, un-removable (its grid
+  // button is disabled), and submitted to the server.
+  useEffect(() => {
+    setSelectedSlots((prev) => {
+      const next = prev.filter((s) => slotIsBookable(s, category).ok);
+      return next.length === prev.length ? prev : next;
+    });
+    // slotIsBookable is recreated each render; depend on the selection
+    // axes that actually change its verdict instead of the function ref.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [category, machineId, coachId, staffId, pitchType, data]);
+
   /**
    * Final ₹ for this slot, mirroring the server cascade in
    * lib/resource-pricing.ts → getResourceSlotPrice. Walks from most-
