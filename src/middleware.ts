@@ -34,6 +34,9 @@ export async function middleware(req: NextRequest) {
     const isMaintenanceAllowed =
       pathname === '/maintenance' ||
       pathname.startsWith('/api/maintenance') ||
+      // Per-center map redirect (booking template "View Location" button) —
+      // a tapped map link must resolve even during maintenance.
+      pathname.startsWith('/loc/') ||
       pathname.startsWith('/_next') ||
       pathname.startsWith('/images/') ||
       pathname.startsWith('/icons/') ||
@@ -57,6 +60,9 @@ export async function middleware(req: NextRequest) {
     // public surface so a brand-new visitor can pick a center before sign-in.
     pathname === "/centers" ||
     pathname.startsWith("/api/centers") ||
+    // /loc/[slug] → per-center map redirect for the booking template's
+    // "View Location" button; must be reachable without auth.
+    pathname.startsWith("/loc/") ||
     pathname.startsWith("/api/auth") ||
     pathname.startsWith("/api/webhooks/") ||
     pathname.startsWith("/api/maintenance") ||

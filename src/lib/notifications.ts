@@ -163,6 +163,49 @@ function buildBookingDetailParams(
   return values.map((text) => ({ type: 'text', text }));
 }
 
+// ─── Center Slug Resolution (for the location-button template) ──────
+//
+// The optional location-aware booking template (WHATSAPP_BOOKING_TEMPLATE)
+// carries a "View Location" dynamic-URL button whose suffix is the booking's
+// center SLUG: the button base URL is `…/loc/{{1}}` and `/loc/[slug]`
+// redirects to that center's own mapUrl. Resolve the slug the same way as the
+// name — caller passes it directly when it has the loaded `center` relation,
+// otherwise we look it up by centerId (cached). Falls back to 'default', which
+// the redirect route maps to the platform-wide LOCATION_URL so the button is
+// never dead.
+
+const centerSlugCache = new Map<string, string>();
+
+async function resolveCenterSlug(opts: {
+  centerSlug?: string | null;
+  centerId?: string | null;
+}): Promise<string> {
+  const explicit = opts.centerSlug?.trim();
+  if (explicit) return explicit;
+
+  const id = opts.centerId;
+  if (id) {
+    const cached = centerSlugCache.get(id);
+    if (cached) return cached;
+    try {
+      const center = await prisma.center.findUnique({
+        where: { id },
+        select: { slug: true },
+      });
+      if (center?.slug) {
+        centerSlugCache.set(id, center.slug);
+        return center.slug;
+      }
+    } catch (err) {
+      console.error('[Notifications] Failed to resolve center slug:', {
+        centerId: id,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+  return 'default';
+}
+
 /**
  * Send an in-app notification (always created in DB).
  * Optionally also sends via WhatsApp if the feature is enabled
@@ -242,6 +285,7 @@ export async function notifyBookingConfirmed(
     centerName?: string; // e.g. "ABCA Cricket Academy" — leads the message
     centerId?: string; // looked up when centerName isn't supplied
     mapUrl?: string | null; // the center's own map link — used for {{8}} when the location param is enabled
+    centerSlug?: string; // suffix for the location-button template; looked up from centerId when absent
     // When supplied, the in-app alert renders these "Label: value" rows
     // (admin-Bookings-page parity) instead of the one-line summary. The
     // approved WhatsApp template below is unaffected (still booking_detail).
@@ -279,6 +323,62 @@ export async function notifyBookingConfirmed(
         `Price: ${details.price}${kitInfo}`,
       ];
 
+  // Customer booking-confirmation WhatsApp template — two location modes,
+  // mutually exclusive, both opt-in (default = legacy 7-param booking_detail
+  // with its static map link):
+  //
+  //  1. WHATSAPP_BOOKING_TEMPLATE set → send that newer approved template and
+  //     attach a dynamic "View Location" URL button whose suffix is the
+  //     booking's center slug ({{1}} → /loc/<slug> → center.mapUrl). Body
+  //     stays 7 params; the {{8}} location param does NOT apply.
+  //  2. else → booking_detail. 7 params, or 8 when
+  //     WHATSAPP_BOOKING_DETAIL_LOCATION_ENABLED is 'true' (template
+  //     re-approved with a trailing "📍 {{8}}") — {{8}} = the center's mapUrl.
+  //
+  // Either way the code is safe to ship before its template/flag is live: the
+  // button is only added when the env var is set, and {{8}} only when its flag
+  // is on. See docs/whatsapp-templates.md.
+  const bookingTemplate = process.env.WHATSAPP_BOOKING_TEMPLATE?.trim();
+
+  let whatsapp: WhatsAppTemplatePayload | undefined;
+  if (details.mobileNumber) {
+    const base: [string, string, string, string, string, string, string] = [
+      `${centerName} • ${details.date}`,
+      details.time,
+      details.machine,
+      details.pitch,
+      details.price + kitInfo,
+      operatorName,
+      operatorPhone,
+    ];
+
+    if (bookingTemplate) {
+      // New template + per-center "View Location" button (slug suffix).
+      const slug = await resolveCenterSlug(details);
+      whatsapp = {
+        mobileNumber: details.mobileNumber,
+        templateName: bookingTemplate,
+        components: [
+          { type: 'body', parameters: base.map((text) => ({ type: 'text', text })) },
+          {
+            type: 'button',
+            sub_type: 'url',
+            index: '0',
+            parameters: [{ type: 'text', text: slug }],
+          },
+        ],
+      };
+    } else {
+      // Legacy booking_detail — 7 params, or 8 when the {{8}} location param
+      // is enabled (buildBookingDetailParams appends the center's mapUrl).
+      whatsapp = {
+        mobileNumber: details.mobileNumber,
+        templateName: 'booking_detail',
+        components: [{ type: 'body', parameters: buildBookingDetailParams(base, mapUrl) }],
+      };
+    }
+  }
+
   return notify(
     {
       userId,
@@ -286,29 +386,7 @@ export async function notifyBookingConfirmed(
       message: inAppSegments.join(' | '),
       type: 'SUCCESS',
     },
-    details.mobileNumber
-      ? {
-          mobileNumber: details.mobileNumber,
-          templateName: 'booking_detail',
-          components: [
-            {
-              type: 'body',
-              parameters: buildBookingDetailParams(
-                [
-                  `${centerName} • ${details.date}`,
-                  details.time,
-                  details.machine,
-                  details.pitch,
-                  details.price + kitInfo,
-                  operatorName,
-                  operatorPhone,
-                ],
-                mapUrl,
-              ),
-            },
-          ],
-        }
-      : undefined,
+    whatsapp,
   );
 }
 
@@ -1611,7 +1689,7 @@ type CustomerNotifyBooking = {
   kitRental: boolean;
   kitRentalCharge: number | null;
   user: { mobileNumber: string | null; mobileVerified: boolean } | null;
-  center: { name: string; mapUrl: string | null } | null;
+  center: { name: string; mapUrl: string | null; slug: string } | null;
   operator: { name: string | null; mobileNumber: string | null } | null;
   assignedCoach: { name: string | null; mobileNumber: string | null } | null;
   assignedStaff: { name: string | null; mobileNumber: string | null } | null;
@@ -1639,7 +1717,7 @@ const CUSTOMER_NOTIFY_SELECT = {
   kitRental: true,
   kitRentalCharge: true,
   user: { select: { mobileNumber: true, mobileVerified: true } },
-  center: { select: { name: true, mapUrl: true } },
+  center: { select: { name: true, mapUrl: true, slug: true } },
   operator: { select: { name: true, mobileNumber: true } },
   assignedCoach: { select: { name: true, mobileNumber: true } },
   assignedStaff: { select: { name: true, mobileNumber: true } },
@@ -1762,6 +1840,7 @@ export async function notifyCustomerNewBooking(bookingIds: string[]): Promise<vo
       kitRentalCharge: kitRental ? kitRentalCharge : null,
       centerName: primary.center?.name || undefined,
       mapUrl: primary.center?.mapUrl ?? null,
+      centerSlug: primary.center?.slug || undefined,
       detailSegments,
     });
   } catch (err) {
