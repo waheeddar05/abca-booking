@@ -699,6 +699,110 @@ export async function notifyOperatorBookingCancelled(
   }
 }
 
+/**
+ * Alert the center's admins when a captured Razorpay payment ended up
+ * auto-refunded (its booking failed) or — worse — could neither be booked
+ * nor refunded and needs manual action. In-app is the guaranteed channel;
+ * WhatsApp is best-effort (soft-fails outside the 24h window). Never throws:
+ * alerting must not mask the original booking/refund error.
+ */
+export async function notifyAdminPaymentIssue(opts: {
+  paymentId: string;
+  outcome: 'REFUNDED' | 'NEEDS_ATTENTION';
+  reason: string;
+}): Promise<void> {
+  try {
+    const payment = await prisma.payment.findUnique({
+      where: { id: opts.paymentId },
+      select: { amount: true, userId: true, centerId: true, razorpayPaymentId: true },
+    });
+    if (!payment) return;
+
+    const [payer, center, admins] = await Promise.all([
+      prisma.user.findUnique({ where: { id: payment.userId }, select: { name: true, mobileNumber: true } }),
+      prisma.center.findUnique({ where: { id: payment.centerId }, select: { name: true } }),
+      prisma.centerMembership.findMany({
+        where: { centerId: payment.centerId, role: 'ADMIN', isActive: true },
+        select: { user: { select: { id: true, name: true, mobileNumber: true } } },
+      }),
+    ]);
+
+    const recipients = admins
+      .map((m) => m.user)
+      .filter((u): u is { id: string; name: string | null; mobileNumber: string | null } => !!u);
+
+    if (recipients.length === 0) {
+      console.error('[Notifications] Payment issue but center has no active admins to alert:', {
+        paymentId: opts.paymentId,
+        centerId: payment.centerId,
+        outcome: opts.outcome,
+      });
+      return;
+    }
+
+    const urgent = opts.outcome === 'NEEDS_ATTENTION';
+    const centerName = center?.name || 'Center';
+    const payerName = payer?.name || 'Customer';
+    const payerMobile = payer?.mobileNumber ? ` (${payer.mobileNumber})` : '';
+    const lines = [
+      urgent
+        ? 'URGENT: a captured payment could NOT be booked or refunded — manual action needed.'
+        : 'A captured payment failed to book and was auto-refunded to the customer wallet.',
+      `Center: ${centerName}`,
+      `Customer: ${payerName}${payerMobile}`,
+      `Amount: ₹${payment.amount}`,
+      `Payment: ${opts.paymentId}${payment.razorpayPaymentId ? ` / ${payment.razorpayPaymentId}` : ''}`,
+      `Reason: ${opts.reason}`,
+      urgent
+        ? 'Action: refund in Razorpay or retry at /admin/payments/orphans.'
+        : 'No action needed — wallet already credited.',
+    ];
+    const title = urgent ? 'Payment needs manual action' : 'Payment auto-refunded';
+    const inApp = lines.join(' | ');
+    const waText = lines.join('\n');
+
+    // In-app — the guaranteed channel, one notification per admin.
+    await Promise.all(
+      recipients.map((u) =>
+        notify({ userId: u.id, title, message: inApp, type: urgent ? 'WARNING' : 'INFO' }).catch((e) =>
+          console.error('[Notifications] Admin payment-issue in-app failed:', {
+            adminId: u.id,
+            error: e instanceof Error ? e.message : String(e),
+          }),
+        ),
+      ),
+    );
+
+    // WhatsApp — best-effort, run in parallel so N admins don't serialise the
+    // per-request 5s BSP cap.
+    const waEnabled = await isWhatsAppEnabled();
+    if (waEnabled) {
+      await Promise.all(
+        recipients
+          .filter((u) => !!u.mobileNumber)
+          .map(async (u) => {
+            try {
+              const r = await sendWhatsAppText(u.mobileNumber as string, waText);
+              if (!r?.success && !r?.outsideWindow) {
+                console.warn('[Notifications] Admin payment-issue WhatsApp failed:', {
+                  adminId: u.id,
+                  error: r?.error || 'unknown',
+                });
+              }
+            } catch (e) {
+              console.warn('[Notifications] Admin payment-issue WhatsApp threw:', {
+                adminId: u.id,
+                error: e instanceof Error ? e.message : String(e),
+              });
+            }
+          }),
+      );
+    }
+  } catch (err) {
+    console.error('[Notifications] notifyAdminPaymentIssue failed:', err instanceof Error ? err.message : String(err));
+  }
+}
+
 // ─── Assigned-Staff Notification Helpers (operator + coach + specialist) ─
 //
 // The operator-only helpers above predate the resource-based booking
