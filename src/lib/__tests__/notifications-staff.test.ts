@@ -149,13 +149,18 @@ describe('notifyAssignedStaffNewBooking', () => {
     const params = templateParams();
     expect(params[0]).toContain('Toplay Indoor'); // center name folded into {{1}}
     expect(params).toContain('Personal Coaching'); // booking type
-    expect(params).toContain('Indoor Net 2'); // facility / resource
     expect(params).toContain('₹500'); // price
     expect(params).toContain('Coach Anil'); // on-ground contact (coach for COACHING)
+    // Who booked + how to reach them is folded into the facility param so
+    // the staff alert identifies the customer (the reused customer template
+    // has no dedicated slot for it).
+    expect(params.some((p) => p.includes('Indoor Net 2'))).toBe(true); // facility / resource
+    expect(params.some((p) => p.includes('Booked by Rahul') && p.includes('9990001111'))).toBe(true);
 
-    // The customer name still rides on the always-on in-app notification.
+    // The customer name + phone are on the always-on in-app notification too.
     const inApp = createMock.mock.calls[0][0] as { data: { message: string } };
     expect(inApp.data.message).toContain('Rahul');
+    expect(inApp.data.message).toContain('9990001111');
     expect(inApp.data.message).toContain('Indoor Net 2');
   });
 

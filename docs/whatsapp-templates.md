@@ -113,21 +113,25 @@ floor-handled categories (Cricket Net / Full Court / Sidearm / Coaching).
 ### Default — reuse `booking_detail` (7 params, already approved)
 
 Staff receive the **same approved template the customer gets**, so no new BSP
-approval is needed. Params for the staff send:
+approval is needed. The one difference from the customer's send: the
+**customer's name + phone are folded into the facility param ({{4}})** —
+`booking_detail` has no dedicated slot for the booker, and {{4}} carries no
+misleading baked label — so the staff alert identifies who booked and how to
+reach them. Params for the staff send:
 
 | Param | Value |
 |-------|-------|
 | `{{1}}` | `<Center> • <date>` |
 | `{{2}}` | Time (+ `(N slots)` for multi-slot) |
 | `{{3}}` | Booking type (e.g. "Sidearm Session") / machine headline |
-| `{{4}}` | Facility (net / court / pitch) |
+| `{{4}}` | `<Facility> • Booked by <customer> (<phone>)` |
 | `{{5}}` | Price (or "Pay at center" / "Package session" / "FREE") |
 | `{{6}}` | On-ground contact name (operator / specialist / coach) |
 | `{{7}}` | On-ground contact phone |
 
-> The customer's name still rides on the always-on **in-app** notification —
-> `booking_detail` has no slot for it. Set a dedicated template (below) to put
-> the customer name + phone on the staff WhatsApp message too.
+> For a fully staff-shaped message — customer name + phone in their own fields,
+> a staff-worded body (no "Booking Confirmed!" header) — set a dedicated
+> template (below) instead of folding the booker into {{4}}.
 
 ### Optional — dedicated staff template (`WHATSAPP_STAFF_BOOKING_TEMPLATE`)
 
