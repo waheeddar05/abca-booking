@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse, after } from 'next/server';
 import { z } from 'zod';
 import { Prisma, type BookingCategory } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
@@ -276,8 +276,14 @@ export async function executeResourceBooking(
     //    ground staff for floor-handled categories.
     // Neither ever blocks or fails the booking.
     const createdIds = created.map(b => b.id);
-    void notifyCustomerNewBooking(createdIds);
-    void notifyAssignedStaffNewBooking(createdIds);
+    // Use Next after() (not a bare `void`): run these once the response is
+    // flushed while keeping the serverless function alive. A plain `void`
+    // lets Vercel suspend the lambda the instant we respond, aborting the
+    // in-flight WhatsApp BSP fetch with "This operation was aborted".
+    after(async () => {
+      await notifyCustomerNewBooking(createdIds);
+      await notifyAssignedStaffNewBooking(createdIds);
+    });
 
     return created;
   } catch (error) {
