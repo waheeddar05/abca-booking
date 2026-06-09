@@ -1131,6 +1131,12 @@ export async function notifyAssignedStaffNewBooking(bookingIds: string[]): Promi
     const contactName = contactPerson?.name || 'To be assigned';
     const contactPhone = contactPerson?.mobileNumber || 'Will be shared soon';
     const customerPhone = primary.user?.mobileNumber || 'N/A';
+    // Who booked, for the staff alert: the customer's name + phone. Staff
+    // need to know which customer they're serving (and how to reach them) —
+    // without this the reused customer template reads like the booker's own
+    // confirmation, with no booker identity on it.
+    const bookedBy =
+      customerPhone !== 'N/A' ? `${primary.playerName} (${customerPhone})` : primary.playerName;
 
     // In-app + free-form text carry the same admin-Bookings-page detail
     // rows (Category / Machine / Pitch / Ball / Operation / assigned
@@ -1198,8 +1204,12 @@ export async function notifyAssignedStaffNewBooking(bookingIds: string[]): Promi
           ],
         };
       }
-      // Reuse the approved customer template (7 params) — same shape as
-      // notifyBookingConfirmed so staff receive "the same notification".
+      // Reuse the approved customer `booking_detail` template (7 params).
+      // The customer's name + phone are folded into the facility param
+      // ({{4}}) so the staff member knows who booked and how to reach them —
+      // the template has no dedicated customer slot, and {{4}} carries no
+      // misleading baked label (set WHATSAPP_STAFF_BOOKING_TEMPLATE for a
+      // fully staff-shaped message that puts the customer in its own field).
       return {
         mobileNumber: recipient.mobileNumber,
         templateName: 'booking_detail',
@@ -1210,7 +1220,7 @@ export async function notifyAssignedStaffNewBooking(bookingIds: string[]): Promi
               { type: 'text', text: `${centerName} • ${dateStr}` },
               { type: 'text', text: `${timeStr}${slotSuffix}` },
               { type: 'text', text: bookingType },
-              { type: 'text', text: facility },
+              { type: 'text', text: `${facility} • Booked by ${bookedBy}` },
               { type: 'text', text: priceStr },
               { type: 'text', text: contactName },
               { type: 'text', text: contactPhone },
@@ -1342,6 +1352,7 @@ export async function notifyAssignedStaffBookingCancelled(
       const detail = [
         `${centerName} • ${STAFF_ROLE_LABELS[recipient.roleKey]} session cancelled`,
         `Customer: ${booking.playerName}`,
+        ...(customerPhone !== 'N/A' ? [`Phone: ${customerPhone}`] : []),
         `${dateStr}, ${timeStr}`,
         facility,
         `Cancelled by: ${cancelledBy}`,
