@@ -96,6 +96,73 @@ async function resolveCenterName(opts: {
   return 'PlayOrbit';
 }
 
+// ─── booking_detail location parameter (opt-in) ─────────────────────
+//
+// The approved `booking_detail` template historically ends with a STATIC
+// "📍 maps link" baked into the template body — so every center's
+// confirmation rendered that one (ABCA) location, even Toplay's. To show
+// each center's OWN map, re-approve the template with a trailing {{8}}
+// placeholder ("📍 {{8}}") that we fill with the booking center's `mapUrl`.
+//
+// Gated behind WHATSAPP_BOOKING_DETAIL_LOCATION_ENABLED so the code and the
+// BSP template change ship independently: until the template actually has
+// {{8}}, sending an 8th param makes Meta reject the whole message. Flip the
+// flag to 'true' only AFTER the template is re-approved with {{8}}.
+function bookingDetailLocationEnabled(): boolean {
+  return process.env.WHATSAPP_BOOKING_DETAIL_LOCATION_ENABLED === 'true';
+}
+
+// Center map URLs change rarely, so cache them per id to keep these
+// fire-and-forget paths from doing an extra DB round-trip each time.
+const centerMapUrlCache = new Map<string, string | null>();
+
+/**
+ * Resolve the booking center's map URL. Callers that already loaded the
+ * center pass `mapUrl` directly (even `null`); the legacy machine path
+ * passes only `centerId` and we look it up (cached). Returns null when the
+ * center has no map configured.
+ */
+async function resolveCenterMapUrl(opts: {
+  mapUrl?: string | null;
+  centerId?: string | null;
+}): Promise<string | null> {
+  if (opts.mapUrl !== undefined) return opts.mapUrl?.trim() || null;
+  const id = opts.centerId;
+  if (!id) return null;
+  if (centerMapUrlCache.has(id)) return centerMapUrlCache.get(id) ?? null;
+  try {
+    const center = await prisma.center.findUnique({ where: { id }, select: { mapUrl: true } });
+    const value = center?.mapUrl?.trim() || null;
+    centerMapUrlCache.set(id, value);
+    return value;
+  } catch (err) {
+    console.error('[Notifications] Failed to resolve center mapUrl:', {
+      centerId: id,
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return null;
+  }
+}
+
+/**
+ * Build the body parameters for the approved `booking_detail` template.
+ * Pass the 7 base values in order; when the location placeholder is enabled
+ * (template re-approved with a trailing "📍 {{8}}"), the center's map URL is
+ * appended as {{8}} so each center shows its OWN location. A non-empty
+ * fallback is used when a center has no map configured (Meta rejects empty
+ * params).
+ */
+function buildBookingDetailParams(
+  base: [string, string, string, string, string, string, string],
+  mapUrl: string | null,
+): { type: string; text: string }[] {
+  const values: string[] = [...base];
+  if (bookingDetailLocationEnabled()) {
+    values.push(mapUrl || 'Location shared at the center');
+  }
+  return values.map((text) => ({ type: 'text', text }));
+}
+
 /**
  * Send an in-app notification (always created in DB).
  * Optionally also sends via WhatsApp if the feature is enabled
@@ -174,19 +241,23 @@ export async function notifyBookingConfirmed(
     kitRentalCharge?: number | null;
     centerName?: string; // e.g. "ABCA Cricket Academy" — leads the message
     centerId?: string; // looked up when centerName isn't supplied
+    mapUrl?: string | null; // the center's own map link — used for {{8}} when the location param is enabled
     // When supplied, the in-app alert renders these "Label: value" rows
     // (admin-Bookings-page parity) instead of the one-line summary. The
     // approved WhatsApp template below is unaffected (still booking_detail).
     detailSegments?: string[];
   },
 ): Promise<SendResult> {
-  // Template booking_detail (7 params — UNCHANGED on the BSP). The center
-  // name is embedded into the leading {{1}} (date) param so it renders on
-  // the first line right under the title, e.g. "📅 ABCA • Wed, 26 Mar 2026",
-  // without needing a new template placeholder:
-  // "🏏 *Booking Confirmed!*\n📅 {{1}}\n⏰ {{2}}\n🎯 {{3}} — {{4}}\n💰 {{5}}\n👤 Operator: {{6}}\n📞 Contact: {{7}}\n📍 maps link"
+  // Template booking_detail. The center name is embedded into the leading
+  // {{1}} (date) param so it renders right under the title, e.g.
+  // "📅 ABCA • Wed, 26 Mar 2026":
+  // "🏏 *Booking Confirmed!*\n📅 {{1}}\n⏰ {{2}}\n🎯 {{3}} — {{4}}\n💰 {{5}}\n👤 Operator: {{6}}\n📞 Contact: {{7}}\n📍 {{8}}"
+  // {{8}} (the center's own map link) is sent only when the template has
+  // been re-approved with it and WHATSAPP_BOOKING_DETAIL_LOCATION_ENABLED is
+  // 'true'; otherwise 7 params are sent (legacy template with a static map).
   const kitInfo = details.kitRental ? ' + Cricket Kit' : '';
   const centerName = await resolveCenterName(details);
+  const mapUrl = await resolveCenterMapUrl(details);
   const operatorName = details.operatorName || 'To be assigned';
   const operatorPhone = details.operatorPhone || 'Will be shared soon';
 
@@ -222,15 +293,18 @@ export async function notifyBookingConfirmed(
           components: [
             {
               type: 'body',
-              parameters: [
-                { type: 'text', text: `${centerName} • ${details.date}` },
-                { type: 'text', text: details.time },
-                { type: 'text', text: details.machine },
-                { type: 'text', text: details.pitch },
-                { type: 'text', text: details.price + kitInfo },
-                { type: 'text', text: operatorName },
-                { type: 'text', text: operatorPhone },
-              ],
+              parameters: buildBookingDetailParams(
+                [
+                  `${centerName} • ${details.date}`,
+                  details.time,
+                  details.machine,
+                  details.pitch,
+                  details.price + kitInfo,
+                  operatorName,
+                  operatorPhone,
+                ],
+                mapUrl,
+              ),
             },
           ],
         }
@@ -876,7 +950,7 @@ type StaffNotifyBooking = {
   centerId: string;
   cancelledBy: string | null;
   cancellationReason: string | null;
-  center: { name: string } | null;
+  center: { name: string; mapUrl: string | null } | null;
   // Customer phone — surfaced to staff on the dedicated template so they
   // can reach the booker directly. The reused `booking_detail` template
   // has no slot for it (it's customer-facing), so it's only used when a
@@ -909,7 +983,7 @@ const STAFF_NOTIFY_SELECT = {
   centerId: true,
   cancelledBy: true,
   cancellationReason: true,
-  center: { select: { name: true } },
+  center: { select: { name: true, mapUrl: true } },
   user: { select: { mobileNumber: true } },
   operator: { select: { id: true, name: true, mobileNumber: true } },
   assignedCoach: { select: { id: true, name: true, mobileNumber: true } },
@@ -1320,15 +1394,18 @@ export async function notifyAssignedStaffNewBooking(bookingIds: string[]): Promi
         components: [
           {
             type: 'body',
-            parameters: [
-              { type: 'text', text: `${centerName} • ${dateStr}` },
-              { type: 'text', text: `${timeStr}${slotSuffix}` },
-              { type: 'text', text: bookingType },
-              { type: 'text', text: `${facility} • Booked by ${bookedBy}` },
-              { type: 'text', text: priceStr },
-              { type: 'text', text: contactName },
-              { type: 'text', text: contactPhone },
-            ],
+            parameters: buildBookingDetailParams(
+              [
+                `${centerName} • ${dateStr}`,
+                `${timeStr}${slotSuffix}`,
+                bookingType,
+                `${facility} • Booked by ${bookedBy}`,
+                priceStr,
+                contactName,
+                contactPhone,
+              ],
+              primary.center?.mapUrl ?? null,
+            ),
           },
         ],
       };
@@ -1534,7 +1611,7 @@ type CustomerNotifyBooking = {
   kitRental: boolean;
   kitRentalCharge: number | null;
   user: { mobileNumber: string | null; mobileVerified: boolean } | null;
-  center: { name: string } | null;
+  center: { name: string; mapUrl: string | null } | null;
   operator: { name: string | null; mobileNumber: string | null } | null;
   assignedCoach: { name: string | null; mobileNumber: string | null } | null;
   assignedStaff: { name: string | null; mobileNumber: string | null } | null;
@@ -1562,7 +1639,7 @@ const CUSTOMER_NOTIFY_SELECT = {
   kitRental: true,
   kitRentalCharge: true,
   user: { select: { mobileNumber: true, mobileVerified: true } },
-  center: { select: { name: true } },
+  center: { select: { name: true, mapUrl: true } },
   operator: { select: { name: true, mobileNumber: true } },
   assignedCoach: { select: { name: true, mobileNumber: true } },
   assignedStaff: { select: { name: true, mobileNumber: true } },
@@ -1684,6 +1761,7 @@ export async function notifyCustomerNewBooking(bookingIds: string[]): Promise<vo
       kitRental,
       kitRentalCharge: kitRental ? kitRentalCharge : null,
       centerName: primary.center?.name || undefined,
+      mapUrl: primary.center?.mapUrl ?? null,
       detailSegments,
     });
   } catch (err) {

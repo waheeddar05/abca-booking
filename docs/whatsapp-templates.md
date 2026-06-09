@@ -71,6 +71,25 @@ line right under the title:
 | `{{5}}` | Price (+ kit info) |
 | `{{6}}` | Operator / contact-person name |
 | `{{7}}` | Operator / contact-person phone |
+| `{{8}}` | **Center map link** — *only when the location param is enabled (below)* |
+
+#### Per-center location — optional `{{8}}` (opt-in)
+
+`booking_detail` historically ends with a **static** "📍 maps link" baked into
+the template body, so every center's confirmation rendered that one (ABCA)
+location — wrong for Toplay and any other center. To show each center's **own**
+map:
+
+1. On the BSP, re-approve `booking_detail` with the footer changed from a
+   hardcoded link to a placeholder: `📍 {{8}}` (an 8th body parameter).
+2. Set `WHATSAPP_BOOKING_DETAIL_LOCATION_ENABLED=true`.
+
+The code then fills `{{8}}` with the **booking center's `mapUrl`** (falling
+back to "Location shared at the center" when a center has none), for both the
+customer confirmation and the staff alert. Until the flag is `true` the code
+sends the legacy **7** params, so the existing template keeps working — flip
+the flag **only after** the template is re-approved with `{{8}}`, or Meta will
+reject every confirmation for a param-count mismatch.
 
 ### `booking_cancelled` — 1 param (unchanged)
 
