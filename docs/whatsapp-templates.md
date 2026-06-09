@@ -8,7 +8,8 @@ PlayOrbit sends two kinds of WhatsApp messages:
   placeholder count doesn't match what the code sends, the message is
   rejected.**
 - **Staff notifications** (operator / coach / sidearm specialist / ground
-  staff) for **new bookings** — also delivered through an **approved template**.
+  staff) for **new bookings and cancellations** — also delivered through an
+  **approved template**.
 
   > **Why a template and not free-form text?** WhatsApp (both Meta and Twilio)
   > only delivers **free-form** text to a recipient who messaged the business
@@ -17,17 +18,14 @@ PlayOrbit sends two kinds of WhatsApp messages:
   > — who get a template — received theirs. **Approved templates deliver
   > regardless of the 24-hour window**, so staff alerts now go through one.
 
-  By default the staff alert **reuses the approved customer `booking_detail`
-  template** (no new BSP approval needed — works immediately). To send a
-  richer, staff-specific message (including the customer's name + phone), set
-  the `WHATSAPP_STAFF_BOOKING_TEMPLATE` env var to a dedicated approved
-  template (see contract below). A **free-form text** (`sendWhatsAppText`) is
-  kept only as a best-effort fallback when the template send fails or the
-  provider isn't configured.
-
-  **Cancellation** alerts to staff are still sent as free-form text
-  (`sendWhatsAppText`) — there's no approved staff-cancellation template, and
-  these are out of scope of the new-booking fix.
+  By default the staff alert **reuses an approved customer template**
+  (`booking_detail` for new bookings, `booking_cancelled` for cancellations)
+  — no new BSP approval needed, works immediately. To send a richer,
+  staff-specific message (including the customer's name + phone), set the
+  `WHATSAPP_STAFF_BOOKING_TEMPLATE` / `WHATSAPP_STAFF_CANCEL_TEMPLATE` env
+  vars to dedicated approved templates (see contracts below). A **free-form
+  text** (`sendWhatsAppText`) is kept only as a best-effort fallback when the
+  template send fails or the provider isn't configured.
 
 ## Center name in every notification
 
@@ -158,10 +156,43 @@ Suggested body:
 🎯 {{7}} · 📍 {{8}}
 ```
 
-## Staff cancellation text messages (no BSP template)
+## Staff cancellation alerts (approved template)
 
-Format produced by `notifyAssignedStaffBookingCancelled` (still free-form —
-see the note at the top) — full control, dedicated center line:
+`notifyAssignedStaffBookingCancelled` delivers an in-app notification (always)
+plus an approved-template WhatsApp message to every assigned staff member and
+the center's ground staff — the same delivery model as the new-booking alert,
+so cancellations reach staff even outside the 24-hour window.
+
+### Default — reuse `booking_cancelled` (1 param, already approved)
+
+The recipient gets the approved customer `booking_cancelled` template with a
+staff-oriented detail string folded into `{{1}}`:
+
+| Param | Value |
+|-------|-------|
+| `{{1}}` | `<Center> • <role> session cancelled \| Customer: … \| <date>, <time> \| <facility> \| Cancelled by: … \| Reason: …` |
+
+### Optional — dedicated staff-cancel template (`WHATSAPP_STAFF_CANCEL_TEMPLATE`)
+
+Set the env var to a **separately approved** template for a richer, role-aware
+message. The code fills **8 body params** in this order — create the
+template's body to match:
+
+| Param | Value |
+|-------|-------|
+| `{{1}}` | Center name |
+| `{{2}}` | Staff role (e.g. "Machine Operator", "Trainer Specialist") |
+| `{{3}}` | Customer name |
+| `{{4}}` | Customer phone |
+| `{{5}}` | Date |
+| `{{6}}` | Time |
+| `{{7}}` | Booking type |
+| `{{8}}` | Cancelled by |
+
+### Free-form fallback
+
+The same emoji-formatted free-form text is kept as a best-effort fallback
+(used only when the template send fails or the provider isn't configured):
 
 ```
 ❌ *Booking Cancelled*
@@ -170,8 +201,11 @@ Hi <staff name> (<role>),
 A booking assigned to you has been cancelled.
 
 👤 Customer: …
+📞 Phone: …
 📅 Date: …
 ⏰ Time: …
 📍 Facility: …
-🎯 Type: …
+• Category: … / Machine: … / Pitch: … / …
+🚫 Status: Cancelled
+🙍 Cancelled by: …
 ```

@@ -1,0 +1,18 @@
+-- Make the Toplay center the platform default.
+--
+-- Center resolution (src/lib/centers.ts → findDefaultCenter /
+-- resolveCurrentCenter) and every center switcher/listing order by
+-- "displayOrder" ASC, so the active center with the lowest displayOrder is
+-- the one new / anonymous users — and any signed-in user without a saved
+-- selection or a center membership — land on by default. ABCA was seeded
+-- at displayOrder 0.
+--
+-- Giving Toplay a lower displayOrder makes it the FALLBACK default without
+-- touching the membership step: ABCA staff/admins (who resolve via their
+-- own membership) still land on ABCA, while customers and anonymous
+-- visitors get Toplay first.
+--
+-- Targeted by the known UAT/prod slug ('top-play'). No-op in any
+-- environment where that center doesn't exist (e.g. a fresh ABCA-only
+-- database), so it is safe to apply everywhere.
+UPDATE "Center" SET "displayOrder" = -100 WHERE "slug" = 'top-play';

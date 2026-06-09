@@ -174,6 +174,10 @@ export async function notifyBookingConfirmed(
     kitRentalCharge?: number | null;
     centerName?: string; // e.g. "ABCA Cricket Academy" — leads the message
     centerId?: string; // looked up when centerName isn't supplied
+    // When supplied, the in-app alert renders these "Label: value" rows
+    // (admin-Bookings-page parity) instead of the one-line summary. The
+    // approved WhatsApp template below is unaffected (still booking_detail).
+    detailSegments?: string[];
   },
 ): Promise<SendResult> {
   // Template booking_detail (7 params — UNCHANGED on the BSP). The center
@@ -183,15 +187,32 @@ export async function notifyBookingConfirmed(
   // "🏏 *Booking Confirmed!*\n📅 {{1}}\n⏰ {{2}}\n🎯 {{3}} — {{4}}\n💰 {{5}}\n👤 Operator: {{6}}\n📞 Contact: {{7}}\n📍 maps link"
   const kitInfo = details.kitRental ? ' + Cricket Kit' : '';
   const centerName = await resolveCenterName(details);
-  const slotSummary = `${details.machine}, ${details.pitch} — ${details.time} on ${details.date} (${details.price}${kitInfo})`;
   const operatorName = details.operatorName || 'To be assigned';
   const operatorPhone = details.operatorPhone || 'Will be shared soon';
+
+  // In-app alert ("Notifications" view): render the booking as labelled
+  // "Label: value" rows so the customer sees the same field set the admin
+  // Bookings page shows. Resource-based centers pass category-aware
+  // detailSegments (Category / Machine / Pitch / Ball / Operation /
+  // assigned person / Payment / Kit); the legacy machine path builds rows
+  // from the machine + pitch + operator it already has.
+  const inAppSegments = details.detailSegments?.length
+    ? [centerName, `Date: ${details.date}`, `Time: ${details.time}`, ...details.detailSegments, `Price: ${details.price}`]
+    : [
+        centerName,
+        `Date: ${details.date}`,
+        `Time: ${details.time}`,
+        `Machine: ${details.machine}`,
+        `Pitch: ${details.pitch}`,
+        ...(details.operatorName ? [`Operator: ${details.operatorName}`] : []),
+        `Price: ${details.price}${kitInfo}`,
+      ];
 
   return notify(
     {
       userId,
       title: 'Booking Confirmed',
-      message: `${centerName} — ${slotSummary}`,
+      message: inAppSegments.join(' | '),
       type: 'SUCCESS',
     },
     details.mobileNumber
@@ -267,35 +288,137 @@ export async function notifyBookingCancelled(
   );
 }
 
-/**
- * Customer-facing booking-type labels for cancellation alerts. Kept
- * separate from CATEGORY_LABELS / CUSTOMER_CATEGORY_LABELS so the
- * Sidearm wording matches what the cancellation alert is meant to read
- * ("Sidearm Specialist").
- */
-const CANCELLATION_TYPE_LABELS: Record<BookingCategory, string> = {
+// ─── Shared booking-detail segments (admin Bookings-page parity) ─────
+//
+// The /notifications "alerts" view (src/app/notifications/page.tsx) splits
+// a notification message on " | " / newlines and renders every
+// "Label: value" piece as its own labelled row. So when an alert is built
+// from these segments it shows the recipient the SAME field rows the admin
+// Bookings page renders via <BookingDetailsList> — Category, Machine,
+// Pitch, Ball, Operation, the assigned person, Payment, and Cricket Kit.
+// Reused by the customer confirmation/cancellation alerts and the staff
+// (operator / coach / specialist / ground staff) alerts alike.
+
+const DETAIL_CATEGORY_LABELS: Record<BookingCategory, string> = {
   MACHINE: 'Bowling Machine',
-  SIDEARM: 'Sidearm Specialist',
+  SIDEARM: 'Sidearm',
   COACHING: 'Personal Coaching',
   NET: 'Cricket Nets',
   FULL_COURT: 'Full Indoor Court',
   CORPORATE_BATCH: 'Corporate Batch',
 };
 
+const DETAIL_PITCH_LABELS: Record<string, string> = {
+  ASTRO: 'Astro Turf',
+  CEMENT: 'Cement',
+  NATURAL: 'Natural Turf',
+  TURF: 'Cement',
+};
+
+const DETAIL_BALL_LABELS: Record<string, string> = {
+  LEATHER: 'Leather Ball',
+  TENNIS: 'Tennis Ball',
+  MACHINE: 'Machine Ball',
+};
+
+/** Loaded booking fields needed to render the admin-style detail rows. */
+interface BookingDetailFields {
+  category: BookingCategory;
+  machineId?: string | null;
+  assignedMachine?: { name: string; shortName?: string | null; machineType?: { name: string } | null } | null;
+  pitchType?: string | null;
+  ballType?: string | null;
+  operationMode?: string | null;
+  operator?: { name: string | null } | null;
+  assignedCoach?: { name: string | null } | null;
+  assignedStaff?: { name: string | null } | null;
+  paymentMethod?: string | null;
+  packageBooking?: { id: string } | null;
+  kitRental?: boolean | null;
+  kitRentalCharge?: number | null;
+}
+
+/** Resolve the machine label for a MACHINE booking (legacy enum or Machine row). */
+function detailMachineLabel(b: BookingDetailFields): string | null {
+  if (b.machineId) {
+    return MACHINES[b.machineId as keyof typeof MACHINES]?.shortName || b.machineId;
+  }
+  if (b.assignedMachine) {
+    const typeName = b.assignedMachine.machineType?.name;
+    return typeName ? `${b.assignedMachine.name} (${typeName})` : b.assignedMachine.name;
+  }
+  return null;
+}
+
+/** Friendly payment-method label (mirrors the admin Bookings list). */
+function detailPaymentLabel(b: BookingDetailFields): string | null {
+  if (b.packageBooking) return 'Package';
+  switch (b.paymentMethod) {
+    case 'WALLET':
+      return 'Wallet';
+    case 'CASH':
+      return 'Cash';
+    case 'ONLINE':
+      return 'Online';
+    default:
+      return b.paymentMethod || null;
+  }
+}
+
 /**
- * Build the category-aware "what was booked" line(s) for a customer
- * cancellation notification.
- *
- * Machine info is surfaced ONLY for MACHINE bookings; Sidearm shows the
- * specialist, Coaching shows the coach, and the resource categories
- * (Cricket Nets / Full Court / Corporate) show just the booking type.
- * This is what stops a Sidearm cancellation from rendering a bogus
- * "Machine: TENNIS" line — the TENNIS `ballType` default must never
- * masquerade as a machine on a non-machine booking.
+ * Build the admin Bookings-page detail rows for a booking as
+ * "Label: value" segments, in the same field order <BookingDetailsList>
+ * renders them. Null-safe — a row is omitted whenever its value isn't set,
+ * exactly like the admin list. Machine/Ball rows are emitted ONLY for
+ * MACHINE bookings, so a non-machine booking can never leak the TENNIS
+ * `ballType` default as a bogus "Machine: …" line.
+ */
+function buildBookingDetailSegments(b: BookingDetailFields): string[] {
+  const isMachine = b.category === 'MACHINE';
+  const segments: string[] = [`Category: ${DETAIL_CATEGORY_LABELS[b.category] || b.category}`];
+
+  const machineLabel = isMachine ? detailMachineLabel(b) : null;
+  if (machineLabel) segments.push(`Machine: ${machineLabel}`);
+
+  if (b.pitchType && (isMachine || b.category === 'SIDEARM' || b.category === 'NET')) {
+    segments.push(`Pitch: ${DETAIL_PITCH_LABELS[b.pitchType] || b.pitchType}`);
+  }
+  if (isMachine && b.ballType) {
+    segments.push(`Ball: ${DETAIL_BALL_LABELS[b.ballType] || b.ballType}`);
+  }
+  if (isMachine && b.operationMode) {
+    segments.push(`Operation: ${b.operationMode === 'SELF_OPERATE' ? 'Self Operate' : 'With Operator'}`);
+  }
+
+  // Exactly one assigned-person row per category — same as the admin list.
+  if (isMachine && b.operationMode === 'WITH_OPERATOR' && b.operator?.name) {
+    segments.push(`Operator: ${b.operator.name}`);
+  } else if (b.category === 'SIDEARM' && b.assignedStaff?.name) {
+    segments.push(`Sidearm Specialist: ${b.assignedStaff.name}`);
+  } else if (b.category === 'COACHING' && b.assignedCoach?.name) {
+    segments.push(`Coach: ${b.assignedCoach.name}`);
+  }
+
+  const payment = detailPaymentLabel(b);
+  if (payment) segments.push(`Payment: ${payment}`);
+
+  if (b.kitRental) {
+    segments.push(`Cricket Kit: ${b.kitRentalCharge ? `₹${b.kitRentalCharge}` : 'Included'}`);
+  }
+  return segments;
+}
+
+/**
+ * Build the "what was booked" detail line(s) for a customer cancellation
+ * notification — the full admin-Bookings-page detail set (Category,
+ * Machine, Pitch, Ball, Operation, assigned person, Payment, Cricket Kit)
+ * so the cancellation alert carries the same details the admin Bookings
+ * page shows. Machine/Ball rows stay MACHINE-only, so a Sidearm/Coaching
+ * cancellation never renders a bogus "Machine: TENNIS" line.
  *
  * Best-effort: any lookup failure returns an empty array so the
  * cancellation notification still goes out (just without the detail
- * line). Never throws.
+ * lines). Never throws.
  */
 export async function buildCancellationDetailLines(bookingId: string): Promise<string[]> {
   try {
@@ -304,37 +427,21 @@ export async function buildCancellationDetailLines(bookingId: string): Promise<s
       select: {
         category: true,
         machineId: true,
-        assignedMachine: { select: { name: true, shortName: true } },
+        assignedMachine: { select: { name: true, shortName: true, machineType: { select: { name: true } } } },
+        pitchType: true,
+        ballType: true,
+        operationMode: true,
+        operator: { select: { name: true } },
         assignedStaff: { select: { name: true } },
         assignedCoach: { select: { name: true } },
+        paymentMethod: true,
+        packageBooking: { select: { id: true } },
+        kitRental: true,
+        kitRentalCharge: true,
       },
     });
     if (!booking) return [];
-
-    const { category } = booking;
-
-    // MACHINE: the only category that legitimately has a machine.
-    if (category === 'MACHINE') {
-      const machineName =
-        (booking.machineId
-          ? MACHINES[booking.machineId as keyof typeof MACHINES]?.shortName
-          : null) ||
-        booking.assignedMachine?.shortName ||
-        booking.assignedMachine?.name ||
-        booking.machineId ||
-        CANCELLATION_TYPE_LABELS.MACHINE;
-      return [`Machine: ${machineName}`];
-    }
-
-    // Non-machine categories: lead with the booking type, then the
-    // relevant assigned person (specialist / coach) when one is set.
-    const lines = [`Type: ${CANCELLATION_TYPE_LABELS[category]}`];
-    if (category === 'SIDEARM' && booking.assignedStaff?.name) {
-      lines.push(`Specialist: ${booking.assignedStaff.name}`);
-    } else if (category === 'COACHING' && booking.assignedCoach?.name) {
-      lines.push(`Coach: ${booking.assignedCoach.name}`);
-    }
-    return lines;
+    return buildBookingDetailSegments(booking as BookingDetailFields);
   } catch (err) {
     console.warn('[Notifications] buildCancellationDetailLines failed:', err);
     return [];
@@ -654,9 +761,14 @@ type StaffNotifyBooking = {
   endTime: Date;
   category: BookingCategory;
   machineId: string | null;
+  pitchType: string | null;
+  ballType: string | null;
+  operationMode: string | null;
   price: number | null;
   paymentMethod: string | null;
   paymentStatus: string | null;
+  kitRental: boolean;
+  kitRentalCharge: number | null;
   centerId: string;
   cancelledBy: string | null;
   cancellationReason: string | null;
@@ -682,9 +794,14 @@ const STAFF_NOTIFY_SELECT = {
   endTime: true,
   category: true,
   machineId: true,
+  pitchType: true,
+  ballType: true,
+  operationMode: true,
   price: true,
   paymentMethod: true,
   paymentStatus: true,
+  kitRental: true,
+  kitRentalCharge: true,
   centerId: true,
   cancelledBy: true,
   cancellationReason: true,
@@ -784,33 +901,6 @@ function resolveFacility(booking: StaffNotifyBooking): string {
     return MACHINES[booking.machineId as keyof typeof MACHINES]?.shortName || booking.machineId;
   }
   return 'Net';
-}
-
-/** Resolve a display label for the assigned machine, if any. */
-function resolveMachineLabel(booking: StaffNotifyBooking): string | null {
-  if (booking.assignedMachine) {
-    const typeName = booking.assignedMachine.machineType?.name;
-    return typeName
-      ? `${booking.assignedMachine.name} (${typeName})`
-      : booking.assignedMachine.name;
-  }
-  if (booking.machineId) {
-    return MACHINES[booking.machineId as keyof typeof MACHINES]?.shortName || booking.machineId;
-  }
-  return null;
-}
-
-/** Build the "assigned details" lines shared across recipients. */
-function buildAssignmentLines(booking: StaffNotifyBooking): string[] {
-  const lines: string[] = [];
-  const machineLabel = resolveMachineLabel(booking);
-  if (machineLabel && booking.category === 'MACHINE') lines.push(`🎳 Machine: ${machineLabel}`);
-  if (booking.assignedCoach?.name) lines.push(`👨‍🏫 Coach: ${booking.assignedCoach.name}`);
-  if (booking.assignedStaff?.name) lines.push(`🏏 Specialist: ${booking.assignedStaff.name}`);
-  if (booking.operator?.name && booking.category === 'MACHINE') {
-    lines.push(`🧑‍🔧 Operator: ${booking.operator.name}`);
-  }
-  return lines;
 }
 
 /** Format a duration in minutes as "1 hr 30 min" / "45 min". */
@@ -1008,7 +1098,7 @@ export async function notifyAssignedStaffNewBooking(bookingIds: string[]): Promi
     const bookingType = CATEGORY_LABELS[primary.category];
     const centerName = primary.center?.name || 'PlayOrbit';
     const durationStr = formatDuration(totalMinutes);
-    const assignmentLines = buildAssignmentLines(primary);
+    const detailSegments = buildBookingDetailSegments(primary);
 
     // Price across the whole batch — mirrors the customer confirmation so
     // staff see the same figure the booker paid (or "Pay at center" / a
@@ -1042,11 +1132,18 @@ export async function notifyAssignedStaffNewBooking(bookingIds: string[]): Promi
     const contactPhone = contactPerson?.mobileNumber || 'Will be shared soon';
     const customerPhone = primary.user?.mobileNumber || 'N/A';
 
+    // In-app + free-form text carry the same admin-Bookings-page detail
+    // rows (Category / Machine / Pitch / Ball / Operation / assigned
+    // person / Payment / Kit) plus the customer's name + phone so staff
+    // can reach the booker directly.
     const inAppMessage = [
-      `New ${bookingType} booking`,
       `Customer: ${primary.playerName}`,
-      `${dateStr}, ${timeStr}${slotSuffix}`,
+      ...(customerPhone !== 'N/A' ? [`Phone: ${customerPhone}`] : []),
+      `Date: ${dateStr}`,
+      `Time: ${timeStr}${slotSuffix}`,
       `Facility: ${facility}`,
+      ...detailSegments,
+      `Price: ${priceStr}`,
     ].join(' | ');
 
     const buildWhatsApp = (recipient: StaffRecipient): string => {
@@ -1057,12 +1154,13 @@ export async function notifyAssignedStaffNewBooking(bookingIds: string[]): Promi
         `A new booking has been assigned to you.`,
         ``,
         `👤 Customer: ${primary.playerName}`,
+        ...(customerPhone !== 'N/A' ? [`📞 Phone: ${customerPhone}`] : []),
         `📅 Date: ${dateStr}`,
         `⏰ Time: ${timeStr}${slotSuffix}`,
         `⏳ Duration: ${durationStr}`,
         `📍 Facility: ${facility}`,
-        `🎯 Type: ${bookingType}`,
-        ...assignmentLines,
+        ...detailSegments.map((s) => `• ${s}`),
+        `💰 Price: ${priceStr}`,
         `🔖 Booking ID: ${primary.id}${slotCount > 1 ? ` (+${slotCount - 1} more)` : ''}`,
       ];
       return lines.join('\n');
@@ -1164,13 +1262,18 @@ export async function notifyAssignedStaffBookingCancelled(
     const centerName = booking.center?.name || 'PlayOrbit';
     const cancelledBy = details.cancelledBy || booking.cancelledBy || 'Center';
     const reason = details.reason || booking.cancellationReason || undefined;
+    const customerPhone = booking.user?.mobileNumber || 'N/A';
+    const detailSegments = buildBookingDetailSegments(booking);
 
     const inAppMessage = [
-      `${bookingType} booking CANCELLED`,
       `Customer: ${booking.playerName}`,
-      `${dateStr}, ${timeStr}`,
+      ...(customerPhone !== 'N/A' ? [`Phone: ${customerPhone}`] : []),
+      `Date: ${dateStr}`,
+      `Time: ${timeStr}`,
       `Facility: ${facility}`,
+      ...detailSegments,
       `Cancelled by: ${cancelledBy}`,
+      ...(reason ? [`Reason: ${reason}`] : []),
     ].join(' | ');
 
     const buildWhatsApp = (recipient: StaffRecipient): string => {
@@ -1181,16 +1284,77 @@ export async function notifyAssignedStaffBookingCancelled(
         `A booking assigned to you has been cancelled.`,
         ``,
         `👤 Customer: ${booking.playerName}`,
+        ...(customerPhone !== 'N/A' ? [`📞 Phone: ${customerPhone}`] : []),
         `📅 Date: ${dateStr}`,
         `⏰ Time: ${timeStr}`,
         `📍 Facility: ${facility}`,
-        `🎯 Type: ${bookingType}`,
+        ...detailSegments.map((s) => `• ${s}`),
         `🚫 Status: Cancelled`,
         `🙍 Cancelled by: ${cancelledBy}`,
       ];
       if (reason) lines.push(`📝 Reason: ${reason}`);
       lines.push(`🔖 Booking ID: ${booking.id}`);
       return lines.join('\n');
+    };
+
+    // Approved-template payload per recipient — the fix that makes staff
+    // cancellation alerts actually arrive. WhatsApp only delivers free-form
+    // text to someone who messaged the business in the last 24h, which
+    // staff almost never do, so the free-form `buildWhatsApp` above was
+    // silently dropped for them ("outside 24h window"): staff got the
+    // new-booking alert (sent via a template) but NOT the cancellation. An
+    // approved template delivers regardless of the 24h window. By default
+    // we reuse the already-approved customer `booking_cancelled` template
+    // (1 param, no BSP changes needed); set WHATSAPP_STAFF_CANCEL_TEMPLATE
+    // to a dedicated 8-param approved template for a richer, role-aware
+    // message. See docs/whatsapp-templates.md.
+    const dedicatedTemplate = process.env.WHATSAPP_STAFF_CANCEL_TEMPLATE?.trim();
+    const buildWhatsAppTemplate = (recipient: StaffRecipient): WhatsAppTemplatePayload | null => {
+      if (!recipient.mobileNumber) return null;
+      if (dedicatedTemplate) {
+        // Dedicated staff-cancel template — 8 params (documented contract):
+        // {{1}} center · {{2}} role · {{3}} customer · {{4}} customer phone
+        // {{5}} date · {{6}} time · {{7}} type · {{8}} cancelled by
+        return {
+          mobileNumber: recipient.mobileNumber,
+          templateName: dedicatedTemplate,
+          components: [
+            {
+              type: 'body',
+              parameters: [
+                { type: 'text', text: centerName },
+                { type: 'text', text: STAFF_ROLE_LABELS[recipient.roleKey] },
+                { type: 'text', text: booking.playerName },
+                { type: 'text', text: customerPhone },
+                { type: 'text', text: dateStr },
+                { type: 'text', text: timeStr },
+                { type: 'text', text: bookingType },
+                { type: 'text', text: cancelledBy },
+              ],
+            },
+          ],
+        };
+      }
+      // Reuse the approved customer `booking_cancelled` template (1 param).
+      // Meta rejects newlines, tabs and 4+ consecutive spaces in params, so
+      // the detail string is flattened the same way the customer cancel
+      // alert is.
+      const detail = [
+        `${centerName} • ${STAFF_ROLE_LABELS[recipient.roleKey]} session cancelled`,
+        `Customer: ${booking.playerName}`,
+        `${dateStr}, ${timeStr}`,
+        facility,
+        `Cancelled by: ${cancelledBy}`,
+        ...(reason ? [`Reason: ${reason}`] : []),
+      ]
+        .join(' | ')
+        .replace(/[\n\t]/g, ' ')
+        .replace(/\s{4,}/g, '   ');
+      return {
+        mobileNumber: recipient.mobileNumber,
+        templateName: 'booking_cancelled',
+        components: [{ type: 'body', parameters: [{ type: 'text', text: detail }] }],
+      };
     };
 
     await dispatchStaffNotifications({
@@ -1200,6 +1364,7 @@ export async function notifyAssignedStaffBookingCancelled(
       type: 'CANCELLATION',
       inAppMessage,
       buildWhatsApp,
+      buildWhatsAppTemplate,
     });
   } catch (err) {
     console.error('[Notifications] notifyAssignedStaffBookingCancelled failed:', err);
@@ -1245,6 +1410,8 @@ type CustomerNotifyBooking = {
   category: BookingCategory;
   machineId: string | null;
   pitchType: string | null;
+  ballType: string | null;
+  operationMode: string | null;
   price: number | null;
   status: string;
   paymentMethod: string | null;
@@ -1271,6 +1438,8 @@ const CUSTOMER_NOTIFY_SELECT = {
   category: true,
   machineId: true,
   pitchType: true,
+  ballType: true,
+  operationMode: true,
   price: true,
   status: true,
   paymentMethod: true,
@@ -1378,6 +1547,16 @@ export async function notifyCustomerNewBooking(bookingIds: string[]): Promise<vo
       0,
     );
 
+    // Admin-Bookings-page detail rows (Category / Machine / Pitch / Ball /
+    // Operation / assigned person / Payment / Kit) for the in-app alert.
+    // Aggregate kit across the slots so the alert's Cricket Kit row matches
+    // the total charged, not just the first slot's.
+    const detailSegments = buildBookingDetailSegments({
+      ...primary,
+      kitRental,
+      kitRentalCharge: kitRental ? kitRentalCharge : null,
+    });
+
     await notifyBookingConfirmed(primary.userId, {
       date: dateStr,
       time: timeStr,
@@ -1390,6 +1569,7 @@ export async function notifyCustomerNewBooking(bookingIds: string[]): Promise<vo
       kitRental,
       kitRentalCharge: kitRental ? kitRentalCharge : null,
       centerName: primary.center?.name || undefined,
+      detailSegments,
     });
   } catch (err) {
     console.error('[Notifications] notifyCustomerNewBooking failed:', err);

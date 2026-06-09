@@ -61,19 +61,19 @@ describe('buildCancellationDetailLines', () => {
 
     const lines = await buildCancellationDetailLines('bk_1');
 
-    // The core of the bug fix: a Sidearm cancellation must NOT render a
+    // The core safety property: a Sidearm cancellation must NOT render a
     // "Machine: ..." line (it used to leak the TENNIS ballType default).
     expect(lines.some((l) => l.startsWith('Machine'))).toBe(false);
-    expect(lines).toContain('Type: Sidearm Specialist');
-    expect(lines).toContain('Specialist: Specialist Sam');
+    expect(lines).toContain('Category: Sidearm');
+    expect(lines).toContain('Sidearm Specialist: Specialist Sam');
   });
 
-  it('shows only the type for a Sidearm booking with no assigned specialist', async () => {
+  it('shows only the category for a Sidearm booking with no assigned specialist', async () => {
     findUniqueMock.mockResolvedValue(bookingRow({ category: 'SIDEARM', assignedStaff: null }));
 
     const lines = await buildCancellationDetailLines('bk_1');
 
-    expect(lines).toEqual(['Type: Sidearm Specialist']);
+    expect(lines).toEqual(['Category: Sidearm']);
   });
 
   it('shows the coach for a Personal Coaching booking', async () => {
@@ -84,7 +84,7 @@ describe('buildCancellationDetailLines', () => {
     const lines = await buildCancellationDetailLines('bk_1');
 
     expect(lines.some((l) => l.startsWith('Machine'))).toBe(false);
-    expect(lines).toContain('Type: Personal Coaching');
+    expect(lines).toContain('Category: Personal Coaching');
     expect(lines).toContain('Coach: Coach Anil');
   });
 
@@ -93,7 +93,7 @@ describe('buildCancellationDetailLines', () => {
 
     const lines = await buildCancellationDetailLines('bk_1');
 
-    expect(lines).toEqual(['Machine: Gravity']);
+    expect(lines).toEqual(['Category: Bowling Machine', 'Machine: Gravity']);
   });
 
   it('shows the assigned machine for a resource-based MACHINE booking', async () => {
@@ -107,15 +107,44 @@ describe('buildCancellationDetailLines', () => {
 
     const lines = await buildCancellationDetailLines('bk_1');
 
-    expect(lines).toEqual(['Machine: Yantra 1']);
+    expect(lines).toEqual(['Category: Bowling Machine', 'Machine: Yantra 1']);
   });
 
-  it('shows only the type for Cricket Nets / Full Court / Corporate', async () => {
+  it('shows only the category for Cricket Nets / Full Court / Corporate', async () => {
     findUniqueMock.mockResolvedValue(bookingRow({ category: 'NET' }));
-    expect(await buildCancellationDetailLines('bk_1')).toEqual(['Type: Cricket Nets']);
+    expect(await buildCancellationDetailLines('bk_1')).toEqual(['Category: Cricket Nets']);
 
     findUniqueMock.mockResolvedValue(bookingRow({ category: 'FULL_COURT' }));
-    expect(await buildCancellationDetailLines('bk_1')).toEqual(['Type: Full Indoor Court']);
+    expect(await buildCancellationDetailLines('bk_1')).toEqual(['Category: Full Indoor Court']);
+  });
+
+  it('includes pitch, payment and kit rows when present (admin-Bookings parity)', async () => {
+    findUniqueMock.mockResolvedValue(
+      bookingRow({
+        category: 'MACHINE',
+        machineId: 'GRAVITY',
+        pitchType: 'ASTRO',
+        ballType: 'LEATHER',
+        operationMode: 'WITH_OPERATOR',
+        operator: { name: 'Op Sam' },
+        paymentMethod: 'ONLINE',
+        kitRental: true,
+        kitRentalCharge: 200,
+      }),
+    );
+
+    const lines = await buildCancellationDetailLines('bk_1');
+
+    expect(lines).toEqual([
+      'Category: Bowling Machine',
+      'Machine: Gravity',
+      'Pitch: Astro Turf',
+      'Ball: Leather Ball',
+      'Operation: With Operator',
+      'Operator: Op Sam',
+      'Payment: Online',
+      'Cricket Kit: ₹200',
+    ]);
   });
 
   it('returns an empty array when the booking is missing', async () => {

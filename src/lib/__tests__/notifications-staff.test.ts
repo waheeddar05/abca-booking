@@ -106,10 +106,12 @@ beforeEach(() => {
   // exercise the ground-staff path override this per-case.
   membershipFindFirstMock.mockResolvedValue(null);
   delete process.env.WHATSAPP_STAFF_BOOKING_TEMPLATE;
+  delete process.env.WHATSAPP_STAFF_CANCEL_TEMPLATE;
 });
 
 afterEach(() => {
   delete process.env.WHATSAPP_STAFF_BOOKING_TEMPLATE;
+  delete process.env.WHATSAPP_STAFF_CANCEL_TEMPLATE;
 });
 
 describe('notifyAssignedStaffNewBooking', () => {
@@ -339,27 +341,83 @@ describe('notifyAssignedStaffNewBooking', () => {
 });
 
 describe('notifyAssignedStaffBookingCancelled', () => {
-  it('notifies assigned staff with cancellation details (free-form text)', async () => {
+  it('notifies assigned staff via an approved template (delivers outside the 24h window)', async () => {
     findUniqueMock.mockResolvedValue(
-      bookingRow({ assignedStaff: { id: 'staff_1', name: 'Spec Vik', mobileNumber: '9876500003' } }),
+      bookingRow({
+        category: 'SIDEARM',
+        assignedCoach: null,
+        assignedStaff: { id: 'staff_1', name: 'Spec Vik', mobileNumber: '9876500003' },
+      }),
     );
 
     await notifyAssignedStaffBookingCancelled('bk_1', { cancelledBy: 'Admin', reason: 'Rain' });
 
-    // Cancellations stay on free-form text (no approved staff-cancellation
-    // template). The booking-creation alert is the one that moved to a
-    // template; cancellations are unchanged.
-    expect(sendWhatsAppTextMock).toHaveBeenCalled();
-    const texts = sendWhatsAppTextMock.mock.calls.map((c) => c[1]);
-    const joined = texts.join('\n');
+    // The fix: cancellations now go through an approved template too (they
+    // used to be free-form-only, so they were silently dropped for staff
+    // outside WhatsApp's 24h window). Default reuses the approved customer
+    // booking_cancelled template (1 param) — no BSP changes needed.
+    expect(sendWhatsAppNotificationMock).toHaveBeenCalledTimes(1);
+    const [mobile, templateName] = sendWhatsAppNotificationMock.mock.calls[0];
+    expect(mobile).toBe('9876500003');
+    expect(templateName).toBe('booking_cancelled');
+    const detail = templateParams()[0];
+    expect(detail).toContain('Toplay Indoor');
+    expect(detail).toContain('Rahul');
+    expect(detail).toContain('Admin'); // cancelled by
+    expect(detail).toContain('Rain'); // reason
+    // Template delivered → no free-form fallback.
+    expect(sendWhatsAppTextMock).not.toHaveBeenCalled();
+    // In-app notification always created, with the booking details.
+    expect(createMock).toHaveBeenCalledTimes(1);
+    const inApp = createMock.mock.calls[0][0] as { data: { message: string } };
+    expect(inApp.data.message).toContain('Rahul');
+    expect(inApp.data.message).toContain('Indoor Net 2');
+  });
+
+  it('falls back to free-form text when the approved template send fails', async () => {
+    sendWhatsAppNotificationMock.mockResolvedValue({ success: false, error: 'template rejected' });
+    findUniqueMock.mockResolvedValue(
+      bookingRow({
+        category: 'SIDEARM',
+        assignedCoach: null,
+        assignedStaff: { id: 'staff_1', name: 'Spec Vik', mobileNumber: '9876500003' },
+      }),
+    );
+
+    await notifyAssignedStaffBookingCancelled('bk_1', { cancelledBy: 'Admin', reason: 'Rain' });
+
+    expect(sendWhatsAppNotificationMock).toHaveBeenCalledTimes(1);
+    expect(sendWhatsAppTextMock).toHaveBeenCalledTimes(1);
+    const joined = sendWhatsAppTextMock.mock.calls.map((c) => c[1]).join('\n');
     expect(joined).toContain('Cancelled');
-    expect(joined).toContain('Toplay Indoor');
     expect(joined).toContain('Rahul');
-    expect(joined).toContain('Indoor Net 2');
     expect(joined).toContain('Admin'); // cancelled by
     expect(joined).toContain('Rain'); // reason
-    expect(joined).toContain('Booking ID'); // reference label
-    expect(joined).toContain('bk_1'); // the booking id itself
+    expect(joined).toContain('Booking ID');
+    expect(joined).toContain('bk_1');
+  });
+
+  it('uses the dedicated staff-cancel template when WHATSAPP_STAFF_CANCEL_TEMPLATE is set', async () => {
+    process.env.WHATSAPP_STAFF_CANCEL_TEMPLATE = 'staff_cancel_alert';
+    findUniqueMock.mockResolvedValue(
+      bookingRow({
+        category: 'SIDEARM',
+        assignedCoach: null,
+        assignedStaff: { id: 'staff_1', name: 'Spec Vik', mobileNumber: '9876500003' },
+      }),
+    );
+
+    await notifyAssignedStaffBookingCancelled('bk_1', { cancelledBy: 'Admin', reason: 'Rain' });
+
+    const [mobile, templateName] = sendWhatsAppNotificationMock.mock.calls[0];
+    expect(mobile).toBe('9876500003');
+    expect(templateName).toBe('staff_cancel_alert');
+    const params = templateParams();
+    // Contract: {{1}} center, {{2}} role, {{3}} customer, {{4}} phone …
+    expect(params[0]).toBe('Toplay Indoor');
+    expect(params[1]).toBe('Trainer Specialist');
+    expect(params[2]).toBe('Rahul');
+    expect(params).toContain('Admin'); // cancelled by ({{8}})
   });
 
   it('does nothing for a booking with no assigned staff', async () => {
@@ -369,6 +427,7 @@ describe('notifyAssignedStaffBookingCancelled', () => {
 
     await notifyAssignedStaffBookingCancelled('bk_1');
 
+    expect(sendWhatsAppNotificationMock).not.toHaveBeenCalled();
     expect(sendWhatsAppTextMock).not.toHaveBeenCalled();
     expect(createMock).not.toHaveBeenCalled();
   });
