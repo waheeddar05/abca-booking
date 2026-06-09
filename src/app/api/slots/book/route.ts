@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse, after } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { Prisma, type BallType, type PitchType, type OperationMode, type MachineId } from '@prisma/client';
 import { isAfter, isValid } from 'date-fns';
@@ -887,7 +887,7 @@ export async function executeSlotBooking(
     // Create booking confirmation notification (fire-and-forget so a
     // slow Twilio/Meta WhatsApp API can't block the booking response
     // — the user has already paid / committed to the booking).
-    void (async () => { try {
+    after(async () => { try {
       const firstSlot = validatedSlots[0];
       const machineName = firstSlot.machineId ? MACHINES[firstSlot.machineId]?.shortName : (firstBallType === 'TENNIS' ? 'Tennis' : 'Leather');
       const dateStr = formatIST(firstSlot.date, 'EEE, dd MMM yyyy');
@@ -977,7 +977,7 @@ export async function executeSlotBooking(
       });
     } catch (notifErr) {
       console.error('Failed to create booking notification:', notifErr);
-    } })();
+    } });
 
     // ─── Notify Assigned Staff via WhatsApp + In-App ──────────────────
     // Same fire-and-forget pattern — the operator dashboard subscribes
@@ -985,11 +985,11 @@ export async function executeSlotBooking(
     // helper derives every assigned staff member (operator / coach /
     // specialist) and the full booking detail from the created rows, so
     // ABCA's operator-only bookings still get pinged exactly as before.
-    void (async () => { try {
+    after(async () => { try {
       await notifyAssignedStaffNewBooking(results.map(r => r.id));
     } catch (opNotifErr) {
       console.error('Failed to notify staff about new booking:', opNotifErr);
-    } })();
+    } });
 
     // ─── Link Online Payment to Bookings (Server-Side) ────────────────
     // If an online paymentId was provided, link it to the created bookings

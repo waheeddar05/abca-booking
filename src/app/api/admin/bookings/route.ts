@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse, after } from 'next/server';
 import type { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 import { requireCenterAdmin } from '@/lib/adminAuth';
@@ -754,7 +754,9 @@ export async function POST(req: NextRequest) {
       ]);
 
       // Notify assigned staff about the newly created (consecutive) booking.
-      void notifyAssignedStaffNewBooking([newBooking.id]);
+      // after() keeps the function alive so the WhatsApp send isn't aborted
+      // when the response is flushed (a bare `void` gets suspended on Vercel).
+      after(() => notifyAssignedStaffNewBooking([newBooking.id]));
 
       return NextResponse.json(newBooking);
     }

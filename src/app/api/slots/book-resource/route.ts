@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse, after } from 'next/server';
 import { z } from 'zod';
 import { Prisma, type BookingCategory } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
@@ -10,7 +10,8 @@ import {
   BookingResourceError,
   type BookingPlan,
 } from '@/lib/resource-booking';
-import { notifyAssignedStaffNewBooking, notifyCustomerNewBooking } from '@/lib/notifications';
+import { notifyAssignedStaffNewBooking, notifyCustomerNewBooking, notifyAdminPaymentIssue } from '@/lib/notifications';
+import { markCaptureNeedsRecovery } from '@/lib/payment-recovery';
 import { getResourceSlotPrice } from '@/lib/resource-pricing';
 import { getAllApplicablePromoDiscounts } from '@/lib/promotionalOffers';
 import {
@@ -264,7 +265,40 @@ export async function executeResourceBooking(
   log.info(ctx, 'Booking attempt start');
 
   try {
-    const created = await executeResourceBookingCore(user, body, center, { onlinePaymentId });
+    let created: ResourceBookingResult[];
+    try {
+      created = await executeResourceBookingCore(user, body, center, { onlinePaymentId });
+    } catch (firstErr) {
+      // Auto-retry only captured online bookings; wallet / cash / free pass
+      // straight through (retrying those could double-charge a wallet).
+      if (!onlinePaymentId) throw firstErr;
+      // Never double-book: if the first attempt actually committed + linked
+      // bookings before throwing (a post-commit error), use those instead of
+      // retrying. Core links payment.bookingIds before any post-commit work,
+      // so it's the reliable "did it actually book?" signal.
+      const linked = await prisma.payment.findUnique({
+        where: { id: onlinePaymentId },
+        select: { bookingIds: true },
+      });
+      if (linked && linked.bookingIds.length > 0) {
+        created = await prisma.booking.findMany({
+          where: { id: { in: linked.bookingIds } },
+          select: { id: true, status: true },
+        });
+        log.warn(
+          { ...ctx, bookingIds: linked.bookingIds },
+          'First attempt committed bookings despite throwing — using those, skipping retry',
+        );
+      } else {
+        log.warn(
+          ctx,
+          `Resource booking failed — retrying once before refund: ${firstErr instanceof Error ? firstErr.message : String(firstErr)}`,
+        );
+        await new Promise((r) => setTimeout(r, 600));
+        created = await executeResourceBookingCore(user, body, center, { onlinePaymentId });
+        log.info(ctx, 'Resource booking recovered on retry');
+      }
+    }
     log.info({ ...ctx, bookingIds: created.map(b => b.id) }, `Booking success — ${created.length} row(s) created`);
 
     // ─── Notifications (fire-and-forget) ──────────────────────────────
@@ -276,8 +310,14 @@ export async function executeResourceBooking(
     //    ground staff for floor-handled categories.
     // Neither ever blocks or fails the booking.
     const createdIds = created.map(b => b.id);
-    void notifyCustomerNewBooking(createdIds);
-    void notifyAssignedStaffNewBooking(createdIds);
+    // Use Next after() (not a bare `void`): run these once the response is
+    // flushed while keeping the serverless function alive. A plain `void`
+    // lets Vercel suspend the lambda the instant we respond, aborting the
+    // in-flight WhatsApp BSP fetch with "This operation was aborted".
+    after(async () => {
+      await notifyCustomerNewBooking(createdIds);
+      await notifyAssignedStaffNewBooking(createdIds);
+    });
 
     return created;
   } catch (error) {
@@ -326,6 +366,14 @@ export async function executeResourceBooking(
             'Auto-refunded to wallet after booking failure',
           );
 
+          // Real-time admin alert so a paid-but-unbooked case is never
+          // discovered only via a customer complaint. Best-effort.
+          await notifyAdminPaymentIssue({
+            paymentId: onlinePaymentId,
+            outcome: 'REFUNDED',
+            reason: error instanceof Error ? error.message : 'Booking failed',
+          }).catch(() => {});
+
           const errMessage = error instanceof Error ? error.message : 'Booking failed';
           throw new ResourceBookingServiceError(
             `${errMessage}. ₹${refundAmount} has been refunded to your wallet.`,
@@ -352,6 +400,23 @@ export async function executeResourceBooking(
         if (refundErr instanceof ResourceBookingServiceError) throw refundErr;
         log.error(ctx, 'CRITICAL: auto-refund failed after booking failure', refundErr);
         log.error(ctx, 'Original booking error', error);
+        // The wallet auto-refund itself failed (e.g. wallet disabled for the
+        // center, or a DB blip). Don't leave the captured payment as a
+        // silent, reason-less orphan — flag it so /admin/payments/orphans
+        // surfaces it for a manual Razorpay refund or booking retry. This is
+        // the resource-path equivalent of the verify route's recovery flag,
+        // and (unlike before) also covers the webhook caller.
+        await markCaptureNeedsRecovery(
+          onlinePaymentId,
+          `Booking failed and wallet auto-refund failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        ).catch((e) => log.error(ctx, 'Failed to flag capture for recovery after refund failure', e));
+        // Worst case — money captured, no booking, no refund. Page the admins
+        // immediately so it never sits silently.
+        await notifyAdminPaymentIssue({
+          paymentId: onlinePaymentId,
+          outcome: 'NEEDS_ATTENTION',
+          reason: `Booking failed AND wallet auto-refund failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        }).catch(() => {});
       }
     }
 
