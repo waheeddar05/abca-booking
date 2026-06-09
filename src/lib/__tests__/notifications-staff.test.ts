@@ -107,11 +107,13 @@ beforeEach(() => {
   membershipFindFirstMock.mockResolvedValue(null);
   delete process.env.WHATSAPP_STAFF_BOOKING_TEMPLATE;
   delete process.env.WHATSAPP_STAFF_CANCEL_TEMPLATE;
+  delete process.env.WHATSAPP_BOOKING_DETAIL_LOCATION_ENABLED;
 });
 
 afterEach(() => {
   delete process.env.WHATSAPP_STAFF_BOOKING_TEMPLATE;
   delete process.env.WHATSAPP_STAFF_CANCEL_TEMPLATE;
+  delete process.env.WHATSAPP_BOOKING_DETAIL_LOCATION_ENABLED;
 });
 
 describe('notifyAssignedStaffNewBooking', () => {
@@ -162,6 +164,19 @@ describe('notifyAssignedStaffNewBooking', () => {
     expect(inApp.data.message).toContain('Rahul');
     expect(inApp.data.message).toContain('9990001111');
     expect(inApp.data.message).toContain('Indoor Net 2');
+  });
+
+  it('appends the booking center map link as {{8}} when the location param is enabled', async () => {
+    process.env.WHATSAPP_BOOKING_DETAIL_LOCATION_ENABLED = 'true';
+    findManyMock.mockResolvedValue([
+      bookingRow({ center: { name: 'Toplay Indoor', mapUrl: 'https://maps.example/toplay' } }),
+    ]);
+
+    await notifyAssignedStaffNewBooking(['bk_1']);
+
+    const params = templateParams();
+    expect(params).toHaveLength(8);
+    expect(params[7]).toBe('https://maps.example/toplay'); // the booking center's OWN map
   });
 
   it('reflects multi-slot bookings in the template time parameter', async () => {

@@ -83,6 +83,7 @@ beforeEach(() => {
   getCachedPolicyMock.mockResolvedValue('true'); // WhatsApp enabled
   sendWhatsAppNotificationMock.mockResolvedValue({ success: true, messageId: 'wamid.1' });
   createMock.mockResolvedValue({ id: 'notif_1' });
+  delete process.env.WHATSAPP_BOOKING_DETAIL_LOCATION_ENABLED;
 });
 
 describe('notifyCustomerNewBooking', () => {
@@ -193,6 +194,31 @@ describe('notifyCustomerNewBooking', () => {
     await notifyCustomerNewBooking(['bk_1']);
 
     expect(createMock).not.toHaveBeenCalled();
+  });
+
+  it('sends the legacy 7 params (no map link) by default', async () => {
+    findManyMock.mockResolvedValue([
+      row({ center: { name: 'Toplay Indoor', mapUrl: 'https://maps.example/toplay' } }),
+    ]);
+
+    await notifyCustomerNewBooking(['bk_1']);
+
+    // Flag off → the template still expects 7 params; sending an 8th would
+    // make Meta reject the message, so the center map link is NOT appended.
+    expect(templateParams()).toHaveLength(7);
+  });
+
+  it('appends the center map link as {{8}} when the location param is enabled', async () => {
+    process.env.WHATSAPP_BOOKING_DETAIL_LOCATION_ENABLED = 'true';
+    findManyMock.mockResolvedValue([
+      row({ center: { name: 'Toplay Indoor', mapUrl: 'https://maps.example/toplay' } }),
+    ]);
+
+    await notifyCustomerNewBooking(['bk_1']);
+
+    const params = templateParams();
+    expect(params).toHaveLength(8);
+    expect(params[7]).toBe('https://maps.example/toplay'); // the booking center's OWN map, not ABCA's
   });
 
   it('never throws if the lookup fails', async () => {
