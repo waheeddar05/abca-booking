@@ -11,6 +11,7 @@ import {
   type BookingPlan,
 } from '@/lib/resource-booking';
 import { notifyAssignedStaffNewBooking, notifyCustomerNewBooking } from '@/lib/notifications';
+import { markCaptureNeedsRecovery } from '@/lib/payment-recovery';
 import { getResourceSlotPrice } from '@/lib/resource-pricing';
 import { getAllApplicablePromoDiscounts } from '@/lib/promotionalOffers';
 import {
@@ -358,6 +359,16 @@ export async function executeResourceBooking(
         if (refundErr instanceof ResourceBookingServiceError) throw refundErr;
         log.error(ctx, 'CRITICAL: auto-refund failed after booking failure', refundErr);
         log.error(ctx, 'Original booking error', error);
+        // The wallet auto-refund itself failed (e.g. wallet disabled for the
+        // center, or a DB blip). Don't leave the captured payment as a
+        // silent, reason-less orphan — flag it so /admin/payments/orphans
+        // surfaces it for a manual Razorpay refund or booking retry. This is
+        // the resource-path equivalent of the verify route's recovery flag,
+        // and (unlike before) also covers the webhook caller.
+        await markCaptureNeedsRecovery(
+          onlinePaymentId,
+          `Booking failed and wallet auto-refund failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        ).catch((e) => log.error(ctx, 'Failed to flag capture for recovery after refund failure', e));
       }
     }
 

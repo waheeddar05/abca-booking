@@ -11,6 +11,7 @@ import {
 import { BookingResourceError } from '@/lib/resource-booking';
 import { completePackagePurchase } from '@/lib/package-purchase';
 import { log } from '@/lib/logger';
+import { markCaptureNeedsRecovery } from '@/lib/payment-recovery';
 
 // POST /api/payments/verify - Verify payment and complete booking/purchase
 export async function POST(req: NextRequest) {
@@ -401,36 +402,4 @@ export async function POST(req: NextRequest) {
     const message = error instanceof Error ? error.message : 'Payment verification failed';
     return NextResponse.json({ error: message }, { status: 500 });
   }
-}
-
-/**
- * Stamp the Payment row's metadata with a `recovery` block so the
- * `/api/admin/payments/orphans` endpoint can find it. We do NOT change
- * `status` (still CAPTURED) — Razorpay considers the payment good, and
- * the booking is just missing. The orphan tool walks `status=CAPTURED`
- * AND `bookingIds=[]` AND `paymentType=SLOT_BOOKING` to build its list.
- */
-async function markCaptureNeedsRecovery(paymentId: string, reason: string): Promise<void> {
-  const existing = await prisma.payment.findUnique({
-    where: { id: paymentId },
-    select: { metadata: true },
-  });
-  const meta =
-    existing && typeof existing.metadata === 'object' && existing.metadata !== null
-      ? (existing.metadata as Record<string, unknown>)
-      : {};
-  await prisma.payment.update({
-    where: { id: paymentId },
-    data: {
-      metadata: {
-        ...meta,
-        recovery: {
-          flaggedAt: new Date().toISOString(),
-          reason,
-          handled: false,
-        },
-      } as never,
-      failureReason: reason,
-    },
-  });
 }
