@@ -254,7 +254,7 @@ export async function GET(req: NextRequest) {
       // active — which is always, since the UI auto-applies a default range.
       (async () => {
         try {
-          const categories = ['MACHINE', 'SIDEARM', 'NET', 'FULL_COURT'] as const;
+          const categories = ['MACHINE', 'SIDEARM', 'COACHING', 'NET', 'FULL_COURT'] as const;
           const results = await Promise.all(categories.map(async (cat) => {
             const [todayCount, upcomingCount] = await Promise.all([
               prisma.booking.count({
