@@ -374,7 +374,7 @@ export async function PATCH(req: NextRequest) {
     }
 
     const body = await req.json();
-    const { bookingId, status, price, cancellationReason, operatorId, assignedStaffId, assignedGroundStaffId } = body;
+    const { bookingId, status, cancellationReason, operatorId, assignedStaffId, assignedGroundStaffId } = body;
 
     if (!bookingId) {
       return NextResponse.json({ error: 'Booking ID is required' }, { status: 400 });
@@ -490,14 +490,8 @@ export async function PATCH(req: NextRequest) {
       }
     }
 
-    // Handle price update
-    if (price !== undefined && price !== null) {
-      const numPrice = Number(price);
-      if (isNaN(numPrice) || numPrice < 0) {
-        return NextResponse.json({ error: 'Invalid price value' }, { status: 400 });
-      }
-      data.price = numPrice;
-    }
+    // Booking amounts are read-only from the admin Bookings section — the
+    // price is set at booking creation and is intentionally not editable here.
 
     if (Object.keys(data).length === 0) {
       return NextResponse.json({ error: 'No fields to update' }, { status: 400 });
