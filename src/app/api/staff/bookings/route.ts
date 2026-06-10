@@ -261,6 +261,7 @@ export async function GET(req: NextRequest) {
           },
           assignedCoach: { select: { id: true, name: true } },
           assignedStaff: { select: { id: true, name: true } },
+          assignedGroundStaff: { select: { id: true, name: true, mobileNumber: true } },
           packageBooking: {
             include: {
               userPackage: { include: { package: { select: { name: true } } } },
@@ -291,6 +292,13 @@ export async function GET(req: NextRequest) {
         : null,
       assignedCoachName: b.assignedCoach?.name ?? null,
       assignedStaffName: b.assignedStaff?.name ?? null,
+      assignedGroundStaff: b.assignedGroundStaff
+        ? {
+            id: b.assignedGroundStaff.id,
+            name: b.assignedGroundStaff.name ?? null,
+            mobileNumber: b.assignedGroundStaff.mobileNumber ?? null,
+          }
+        : null,
       price: b.price,
       originalPrice: b.originalPrice,
       discountAmount: b.discountAmount,

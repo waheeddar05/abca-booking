@@ -59,6 +59,8 @@ const SAFE_BOOKING_SELECT = {
   assignedCoach: { select: { id: true, name: true } },
   assignedStaffId: true,
   assignedStaff: { select: { id: true, name: true } },
+  assignedGroundStaffId: true,
+  assignedGroundStaff: { select: { id: true, name: true, mobileNumber: true } },
   resourceAssignments: {
     select: {
       resource: { select: { id: true, name: true, type: true, category: true } },
@@ -256,6 +258,7 @@ export async function GET(req: NextRequest) {
             },
             assignedCoach: { select: { id: true, name: true } },
             assignedStaff: { select: { id: true, name: true } },
+            assignedGroundStaff: { select: { id: true, name: true, mobileNumber: true } },
             resourceAssignments: {
               select: {
                 resource: { select: { id: true, name: true, type: true, category: true } },
@@ -371,7 +374,7 @@ export async function PATCH(req: NextRequest) {
     }
 
     const body = await req.json();
-    const { bookingId, status, price, cancellationReason, operatorId, assignedStaffId } = body;
+    const { bookingId, status, price, cancellationReason, operatorId, assignedStaffId, assignedGroundStaffId } = body;
 
     if (!bookingId) {
       return NextResponse.json({ error: 'Booking ID is required' }, { status: 400 });
@@ -435,6 +438,39 @@ export async function PATCH(req: NextRequest) {
           );
         }
         data.assignedStaffId = assignedStaffId;
+      }
+    }
+
+    // Handle ground-staff reassignment. Same shape as the sidearm flow:
+    // null unassigns, otherwise the target must hold an active GROUND_STAFF
+    // membership at THIS booking's center.
+    if (assignedGroundStaffId !== undefined) {
+      if (assignedGroundStaffId === null) {
+        data.assignedGroundStaffId = null;
+      } else {
+        const target = await prisma.booking.findUnique({
+          where: { id: bookingId },
+          select: { centerId: true },
+        });
+        if (!target) {
+          return NextResponse.json({ error: 'Booking not found' }, { status: 404 });
+        }
+        const membership = await prisma.centerMembership.findFirst({
+          where: {
+            userId: assignedGroundStaffId,
+            centerId: target.centerId,
+            role: 'GROUND_STAFF',
+            isActive: true,
+          },
+          select: { id: true },
+        });
+        if (!membership) {
+          return NextResponse.json(
+            { error: 'User is not ground staff at this center' },
+            { status: 400 },
+          );
+        }
+        data.assignedGroundStaffId = assignedGroundStaffId;
       }
     }
 

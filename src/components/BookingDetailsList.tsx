@@ -63,6 +63,8 @@ interface BookingDetailsListProps {
   renderOperatorAssignment?: (booking: any) => React.ReactNode;
   /** Admin: replaces the Sidearm Specialist value with a reassignment control. */
   renderStaffAssignment?: (booking: any) => React.ReactNode;
+  /** Admin: replaces the Ground Staff value with a reassignment control. */
+  renderGroundStaffAssignment?: (booking: any) => React.ReactNode;
   className?: string;
 }
 
@@ -120,6 +122,7 @@ export function BookingDetailsList({
   showContact,
   renderOperatorAssignment,
   renderStaffAssignment,
+  renderGroundStaffAssignment,
   className,
 }: BookingDetailsListProps) {
   const category: string = booking.category || 'MACHINE';
@@ -152,9 +155,17 @@ export function BookingDetailsList({
   const coachName = booking.assignedCoachName || booking.assignedCoach?.name || null;
   const coachMobile = booking.assignedCoach?.mobileNumber || null;
 
-  // Ground staff — flattened on the user API (`center.groundStaff`) and
-  // nested on the admin API (`center.memberships[0].user`). Accept both.
-  const groundStaff = booking.center?.groundStaff || booking.center?.memberships?.[0]?.user || null;
+  // Ground staff — prefer the person actually assigned to THIS booking
+  // (Booking.assignedGroundStaff), falling back to the center's default
+  // ground-staff contact for legacy rows that predate per-booking
+  // assignment. The center default is flattened on the user API
+  // (`center.groundStaff`) and nested on the admin API
+  // (`center.memberships[0].user`); accept both.
+  const groundStaff =
+    booking.assignedGroundStaff ||
+    booking.center?.groundStaff ||
+    booking.center?.memberships?.[0]?.user ||
+    null;
 
   const paymentLabel = paymentMethodLabel(booking);
   const isPackage = booking.isPackageBooking || !!booking.packageBooking;
@@ -164,7 +175,8 @@ export function BookingDetailsList({
   const showOperatorRow = isMachine && booking.operationMode === 'WITH_OPERATOR';
   const showSidearmRow = category === 'SIDEARM';
   const showCoachRow = category === 'COACHING';
-  const showGroundStaffRow = category === 'NET' || category === 'FULL_COURT';
+  const showGroundStaffRow =
+    category === 'NET' || category === 'FULL_COURT' || category === 'CORPORATE_BATCH';
 
   return (
     <div className={`mb-2 ${className || ''}`}>
@@ -197,13 +209,17 @@ export function BookingDetailsList({
           <PersonValue name={coachName} mobile={coachMobile} showContact={showContact} />
         </DetailRow>
       )}
-      {showGroundStaffRow && groundStaff && (
+      {showGroundStaffRow && (groundStaff || renderGroundStaffAssignment) && (
         <DetailRow label="Ground Staff">
-          <PersonValue
-            name={groundStaff.name || 'Available on-site'}
-            mobile={groundStaff.mobileNumber}
-            showContact={showContact}
-          />
+          {renderGroundStaffAssignment ? (
+            renderGroundStaffAssignment(booking)
+          ) : (
+            <PersonValue
+              name={groundStaff?.name || 'Available on-site'}
+              mobile={groundStaff?.mobileNumber}
+              showContact={showContact}
+            />
+          )}
         </DetailRow>
       )}
 
