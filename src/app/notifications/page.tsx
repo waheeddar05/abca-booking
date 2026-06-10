@@ -2,8 +2,10 @@
 
 import { useState, useEffect } from 'react';
 import { useSession } from 'next-auth/react';
-import { Bell, BellOff, CheckCircle, Clock, Loader2, Info, AlertCircle } from 'lucide-react';
+import { Bell, BellOff, CheckCircle, Clock, Loader2, Info, AlertCircle, Hash } from 'lucide-react';
 import { format } from 'date-fns';
+import { BookingCard } from '@/components/BookingCard';
+import type { BookingCardData } from '@/lib/booking-card';
 
 interface Notification {
   id: string;
@@ -12,6 +14,33 @@ interface Notification {
   type: string;
   isRead: boolean;
   createdAt: string;
+  // When the alert is about a booking, the API attaches a full Bookings-page
+  // card snapshot so the alert shows the same detail without leaving the page.
+  bookingId?: string | null;
+  booking?: BookingCardData | null;
+}
+
+/**
+ * The shared <BookingCard> reads refunds from `booking.refunds` (an array),
+ * but the API returns `booking.refund` (a single rolled-up object). Mirror
+ * the transform the My Bookings page does so the card renders identically.
+ */
+function toBookingCardShape(booking: BookingCardData) {
+  return {
+    ...booking,
+    refunds:
+      booking.refund?.refunds ||
+      (booking.refund
+        ? [
+            {
+              method: booking.refund.method,
+              amount: booking.refund.amount,
+              status: 'PROCESSED',
+              refundedAt: booking.refund.refundedAt,
+            },
+          ]
+        : []),
+  };
 }
 
 /**
@@ -176,7 +205,21 @@ export default function NotificationsPage() {
                       {format(new Date(n.createdAt), 'MMM d, h:mm a')}
                     </div>
                   </div>
-                  <AlertMessage message={n.message} isRead={n.isRead} />
+                  {n.booking ? (
+                    // Booking-linked alert — render the full Bookings-page
+                    // card as a snapshot (status, refund, payment, center,
+                    // assigned staff, etc.) so the user understands exactly
+                    // what happened without opening the booking page.
+                    <div className="mt-2">
+                      <BookingCard booking={toBookingCardShape(n.booking)} role="user" />
+                      <div className="flex items-center gap-1 mt-1.5 text-[10px] text-slate-500">
+                        <Hash className="w-3 h-3" />
+                        <span>Booking ID: {n.booking.id}</span>
+                      </div>
+                    </div>
+                  ) : (
+                    <AlertMessage message={n.message} isRead={n.isRead} />
+                  )}
                   <div className="flex items-center gap-2 mt-1.5">
                     <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${
                       n.type === 'ALERT' ? 'bg-red-500/10 text-red-400' :

@@ -412,7 +412,7 @@ export async function processCancellationRefund(opts: {
       },
     });
 
-    await safelyNotifyWalletCredit(booking.userId, remaining, walletResult.newBalance, booking.centerId);
+    await safelyNotifyWalletCredit(booking.userId, remaining, walletResult.newBalance, booking.centerId, booking.id);
 
     return {
       method: 'WALLET',
@@ -522,7 +522,7 @@ export async function processCancellationRefund(opts: {
       },
     });
 
-    await safelyNotifyWalletCredit(booking.userId, remaining, walletResult.newBalance, booking.centerId);
+    await safelyNotifyWalletCredit(booking.userId, remaining, walletResult.newBalance, booking.centerId, booking.id);
 
     return {
       method: 'WALLET',
@@ -583,6 +583,7 @@ async function safelyNotifyWalletCredit(
   amount: number,
   newBalance: number,
   centerId: string,
+  bookingId?: string | null,
 ): Promise<void> {
   try {
     const notifUser = await prisma.user.findUnique({
@@ -595,6 +596,7 @@ async function safelyNotifyWalletCredit(
       newBalance,
       mobileNumber: notifUser?.mobileVerified ? notifUser.mobileNumber : null,
       centerId,
+      bookingId: bookingId ?? null,
     });
   } catch (err) {
     console.warn('[BookingCancel] Wallet credit notification failed:', err);
