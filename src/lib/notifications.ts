@@ -419,6 +419,7 @@ interface BookingDetailFields {
   operator?: { name: string | null } | null;
   assignedCoach?: { name: string | null } | null;
   assignedStaff?: { name: string | null } | null;
+  assignedGroundStaff?: { name: string | null } | null;
   paymentMethod?: string | null;
   packageBooking?: { id: string } | null;
   kitRental?: boolean | null;
@@ -484,6 +485,11 @@ function buildBookingDetailSegments(b: BookingDetailFields): string[] {
     segments.push(`Sidearm Specialist: ${b.assignedStaff.name}`);
   } else if (b.category === 'COACHING' && b.assignedCoach?.name) {
     segments.push(`Coach: ${b.assignedCoach.name}`);
+  } else if (
+    (b.category === 'NET' || b.category === 'FULL_COURT' || b.category === 'CORPORATE_BATCH') &&
+    b.assignedGroundStaff?.name
+  ) {
+    segments.push(`Ground Staff: ${b.assignedGroundStaff.name}`);
   }
 
   const payment = detailPaymentLabel(b);
@@ -521,6 +527,7 @@ export async function buildCancellationDetailLines(bookingId: string): Promise<s
         operator: { select: { name: true } },
         assignedStaff: { select: { name: true } },
         assignedCoach: { select: { name: true } },
+        assignedGroundStaff: { select: { name: true } },
         paymentMethod: true,
         packageBooking: { select: { id: true } },
         kitRental: true,
@@ -976,6 +983,7 @@ type StaffNotifyBooking = {
   operator: { id: string; name: string | null; mobileNumber: string | null } | null;
   assignedCoach: { id: string; name: string | null; mobileNumber: string | null } | null;
   assignedStaff: { id: string; name: string | null; mobileNumber: string | null } | null;
+  assignedGroundStaff: { id: string; name: string | null; mobileNumber: string | null } | null;
   assignedMachine: { name: string; machineType: { name: string } | null } | null;
   resourceAssignments: { resource: { name: string } | null }[];
   packageBooking: { id: string } | null;
@@ -1005,6 +1013,7 @@ const STAFF_NOTIFY_SELECT = {
   operator: { select: { id: true, name: true, mobileNumber: true } },
   assignedCoach: { select: { id: true, name: true, mobileNumber: true } },
   assignedStaff: { select: { id: true, name: true, mobileNumber: true } },
+  assignedGroundStaff: { select: { id: true, name: true, mobileNumber: true } },
   assignedMachine: { select: { name: true, machineType: { select: { name: true } } } },
   resourceAssignments: { select: { resource: { select: { name: true } } } },
   packageBooking: { select: { id: true } },
@@ -1632,6 +1641,7 @@ type CustomerNotifyBooking = {
   operator: { name: string | null; mobileNumber: string | null } | null;
   assignedCoach: { name: string | null; mobileNumber: string | null } | null;
   assignedStaff: { name: string | null; mobileNumber: string | null } | null;
+  assignedGroundStaff: { name: string | null; mobileNumber: string | null } | null;
   assignedMachine: { name: string; machineType: { name: string } | null } | null;
   resourceAssignments: { resource: { name: string } | null }[];
   packageBooking: { id: string } | null;
@@ -1660,6 +1670,7 @@ const CUSTOMER_NOTIFY_SELECT = {
   operator: { select: { name: true, mobileNumber: true } },
   assignedCoach: { select: { name: true, mobileNumber: true } },
   assignedStaff: { select: { name: true, mobileNumber: true } },
+  assignedGroundStaff: { select: { name: true, mobileNumber: true } },
   assignedMachine: { select: { name: true, machineType: { select: { name: true } } } },
   resourceAssignments: { select: { resource: { select: { name: true } } } },
   packageBooking: { select: { id: true } },

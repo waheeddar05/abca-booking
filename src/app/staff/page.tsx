@@ -45,6 +45,7 @@ interface Booking {
   assignedMachineName: string | null;
   assignedCoachName: string | null;
   assignedStaffName: string | null;
+  assignedGroundStaff: { id: string; name: string | null; mobileNumber: string | null } | null;
   price: number | null;
   originalPrice: number | null;
   discountAmount: number | null;

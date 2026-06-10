@@ -18,6 +18,8 @@ interface BookingCardProps {
   renderOperatorAssignment?: (booking: any) => React.ReactNode;
   /** Admin-only: render sidearm specialist reassignment dropdown */
   renderStaffAssignment?: (booking: any) => React.ReactNode;
+  /** Admin-only: render ground staff reassignment dropdown */
+  renderGroundStaffAssignment?: (booking: any) => React.ReactNode;
 }
 
 // ─── Status Config ───────────────────────────────────────
@@ -53,7 +55,7 @@ function formatTime(iso: string): string {
 
 // ─── Component ───────────────────────────────────────────
 
-export function BookingCard({ booking, role, renderActions, renderPrice, renderOperatorAssignment, renderStaffAssignment }: BookingCardProps) {
+export function BookingCard({ booking, role, renderActions, renderPrice, renderOperatorAssignment, renderStaffAssignment, renderGroundStaffAssignment }: BookingCardProps) {
   const displayStatus = getDisplayStatus(booking);
   const status = STATUS_CONFIG[displayStatus] || STATUS_CONFIG.BOOKED;
   const refundBadge = getRefundBadge(booking);
@@ -188,6 +190,7 @@ export function BookingCard({ booking, role, renderActions, renderPrice, renderO
         showContact={role === 'user' || role === 'operator'}
         renderOperatorAssignment={renderOperatorAssignment}
         renderStaffAssignment={renderStaffAssignment}
+        renderGroundStaffAssignment={renderGroundStaffAssignment}
       />
 
       {/* Refund Details (user view shows detailed refund history) */}

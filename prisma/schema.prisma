@@ -350,6 +350,7 @@ model User {
   operatedBookings        Booking[]            @relation("OperatorBookings")
   coachedBookings         Booking[]            @relation("BookingCoach")
   sidearmBookings         Booking[]            @relation("BookingStaff")
+  groundStaffBookings     Booking[]            @relation("BookingGroundStaff")
   cashPaymentUsers        CashPaymentUser[]
   wallets                 Wallet[]
   adminRefunds            Refund[]             @relation("AdminRefunds")
@@ -442,6 +443,14 @@ model Booking {
   assignedMachineId String?
   assignedCoachId   String?
   assignedStaffId   String?
+  // The center's ground-staff member handling this facility booking
+  // (Cricket Nets / Full Indoor Court / Corporate Batch). Assigned at
+  // creation from the highest-priority active GROUND_STAFF membership —
+  // the per-booking analogue of operatorId for machine sessions. Null for
+  // MACHINE/SIDEARM/COACHING (which have their own assigned person) and
+  // for legacy rows; display falls back to the center's default ground
+  // staff when null.
+  assignedGroundStaffId String?
 
   center              Center                      @relation(fields: [centerId], references: [id])
   user                User?                       @relation(fields: [userId], references: [id])
@@ -449,6 +458,7 @@ model Booking {
   assignedMachine     Machine?                    @relation("BookingMachine", fields: [assignedMachineId], references: [id])
   assignedCoach       User?                       @relation("BookingCoach", fields: [assignedCoachId], references: [id])
   assignedStaff       User?                       @relation("BookingStaff", fields: [assignedStaffId], references: [id])
+  assignedGroundStaff User?                       @relation("BookingGroundStaff", fields: [assignedGroundStaffId], references: [id])
   packageBooking      PackageBooking?
   refunds             Refund[]
   resourceAssignments BookingResourceAssignment[]
@@ -467,6 +477,7 @@ model Booking {
   @@index([assignedMachineId])
   @@index([assignedCoachId])
   @@index([assignedStaffId])
+  @@index([assignedGroundStaffId])
 }
 
 enum BookingCategory {

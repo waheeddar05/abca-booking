@@ -34,6 +34,10 @@ export const BOOKING_CARD_INCLUDE = {
   },
   assignedCoach: { select: { id: true, name: true, mobileNumber: true } },
   assignedStaff: { select: { id: true, name: true, mobileNumber: true } },
+  // Ground-staff member assigned to a facility booking (Cricket Nets /
+  // Full Court / Corporate Batch). Per-booking; the card falls back to the
+  // center's default ground staff when this is null (legacy rows).
+  assignedGroundStaff: { select: { id: true, name: true, mobileNumber: true } },
   // Center context — shown on every booking card so users know which
   // center, where, and how to reach it without leaving the page.
   center: {
@@ -118,6 +122,7 @@ export interface BookingCardData {
   assignedMachineFullName: string | null;
   assignedCoachName: string | null;
   assignedStaffName: string | null;
+  assignedGroundStaff: { id: string; name: string | null; mobileNumber: string | null } | null;
   center: {
     id: string;
     name: string;
@@ -186,6 +191,13 @@ export function mapBookingForCard(
     assignedMachineFullName: b.assignedMachine?.name ?? null,
     assignedCoachName: b.assignedCoach?.name ?? null,
     assignedStaffName: b.assignedStaff?.name ?? null,
+    assignedGroundStaff: b.assignedGroundStaff
+      ? {
+          id: b.assignedGroundStaff.id,
+          name: b.assignedGroundStaff.name ?? null,
+          mobileNumber: b.assignedGroundStaff.mobileNumber ?? null,
+        }
+      : null,
     center: b.center
       ? {
           id: b.center.id,
