@@ -187,6 +187,7 @@ export async function POST(req: NextRequest) {
               newBalance: walletResult.newBalance,
               mobileNumber: user.mobileNumber,
               centerId: booking.centerId,
+              bookingId: booking.id,
             }).catch(err => console.warn('[OverrideCancel] Wallet notification failed:', err));
           }
 
@@ -204,6 +205,7 @@ export async function POST(req: NextRequest) {
             mobileNumber: user.mobileNumber,
             refundInfo: refundAmount > 0 ? `₹${refundAmount} refunded to wallet` : undefined,
             centerId: booking.centerId,
+            bookingId: booking.id,
           }).catch(err => console.warn('[OverrideCancel] Cancellation notification failed:', err));
 
           // 5. Notify every assigned staff member (operator / coach / specialist)

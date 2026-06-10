@@ -6,26 +6,29 @@
  * Replaces the legacy /operator page, which only showed bookings on
  * machines this user was assigned to as an OPERATOR. Now a single
  * user can hold any combination of OPERATOR / COACH / SIDEARM_SPECIALIST
- * memberships at a center, and this page surfaces a tab for each role
- * the user actually has (admins see all three). Switching tabs filters
- * the booking list by the booking *category* that role handles — every
- * such booking at the center, regardless of which staff member is
- * assigned:
+ * / GROUND_STAFF memberships at a center, and this page surfaces a tab
+ * for each role the user actually has (admins see all four). Switching
+ * tabs filters the booking list by the booking *category* that role
+ * handles — every such booking at the center, regardless of which staff
+ * member is assigned:
  *
- *   - Operator → MACHINE  bookings (bowling-machine sessions)
- *   - Coach    → COACHING bookings (personal-coaching sessions)
- *   - Sidearm  → SIDEARM  bookings (sidearm-specialist sessions)
+ *   - Operator     → MACHINE  bookings (bowling-machine sessions)
+ *   - Coach        → COACHING bookings (personal-coaching sessions)
+ *   - Sidearm      → SIDEARM  bookings (sidearm-specialist sessions)
+ *   - Ground Staff → every other (facility) booking — Cricket Nets,
+ *                    Full Indoor Court, etc. (non-operator / non-sidearm
+ *                    / non-coaching), which ground staff handle on-floor
  */
 
 import { useEffect, useState, useCallback } from 'react';
 import {
   ClipboardList, Loader2, Calendar,
   ChevronLeft, ChevronRight, ChevronDown,
-  Filter, Search, ArrowUpDown, Wrench, UserCog, Users,
+  Filter, Search, ArrowUpDown, Wrench, UserCog, Users, HardHat,
 } from 'lucide-react';
 import { BookingCard } from '@/components/BookingCard';
 
-type StaffRole = 'OPERATOR' | 'COACH' | 'SIDEARM_SPECIALIST';
+type StaffRole = 'OPERATOR' | 'COACH' | 'SIDEARM_SPECIALIST' | 'GROUND_STAFF';
 
 interface Booking {
   id: string;
@@ -110,6 +113,7 @@ const ROLE_LABELS: Record<StaffRole, { label: string; sub: string; icon: typeof 
   OPERATOR: { label: 'Operator', sub: 'Bowling machine sessions', icon: Wrench },
   COACH: { label: 'Coach', sub: 'Personal coaching sessions', icon: UserCog },
   SIDEARM_SPECIALIST: { label: 'Sidearm', sub: 'Sidearm specialist sessions', icon: Users },
+  GROUND_STAFF: { label: 'Ground Staff', sub: 'Cricket nets & full court', icon: HardHat },
 };
 
 export default function StaffDashboard() {
@@ -287,7 +291,7 @@ export default function StaffDashboard() {
           </div>
           <h2 className="text-base font-bold text-white mb-2">No staff role at {me.centerName}</h2>
           <p className="text-xs text-slate-400 leading-relaxed">
-            You aren&apos;t assigned as an operator, coach, or sidearm specialist at this center.
+            You aren&apos;t assigned as an operator, coach, sidearm specialist, or ground staff at this center.
             Ask your center admin to add a role on the Centers → Members tab.
           </p>
         </div>
@@ -317,9 +321,9 @@ export default function StaffDashboard() {
         </div>
       </div>
 
-      {/* Role Tabs — only the roles the user has (admins see all 3) */}
+      {/* Role Tabs — only the roles the user has (admins see all 4) */}
       {me.roles.length > 1 && (
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-1.5 mb-4">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5 mb-4">
           {me.roles.map((r) => {
             const cfg = ROLE_LABELS[r];
             const Icon = cfg.icon;
@@ -539,7 +543,9 @@ export default function StaffDashboard() {
               ? 'No bowling machine bookings found.'
               : role === 'COACH'
                 ? 'No coaching sessions found.'
-                : 'No sidearm sessions found.'}
+                : role === 'SIDEARM_SPECIALIST'
+                  ? 'No sidearm sessions found.'
+                  : 'No cricket net or full court bookings found.'}
           </p>
         </div>
       ) : (

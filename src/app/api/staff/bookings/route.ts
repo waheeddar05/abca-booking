@@ -8,13 +8,13 @@ import type { Prisma } from '@prisma/client';
 /**
  * GET /api/staff/bookings
  *
- * Unified bookings list for any "staff" user — operator, coach, or
- * sidearm specialist. Replaces the older /api/operator/bookings,
- * which only knew about OPERATOR and was hardcoded around the legacy
- * MachineId enum.
+ * Unified bookings list for any "staff" user — operator, coach,
+ * sidearm specialist, or ground staff. Replaces the older
+ * /api/operator/bookings, which only knew about OPERATOR and was
+ * hardcoded around the legacy MachineId enum.
  *
  * Query params:
- *   role     OPERATOR | COACH | SIDEARM_SPECIALIST  (required)
+ *   role     OPERATOR | COACH | SIDEARM_SPECIALIST | GROUND_STAFF  (required)
  *            Selects the booking *category* to show — every booking of
  *            that category at the center, regardless of which staff
  *            member is assigned:
@@ -23,6 +23,11 @@ import type { Prisma } from '@prisma/client';
  *                            a default of MACHINE)
  *              - COACH     → COACHING bookings
  *              - SIDEARM_… → SIDEARM  bookings
+ *              - GROUND_STAFF → every other (facility) booking — Cricket
+ *                            Nets, Full Indoor Court, etc. i.e. every
+ *                            non-operator / non-sidearm / non-coaching
+ *                            booking, which is what the center's ground
+ *                            staff handle on the floor.
  *   center filter, date filters, sort, pagination — same shape as
  *   the legacy /api/operator/bookings endpoint.
  *
@@ -32,11 +37,23 @@ import type { Prisma } from '@prisma/client';
  *   Otherwise the request is 403'd. Bookings are always center-scoped.
  */
 
-type StaffRole = 'OPERATOR' | 'COACH' | 'SIDEARM_SPECIALIST';
+type StaffRole = 'OPERATOR' | 'COACH' | 'SIDEARM_SPECIALIST' | 'GROUND_STAFF';
 
 function isValidRole(r: unknown): r is StaffRole {
-  return r === 'OPERATOR' || r === 'COACH' || r === 'SIDEARM_SPECIALIST';
+  return (
+    r === 'OPERATOR' ||
+    r === 'COACH' ||
+    r === 'SIDEARM_SPECIALIST' ||
+    r === 'GROUND_STAFF'
+  );
 }
+
+// Categories handled on the floor by the center's ground staff: every
+// booking that ISN'T a machine (operator), sidearm-specialist, or coaching
+// session. That leaves the facility bookings — Cricket Nets, Full Indoor
+// Court, and any future facility category — which is exactly what the
+// Ground Staff tab should surface.
+const GROUND_STAFF_NON_CATEGORIES = ['MACHINE', 'SIDEARM', 'COACHING'] as const;
 
 const ALL_LEGACY_MACHINES = ['GRAVITY', 'YANTRA', 'LEVERAGE_INDOOR', 'LEVERAGE_OUTDOOR'];
 
@@ -51,7 +68,7 @@ export async function GET(req: NextRequest) {
     const role = searchParams.get('role');
     if (!isValidRole(role)) {
       return NextResponse.json(
-        { error: 'role must be one of OPERATOR, COACH, SIDEARM_SPECIALIST' },
+        { error: 'role must be one of OPERATOR, COACH, SIDEARM_SPECIALIST, GROUND_STAFF' },
         { status: 400 },
       );
     }
@@ -120,6 +137,11 @@ export async function GET(req: NextRequest) {
     //                        is NOT NULL with a default of MACHINE)
     //   COACH              → COACHING (personal-coaching sessions)
     //   SIDEARM_SPECIALIST → SIDEARM  (sidearm-specialist sessions)
+    //   GROUND_STAFF       → everything else (NET / FULL_COURT / any other
+    //                        facility booking) — the bookings whose
+    //                        on-ground handling falls to the center's
+    //                        ground staff rather than an operator / coach /
+    //                        sidearm specialist.
     if (role === 'OPERATOR') {
       bookingWhere.category = 'MACHINE';
 
@@ -138,6 +160,8 @@ export async function GET(req: NextRequest) {
       bookingWhere.category = 'COACHING';
     } else if (role === 'SIDEARM_SPECIALIST') {
       bookingWhere.category = 'SIDEARM';
+    } else if (role === 'GROUND_STAFF') {
+      bookingWhere.category = { notIn: [...GROUND_STAFF_NON_CATEGORIES] };
     }
 
     // Date / category filters — shared with legacy operator endpoint.

@@ -28,6 +28,10 @@ export interface NotificationPayload {
   title: string;
   message: string;
   type?: string; // INFO, WARNING, SUCCESS, etc.
+  // When this alert is about a specific booking (confirmation /
+  // cancellation / refund), the booking id is stored so the in-app
+  // Alerts view can render the full Bookings-page card as a snapshot.
+  bookingId?: string | null;
 }
 
 export interface WhatsAppTemplatePayload {
@@ -172,7 +176,7 @@ export async function notify(
   payload: NotificationPayload,
   whatsappTemplate?: WhatsAppTemplatePayload,
 ): Promise<SendResult> {
-  const { userId, title, message, type = 'INFO' } = payload;
+  const { userId, title, message, type = 'INFO', bookingId } = payload;
 
   let channel: NotificationChannel = 'IN_APP';
   let whatsappResult: WhatsAppSendResult | null = null;
@@ -211,6 +215,7 @@ export async function notify(
       channel,
       whatsappMessageId,
       whatsappStatus,
+      bookingId: bookingId ?? null,
     },
   });
 
@@ -246,6 +251,9 @@ export async function notifyBookingConfirmed(
     // (admin-Bookings-page parity) instead of the one-line summary. The
     // approved WhatsApp template below is unaffected (still booking_detail).
     detailSegments?: string[];
+    // Booking this confirmation is for — lets the Alerts view render the
+    // full Bookings-page card snapshot.
+    bookingId?: string | null;
   },
 ): Promise<SendResult> {
   // Template booking_detail. The center name is embedded into the leading
@@ -285,6 +293,7 @@ export async function notifyBookingConfirmed(
       title: 'Booking Confirmed',
       message: inAppSegments.join(' | '),
       type: 'SUCCESS',
+      bookingId: details.bookingId ?? null,
     },
     details.mobileNumber
       ? {
@@ -323,6 +332,9 @@ export async function notifyBookingCancelled(
     refundInfo?: string;
     centerName?: string; // leads the message
     centerId?: string; // looked up when centerName isn't supplied
+    // Booking this cancellation is for — lets the Alerts view render the
+    // full Bookings-page card snapshot (with refund details).
+    bookingId?: string | null;
   },
 ): Promise<SendResult> {
   const centerName = await resolveCenterName(details);
@@ -340,6 +352,7 @@ export async function notifyBookingCancelled(
       title: 'Booking Cancelled',
       message: `${centerName} — ${fullMessage}`,
       type: 'CANCELLATION',
+      bookingId: details.bookingId ?? null,
     },
     details.mobileNumber
       ? {
@@ -574,6 +587,9 @@ export async function notifyWalletCredit(
     mobileNumber?: string | null;
     centerName?: string; // leads the message
     centerId?: string; // looked up when centerName isn't supplied
+    // Set when the credit is a booking-cancellation refund — links the
+    // alert to the booking so the Alerts view can show the card snapshot.
+    bookingId?: string | null;
   },
 ): Promise<SendResult> {
   const centerName = await resolveCenterName(details);
@@ -590,6 +606,7 @@ export async function notifyWalletCredit(
       title: 'Wallet Credited',
       message,
       type: 'SUCCESS',
+      bookingId: details.bookingId ?? null,
     },
     details.mobileNumber
       ? {
@@ -1763,6 +1780,7 @@ export async function notifyCustomerNewBooking(bookingIds: string[]): Promise<vo
       centerName: primary.center?.name || undefined,
       mapUrl: primary.center?.mapUrl ?? null,
       detailSegments,
+      bookingId: primary.id,
     });
   } catch (err) {
     console.error('[Notifications] notifyCustomerNewBooking failed:', err);

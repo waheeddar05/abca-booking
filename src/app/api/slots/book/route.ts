@@ -974,6 +974,7 @@ export async function executeSlotBooking(
         kitRental,
         kitRentalCharge,
         centerId,
+        bookingId: results[0].id,
       });
     } catch (notifErr) {
       console.error('Failed to create booking notification:', notifErr);

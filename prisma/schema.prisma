@@ -634,7 +634,16 @@ model Notification {
   channel           NotificationChannel    @default(IN_APP)
   whatsappMessageId String?
   whatsappStatus    WhatsAppMessageStatus?
+  // Optional link to the booking this alert is about (confirmation /
+  // cancellation / refund notifications). Lets the in-app Alerts view
+  // render the full Bookings-page card as a snapshot instead of just a
+  // text summary. Plain scalar (no FK relation) so a hard-deleted
+  // booking simply yields a null lookup rather than blocking the delete;
+  // the notifications API tolerates a missing booking gracefully.
+  bookingId         String?
   user              User                   @relation(fields: [userId], references: [id])
+
+  @@index([userId, createdAt])
 }
 
 // ─── Wallet ──────────────────────────────────────────────────────────

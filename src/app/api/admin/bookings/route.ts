@@ -586,6 +586,7 @@ export async function PATCH(req: NextRequest) {
           mobileNumber: notifUser?.mobileVerified ? notifUser.mobileNumber : null,
           refundInfo,
           centerId: booking.centerId,
+          bookingId,
         });
       } catch (notifErr) {
         log.error(adminCtx, 'Failed to create cancellation notification', notifErr);
