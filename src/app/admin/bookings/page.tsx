@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, Suspense } from 'react';
 import { format } from 'date-fns';
 import { useSearchParams } from 'next/navigation';
-import { Search, Filter, XCircle, Calendar, Loader2, Download, ChevronLeft, ChevronRight, ChevronDown, ArrowUpDown, IndianRupee, Copy, Pencil, X, Check, CalendarPlus, UserPlus, Undo2 } from 'lucide-react';
+import { Search, Filter, XCircle, Calendar, Loader2, Download, ChevronLeft, ChevronRight, ChevronDown, ArrowUpDown, IndianRupee, Copy, X, CalendarPlus, UserPlus, Undo2 } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
@@ -57,8 +57,6 @@ function AdminBookingsContent() {
   const [bookableCategories, setBookableCategories] = useState<string[]>([]);
   const [showDateRange, setShowDateRange] = useState(false);
   const [showFilters, setShowFilters] = useState(false);
-  const [editingPriceId, setEditingPriceId] = useState<string | null>(null);
-  const [editPriceValue, setEditPriceValue] = useState('');
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [showBookOnBehalf, setShowBookOnBehalf] = useState(false);
   const [operators, setOperators] = useState<Array<{ id: string; name: string }>>([]);
@@ -307,34 +305,6 @@ function AdminBookingsContent() {
     }
   };
 
-  const updatePrice = async (bookingId: string) => {
-    const price = parseFloat(editPriceValue);
-    if (isNaN(price) || price < 0) {
-      toast.error('Please enter a valid price');
-      return;
-    }
-    setActionLoading(bookingId);
-    try {
-      const res = await fetch('/api/admin/bookings', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ bookingId, price }),
-      });
-      if (res.ok) {
-        setEditingPriceId(null);
-        setEditPriceValue('');
-        fetchBookings();
-      } else {
-        const data = await res.json();
-        toast.error(data.error || 'Price update failed');
-      }
-    } catch {
-      toast.error('Failed to update price');
-    } finally {
-      setActionLoading(null);
-    }
-  };
-
   const handleCopyClick = (bookingId: string) => {
     setCopyDialog(bookingId);
   };
@@ -490,11 +460,6 @@ function AdminBookingsContent() {
     { key: 'previous', label: 'Previous' },
     { key: 'lastMonth', label: 'Last Month' },
   ];
-
-  const startEditPrice = (booking: any) => {
-    setEditingPriceId(booking.id);
-    setEditPriceValue(booking.price != null ? String(booking.price) : '');
-  };
 
   // Inline reassignment controls injected into the standardized details
   // list (BookingDetailsList) for the Operator and Sidearm Specialist rows.
@@ -824,7 +789,6 @@ function AdminBookingsContent() {
               {bookings.map((booking) => {
                 const displayStatus = getDisplayStatus(booking);
                 const status = statusConfig[displayStatus] || statusConfig.BOOKED;
-                const isEditing = editingPriceId === booking.id;
                 const isActionLoading = actionLoading === booking.id;
                 return (
                   <div key={booking.id} className="bg-white/[0.03] backdrop-blur-sm rounded-xl border border-white/[0.07] p-3 hover:border-white/[0.12] transition-colors">
@@ -869,31 +833,13 @@ function AdminBookingsContent() {
                           </div>
                         )}
                       </div>
-                      {booking.packageBooking ? null : isEditing ? (
-                        <div className="flex items-center gap-1">
-                          <span className="text-xs text-slate-400">₹</span>
-                          <input
-                            type="number"
-                            value={editPriceValue}
-                            onChange={e => setEditPriceValue(e.target.value)}
-                            className="w-16 bg-white/[0.06] border border-accent/30 text-white rounded px-1.5 py-0.5 text-xs outline-none"
-                            autoFocus
-                          />
-                          <button onClick={() => updatePrice(booking.id)} disabled={isActionLoading} className="p-0.5 text-green-400 hover:bg-green-500/10 rounded cursor-pointer">
-                            <Check className="w-3 h-3" />
-                          </button>
-                          <button onClick={() => { setEditingPriceId(null); setEditPriceValue(''); }} className="p-0.5 text-slate-400 hover:bg-white/[0.06] rounded cursor-pointer">
-                            <X className="w-3 h-3" />
-                          </button>
-                        </div>
-                      ) : booking.price != null ? (
-                        <button onClick={() => startEditPrice(booking)} className="flex items-center gap-0.5 text-xs font-medium text-white hover:text-accent transition-colors cursor-pointer">
+                      {booking.packageBooking ? null : booking.price != null ? (
+                        <span className="flex items-center gap-0.5 text-xs font-medium text-white">
                           <IndianRupee className="w-3 h-3" />
                           {booking.price}
-                          <Pencil className="w-2.5 h-2.5 ml-0.5 opacity-40" />
-                        </button>
+                        </span>
                       ) : (
-                        <button onClick={() => startEditPrice(booking)} className="text-[10px] text-slate-500 hover:text-accent cursor-pointer">Set price</button>
+                        <span className="text-[10px] text-slate-500 italic">No price set</span>
                       )}
                     </div>
 
@@ -963,7 +909,6 @@ function AdminBookingsContent() {
                   {bookings.map((booking) => {
                     const displayStatus = getDisplayStatus(booking);
                     const status = statusConfig[displayStatus] || statusConfig.BOOKED;
-                    const isEditing = editingPriceId === booking.id;
                     const isActionLoading = actionLoading === booking.id;
                     return (
                       <tr key={booking.id} className="hover:bg-white/[0.04] transition-colors [&>td]:align-top">
@@ -1017,42 +962,23 @@ function AdminBookingsContent() {
                                 {booking.packageBooking.userPackage.package.name}
                               </span>
                             </div>
-                          ) : isEditing ? (
-                            <div className="flex items-center gap-1">
-                              <span className="text-xs text-slate-400">₹</span>
-                              <input
-                                type="number"
-                                value={editPriceValue}
-                                onChange={e => setEditPriceValue(e.target.value)}
-                                className="w-20 bg-white/[0.06] border border-accent/30 text-white rounded px-2 py-1 text-sm outline-none"
-                                autoFocus
-                                onKeyDown={e => { if (e.key === 'Enter') updatePrice(booking.id); if (e.key === 'Escape') { setEditingPriceId(null); setEditPriceValue(''); } }}
-                              />
-                              <button onClick={() => updatePrice(booking.id)} disabled={isActionLoading} className="p-1 text-green-400 hover:bg-green-500/10 rounded cursor-pointer">
-                                <Check className="w-3.5 h-3.5" />
-                              </button>
-                              <button onClick={() => { setEditingPriceId(null); setEditPriceValue(''); }} className="p-1 text-slate-400 hover:bg-white/[0.06] rounded cursor-pointer">
-                                <X className="w-3.5 h-3.5" />
-                              </button>
-                            </div>
                           ) : booking.price != null ? (
                             <div className="flex flex-col gap-1">
-                              <button onClick={() => startEditPrice(booking)} className="text-sm text-white hover:text-accent transition-colors cursor-pointer group w-fit">
+                              <span className="text-sm text-white w-fit">
                                 <span className="flex items-center gap-0.5 font-bold">
                                   <IndianRupee className="w-3 h-3" />{booking.price}
-                                  <Pencil className="w-3 h-3 ml-1 opacity-0 group-hover:opacity-50" />
                                 </span>
-                              </button>
+                              </span>
                               {/* Payment method now lives in the Details column
                                   (standardized labeled list), so it's no longer
                                   duplicated here — the Price column shows the
-                                  amount once, plus any discount applied. */}
+                                  amount once (read-only), plus any discount applied. */}
                               {booking.discountAmount > 0 && (
                                 <div className="text-[9px] text-green-400/70 italic">₹{booking.discountAmount} discount applied</div>
                               )}
                             </div>
                           ) : (
-                            <button onClick={() => startEditPrice(booking)} className="text-xs text-slate-500 hover:text-accent cursor-pointer italic">No price set</button>
+                            <span className="text-xs text-slate-500 italic">No price set</span>
                           )}
                         </td>
                         <td className="px-5 py-3.5">
