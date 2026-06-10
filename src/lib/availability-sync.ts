@@ -210,6 +210,7 @@ async function cancelAndRefundBooking(opts: {
         mobileNumber: user?.mobileVerified ? user.mobileNumber : null,
         refundInfo,
         centerId: booking.centerId,
+        bookingId: booking.id,
       });
     }
 
