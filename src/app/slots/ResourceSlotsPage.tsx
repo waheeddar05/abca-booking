@@ -1256,9 +1256,20 @@ export default function ResourceSlotsPage() {
 
     setSubmitting(true);
     try {
-      // Pitch type is meaningful for MACHINE / SIDEARM / NET. Ball type
-      // only for MACHINE (the others don't use a bowling machine).
-      const wantsPitch = category === 'MACHINE' || category === 'SIDEARM' || category === 'NET';
+      // Pitch type is meaningful for MACHINE / SIDEARM / NET / COACHING.
+      // COACHING must be included: the client prices coaching off the
+      // selected pitch (coachingPricing[pitch], with the consecutive
+      // pair discount), so the same pitch has to reach the server or it
+      // falls back to the flat categoryRates.COACHING default — storing
+      // a higher price than the user was shown and charged (e.g. four
+      // back-to-back coaching slots billed at the single rate ₹1000 each
+      // instead of the consecutive ₹450). Ball type only for MACHINE
+      // (the others don't use a bowling machine).
+      const wantsPitch =
+        category === 'MACHINE' ||
+        category === 'SIDEARM' ||
+        category === 'NET' ||
+        category === 'COACHING';
 
       // Resolve payment intent. Three terminal paths, mutually exclusive:
       //   - walletCoversAll → POST direct with paymentMethod=WALLET
