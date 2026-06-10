@@ -308,6 +308,30 @@ describe('notifyAssignedStaffNewBooking', () => {
     expect(createMock).toHaveBeenCalledTimes(1);
   });
 
+  it('pages the booking-pinned ground staff for a Cricket Net booking and skips the center default', async () => {
+    findManyMock.mockResolvedValue([
+      bookingRow({
+        category: 'NET',
+        assignedCoach: null,
+        assignedGroundStaff: { id: 'ground_2', name: 'Ground Gita', mobileNumber: '9876500010' },
+      }),
+    ]);
+    // Center default exists but must NOT be paged when the booking pins
+    // its own ground-staff member.
+    membershipFindFirstMock.mockResolvedValue({
+      user: { id: 'ground_1', name: 'Ground Ravi', mobileNumber: '9876500009' },
+    });
+
+    await notifyAssignedStaffNewBooking(['bk_1']);
+
+    expect(membershipFindFirstMock).not.toHaveBeenCalled();
+    expect(sendWhatsAppNotificationMock).toHaveBeenCalledTimes(1);
+    expect(sendWhatsAppNotificationMock.mock.calls[0][0]).toBe('9876500010');
+    // The ground-staff member is the on-ground contact ({{6}}) for a Net
+    // booking — not "To be assigned".
+    expect(templateParams()).toContain('Ground Gita');
+  });
+
   it('notifies both the specialist and the ground staff for a Sidearm booking', async () => {
     findManyMock.mockResolvedValue([
       bookingRow({
@@ -438,6 +462,23 @@ describe('notifyAssignedStaffBookingCancelled', () => {
     expect(params[1]).toBe('Trainer Specialist');
     expect(params[2]).toBe('Rahul');
     expect(params).toContain('Admin'); // cancelled by ({{8}})
+  });
+
+  it('notifies the assigned ground staff when a Cricket Net booking is cancelled', async () => {
+    findUniqueMock.mockResolvedValue(
+      bookingRow({
+        category: 'NET',
+        assignedCoach: null,
+        assignedGroundStaff: { id: 'ground_2', name: 'Ground Gita', mobileNumber: '9876500010' },
+      }),
+    );
+
+    await notifyAssignedStaffBookingCancelled('bk_1', { cancelledBy: 'Admin' });
+
+    expect(sendWhatsAppNotificationMock).toHaveBeenCalledTimes(1);
+    expect(sendWhatsAppNotificationMock.mock.calls[0][0]).toBe('9876500010');
+    const detail = templateParams()[0];
+    expect(detail).toContain('Ground Staff session cancelled');
   });
 
   it('does nothing for a booking with no assigned staff', async () => {

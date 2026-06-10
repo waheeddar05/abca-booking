@@ -16,8 +16,14 @@ import { LOCATION_URL } from '@/lib/client-constants';
  * and the notification code supplies the booking's center SLUG as the suffix
  * ({{1}}). This handler turns that slug into the center's own `mapUrl` with a
  * 307 redirect, so every center's confirmation message opens its real
- * location in one tap. Unknown slug / missing mapUrl falls back to the
- * platform-wide LOCATION_URL so the button is never dead.
+ * location in one tap.
+ *
+ * Fallbacks — the button must never be dead, but it must also never send a
+ * customer to the WRONG center: LOCATION_URL is ABCA's own map (a relic of
+ * the single-center days), so it is only a correct fallback for ABCA itself
+ * and the legacy 'default' suffix. Any other center without a usable mapUrl
+ * (e.g. Toplay before its map link is configured) redirects to the neutral
+ * public /centers listing instead, which shows every center's own address.
  *
  * Public + maintenance-allowed (see src/middleware.ts) — a customer tapping a
  * map link must not be gated behind auth or a maintenance screen.
@@ -32,10 +38,18 @@ function safeHttpUrl(url: string | null | undefined): string | null {
   return /^https?:\/\//i.test(url.trim()) ? url.trim() : null;
 }
 
-export async function GET(_req: NextRequest, ctx: { params: Promise<{ slug: string }> }) {
+export async function GET(req: NextRequest, ctx: { params: Promise<{ slug: string }> }) {
   const { slug } = await ctx.params;
 
-  let target = LOCATION_URL;
+  // ABCA's map is only a correct fallback for ABCA / the legacy 'default'
+  // suffix; every other center falls back to the neutral /centers listing
+  // so a Toplay (etc.) booking never points at ABCA's location.
+  const fallback =
+    slug === 'default' || slug === 'abca'
+      ? LOCATION_URL
+      : new URL('/centers', req.nextUrl.origin).toString();
+
+  let target = fallback;
   try {
     const center = await prisma.center.findUnique({
       where: { slug },
@@ -44,7 +58,7 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ slug: stri
     const mapUrl = safeHttpUrl(center?.mapUrl);
     if (mapUrl) target = mapUrl;
   } catch (err) {
-    // Never 500 a tapped map link — fall back to the platform location.
+    // Never 500 a tapped map link — fall back instead.
     console.error('[loc] center lookup failed:', {
       slug,
       error: err instanceof Error ? err.message : String(err),

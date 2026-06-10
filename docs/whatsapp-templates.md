@@ -69,9 +69,14 @@ line right under the title:
 | `{{3}}` | Machine / category headline |
 | `{{4}}` | Facility / pitch |
 | `{{5}}` | Price (+ kit info) |
-| `{{6}}` | Operator / contact-person name |
-| `{{7}}` | Operator / contact-person phone |
+| `{{6}}` | On-ground contact name — operator (Machine) / specialist (Sidearm) / coach (Coaching) / **assigned ground staff** (Cricket Net / Full Court / Corporate Batch) |
+| `{{7}}` | On-ground contact phone |
 | `{{8}}` | **Center map link** — *only when the location param is enabled (below)* |
+
+> The "👤 Operator:" label before `{{6}}` is **baked into the approved
+> template body** — for a Cricket Net booking the value is the ground-staff
+> member's name, but the label still reads "Operator" until a re-approved
+> template with a neutral label (e.g. "Contact person") goes live.
 
 #### Per-center location — optional `{{8}}` (opt-in)
 
@@ -156,9 +161,11 @@ final URL the user taps     =  https://www.playorbit.in/loc/abca
 ```
 
 `GET /loc/[slug]` (`src/app/loc/[slug]/route.ts`) looks the center up by slug
-and **307-redirects** to its `mapUrl`, falling back to the platform-wide
-`LOCATION_URL` for an unknown slug / missing mapUrl (so the button is never
-dead). The route is public + maintenance-allowed.
+and **307-redirects** to its `mapUrl`. Fallbacks: `LOCATION_URL` is ABCA's own
+map, so it is only used for the `abca` / legacy `default` slugs; **any other
+center without a usable `mapUrl` redirects to the neutral public `/centers`
+listing** — never to another center's location (so the button is never dead
+and never wrong). The route is public + maintenance-allowed.
 
 ### Template contract (create on Meta, then set the env var)
 
@@ -232,7 +239,7 @@ reach them. Params for the staff send:
 | `{{3}}` | Booking type (e.g. "Sidearm Session") / machine headline |
 | `{{4}}` | `<Facility> • Booked by <customer> (<phone>)` |
 | `{{5}}` | Price (or "Pay at center" / "Package session" / "FREE") |
-| `{{6}}` | On-ground contact name (operator / specialist / coach) |
+| `{{6}}` | On-ground contact name (operator / specialist / coach / assigned ground staff) |
 | `{{7}}` | On-ground contact phone |
 
 > For a fully staff-shaped message — customer name + phone in their own fields,

@@ -1116,6 +1116,7 @@ function collectStaffRecipients(bookings: StaffNotifyBooking[]): StaffRecipient[
     add(b.operator, 'OPERATOR');
     add(b.assignedCoach, 'COACH');
     add(b.assignedStaff, 'SIDEARM_SPECIALIST');
+    add(b.assignedGroundStaff, 'GROUND_STAFF');
   }
   return [...byUser.values()];
 }
@@ -1165,6 +1166,10 @@ async function withGroundStaff(
 ): Promise<StaffRecipient[]> {
   const needsGroundStaff = bookings.some((b) => GROUND_STAFF_CATEGORIES.includes(b.category));
   if (!needsGroundStaff) return recipients;
+  // A booking that pins its own ground-staff member (assignedGroundStaffId)
+  // was already collected by collectStaffRecipients — don't page the
+  // center-default member on top of the assigned one.
+  if (bookings.some((b) => b.assignedGroundStaff)) return recipients;
   const ground = await loadGroundStaffRecipient(bookings[0].centerId);
   if (!ground) return recipients;
   if (recipients.some((r) => r.userId === ground.userId)) return recipients;
@@ -1399,9 +1404,11 @@ export async function notifyAssignedStaffNewBooking(bookingIds: string[]): Promi
           : `₹${total}`;
 
     // The on-ground contact for this booking — the operator for a machine
-    // session, the specialist for sidearm, the coach for coaching. Reused
-    // as the {{6}}/{{7}} ("Operator"/"Contact") params of booking_detail so
-    // the staff message reads exactly like the customer's confirmation.
+    // session, the specialist for sidearm, the coach for coaching, and the
+    // assigned ground-staff member for facility bookings (Cricket Net /
+    // Full Court / Corporate Batch). Reused as the {{6}}/{{7}}
+    // ("Operator"/"Contact") params of booking_detail so the staff message
+    // reads exactly like the customer's confirmation.
     const contactPerson =
       primary.category === 'MACHINE'
         ? primary.operator
@@ -1409,7 +1416,7 @@ export async function notifyAssignedStaffNewBooking(bookingIds: string[]): Promi
           ? primary.assignedStaff
           : primary.category === 'COACHING'
             ? primary.assignedCoach
-            : null;
+            : primary.assignedGroundStaff;
     const contactName = contactPerson?.name || 'To be assigned';
     const contactPhone = contactPerson?.mobileNumber || 'Will be shared soon';
     const customerPhone = primary.user?.mobileNumber || 'N/A';
@@ -1818,8 +1825,12 @@ export async function notifyCustomerNewBooking(bookingIds: string[]): Promise<vo
         : pitchLabel || resourceName || primary.center?.name || '—';
 
     // On-ground contact ({{6}}/{{7}}): the relevant assigned person for
-    // the category. Net / Full Court have no per-booking person, so the
-    // template falls back to "To be assigned".
+    // the category. Net / Full Court / Corporate Batch are handled by the
+    // assigned ground-staff member, so their name + phone go out on the
+    // confirmation (the legacy booking_detail template renders them under
+    // its baked "Operator" label until the re-approved template, which
+    // relabels that line, goes live). Falls back to "To be assigned" when
+    // the center has no ground staff.
     const contactPerson =
       primary.category === 'MACHINE'
         ? primary.operator
@@ -1827,7 +1838,7 @@ export async function notifyCustomerNewBooking(bookingIds: string[]): Promise<vo
           ? primary.assignedStaff
           : primary.category === 'COACHING'
             ? primary.assignedCoach
-            : null;
+            : primary.assignedGroundStaff;
 
     // Price total across all slots.
     const isPackage = !!primary.packageBooking;

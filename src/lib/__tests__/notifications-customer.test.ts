@@ -132,6 +132,28 @@ describe('notifyCustomerNewBooking', () => {
     expect(templateParams()).toContain('Full Indoor Court');
   });
 
+  it('shares the assigned ground staff as the contact for a Cricket Net booking', async () => {
+    findManyMock.mockResolvedValue([
+      row({
+        category: 'NET',
+        assignedCoach: null,
+        pitchType: 'ASTRO',
+        assignedGroundStaff: { name: 'Ground Ravi', mobileNumber: '9876500009' },
+      }),
+    ]);
+
+    await notifyCustomerNewBooking(['bk_1']);
+
+    const params = templateParams();
+    expect(params).toContain('Cricket Net'); // category headline ({{3}})
+    expect(params).toContain('Ground Ravi'); // ground staff as on-ground contact ({{6}})
+    expect(params).toContain('9876500009'); // …with their phone ({{7}})
+    // The in-app alert labels them Ground Staff — never "Operator".
+    const inApp = createMock.mock.calls[0][0] as { data: { message: string } };
+    expect(inApp.data.message).toContain('Ground Staff: Ground Ravi');
+    expect(inApp.data.message).not.toContain('Operator:');
+  });
+
   it('skips WhatsApp when the mobile is unverified but still records in-app', async () => {
     findManyMock.mockResolvedValue([
       row({ user: { mobileNumber: '9876500000', mobileVerified: false } }),
