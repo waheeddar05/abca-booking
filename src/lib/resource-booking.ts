@@ -321,6 +321,28 @@ export async function getCenterCoaches(centerId: string): Promise<CenterMembersh
   });
 }
 
+/**
+ * Center's ground-staff members, highest priority first. Unlike coaches /
+ * sidearm specialists, ground staff are NOT an exclusive resource — they're
+ * the floor contact and can cover several nets at once — so there's no
+ * availability roster or conflict check here. The top-priority active member
+ * is the default assignee for facility bookings (Cricket Nets / Full Court /
+ * Corporate Batch), mirroring the center-level "default contact" the user
+ * booking card already surfaces.
+ */
+export async function getCenterGroundStaff(
+  centerId: string,
+): Promise<Array<{ userId: string; user: { id: string; name: string | null; mobileNumber: string | null } | null }>> {
+  return prisma.centerMembership.findMany({
+    where: { centerId, role: 'GROUND_STAFF', isActive: true },
+    select: {
+      userId: true,
+      user: { select: { id: true, name: true, mobileNumber: true } },
+    },
+    orderBy: [{ priority: 'asc' }, { createdAt: 'asc' }],
+  });
+}
+
 export async function getCenterStaff(centerId: string): Promise<CenterMembershipUserRow[]> {
   return prisma.centerMembership.findMany({
     where: { centerId, role: 'SIDEARM_SPECIALIST', isActive: true },
@@ -1205,6 +1227,9 @@ export interface PlannedAssignment {
   machineId: string | null;
   coachId: string | null;
   staffId: string | null;
+  // Ground-staff member handling a facility booking (NET / FULL_COURT /
+  // CORPORATE_BATCH). Null for MACHINE/SIDEARM/COACHING.
+  groundStaffId: string | null;
 }
 
 /**
@@ -1254,14 +1279,19 @@ export async function planBooking(
     startTime: plan.startTime,
     endTime: plan.endTime,
   };
-  const [resources, coaches, staff, occupancy, batchNets, blocks] = await Promise.all([
+  const [resources, coaches, staff, groundStaff, occupancy, batchNets, blocks] = await Promise.all([
     getCenterResources(plan.centerId),
     getCenterCoaches(plan.centerId),
     getCenterStaff(plan.centerId),
+    getCenterGroundStaff(plan.centerId),
     getOccupancyForSlot(plan.centerId, slot, context.tx),
     getCorporateBatchNetsForSlot(plan.centerId, slot),
     getActiveBlocksForSlot(plan.centerId, slot),
   ]);
+  // Default facility assignee — the top-priority active ground-staff
+  // member. Used for NET / FULL_COURT / CORPORATE_BATCH; null when the
+  // center has no ground staff configured.
+  const defaultGroundStaffId = groundStaff[0]?.userId ?? null;
   const audience = context.audience ?? 'ALL';
   // Hold admin "count blocks" (block N units of a pitch) as virtual load
   // before computing availability so this booking respects the reserved
@@ -1345,6 +1375,7 @@ export async function planBooking(
         machineId: plan.machineId ?? null,
         coachId: null,
         staffId: null,
+        groundStaffId: null,
       };
     }
     case 'SIDEARM': {
@@ -1366,6 +1397,7 @@ export async function planBooking(
         machineId: null,
         coachId: null,
         staffId: chosenStaff.userId,
+        groundStaffId: null,
       };
     }
     case 'COACHING': {
@@ -1386,6 +1418,7 @@ export async function planBooking(
         machineId: null,
         coachId: chosenCoach.userId,
         staffId: null,
+        groundStaffId: null,
       };
     }
     case 'FULL_COURT': {
@@ -1404,6 +1437,7 @@ export async function planBooking(
         machineId: null,
         coachId: null,
         staffId: null,
+        groundStaffId: defaultGroundStaffId,
       };
     }
     case 'CORPORATE_BATCH': {
@@ -1419,6 +1453,7 @@ export async function planBooking(
           machineId: null,
           coachId: null,
           staffId: null,
+          groundStaffId: defaultGroundStaffId,
         };
       }
       const config = await getCorporateBatchConfig(plan.centerId);
@@ -1436,6 +1471,7 @@ export async function planBooking(
         machineId: null,
         coachId: null,
         staffId: null,
+        groundStaffId: defaultGroundStaffId,
       };
     }
     case 'NET': {
@@ -1449,6 +1485,7 @@ export async function planBooking(
         machineId: null,
         coachId: null,
         staffId: null,
+        groundStaffId: defaultGroundStaffId,
       };
     }
   }

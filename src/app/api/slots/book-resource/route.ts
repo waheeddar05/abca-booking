@@ -1200,6 +1200,7 @@ async function executeResourceBookingCore(
                   assignedMachineId: assignment.machineId,
                   assignedCoachId: assignment.coachId,
                   assignedStaffId: assignment.staffId,
+                  assignedGroundStaffId: assignment.groundStaffId,
                   isSuperAdminBooking: !!user.isSuperAdmin,
                   createdBy: user.name || user.id,
                   price: finalPrice,

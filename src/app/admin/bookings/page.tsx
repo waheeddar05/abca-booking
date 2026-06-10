@@ -67,6 +67,10 @@ function AdminBookingsContent() {
   // mirrors the operator list/flow.
   const [sidearmStaff, setSidearmStaff] = useState<Array<{ id: string; name: string }>>([]);
   const [changingStaff, setChangingStaff] = useState<string | null>(null);
+  // Ground staff for the NET / FULL_COURT / CORPORATE_BATCH reassignment
+  // dropdown — mirrors the operator and sidearm lists/flows.
+  const [groundStaff, setGroundStaff] = useState<Array<{ id: string; name: string }>>([]);
+  const [changingGroundStaff, setChangingGroundStaff] = useState<string | null>(null);
   const toast = useToast();
 
   // Dialog states
@@ -138,6 +142,19 @@ function AdminBookingsContent() {
       .then(data => {
         if (Array.isArray(data.staff)) {
           setSidearmStaff(data.staff.map((s: any) => ({ id: s.id, name: s.name })));
+        }
+      })
+      .catch(() => { });
+  }, []);
+
+  // Fetch ground staff list for the NET / FULL_COURT / CORPORATE_BATCH
+  // reassignment dropdown — same flow as operators / sidearm specialists.
+  useEffect(() => {
+    fetch('/api/admin/ground-staff')
+      .then(res => (res.ok ? res.json() : { staff: [] }))
+      .then(data => {
+        if (Array.isArray(data.staff)) {
+          setGroundStaff(data.staff.map((s: any) => ({ id: s.id, name: s.name })));
         }
       })
       .catch(() => { });
@@ -236,6 +253,28 @@ function AdminBookingsContent() {
       toast.error('Failed to update specialist');
     } finally {
       setChangingStaff(null);
+    }
+  };
+
+  const handleGroundStaffChange = async (bookingId: string, assignedGroundStaffId: string | null) => {
+    setChangingGroundStaff(bookingId);
+    try {
+      const res = await fetch('/api/admin/bookings', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ bookingId, assignedGroundStaffId }),
+      });
+      if (res.ok) {
+        toast.success('Ground staff updated');
+        fetchBookings();
+      } else {
+        const data = await res.json();
+        toast.error(data.error || 'Failed to update ground staff');
+      }
+    } catch {
+      toast.error('Failed to update ground staff');
+    } finally {
+      setChangingGroundStaff(null);
     }
   };
 
@@ -483,6 +522,20 @@ function AdminBookingsContent() {
     >
       <option value="">Unassigned</option>
       {sidearmStaff.map((s) => (
+        <option key={s.id} value={s.id}>{s.name}</option>
+      ))}
+    </select>
+  );
+
+  const renderGroundStaffAssignment = (booking: any) => (
+    <select
+      value={booking.assignedGroundStaffId || ''}
+      onChange={(e) => handleGroundStaffChange(booking.id, e.target.value || null)}
+      disabled={changingGroundStaff === booking.id}
+      className="text-[11px] bg-white/[0.06] border border-white/[0.08] text-slate-200 rounded px-2 py-1 outline-none cursor-pointer disabled:opacity-50 max-w-[160px]"
+    >
+      <option value="">Unassigned</option>
+      {groundStaff.map((s) => (
         <option key={s.id} value={s.id}>{s.name}</option>
       ))}
     </select>
@@ -853,6 +906,7 @@ function AdminBookingsContent() {
                       booking={booking}
                       renderOperatorAssignment={renderOperatorAssignment}
                       renderStaffAssignment={renderStaffAssignment}
+                      renderGroundStaffAssignment={renderGroundStaffAssignment}
                     />
 
                     {/* Row 4: Actions */}
@@ -952,6 +1006,7 @@ function AdminBookingsContent() {
                             booking={booking}
                             renderOperatorAssignment={renderOperatorAssignment}
                             renderStaffAssignment={renderStaffAssignment}
+                            renderGroundStaffAssignment={renderGroundStaffAssignment}
                           />
                         </td>
                         <td className="px-5 py-3.5">
