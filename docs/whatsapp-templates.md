@@ -122,6 +122,93 @@ PlayOrbit Wallet: ₹500 credited. Reason: ABCA Cricket Academy • Booking canc
 | `{{2}}` | **`<Center> • <reason>`** |
 | `{{3}}` | New balance |
 
+## Per-center location button (optional — `WHATSAPP_BOOKING_TEMPLATE`)
+
+> **Two ways to show a per-center location — pick one.** This button approach
+> and the [`{{8}}` body param](#per-center-location--optional-8-opt-in) above
+> are alternative solutions to the same problem; you don't need both. The code
+> gives the button **precedence**: when `WHATSAPP_BOOKING_TEMPLATE` is set the
+> confirmation uses that template + button and ignores the `{{8}}` flag;
+> otherwise it falls back to `booking_detail` (with `{{8}}` if
+> `WHATSAPP_BOOKING_DETAIL_LOCATION_ENABLED=true`). The button avoids touching
+> the already-approved `booking_detail` at all — that's the "add one more
+> template" path.
+
+By default `booking_detail` carries a **static** map link baked into its
+template body — the *same* location for every center. To show each center its
+**own** location, create a newer approved template that has a dynamic **"View
+Location"** URL button and point `WHATSAPP_BOOKING_TEMPLATE` at it. Until that
+env var is set, nothing changes (customers keep getting `booking_detail`), so
+the code is safe to ship ahead of approval.
+
+### Why a redirect route instead of the map link directly on the button
+
+WhatsApp dynamic URL buttons only allow a **fixed base URL + a variable
+suffix** — the variable must sit at the very end of the URL. Per-center Google
+Maps links (`https://maps.app.goo.gl/…`) share no common prefix, so they can't
+go on the button as-is. Instead the button points at a fixed PlayOrbit URL and
+the code appends the center **slug**:
+
+```
+button URL (on the template):  https://www.playorbit.in/loc/{{1}}
+code supplies suffix {{1}}  =  <center slug>   (e.g. "abca", "toplay")
+final URL the user taps     =  https://www.playorbit.in/loc/abca
+```
+
+`GET /loc/[slug]` (`src/app/loc/[slug]/route.ts`) looks the center up by slug
+and **307-redirects** to its `mapUrl`, falling back to the platform-wide
+`LOCATION_URL` for an unknown slug / missing mapUrl (so the button is never
+dead). The route is public + maintenance-allowed.
+
+### Template contract (create on Meta, then set the env var)
+
+Name it anything (e.g. `booking_detail_loc`) and set `WHATSAPP_BOOKING_TEMPLATE`
+to that name. Body = the **same 7 params** as `booking_detail`, just without
+the static `📍 maps link` line (the button replaces it):
+
+| Param | Value |
+|-------|-------|
+| `{{1}}` | `<Center> • <date>` |
+| `{{2}}` | Time |
+| `{{3}}` | Machine / category headline |
+| `{{4}}` | Facility / pitch |
+| `{{5}}` | Price (+ kit info) |
+| `{{6}}` | Operator / contact-person name |
+| `{{7}}` | Operator / contact-person phone |
+
+Suggested body:
+
+```
+🏏 *Booking Confirmed!*
+📅 {{1}}
+⏰ {{2}}
+🎯 {{3}} — {{4}}
+💰 {{5}}
+👤 Operator: {{6}}
+📞 Contact: {{7}}
+```
+
+Button — **Call-to-action → Visit website → Dynamic**:
+
+| Field | Value |
+|-------|-------|
+| Button text | `View Location` |
+| URL type | **Dynamic** |
+| URL | `https://www.playorbit.in/loc/{{1}}` (the `{{1}}` suffix is the center slug) |
+
+The code fills the button as a `button` component (`sub_type: 'url'`,
+`index: '0'`) whose single text parameter is the center slug.
+
+### Rollout
+
+1. Set each center's **mapUrl** in super admin → `/admin/centers/[id]` → General.
+2. Create + submit the template above on Meta; wait for approval.
+3. Set `WHATSAPP_BOOKING_TEMPLATE=<template name>` in the environment. New
+   customer confirmations immediately use the new template + per-center button.
+
+> Requires the **Meta Cloud API** provider (the active notification provider).
+> Twilio's path sends free-form text and ignores template buttons.
+
 ## Staff new-booking alerts (approved template)
 
 `notifyAssignedStaffNewBooking` delivers an in-app notification (always) plus
