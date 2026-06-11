@@ -5,6 +5,7 @@ import { getAuthenticatedUser } from '@/lib/auth';
 import { sendWhatsAppOTP, sendWhatsAppNotification, isValidIndianMobile } from '@/lib/whatsapp';
 import { sendSMS } from '@/lib/sms';
 import { getCachedPolicy } from '@/lib/policy-cache';
+import { isWhatsAppUndeliverable } from '@/lib/whatsapp-deliverability';
 
 /**
  * POST /api/auth/whatsapp/send-otp
@@ -168,6 +169,24 @@ export async function POST(req: NextRequest) {
       console.error('[send-otp] Both WhatsApp and SMS failed for user:', user.id);
       return NextResponse.json(
         { error: 'Failed to send OTP. Please try again later.' },
+        { status: 502 },
+      );
+    }
+
+    // Meta "accepts" sends to numbers that aren't on WhatsApp and only
+    // reports the failure later via webhook (error 131026). If this number
+    // is flagged undeliverable and SMS didn't go out either, the user will
+    // never receive the code — fail honestly instead of claiming success.
+    if (!smsSent && whatsappSent && (await isWhatsAppUndeliverable(cleaned))) {
+      console.error(
+        '[send-otp] WhatsApp accepted but number is flagged undeliverable, and SMS failed:',
+        { userId: user.id },
+      );
+      return NextResponse.json(
+        {
+          error:
+            'This number does not appear to be reachable on WhatsApp, and SMS delivery is temporarily unavailable. Please use a WhatsApp-enabled number or try again later.',
+        },
         { status: 502 },
       );
     }

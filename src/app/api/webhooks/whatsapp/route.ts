@@ -1,5 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
+import {
+  markWhatsAppUndeliverable,
+  clearWhatsAppUndeliverable,
+} from '@/lib/whatsapp-deliverability';
 
 const VERIFY_TOKEN = process.env.WHATSAPP_WEBHOOK_VERIFY_TOKEN || 'playorbit-webhook-verify-2024';
 
@@ -80,6 +84,9 @@ export async function POST(req: NextRequest) {
           // Store in a simple key-value or cache for tracking conversation windows
           await recordConversationWindow(cleaned);
 
+          // They messaged us — the number is clearly reachable on WhatsApp.
+          await clearWhatsAppUndeliverable(cleaned);
+
           // If there's a pending OTP that hasn't been sent yet (was queued),
           // we could re-send it now. But the current flow already sends it.
           // This webhook mainly ensures we know the conversation window is open.
@@ -110,8 +117,21 @@ export async function POST(req: NextRequest) {
                 `[WhatsApp Webhook] Delivery failed for ${status?.recipient_id}:`,
                 JSON.stringify(errors),
               );
+              // Hard delivery failure (e.g. 131026 "Message undeliverable" —
+              // number not on WhatsApp). Flag the recipient so OTP/notification
+              // send paths know Meta's "send success" doesn't mean delivery.
+              if (status?.recipient_id) {
+                const code = Array.isArray(errors)
+                  ? (errors[0] as { code?: number } | undefined)?.code
+                  : undefined;
+                await markWhatsAppUndeliverable(status.recipient_id, code);
+              }
             }
           } else if (status?.status === 'read' || status?.status === 'delivered') {
+            // Message reached the device — clear any stale undeliverable flag.
+            if (status?.recipient_id) {
+              await clearWhatsAppUndeliverable(status.recipient_id);
+            }
             // Successful delivery events are noisy — only log on debug
             // when explicitly requested. Default: silent.
             if (process.env.WHATSAPP_LOG_DELIVERY === 'true') {
