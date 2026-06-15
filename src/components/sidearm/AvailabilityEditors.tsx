@@ -1,51 +1,56 @@
 'use client';
 
 /**
- * Shared Sidearm availability UI.
+ * Shared coach / sidearm availability UI.
  *
  * These pieces are used by BOTH:
- *   - Admin → Sidearm (`/admin/sidearm`) — an admin manages every
- *     specialist at the center.
- *   - User Mode → Sidearm (`/sidearm`) — a Sidearm Specialist manages
- *     their own availability.
+ *   - Admin → Sidearm (`/admin/sidearm`) and Admin → Personal Coach
+ *     (`/admin/coach`) — an admin manages every specialist at the center.
+ *   - User Mode → Sidearm (`/sidearm`) and Personal Coach (`/coach`) —
+ *     a specialist manages their own availability.
  *
- * Keeping the editors and the specialist card in one module guarantees
- * the two surfaces render the *exact same* UI, fields, validations, and
+ * Keeping the editor and the specialist card in one module guarantees
+ * the surfaces render the *exact same* UI, fields, validations, and
  * workflow. The only difference is the API endpoint each one talks to,
  * which is passed in as a prop:
  *
  *   - Admin:  /api/admin/centers/[id]/members/[membershipId]/availability
- *   - User:   /api/sidearm/availability
+ *   - User:   /api/sidearm/availability  •  /api/coach/availability
  *
- * Both endpoints write to the same MembershipAvailability /
- * MembershipDateAvailability tables, so a change made in one surface
- * shows up immediately in the other.
+ * Availability model: a Weekly schedule (one or more weekday + time
+ * windows) PLUS an optional Effective Date Range. The weekly schedule
+ * only applies to dates inside that range. The old, separate "Date Range
+ * Availability" feature has been removed — weekly + effective range is
+ * now the single way to manage availability.
  */
 
 import { useState, type ReactNode } from 'react';
 import { Loader2, CalendarClock, CalendarRange, Save, Plus, Trash2, Pencil, Mail, Phone } from 'lucide-react';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 
+export type WeeklyWindowRow = {
+  id: string;
+  dayOfWeek: number;
+  startTime: string;
+  endTime: string;
+  // Effective date range (ISO date strings). Schedule-level, so every
+  // row of a given specialist carries the same value. Null = unbounded.
+  effectiveFrom?: string | null;
+  effectiveTo?: string | null;
+};
+
 export type Specialist = {
   id: string;
   priority: number;
   user: { id: string; name: string | null; email: string | null; mobileNumber: string | null };
-  availability: Array<{ id: string; dayOfWeek: number; startTime: string; endTime: string }>;
-  dateAvailability: Array<{
-    id: string;
-    fromDate: string;
-    toDate: string;
-    startTime: string | null;
-    endTime: string | null;
-    label: string | null;
-  }>;
+  availability: WeeklyWindowRow[];
 };
 
 export const DAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
 // ─── Availability summary helpers ───────────────────────────────────────
 // These let a listing show a specialist's schedule at a glance, so the
-// viewer doesn't have to open each editor to understand availability.
+// viewer doesn't have to open the editor to understand availability.
 
 /** "17:00" -> "5:00 PM". Falls back to the raw value if unparseable. */
 export function formatTime(t: string | null | undefined): string {
@@ -67,6 +72,18 @@ export function formatDate(iso: string): string {
     month: 'short',
     year: 'numeric',
   });
+}
+
+/** Human-readable effective range, e.g. "01 Jan 2026 – 31 Dec 2026",
+ *  "From 01 Jan 2026", "Until 31 Dec 2026", or "No date limit". */
+export function formatEffectiveRange(
+  from: string | null | undefined,
+  to: string | null | undefined,
+): string {
+  if (from && to) return `${formatDate(from)} – ${formatDate(to)}`;
+  if (from) return `From ${formatDate(from)}`;
+  if (to) return `Until ${formatDate(to)}`;
+  return 'No date limit';
 }
 
 /** Collapse a list of weekday numbers (0=Sun..6=Sat) into runs, e.g.
@@ -106,29 +123,29 @@ export function summarizeWeekly(
 }
 
 // ─── Specialist availability card ───────────────────────────────────────
-// Renders one specialist's identity, status, weekly + date-range summary,
-// and the inline editors. Used by both the admin list (with priority
-// controls passed via `leading`) and the user's own-availability page.
+// Renders one specialist's identity, status, weekly summary (with its
+// effective period), and the inline weekly editor. Used by both the admin
+// list (with priority controls passed via `leading`) and the user's
+// own-availability page.
 
 export function SpecialistAvailabilityCard({
   specialist: s,
   weeklyEndpoint,
-  dateEndpoint,
   onChanged,
   leading,
 }: {
   specialist: Specialist;
   /** Base URL for weekly availability GET/PUT (preview via ?preview=true). */
   weeklyEndpoint: string;
-  /** Base URL for date-range availability GET/PUT. */
-  dateEndpoint: string;
   /** Called after a successful save so the parent can refetch summaries. */
   onChanged: () => void;
   /** Optional leading column (e.g. admin priority up/down arrows). */
   leading?: ReactNode;
 }) {
-  const [editing, setEditing] = useState<'weekly' | 'date' | null>(null);
-  const hasAvailability = s.availability.length > 0 || s.dateAvailability.length > 0;
+  const [editing, setEditing] = useState(false);
+  const hasAvailability = s.availability.length > 0;
+  const effFrom = s.availability[0]?.effectiveFrom ?? null;
+  const effTo = s.availability[0]?.effectiveTo ?? null;
 
   return (
     <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-3">
@@ -178,91 +195,50 @@ export function SpecialistAvailabilityCard({
             {s.availability.length === 0 ? (
               <p className="text-[11px] text-slate-600 italic">Not configured</p>
             ) : (
-              <div className="space-y-0.5">
-                {summarizeWeekly(s.availability).map((w, wi) => (
-                  <div key={wi} className="text-[11px] text-slate-300">
-                    <span className="font-medium text-slate-200">{formatDayList(w.days)}</span>
-                    <span className="text-slate-500"> · </span>
-                    {formatTime(w.start)} – {formatTime(w.end)}
-                  </div>
-                ))}
+              <div className="space-y-1">
+                {/* Effective period chip */}
+                <div className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-accent/10 text-accent text-[10px] font-medium">
+                  <CalendarRange className="w-3 h-3" />
+                  {formatEffectiveRange(effFrom, effTo)}
+                </div>
+                <div className="space-y-0.5">
+                  {summarizeWeekly(s.availability).map((w, wi) => (
+                    <div key={wi} className="text-[11px] text-slate-300">
+                      <span className="font-medium text-slate-200">{formatDayList(w.days)}</span>
+                      <span className="text-slate-500"> · </span>
+                      {formatTime(w.start)} – {formatTime(w.end)}
+                    </div>
+                  ))}
+                </div>
               </div>
             )}
           </div>
 
-          {/* Date-range availability summary. */}
-          <div>
-            <div className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wider text-slate-500 mb-1">
-              <CalendarRange className="w-3 h-3" /> Date ranges
-            </div>
-            {s.dateAvailability.length === 0 ? (
-              <p className="text-[11px] text-slate-600 italic">None</p>
-            ) : (
-              <div className="space-y-0.5">
-                {s.dateAvailability.map((d) => (
-                  <div key={d.id} className="text-[11px] text-slate-300">
-                    <span className="font-medium text-slate-200">
-                      {formatDate(d.fromDate)} – {formatDate(d.toDate)}
-                    </span>
-                    <span className="text-slate-500"> · </span>
-                    {d.startTime && d.endTime
-                      ? `${formatTime(d.startTime)} – ${formatTime(d.endTime)}`
-                      : 'all day'}
-                    {d.label && <span className="text-slate-500"> · {d.label}</span>}
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-
-          {/* Edit actions */}
+          {/* Edit action */}
           <div className="flex flex-wrap gap-1.5 pt-0.5">
             <button
               type="button"
-              onClick={() => setEditing(editing === 'weekly' ? null : 'weekly')}
+              onClick={() => setEditing((v) => !v)}
               className={`inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-medium border cursor-pointer ${
-                editing === 'weekly'
+                editing
                   ? 'bg-accent/15 text-accent border-accent/30'
                   : 'bg-white/[0.04] text-slate-300 border-white/[0.08] hover:bg-white/[0.08]'
               }`}
             >
               <Pencil className="w-3 h-3" />
-              Edit weekly
-            </button>
-            <button
-              type="button"
-              onClick={() => setEditing(editing === 'date' ? null : 'date')}
-              className={`inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-medium border cursor-pointer ${
-                editing === 'date'
-                  ? 'bg-accent/15 text-accent border-accent/30'
-                  : 'bg-white/[0.04] text-slate-300 border-white/[0.08] hover:bg-white/[0.08]'
-              }`}
-            >
-              <Pencil className="w-3 h-3" />
-              Edit date ranges
+              {editing ? 'Close editor' : 'Edit availability'}
             </button>
           </div>
         </div>
       </div>
 
-      {editing === 'weekly' && (
+      {editing && (
         <div className="mt-3 pt-3 border-t border-white/[0.05]">
-          <RecurringAvailabilityEditor
+          <WeeklyAvailabilityEditor
             endpoint={weeklyEndpoint}
             initial={s.availability}
-            onSaved={() => { setEditing(null); onChanged(); }}
-            onCancel={() => setEditing(null)}
-          />
-        </div>
-      )}
-
-      {editing === 'date' && (
-        <div className="mt-3 pt-3 border-t border-white/[0.05]">
-          <DateAvailabilityEditor
-            endpoint={dateEndpoint}
-            initial={s.dateAvailability}
-            onSaved={() => { setEditing(null); onChanged(); }}
-            onCancel={() => setEditing(null)}
+            onSaved={() => { setEditing(false); onChanged(); }}
+            onCancel={() => setEditing(false)}
           />
         </div>
       )}
@@ -270,7 +246,7 @@ export function SpecialistAvailabilityCard({
   );
 }
 
-// ─── Recurring (weekly) availability editor ─────────────────────────────
+// ─── Weekly availability editor (with effective date range) ─────────────
 
 interface RecurringWindow {
   dayOfWeek: number;
@@ -278,7 +254,7 @@ interface RecurringWindow {
   endTime: string;
 }
 
-export function RecurringAvailabilityEditor({
+export function WeeklyAvailabilityEditor({
   endpoint,
   initial,
   onSaved,
@@ -286,10 +262,16 @@ export function RecurringAvailabilityEditor({
 }: {
   /** Base URL — PUT here, preview via `${endpoint}?preview=true`. */
   endpoint: string;
-  initial: Array<{ id: string; dayOfWeek: number; startTime: string; endTime: string }>;
+  initial: WeeklyWindowRow[];
   onSaved: () => void;
   onCancel: () => void;
 }) {
+  const [effectiveFrom, setEffectiveFrom] = useState<string>(
+    () => (initial[0]?.effectiveFrom ? initial[0].effectiveFrom.slice(0, 10) : ''),
+  );
+  const [effectiveTo, setEffectiveTo] = useState<string>(
+    () => (initial[0]?.effectiveTo ? initial[0].effectiveTo.slice(0, 10) : ''),
+  );
   const [windows, setWindows] = useState<RecurringWindow[]>(
     () => initial.map((w) => ({ dayOfWeek: w.dayOfWeek, startTime: w.startTime, endTime: w.endTime })),
   );
@@ -299,7 +281,7 @@ export function RecurringAvailabilityEditor({
   const [showConfirm, setShowConfirm] = useState(false);
   const [pendingDeleteIdx, setPendingDeleteIdx] = useState<number | null>(null);
 
-  const add = () => setWindows((prev) => [...prev, { dayOfWeek: 1, startTime: '17:00', endTime: '21:00' }]);
+  const add = () => setWindows((prev) => [...prev, { dayOfWeek: 1, startTime: '06:00', endTime: '09:00' }]);
   const remove = (i: number) => {
     setWindows((prev) => prev.filter((_, idx) => idx !== i));
     setPendingDeleteIdx(null);
@@ -307,7 +289,19 @@ export function RecurringAvailabilityEditor({
   const update = (i: number, patch: Partial<RecurringWindow>) =>
     setWindows((prev) => prev.map((w, idx) => (idx === i ? { ...w, ...patch } : w)));
 
+  const dateRangeInvalid = Boolean(effectiveFrom && effectiveTo && effectiveTo < effectiveFrom);
+
+  const payload = () => ({
+    effectiveFrom: effectiveFrom || null,
+    effectiveTo: effectiveTo || null,
+    windows,
+  });
+
   const save = async (bypassConfirm = false) => {
+    if (dateRangeInvalid) {
+      setMsg({ text: 'End date must be on or after start date', ok: false });
+      return;
+    }
     setSaving(true);
     setMsg(null);
     try {
@@ -316,7 +310,7 @@ export function RecurringAvailabilityEditor({
         const r = await fetch(`${endpoint}?preview=true`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ windows }),
+          body: JSON.stringify(payload()),
         });
         const body = await r.json().catch(() => ({}));
         if (!r.ok) throw new Error(body?.error || `HTTP ${r.status}`);
@@ -333,7 +327,7 @@ export function RecurringAvailabilityEditor({
       const r = await fetch(endpoint, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ windows }),
+        body: JSON.stringify(payload()),
       });
       const body = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(body?.error || `HTTP ${r.status}`);
@@ -347,7 +341,7 @@ export function RecurringAvailabilityEditor({
   };
 
   return (
-    <div className="space-y-2">
+    <div className="space-y-3">
       <ConfirmDialog
         open={showConfirm}
         title="Impacted Bookings"
@@ -379,54 +373,99 @@ export function RecurringAvailabilityEditor({
         onCancel={() => setPendingDeleteIdx(null)}
       />
 
-      <p className="text-[11px] text-slate-500 leading-relaxed">
-        Weekly recurring windows. Empty list = unavailable by default. Multiple
-        rows on the same day stack as a union (e.g. 09:00–12:00 +
-        17:00–21:00).
-      </p>
-      {windows.length === 0 ? (
-        <p className="text-[11px] text-slate-600 italic py-2">
-          No recurring windows configured. This specialist is treated as
-          unavailable unless a date range below adds availability.
-        </p>
-      ) : (
-        <div className="space-y-1.5 overflow-x-auto pb-1">
-          {windows.map((w, i) => (
-            <div key={i} className="flex flex-wrap sm:grid sm:grid-cols-[1fr_auto_auto_auto] gap-2 items-center min-w-[300px]">
-              <select
-                value={w.dayOfWeek}
-                onChange={(e) => update(i, { dayOfWeek: Number(e.target.value) })}
-                className="bg-white/[0.04] border border-white/[0.1] text-white rounded-lg px-2 py-1.5 text-xs outline-none focus:border-accent flex-1 sm:flex-none"
-              >
-                {DAY_LABELS.map((d, idx) => (
-                  <option key={idx} value={idx}>{d}</option>
-                ))}
-              </select>
-              <input
-                type="time"
-                value={w.startTime}
-                onChange={(e) => update(i, { startTime: e.target.value })}
-                className="bg-white/[0.04] border border-white/[0.1] text-white rounded-lg px-2 py-1.5 text-xs outline-none focus:border-accent [color-scheme:dark] flex-1 sm:flex-none"
-              />
-              <input
-                type="time"
-                value={w.endTime}
-                onChange={(e) => update(i, { endTime: e.target.value })}
-                className="bg-white/[0.04] border border-white/[0.1] text-white rounded-lg px-2 py-1.5 text-xs outline-none focus:border-accent [color-scheme:dark] flex-1 sm:flex-none"
-              />
-              <button
-                type="button"
-                onClick={() => setPendingDeleteIdx(i)}
-                className="p-1.5 rounded-lg text-red-400/70 hover:bg-red-500/10 hover:text-red-400 cursor-pointer"
-                title="Delete Window"
-              >
-                <Trash2 className="w-3.5 h-3.5" />
-              </button>
-            </div>
-          ))}
+      {/* ── Effective date range ─────────────────────────────────────── */}
+      <div className="rounded-lg border border-white/[0.06] bg-white/[0.02] p-2.5 space-y-2">
+        <div className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+          <CalendarRange className="w-3 h-3" /> Effective date range
         </div>
-      )}
-      <div className="flex items-center justify-between gap-2 pt-1.5">
+        <p className="text-[11px] text-slate-500 leading-relaxed">
+          The weekly schedule below only applies between these dates. Leave a
+          field empty for no limit on that side.
+        </p>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+          <label className="block">
+            <span className="text-[10px] text-slate-500 uppercase tracking-wide">Start date</span>
+            <input
+              type="date"
+              value={effectiveFrom}
+              max={effectiveTo || undefined}
+              onChange={(e) => setEffectiveFrom(e.target.value)}
+              className="mt-0.5 w-full bg-white/[0.04] border border-white/[0.1] text-white rounded-lg px-2 py-2 text-sm outline-none focus:border-accent [color-scheme:dark]"
+            />
+          </label>
+          <label className="block">
+            <span className="text-[10px] text-slate-500 uppercase tracking-wide">End date</span>
+            <input
+              type="date"
+              value={effectiveTo}
+              min={effectiveFrom || undefined}
+              onChange={(e) => setEffectiveTo(e.target.value)}
+              className="mt-0.5 w-full bg-white/[0.04] border border-white/[0.1] text-white rounded-lg px-2 py-2 text-sm outline-none focus:border-accent [color-scheme:dark]"
+            />
+          </label>
+        </div>
+        {dateRangeInvalid && (
+          <p className="text-[11px] text-red-400">End date must be on or after start date.</p>
+        )}
+      </div>
+
+      {/* ── Weekly schedule ──────────────────────────────────────────── */}
+      <div className="space-y-2">
+        <div className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+          <CalendarClock className="w-3 h-3" /> Weekly schedule
+        </div>
+        <p className="text-[11px] text-slate-500 leading-relaxed">
+          Add a window for each weekday you&apos;re available. Days with no
+          window are treated as <span className="text-slate-400">Not Available</span>.
+          Multiple windows on the same day stack as a union (e.g. 09:00–12:00 +
+          17:00–21:00).
+        </p>
+        {windows.length === 0 ? (
+          <p className="text-[11px] text-slate-600 italic py-2">
+            No windows configured. This specialist is treated as unavailable
+            on every day until you add a window.
+          </p>
+        ) : (
+          <div className="space-y-1.5">
+            {windows.map((w, i) => (
+              <div
+                key={i}
+                className="flex items-center gap-2 rounded-lg bg-white/[0.02] border border-white/[0.05] p-1.5"
+              >
+                <select
+                  value={w.dayOfWeek}
+                  onChange={(e) => update(i, { dayOfWeek: Number(e.target.value) })}
+                  className="bg-white/[0.04] border border-white/[0.1] text-white rounded-lg px-2 py-2 text-sm outline-none focus:border-accent shrink-0"
+                >
+                  {DAY_LABELS.map((d, idx) => (
+                    <option key={idx} value={idx}>{d}</option>
+                  ))}
+                </select>
+                <input
+                  type="time"
+                  value={w.startTime}
+                  onChange={(e) => update(i, { startTime: e.target.value })}
+                  className="min-w-0 flex-1 bg-white/[0.04] border border-white/[0.1] text-white rounded-lg px-2 py-2 text-sm outline-none focus:border-accent [color-scheme:dark]"
+                />
+                <span className="text-slate-500 text-xs shrink-0">–</span>
+                <input
+                  type="time"
+                  value={w.endTime}
+                  onChange={(e) => update(i, { endTime: e.target.value })}
+                  className="min-w-0 flex-1 bg-white/[0.04] border border-white/[0.1] text-white rounded-lg px-2 py-2 text-sm outline-none focus:border-accent [color-scheme:dark]"
+                />
+                <button
+                  type="button"
+                  onClick={() => setPendingDeleteIdx(i)}
+                  className="p-2 rounded-lg text-red-400/70 hover:bg-red-500/10 hover:text-red-400 cursor-pointer shrink-0"
+                  title="Delete Window"
+                >
+                  <Trash2 className="w-4 h-4" />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
         <button
           type="button"
           onClick={add}
@@ -434,272 +473,32 @@ export function RecurringAvailabilityEditor({
         >
           <Plus className="w-3 h-3" /> Add window
         </button>
-        <div className="flex items-center gap-2">
-          {msg && (
-            <span className={`text-xs font-medium ${msg.ok ? 'text-emerald-400' : 'text-red-400'}`}>
-              {msg.text}
-            </span>
-          )}
-          <button
-            type="button"
-            onClick={onCancel}
-            disabled={saving}
-            className="px-2.5 py-1.5 rounded-lg text-xs text-slate-300 bg-white/[0.04] hover:bg-white/[0.08] cursor-pointer disabled:opacity-50"
-          >
-            Cancel
-          </button>
-          <button
-            type="button"
-            onClick={() => save()}
-            disabled={saving}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-accent text-black text-xs font-semibold hover:bg-accent/90 active:scale-95 disabled:opacity-60 disabled:cursor-not-allowed cursor-pointer"
-          >
-            {saving ? <Loader2 className="w-3 h-3 animate-spin" /> : <Save className="w-3 h-3" />}
-            Save
-          </button>
-        </div>
       </div>
-    </div>
-  );
-}
 
-// ─── Date-range availability editor ─────────────────────────────────────
-
-interface DateWindow {
-  fromDate: string;
-  toDate: string;
-  startTime: string;
-  endTime: string;
-  label: string;
-}
-
-export function DateAvailabilityEditor({
-  endpoint,
-  initial,
-  onSaved,
-  onCancel,
-}: {
-  /** Base URL — PUT here, preview via `${endpoint}?preview=true`. */
-  endpoint: string;
-  initial: Array<{ id: string; fromDate: string; toDate: string; startTime: string | null; endTime: string | null; label: string | null }>;
-  onSaved: () => void;
-  onCancel: () => void;
-}) {
-  const [windows, setWindows] = useState<DateWindow[]>(
-    () => initial.map((w) => ({
-      fromDate: w.fromDate.slice(0, 10),
-      toDate: w.toDate.slice(0, 10),
-      startTime: w.startTime || '',
-      endTime: w.endTime || '',
-      label: w.label || '',
-    })),
-  );
-  const [saving, setSaving] = useState(false);
-  const [msg, setMsg] = useState<{ text: string; ok: boolean } | null>(null);
-  const [impactedCount, setImpactedCount] = useState<number | null>(null);
-  const [showConfirm, setShowConfirm] = useState(false);
-  const [pendingDeleteIdx, setPendingDeleteIdx] = useState<number | null>(null);
-
-  const add = () => {
-    const today = new Date().toISOString().slice(0, 10);
-    setWindows((prev) => [...prev, { fromDate: today, toDate: today, startTime: '', endTime: '', label: '' }]);
-  };
-  const remove = (i: number) => {
-    setWindows((prev) => prev.filter((_, idx) => idx !== i));
-    setPendingDeleteIdx(null);
-  };
-  const update = (i: number, patch: Partial<DateWindow>) =>
-    setWindows((prev) => prev.map((w, idx) => (idx === i ? { ...w, ...patch } : w)));
-
-  const save = async (bypassConfirm = false) => {
-    setSaving(true);
-    setMsg(null);
-    try {
-      // Strip empty optional fields so the server doesn't reject the
-      // 'undefined startTime AND defined endTime' edge case.
-      const payload = {
-        windows: windows.map((w) => ({
-          fromDate: w.fromDate,
-          toDate: w.toDate,
-          startTime: w.startTime || null,
-          endTime: w.endTime || null,
-          label: w.label || null,
-        })),
-      };
-
-      if (!bypassConfirm) {
-        // Preview first
-        const r = await fetch(`${endpoint}?preview=true`, {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload),
-        });
-        const body = await r.json().catch(() => ({}));
-        if (!r.ok) throw new Error(body?.error || `HTTP ${r.status}`);
-
-        if (body.impactedCount > 0) {
-          setImpactedCount(body.impactedCount);
-          setShowConfirm(true);
-          setSaving(false);
-          return;
-        }
-      }
-
-      const r = await fetch(endpoint, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
-      const body = await r.json().catch(() => ({}));
-      if (!r.ok) throw new Error(body?.error || `HTTP ${r.status}`);
-      setMsg({ text: 'Saved', ok: true });
-      setTimeout(onSaved, 600);
-    } catch (e) {
-      setMsg({ text: e instanceof Error ? e.message : 'Failed to save', ok: false });
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  return (
-    <div className="space-y-2">
-      <ConfirmDialog
-        open={showConfirm}
-        title="Impacted Bookings"
-        message={`Changing the availability will result in ${impactedCount} existing booking(s) being cancelled and refunded to user wallets.`}
-        warning="This action cannot be undone. Impacted users will be notified automatically."
-        confirmLabel="Proceed & Cancel Bookings"
-        cancelLabel="Review Changes"
-        variant="danger"
-        loading={saving}
-        onConfirm={() => {
-          setShowConfirm(false);
-          save(true);
-        }}
-        onCancel={() => {
-          setShowConfirm(false);
-          setImpactedCount(null);
-        }}
-      />
-
-      <ConfirmDialog
-        open={pendingDeleteIdx !== null}
-        title="Delete Range"
-        message="Are you sure you want to delete this date range? This might impact existing bookings when you save."
-        confirmLabel="Delete"
-        variant="danger"
-        onConfirm={() => {
-          if (pendingDeleteIdx !== null) remove(pendingDeleteIdx);
-        }}
-        onCancel={() => setPendingDeleteIdx(null)}
-      />
-
-      <p className="text-[11px] text-slate-500 leading-relaxed">
-        Custom date ranges. Each row covers a date span (inclusive) plus
-        an optional time window inside the day. Leave time fields empty
-        for &ldquo;all day&rdquo;. Date-range availability overrides the recurring
-        schedule for the dates it covers.
-      </p>
-      {windows.length === 0 ? (
-        <p className="text-[11px] text-slate-600 italic py-2">
-          No date ranges configured.
-        </p>
-      ) : (
-        <div className="space-y-2">
-          {windows.map((w, i) => (
-            <div key={i} className="grid grid-cols-1 sm:grid-cols-[1fr_1fr_auto_auto_1fr_auto] gap-2 items-center bg-white/[0.02] border border-white/[0.05] rounded-lg p-2">
-              <label className="block">
-                <span className="text-[10px] text-slate-500 uppercase tracking-wide">From</span>
-                <input
-                  type="date"
-                  value={w.fromDate}
-                  onChange={(e) => update(i, { fromDate: e.target.value })}
-                  className="mt-0.5 w-full bg-white/[0.04] border border-white/[0.1] text-white rounded px-2 py-1.5 text-xs outline-none focus:border-accent [color-scheme:dark]"
-                />
-              </label>
-              <label className="block">
-                <span className="text-[10px] text-slate-500 uppercase tracking-wide">To</span>
-                <input
-                  type="date"
-                  value={w.toDate}
-                  onChange={(e) => update(i, { toDate: e.target.value })}
-                  className="mt-0.5 w-full bg-white/[0.04] border border-white/[0.1] text-white rounded px-2 py-1.5 text-xs outline-none focus:border-accent [color-scheme:dark]"
-                />
-              </label>
-              <label className="block">
-                <span className="text-[10px] text-slate-500 uppercase tracking-wide">Start (opt)</span>
-                <input
-                  type="time"
-                  value={w.startTime}
-                  onChange={(e) => update(i, { startTime: e.target.value })}
-                  className="mt-0.5 w-full bg-white/[0.04] border border-white/[0.1] text-white rounded px-2 py-1.5 text-xs outline-none focus:border-accent [color-scheme:dark]"
-                />
-              </label>
-              <label className="block">
-                <span className="text-[10px] text-slate-500 uppercase tracking-wide">End (opt)</span>
-                <input
-                  type="time"
-                  value={w.endTime}
-                  onChange={(e) => update(i, { endTime: e.target.value })}
-                  className="mt-0.5 w-full bg-white/[0.04] border border-white/[0.1] text-white rounded px-2 py-1.5 text-xs outline-none focus:border-accent [color-scheme:dark]"
-                />
-              </label>
-              <label className="block">
-                <span className="text-[10px] text-slate-500 uppercase tracking-wide">Label (opt)</span>
-                <input
-                  type="text"
-                  value={w.label}
-                  onChange={(e) => update(i, { label: e.target.value })}
-                  placeholder="e.g. Tournament"
-                  className="mt-0.5 w-full bg-white/[0.04] border border-white/[0.1] text-white rounded px-2 py-1.5 text-xs outline-none focus:border-accent placeholder:text-slate-600"
-                />
-              </label>
-              <div className="flex items-end justify-end h-full">
-                <button
-                  type="button"
-                  onClick={() => setPendingDeleteIdx(i)}
-                  className="p-1.5 rounded-lg text-red-400/70 hover:bg-red-500/10 hover:text-red-400 cursor-pointer"
-                  title="Delete Range"
-                >
-                  <Trash2 className="w-3.5 h-3.5" />
-                </button>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-      <div className="flex items-center justify-between gap-2 pt-1.5">
+      {/* ── Actions ──────────────────────────────────────────────────── */}
+      <div className="flex items-center justify-end gap-2 pt-1.5 border-t border-white/[0.05]">
+        {msg && (
+          <span className={`text-xs font-medium mr-auto ${msg.ok ? 'text-emerald-400' : 'text-red-400'}`}>
+            {msg.text}
+          </span>
+        )}
         <button
           type="button"
-          onClick={add}
-          className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs text-slate-300 bg-white/[0.04] hover:bg-white/[0.08] cursor-pointer"
+          onClick={onCancel}
+          disabled={saving}
+          className="px-3 py-2 rounded-lg text-xs text-slate-300 bg-white/[0.04] hover:bg-white/[0.08] cursor-pointer disabled:opacity-50"
         >
-          <Plus className="w-3 h-3" /> Add range
+          Cancel
         </button>
-        <div className="flex items-center gap-2">
-          {msg && (
-            <span className={`text-xs font-medium ${msg.ok ? 'text-emerald-400' : 'text-red-400'}`}>
-              {msg.text}
-            </span>
-          )}
-          <button
-            type="button"
-            onClick={onCancel}
-            disabled={saving}
-            className="px-2.5 py-1.5 rounded-lg text-xs text-slate-300 bg-white/[0.04] hover:bg-white/[0.08] cursor-pointer disabled:opacity-50"
-          >
-            Cancel
-          </button>
-          <button
-            type="button"
-            onClick={() => save()}
-            disabled={saving}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-accent text-black text-xs font-semibold hover:bg-accent/90 active:scale-95 disabled:opacity-60 disabled:cursor-not-allowed cursor-pointer"
-          >
-            {saving ? <Loader2 className="w-3 h-3 animate-spin" /> : <Save className="w-3 h-3" />}
-            Save
-          </button>
-        </div>
+        <button
+          type="button"
+          onClick={() => save()}
+          disabled={saving || dateRangeInvalid}
+          className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-accent text-black text-xs font-semibold hover:bg-accent/90 active:scale-95 disabled:opacity-60 disabled:cursor-not-allowed cursor-pointer"
+        >
+          {saving ? <Loader2 className="w-3 h-3 animate-spin" /> : <Save className="w-3 h-3" />}
+          Save
+        </button>
       </div>
     </div>
   );

@@ -5,16 +5,15 @@
  *
  * Only reachable by users who hold a SIDEARM_SPECIALIST membership at
  * the current center (the BottomNav tab is gated the same way). It lets
- * a specialist manage *their own* availability — weekly recurring
- * windows and custom date ranges — using the exact same card + editors
- * as Admin → Sidearm → Availability.
+ * a specialist manage *their own* availability — a weekly schedule plus
+ * its effective date range — using the exact same card + editor as
+ * Admin → Sidearm → Availability.
  *
- * The card and editors are imported from
+ * The card and editor are imported from
  * `src/components/sidearm/AvailabilityEditors.tsx` and talk to
- * `/api/sidearm/availability` + `/api/sidearm/date-availability`, which
- * write to the same MembershipAvailability / MembershipDateAvailability
- * tables the admin tab reads. So anything saved here shows up in Admin
- * Mode immediately, and vice-versa.
+ * `/api/sidearm/availability`, which writes to the same
+ * MembershipAvailability table the admin tab reads. So anything saved
+ * here shows up in Admin Mode immediately, and vice-versa.
  */
 
 import { useEffect, useState } from 'react';
@@ -101,7 +100,6 @@ export default function UserSidearmPage() {
           <SpecialistAvailabilityCard
             specialist={specialist}
             weeklyEndpoint="/api/sidearm/availability"
-            dateEndpoint="/api/sidearm/date-availability"
             onChanged={refresh}
           />
         </div>

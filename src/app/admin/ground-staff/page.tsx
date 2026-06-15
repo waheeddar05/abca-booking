@@ -6,11 +6,10 @@
  * Lists every GROUND_STAFF membership at the current center. Lets the
  * admin:
  *   - Reorder priority (1 = first contact for nets / full-court bookings)
- *   - Edit recurring weekly availability
- *   - Edit date-range availability
+ *   - Edit weekly availability, including its effective date range
  *
  * Mirrors Admin → Sidearm and Admin → Personal Coach exactly. The staff
- * card + availability editors are shared via
+ * card + availability editor are shared via
  * `src/components/sidearm/AvailabilityEditors.tsx`, so every staff-style
  * tab renders the exact same UI and writes to the same tables (the
  * availability / priority endpoints key off the membership id, not the
@@ -187,7 +186,6 @@ export default function AdminGroundStaffPage() {
               key={s.id}
               specialist={s}
               weeklyEndpoint={`/api/admin/centers/${currentCenter.id}/members/${s.id}/availability`}
-              dateEndpoint={`/api/admin/centers/${currentCenter.id}/members/${s.id}/date-availability`}
               onChanged={refresh}
               leading={
                 <div className="flex flex-col gap-1 shrink-0">

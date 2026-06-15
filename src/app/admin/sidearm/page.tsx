@@ -6,11 +6,10 @@
  * Lists every SIDEARM_SPECIALIST membership at the current center.
  * Lets the admin:
  *   - Reorder priority (1 = first pick by `pickStaffFor`)
- *   - Edit recurring weekly availability (reuses the existing PUT
- *     /availability endpoint)
- *   - Edit date-range availability (new PUT /date-availability)
+ *   - Edit weekly availability, including its effective date range
+ *     (PUT /availability)
  *
- * The specialist card + availability editors are shared with the
+ * The specialist card + availability editor are shared with the
  * user-facing Sidearm tab (`/sidearm`) via
  * `src/components/sidearm/AvailabilityEditors.tsx`, so both surfaces
  * render the exact same UI and write to the same tables.
@@ -196,7 +195,6 @@ export default function AdminSidearmPage() {
               key={s.id}
               specialist={s}
               weeklyEndpoint={`/api/admin/centers/${currentCenter.id}/members/${s.id}/availability`}
-              dateEndpoint={`/api/admin/centers/${currentCenter.id}/members/${s.id}/date-availability`}
               onChanged={refresh}
               leading={
                 <div className="flex flex-col gap-1 shrink-0">

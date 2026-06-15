@@ -5,16 +5,15 @@
  *
  * Only reachable by users who hold a COACH membership at the current
  * center (the BottomNav tab is gated the same way). It lets a coach
- * manage *their own* availability — weekly recurring windows and custom
- * date ranges — using the exact same card + editors as
+ * manage *their own* availability — a weekly schedule plus its effective
+ * date range — using the exact same card + editor as
  * Admin → Personal Coach → Availability. Mirrors `/sidearm` exactly.
  *
- * The card and editors are imported from
+ * The card and editor are imported from
  * `src/components/sidearm/AvailabilityEditors.tsx` and talk to
- * `/api/coach/availability` + `/api/coach/date-availability`, which write
- * to the same MembershipAvailability / MembershipDateAvailability tables
- * the admin tab reads. So anything saved here shows up in Admin Mode
- * immediately, and vice-versa.
+ * `/api/coach/availability`, which writes to the same
+ * MembershipAvailability table the admin tab reads. So anything saved
+ * here shows up in Admin Mode immediately, and vice-versa.
  */
 
 import { useEffect, useState } from 'react';
@@ -101,7 +100,6 @@ export default function UserCoachPage() {
           <SpecialistAvailabilityCard
             specialist={coach}
             weeklyEndpoint="/api/coach/availability"
-            dateEndpoint="/api/coach/date-availability"
             onChanged={refresh}
           />
         </div>

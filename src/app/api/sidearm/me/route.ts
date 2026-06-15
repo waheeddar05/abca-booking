@@ -31,13 +31,8 @@ export async function GET(req: NextRequest) {
         user: { select: { id: true, name: true, email: true, mobileNumber: true } },
         availability: {
           where: { isActive: true },
-          select: { id: true, dayOfWeek: true, startTime: true, endTime: true },
+          select: { id: true, dayOfWeek: true, startTime: true, endTime: true, effectiveFrom: true, effectiveTo: true },
           orderBy: [{ dayOfWeek: 'asc' }, { startTime: 'asc' }],
-        },
-        dateAvailability: {
-          where: { isActive: true },
-          select: { id: true, fromDate: true, toDate: true, startTime: true, endTime: true, label: true },
-          orderBy: [{ fromDate: 'asc' }],
         },
       },
     });

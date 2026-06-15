@@ -1,6 +1,6 @@
 import { prisma } from '@/lib/prisma';
 import { getISTTime, formatIST } from '@/lib/time';
-import { slotMatchesMembershipAvailability, type AvailabilityWindow, type DateAvailabilityWindow } from '@/lib/resource-booking';
+import { slotMatchesMembershipAvailability, type AvailabilityWindow } from '@/lib/resource-booking';
 import { adjustSiblingPricesForCancellation, processCancellationRefund } from '@/lib/booking-cancellation';
 import { notifyBookingCancelled, notifyAssignedStaffBookingCancelled } from '@/lib/notifications';
 import { log } from '@/lib/logger';
@@ -35,9 +35,8 @@ export async function getImpactedBookings(opts: {
   membershipId: string;
   centerId: string;
   newWeekly?: AvailabilityWindow[];
-  newDateRanges?: DateAvailabilityWindow[];
 }) {
-  const { membershipId, centerId, newWeekly, newDateRanges } = opts;
+  const { membershipId, centerId, newWeekly } = opts;
 
   const membership = await prisma.centerMembership.findUnique({
     where: { id: membershipId },
@@ -72,11 +71,7 @@ export async function getImpactedBookings(opts: {
       startTime: new Date(booking.startTime),
       endTime: new Date(booking.endTime),
     };
-    return !slotMatchesMembershipAvailability(
-      slot,
-      newWeekly || [],
-      newDateRanges || []
-    );
+    return !slotMatchesMembershipAvailability(slot, newWeekly || []);
   });
 
   return impacted;
@@ -93,9 +88,8 @@ export async function autoCancelImpactedBookings(opts: {
   adminUserId: string;
   adminName: string;
   newWeekly?: AvailabilityWindow[];
-  newDateRanges?: DateAvailabilityWindow[];
 }) {
-  const { membershipId, centerId, adminUserId, adminName, newWeekly, newDateRanges } = opts;
+  const { membershipId, centerId, adminUserId, adminName, newWeekly } = opts;
 
   // 1. Resolve the membership to get the user ID
   const membership = await prisma.centerMembership.findUnique({
@@ -128,11 +122,7 @@ export async function autoCancelImpactedBookings(opts: {
       endTime: new Date(booking.endTime),
     };
 
-    const isStillAvailable = slotMatchesMembershipAvailability(
-      slot,
-      newWeekly || [],
-      newDateRanges || []
-    );
+    const isStillAvailable = slotMatchesMembershipAvailability(slot, newWeekly || []);
 
     if (!isStillAvailable) {
       await cancelAndRefundBooking({

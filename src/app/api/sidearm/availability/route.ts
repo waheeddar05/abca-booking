@@ -23,6 +23,7 @@ import { autoCancelImpactedBookings, getImpactedBookings } from '@/lib/availabil
  */
 
 const TIME_HHMM = /^([01]\d|2[0-3]):[0-5]\d$/;
+const DATE_ISO = /^\d{4}-\d{2}-\d{2}$/;
 const WindowSchema = z.object({
   dayOfWeek: z.number().int().min(0).max(6),
   startTime: z.string().regex(TIME_HHMM, 'Use HH:MM (24h)'),
@@ -32,9 +33,21 @@ const WindowSchema = z.object({
   path: ['endTime'],
 });
 
+// The weekly schedule applies only within this optional effective date
+// range (inclusive, IST). Null/omitted on a side = no limit there.
 const PutSchema = z.object({
+  effectiveFrom: z.string().regex(DATE_ISO, 'Use YYYY-MM-DD').optional().nullable(),
+  effectiveTo:   z.string().regex(DATE_ISO, 'Use YYYY-MM-DD').optional().nullable(),
   windows: z.array(WindowSchema).max(50),
-});
+}).refine(
+  (d) => !(d.effectiveFrom && d.effectiveTo) || d.effectiveTo >= d.effectiveFrom,
+  { message: 'End date must be on or after start date', path: ['effectiveTo'] },
+);
+
+/** Parse a YYYY-MM-DD string to a UTC-midnight Date (matches @db.Date). */
+function parseDateOnly(s: string | null | undefined): Date | null {
+  return s ? new Date(`${s}T00:00:00.000Z`) : null;
+}
 
 export async function GET(req: NextRequest) {
   try {
@@ -47,9 +60,15 @@ export async function GET(req: NextRequest) {
     const rows = await prisma.membershipAvailability.findMany({
       where: { membershipId: membership.id, isActive: true },
       orderBy: [{ dayOfWeek: 'asc' }, { startTime: 'asc' }],
-      select: { id: true, dayOfWeek: true, startTime: true, endTime: true },
+      select: { id: true, dayOfWeek: true, startTime: true, endTime: true, effectiveFrom: true, effectiveTo: true },
     });
-    return NextResponse.json({ membershipId: membership.id, role: membership.role, windows: rows });
+    return NextResponse.json({
+      membershipId: membership.id,
+      role: membership.role,
+      effectiveFrom: rows[0]?.effectiveFrom ?? null,
+      effectiveTo: rows[0]?.effectiveTo ?? null,
+      windows: rows,
+    });
   } catch (error) {
     const { message, status } = sanitizeApiError(
       error,
@@ -80,28 +99,23 @@ export async function PUT(req: NextRequest) {
 
     const preview = req.nextUrl.searchParams.get('preview') === 'true';
 
+    const effectiveFrom = parseDateOnly(parsed.data.effectiveFrom);
+    const effectiveTo = parseDateOnly(parsed.data.effectiveTo);
+
     const newWeekly = parsed.data.windows.map((w) => ({
       membershipId,
       dayOfWeek: w.dayOfWeek,
       startTime: w.startTime,
       endTime: w.endTime,
+      effectiveFrom,
+      effectiveTo,
       isActive: true,
       createdAt: new Date(),
       updatedAt: new Date(),
     } as any));
 
-    // Fetch existing date ranges to keep them in the availability check
-    const existingDateRanges = await prisma.membershipDateAvailability.findMany({
-      where: { membershipId, isActive: true },
-    });
-
     if (preview) {
-      const impacted = await getImpactedBookings({
-        membershipId,
-        centerId,
-        newWeekly,
-        newDateRanges: existingDateRanges,
-      });
+      const impacted = await getImpactedBookings({ membershipId, centerId, newWeekly });
       return NextResponse.json({ impactedCount: impacted.length, impactedBookings: impacted });
     }
 
@@ -116,6 +130,8 @@ export async function PUT(req: NextRequest) {
                 dayOfWeek: w.dayOfWeek,
                 startTime: w.startTime,
                 endTime: w.endTime,
+                effectiveFrom,
+                effectiveTo,
               })),
             }),
           ]
@@ -129,15 +145,20 @@ export async function PUT(req: NextRequest) {
       adminUserId: user.id,
       adminName: user.name || user.id,
       newWeekly,
-      newDateRanges: existingDateRanges,
     });
 
     const rows = await prisma.membershipAvailability.findMany({
       where: { membershipId },
       orderBy: [{ dayOfWeek: 'asc' }, { startTime: 'asc' }],
-      select: { id: true, dayOfWeek: true, startTime: true, endTime: true },
+      select: { id: true, dayOfWeek: true, startTime: true, endTime: true, effectiveFrom: true, effectiveTo: true },
     });
-    return NextResponse.json({ membershipId, role: membership.role, windows: rows });
+    return NextResponse.json({
+      membershipId,
+      role: membership.role,
+      effectiveFrom: rows[0]?.effectiveFrom ?? null,
+      effectiveTo: rows[0]?.effectiveTo ?? null,
+      windows: rows,
+    });
   } catch (error) {
     const { message, status } = sanitizeApiError(
       error,

@@ -5,10 +5,9 @@
  *
  * Lists every COACH membership at the current center. Lets the admin:
  *   - Reorder priority (1 = first pick by `pickStaffFor`)
- *   - Edit recurring weekly availability
- *   - Edit date-range availability
+ *   - Edit weekly availability, including its effective date range
  *
- * Mirrors Admin → Sidearm exactly. The coach card + availability editors
+ * Mirrors Admin → Sidearm exactly. The coach card + availability editor
  * are shared with the user-facing Personal Coach tab (`/coach`) via
  * `src/components/sidearm/AvailabilityEditors.tsx`, so both surfaces
  * render the exact same UI and write to the same tables.
@@ -194,7 +193,6 @@ export default function AdminCoachPage() {
               key={s.id}
               specialist={s}
               weeklyEndpoint={`/api/admin/centers/${currentCenter.id}/members/${s.id}/availability`}
-              dateEndpoint={`/api/admin/centers/${currentCenter.id}/members/${s.id}/date-availability`}
               onChanged={refresh}
               leading={
                 <div className="flex flex-col gap-1 shrink-0">

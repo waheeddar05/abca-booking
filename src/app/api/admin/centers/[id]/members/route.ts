@@ -63,12 +63,12 @@ export async function GET(req: NextRequest, ctx: { params: Promise<Params> }) {
     };
   }
 
-  // The Sidearm admin tab (and any future role-list view) needs more
-  // than just the membership row — it wants the priority field and
-  // the resolved availability windows (weekly + date-range) so the
-  // editor can show "Specialist A — priority 1, recurring Mon–Fri
-  // 17:00–21:00, plus 10–20 June 18:00–22:00". Including those by
-  // default keeps the Members tab response slightly heavier but
+  // The Sidearm/Coach admin tabs (and any future role-list view) need
+  // more than just the membership row — they want the priority field and
+  // the resolved weekly availability windows (each carrying its effective
+  // date range) so the editor can show "Specialist A — priority 1,
+  // Mon/Wed/Fri 06:00–09:00, effective 01 Jan–31 Dec 2026". Including
+  // those by default keeps the Members tab response slightly heavier but
   // saves an N+1 fetch for the Sidearm view.
   const members = await prisma.centerMembership.findMany({
     where,
@@ -76,13 +76,8 @@ export async function GET(req: NextRequest, ctx: { params: Promise<Params> }) {
       user: { select: { id: true, name: true, email: true, mobileNumber: true, role: true } },
       availability: {
         where: { isActive: true },
-        select: { id: true, dayOfWeek: true, startTime: true, endTime: true },
+        select: { id: true, dayOfWeek: true, startTime: true, endTime: true, effectiveFrom: true, effectiveTo: true },
         orderBy: [{ dayOfWeek: 'asc' }, { startTime: 'asc' }],
-      },
-      dateAvailability: {
-        where: { isActive: true },
-        select: { id: true, fromDate: true, toDate: true, startTime: true, endTime: true, label: true },
-        orderBy: [{ fromDate: 'asc' }],
       },
     },
     orderBy: [

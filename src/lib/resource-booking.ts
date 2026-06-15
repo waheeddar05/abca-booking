@@ -160,20 +160,19 @@ export async function getCenterResources(centerId: string): Promise<ResourceLite
   return rows;
 }
 
-/** A single weekly recurring availability window for a coach/specialist. */
+/** A single weekly recurring availability window for a coach/specialist.
+ *
+ *  Each window optionally carries an inclusive [effectiveFrom,
+ *  effectiveTo] date range (IST). The window only applies to dates inside
+ *  that range; a null bound means "no limit on that side". All windows
+ *  saved together share the same effective range — it's a schedule-level
+ *  attribute, persisted per row for simplicity. */
 export interface AvailabilityWindow {
   dayOfWeek: number; // 0=Sun..6=Sat (IST)
   startTime: string; // HH:MM IST
   endTime: string;   // HH:MM IST
-}
-
-/** A date-range availability window. Mirrors MembershipDateAvailability
- *  but with HH:MM/yyyy-mm-dd strings the engine can compare cheaply. */
-export interface DateAvailabilityWindow {
-  fromDate: Date;
-  toDate: Date;
-  startTime: string | null; // HH:MM IST, null = all day
-  endTime: string | null;   // HH:MM IST, null = all day
+  effectiveFrom?: Date | null; // inclusive start, null = unbounded
+  effectiveTo?: Date | null;   // inclusive end, null = unbounded
 }
 
 interface CenterMembershipUserRow {
@@ -184,30 +183,24 @@ interface CenterMembershipUserRow {
    *  slot. Defaults to 100 when the column isn't set. */
   priority: number;
   user: { id: string; name: string | null; mobileNumber: string | null; email: string | null };
-  /** Weekly recurring availability. Empty array = no schedule
-   *  constraint at this axis (treated as always available WHEN there
-   *  are also no date-range entries). */
+  /** Weekly recurring availability (with optional effective date range).
+   *  Empty array = unavailable by default. */
   availability: AvailabilityWindow[];
-  /** Custom-date-range availability. Same "empty = no constraint at
-   *  this axis" rule. The slot matches if either table covers it. */
-  dateAvailability: DateAvailabilityWindow[];
 }
 
 /**
- * True if the slot falls inside the user's weekly availability schedule.
- * An empty schedule is treated as "always available" — that's the
- * legacy behaviour for coaches/specialists with no rows yet.
+ * True if the slot falls inside the user's weekly availability schedule,
+ * honouring each window's optional effective date range.
  *
- * Now also considers date-range availability (MembershipDateAvailability):
- *   - If BOTH tables are empty: always available.
- *   - If only one table has rows: the slot must match THAT table.
- *   - If both tables have rows: the slot matches if EITHER table
- *     covers it (additive — date ranges extend the recurring
- *     schedule rather than override it).
+ * A window matches when ALL of these hold:
+ *   - the slot's IST weekday equals the window's dayOfWeek,
+ *   - the slot's date is inside the window's [effectiveFrom, effectiveTo]
+ *     range (a null bound = no limit on that side),
+ *   - the slot's time fits entirely inside [startTime, endTime].
  *
- * The second arg keeps the legacy single-array signature for code
- * paths that don't yet pass date ranges; new callers pass the full
- * membership row via `slotMatchesMembershipAvailability` below.
+ * An empty schedule returns `true` here (no constraint) — but the
+ * membership-level wrapper below treats "no rows" as unavailable, so the
+ * "empty = available" path is never reached for real coaches/specialists.
  */
 export function slotMatchesAvailability(
   slot: BookableSlotWindow,
@@ -215,7 +208,16 @@ export function slotMatchesAvailability(
 ): boolean {
   if (!windows || windows.length === 0) return true;
   const dow = getISTDayOfWeek(slot.startTime);
-  const dayWindows = windows.filter((w) => w.dayOfWeek === dow);
+  // fromDate/toDate are stored as @db.Date so they parse to UTC midnight;
+  // comparing slot.date (also UTC midnight of the IST day) with `>=` /
+  // `<=` works directly.
+  const slotDateMs = slot.date.getTime();
+  const dayWindows = windows.filter((w) => {
+    if (w.dayOfWeek !== dow) return false;
+    if (w.effectiveFrom && slotDateMs < w.effectiveFrom.getTime()) return false;
+    if (w.effectiveTo && slotDateMs > w.effectiveTo.getTime()) return false;
+    return true;
+  });
   if (dayWindows.length === 0) return false;
   const slotStart = getISTHHMM(slot.startTime);
   const slotEnd = getISTHHMM(slot.endTime);
@@ -224,80 +226,21 @@ export function slotMatchesAvailability(
 }
 
 /**
- * Combined check: recurring weekly OR date-range covers the slot.
+ * Membership-level availability check.
  *
- * NEW ALIGNMENT RULE: Date-range availability overrides the recurring
- * schedule for the dates it covers.
- *   - If a slot's date falls within any dateRange window: the slot matches
- *     ONLY if it fits inside one of those dateRange windows. The weekly
- *     schedule is ignored for that date.
- *   - If the date is NOT covered by any dateRange: fall back to the
- *     weekly recurring schedule.
- *   - If BOTH tables are empty: unavailable by default (changed from legacy fallback).
+ * A coach/specialist is available for a slot only when their weekly
+ * schedule (with its effective date range) covers it:
+ *   - No weekly rows ⇒ unavailable by default.
+ *   - Otherwise ⇒ the slot must match a weekly window whose effective
+ *     date range includes the slot's date. Dates outside every window's
+ *     effective range show no availability.
  */
 export function slotMatchesMembershipAvailability(
   slot: BookableSlotWindow,
   weekly: AvailabilityWindow[],
-  dateRanges: DateAvailabilityWindow[],
 ): boolean {
-  const hasWeekly = weekly && weekly.length > 0;
-  const hasDateRanges = dateRanges && dateRanges.length > 0;
-
-  if (!hasWeekly && !hasDateRanges) return false;
-
-  // 1. If we have date ranges, check if any of them cover this DATE.
-  if (hasDateRanges) {
-    const slotDate = slot.date.getTime();
-    const rangesForThisDate = dateRanges.filter(
-      (w) => slotDate >= w.fromDate.getTime() && slotDate <= w.toDate.getTime(),
-    );
-
-    if (rangesForThisDate.length > 0) {
-      // OVERRIDE: This date is explicitly managed by date ranges.
-      // Ignore weekly schedule; match only if this slot fits a range.
-      const slotStart = getISTHHMM(slot.startTime);
-      const slotEnd = getISTHHMM(slot.endTime);
-      return rangesForThisDate.some((w) => {
-        const from = w.startTime ?? '00:00';
-        const to = w.endTime ?? '24:00';
-        return slotStart >= from && slotEnd <= to;
-      });
-    }
-  }
-
-  // 2. Fallback to weekly schedule if no date ranges covered this date.
-  if (hasWeekly) {
-    return slotMatchesAvailability(slot, weekly);
-  }
-
-  return false;
-}
-
-/**
- * True if the slot sits inside any of the date-range windows. Each
- * window covers an inclusive date range (in IST) plus an optional
- * intra-day time slice. Empty time slice = "all day" on that range.
- */
-function slotMatchesDateAvailability(
-  slot: BookableSlotWindow,
-  windows: DateAvailabilityWindow[],
-): boolean {
-  if (!windows || windows.length === 0) return false;
-  // Compare slot date in IST against each window's [fromDate, toDate]
-  // range. fromDate/toDate are stored as @db.Date so they parse to
-  // UTC midnight; comparing slot.date (also UTC midnight) works
-  // directly with `>=` / `<=`.
-  const slotDate = slot.date.getTime();
-  const slotStart = getISTHHMM(slot.startTime);
-  const slotEnd = getISTHHMM(slot.endTime);
-  return windows.some((w) => {
-    if (slotDate < w.fromDate.getTime()) return false;
-    if (slotDate > w.toDate.getTime()) return false;
-    // No time bounds = covers the whole day.
-    const from = w.startTime ?? '00:00';
-    const to = w.endTime ?? '24:00';
-    return slotStart >= from && slotEnd <= to;
-  });
+  if (!weekly || weekly.length === 0) return false;
+  return slotMatchesAvailability(slot, weekly);
 }
 
 export async function getCenterCoaches(centerId: string): Promise<CenterMembershipUserRow[]> {
@@ -309,11 +252,7 @@ export async function getCenterCoaches(centerId: string): Promise<CenterMembersh
       priority: true,
       availability: {
         where: { isActive: true },
-        select: { dayOfWeek: true, startTime: true, endTime: true },
-      },
-      dateAvailability: {
-        where: { isActive: true },
-        select: { fromDate: true, toDate: true, startTime: true, endTime: true },
+        select: { dayOfWeek: true, startTime: true, endTime: true, effectiveFrom: true, effectiveTo: true },
       },
       user: { select: { id: true, name: true, mobileNumber: true, email: true } },
     },
@@ -352,11 +291,7 @@ export async function getCenterStaff(centerId: string): Promise<CenterMembership
       priority: true,
       availability: {
         where: { isActive: true },
-        select: { dayOfWeek: true, startTime: true, endTime: true },
-      },
-      dateAvailability: {
-        where: { isActive: true },
-        select: { fromDate: true, toDate: true, startTime: true, endTime: true },
+        select: { dayOfWeek: true, startTime: true, endTime: true, effectiveFrom: true, effectiveTo: true },
       },
       user: { select: { id: true, name: true, mobileNumber: true, email: true } },
     },
@@ -631,15 +566,13 @@ export function computeSlotAvailability(inputs: AvailabilityInputs): SlotAvailab
   // Filter out coaches/staff whose schedule doesn't cover this slot, then
   // remove anyone already booked into another session at this time.
   // No `slot` provided ⇒ skip the schedule filter entirely.
-  // Use the combined recurring + date-range matcher so a specialist
-  // whose only availability is a date range (e.g. tournament weekend)
-  // still appears for slots inside that window even with no weekly
-  // schedule configured.
+  // A specialist is only offered for slots that fall on a configured
+  // weekday AND inside that schedule's effective date range.
   const scheduledCoaches = slot
-    ? coaches.filter((c) => slotMatchesMembershipAvailability(slot, c.availability, c.dateAvailability))
+    ? coaches.filter((c) => slotMatchesMembershipAvailability(slot, c.availability))
     : coaches;
   const scheduledStaff = slot
-    ? staff.filter((s) => slotMatchesMembershipAvailability(slot, s.availability, s.dateAvailability))
+    ? staff.filter((s) => slotMatchesMembershipAvailability(slot, s.availability))
     : staff;
 
   const freeCoaches = scheduledCoaches.filter((c) => !occupancy.busyCoachIds.has(c.userId));

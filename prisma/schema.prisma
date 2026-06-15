@@ -138,41 +138,52 @@ enum MembershipRole {
 }
 
 // Weekly recurring availability for a coach or sidearm specialist.
-// Empty = "no schedule constraint" — the user is treated as available
-// for every slot. Add a row to *restrict* (e.g. only Mon–Fri 17:00–
-// 21:00). Multiple rows on the same day stack as a union of windows.
+// A row restricts the specialist to a weekday + time window (e.g. only
+// Mon–Fri 17:00–21:00). Multiple rows on the same day stack as a union
+// of windows. Empty list = unavailable by default (the engine no longer
+// treats "no rows" as "always available").
+//
+// Effective date range: each row carries an OPTIONAL [effectiveFrom,
+// effectiveTo] window (inclusive, IST). The weekly schedule only applies
+// to dates inside that window — e.g. "every Mon/Wed/Fri 06:00–09:00
+// between 01-Jan-2026 and 31-Dec-2026". Null on either bound means
+// "no limit on that side", so legacy rows (both null) keep applying
+// indefinitely. All rows saved together share the same effective range
+// (it's a schedule-level attribute persisted per row for simplicity).
 model MembershipAvailability {
-  id           String   @id @default(cuid())
-  membershipId String
+  id            String    @id @default(cuid())
+  membershipId  String
   // 0 = Sunday, 6 = Saturday — IST day-of-week (matches the rest of the
   // codebase; see resource-booking.ts → getISTDayOfWeek).
-  dayOfWeek    Int
+  dayOfWeek     Int
   // HH:MM in IST, e.g. "17:00".
-  startTime    String
-  endTime      String
-  isActive     Boolean  @default(true)
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  startTime     String
+  endTime       String
+  // Inclusive effective window in IST. Stored as @db.Date so timezone
+  // math doesn't shift them across midnight. Null = unbounded on that
+  // side (applies indefinitely).
+  effectiveFrom DateTime? @db.Date
+  effectiveTo   DateTime? @db.Date
+  isActive      Boolean   @default(true)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
 
   membership CenterMembership @relation(fields: [membershipId], references: [id], onDelete: Cascade)
 
   @@index([membershipId, dayOfWeek])
 }
 
-// Date-range availability for a coach or sidearm specialist —
-// distinct from MembershipAvailability above, which is a weekly DOW
-// pattern. Use this when a specialist is only available for a
-// specific window of days (e.g. June 10–20, 17:00–21:00), or for
-// one-off blocks like a tournament weekend.
+// DEPRECATED — standalone "Date Range Availability".
 //
-// Resolution rule (mirrors slotMatchesAvailability in
-// resource-booking.ts): date-range availability overrides the recurring
-// schedule for the dates it covers.
-//   - If a membership has dateAvailability rows covering a date, the
-//     weekly recurring schedule is ignored for that date.
-//   - If no dateAvailability row covers the date, the engine falls back
-//     to the recurring MembershipAvailability table.
-//   - If both tables are empty, the specialist is always available.
+// This separate date-range feature has been retired in favour of the
+// Effective Date Range now built into MembershipAvailability (weekly
+// schedule + [effectiveFrom, effectiveTo]). The engine no longer reads
+// this table and the admin/user editors for it have been removed.
+//
+// The model + table are kept only so existing rows aren't dropped (a
+// non-destructive change). Nothing in the app reads or writes it; treat
+// it as inert legacy data. A future migration can drop it once we're
+// confident no center relies on the old rows.
 model MembershipDateAvailability {
   id           String   @id @default(cuid())
   membershipId String

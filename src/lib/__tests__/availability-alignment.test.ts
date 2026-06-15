@@ -1,79 +1,98 @@
 import { describe, it, expect } from 'vitest';
-import { slotMatchesMembershipAvailability, type AvailabilityWindow, type DateAvailabilityWindow } from '../resource-booking';
+import { slotMatchesMembershipAvailability, type AvailabilityWindow } from '../resource-booking';
 
-describe('slotMatchesMembershipAvailability', () => {
+describe('slotMatchesMembershipAvailability (weekly + effective date range)', () => {
   const weekly: AvailabilityWindow[] = [
-    { dayOfWeek: 1, startTime: '09:00', endTime: '11:00' }, // Monday 9-11
+    { dayOfWeek: 1, startTime: '09:00', endTime: '11:00' }, // Monday 9–11, no date limit
   ];
 
   const mondayDate = new Date('2026-06-01T00:00:00.000Z'); // June 1, 2026 is Monday
   const sundayDate = new Date('2026-05-31T00:00:00.000Z'); // May 31, 2026 is Sunday
 
-  it('matches weekly schedule when no date ranges exist', () => {
+  it('matches a slot inside the weekday window when unbounded', () => {
     const slot = {
       date: mondayDate,
       startTime: new Date('2026-06-01T09:30:00.000+05:30'),
       endTime: new Date('2026-06-01T10:30:00.000+05:30'),
     };
-    expect(slotMatchesMembershipAvailability(slot, weekly, [])).toBe(true);
+    expect(slotMatchesMembershipAvailability(slot, weekly)).toBe(true);
   });
 
-  it('fails when outside weekly schedule and no date ranges exist', () => {
+  it('fails outside the weekday time window', () => {
     const slot = {
       date: mondayDate,
       startTime: new Date('2026-06-01T14:00:00.000+05:30'),
       endTime: new Date('2026-06-01T15:00:00.000+05:30'),
     };
-    expect(slotMatchesMembershipAvailability(slot, weekly, [])).toBe(false);
+    expect(slotMatchesMembershipAvailability(slot, weekly)).toBe(false);
   });
 
-  it('matches date range when no weekly schedule exists', () => {
-    const dateRanges: DateAvailabilityWindow[] = [
-      { fromDate: sundayDate, toDate: sundayDate, startTime: '10:00', endTime: '12:00' },
-    ];
+  it('fails on a weekday with no configured window', () => {
     const slot = {
       date: sundayDate,
-      startTime: new Date('2026-05-31T10:30:00.000+05:30'),
-      endTime: new Date('2026-05-31T11:30:00.000+05:30'),
+      startTime: new Date('2026-05-31T09:30:00.000+05:30'),
+      endTime: new Date('2026-05-31T10:30:00.000+05:30'),
     };
-    expect(slotMatchesMembershipAvailability(slot, [], dateRanges)).toBe(true);
+    expect(slotMatchesMembershipAvailability(slot, weekly)).toBe(false);
   });
 
-  it('uses OVERRIDE logic: date range trumps weekly schedule for that date', () => {
-    const dateRanges: DateAvailabilityWindow[] = [
-      { fromDate: mondayDate, toDate: mondayDate, startTime: '14:00', endTime: '16:00' },
-    ];
-    
-    // Slot in weekly window (9-11) - should now be FALSE because dateRange exists for this date
-    const slot1 = {
+  it('treats an empty schedule as unavailable', () => {
+    const slot = {
       date: mondayDate,
       startTime: new Date('2026-06-01T09:30:00.000+05:30'),
       endTime: new Date('2026-06-01T10:30:00.000+05:30'),
     };
-    
-    // Slot in date range window (14-16) - should be TRUE
-    const slot2 = {
-      date: mondayDate,
-      startTime: new Date('2026-06-01T14:30:00.000+05:30'),
-      endTime: new Date('2026-06-01T15:30:00.000+05:30'),
-    };
-
-    expect(slotMatchesMembershipAvailability(slot1, weekly, dateRanges)).toBe(false);
-    expect(slotMatchesMembershipAvailability(slot2, weekly, dateRanges)).toBe(true);
+    expect(slotMatchesMembershipAvailability(slot, [])).toBe(false);
   });
 
-  it('still falls back to weekly for other dates', () => {
-    const nextMonday = new Date('2026-06-08T00:00:00.000Z');
-    const dateRanges: DateAvailabilityWindow[] = [
-      { fromDate: mondayDate, toDate: mondayDate, startTime: '14:00', endTime: '16:00' },
+  describe('effective date range', () => {
+    const ranged: AvailabilityWindow[] = [
+      {
+        dayOfWeek: 1,
+        startTime: '06:00',
+        endTime: '09:00',
+        effectiveFrom: new Date('2026-06-01T00:00:00.000Z'),
+        effectiveTo: new Date('2026-06-30T00:00:00.000Z'),
+      },
     ];
 
-    const slot = {
-      date: nextMonday,
-      startTime: new Date('2026-06-08T09:30:00.000+05:30'),
-      endTime: new Date('2026-06-08T10:30:00.000+05:30'),
-    };
+    const slotOn = (iso: string) => ({
+      date: new Date(`${iso}T00:00:00.000Z`),
+      startTime: new Date(`${iso}T06:30:00.000+05:30`),
+      endTime: new Date(`${iso}T07:30:00.000+05:30`),
+    });
 
-    expect(slotMatchesMembershipAvailability(slot, weekly, dateRanges)).toBe(true);
+    it('matches a Monday inside the effective range', () => {
+      // 2026-06-15 is a Monday, inside 01–30 Jun.
+      expect(slotMatchesMembershipAvailability(slotOn('2026-06-15'), ranged)).toBe(true);
+    });
+
+    it('matches the inclusive start boundary', () => {
+      // 2026-06-01 is a Monday and equals effectiveFrom.
+      expect(slotMatchesMembershipAvailability(slotOn('2026-06-01'), ranged)).toBe(true);
+    });
+
+    it('matches the inclusive end boundary', () => {
+      // 2026-06-29 is the last Monday on/before effectiveTo (30 Jun).
+      expect(slotMatchesMembershipAvailability(slotOn('2026-06-29'), ranged)).toBe(true);
+    });
+
+    it('fails before the effective range starts', () => {
+      // 2026-05-25 is a Monday but before 01 Jun.
+      expect(slotMatchesMembershipAvailability(slotOn('2026-05-25'), ranged)).toBe(false);
+    });
+
+    it('fails after the effective range ends', () => {
+      // 2026-07-06 is a Monday but after 30 Jun.
+      expect(slotMatchesMembershipAvailability(slotOn('2026-07-06'), ranged)).toBe(false);
+    });
+
+    it('respects an open-ended (from only) range', () => {
+      const fromOnly: AvailabilityWindow[] = [
+        { dayOfWeek: 1, startTime: '06:00', endTime: '09:00', effectiveFrom: new Date('2026-06-01T00:00:00.000Z') },
+      ];
+      expect(slotMatchesMembershipAvailability(slotOn('2026-05-25'), fromOnly)).toBe(false);
+      expect(slotMatchesMembershipAvailability(slotOn('2026-12-28'), fromOnly)).toBe(true);
+    });
   });
 });
