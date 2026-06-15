@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useSession } from 'next-auth/react';
-import { LayoutDashboard, CalendarCheck, Clock, Users, UserCog, SlidersHorizontal, Package, Tag, Building2 } from 'lucide-react';
+import { LayoutDashboard, CalendarCheck, Clock, Users, UserCog, SlidersHorizontal, Package, Tag, Building2, HardHat } from 'lucide-react';
 import { useCenter } from '@/lib/center-context';
 
 type BookingModel = 'MACHINE_PITCH' | 'RESOURCE_BASED';
@@ -48,6 +48,10 @@ export function AdminMobileNav() {
         // Short "Coach" label keeps the bottom-nav cell tidy on phones;
         // the page itself is titled "Personal Coach".
         { href: '/admin/coach', label: 'Coach', icon: UserCog, models: ['RESOURCE_BASED'], hidden: !canAccessCoachTab },
+        // Ground Staff — admin-only, resource-based centers only. Mirrors
+        // the Sidearm / Coach tabs. Short "Ground" label keeps the
+        // bottom-nav cell tidy on phones; the page is titled "Ground Staff".
+        { href: '/admin/ground-staff', label: 'Ground', icon: HardHat, models: ['RESOURCE_BASED'], hidden: !isAdmin },
         { href: '/admin/packages', label: 'Packages', icon: Package, hidden: !isAdmin },
         { href: '/admin/offers', label: 'Offers', icon: Tag, hidden: !isAdmin },
         { href: '/admin/configuration', label: 'Settings', icon: SlidersHorizontal, hidden: !isAdmin },

@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useSession } from 'next-auth/react';
-import { LayoutDashboard, CalendarCheck, Users, Clock, Wrench, Package, Zap, SlidersHorizontal, ArrowLeft, Power, DatabaseZap, UserCog, Tag, Building2, AlertTriangle } from 'lucide-react';
+import { LayoutDashboard, CalendarCheck, Users, Clock, Wrench, Package, Zap, SlidersHorizontal, ArrowLeft, Power, DatabaseZap, UserCog, Tag, Building2, AlertTriangle, HardHat } from 'lucide-react';
 import { signOut } from 'next-auth/react';
 import { AdminMobileNav } from '@/components/admin/AdminMobileNav';
 import { CenterSwitcher } from '@/components/admin/CenterSwitcher';
@@ -70,6 +70,12 @@ export default function AdminLayout({
     // availability (recurring + date-range) plus priority order, exactly
     // like the Sidearm tab. Resource-based centers only.
     { href: '/admin/coach', label: 'Personal Coach', icon: UserCog, models: ['RESOURCE_BASED'], hidden: !canAccessCoachTab },
+    // Ground Staff tab — manages GROUND_STAFF memberships and their
+    // availability (recurring + date-range) plus priority order, exactly
+    // like the Sidearm and Personal Coach tabs. Resource-based centers
+    // only. Admin-only: GROUND_STAFF has no UserRole equivalent, so there
+    // is no self-service variant the way Sidearm/Coach have.
+    { href: '/admin/ground-staff', label: 'Ground Staff', icon: HardHat, models: ['RESOURCE_BASED'], hidden: !isAdmin },
     { href: '/admin/offers', label: 'Offers', icon: Tag, hidden: !isAdmin },
     { href: '/admin/packages', label: 'Packages', icon: Package, hidden: !isAdmin },
     { href: '/admin/configuration', label: 'Settings', icon: SlidersHorizontal, hidden: !isAdmin },
