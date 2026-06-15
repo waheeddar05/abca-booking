@@ -128,18 +128,18 @@ export async function GET(req: NextRequest) {
       ];
     }
 
-    // Booking-category filter — same handling as the list, including the
-    // ABCA legacy rule that a NULL category counts as MACHINE. Previously
-    // the export ignored this param entirely, so exporting a "Cricket Nets"
-    // filtered view produced a CSV of every category.
+    // Booking-category filter — same handling as the list. Every Booking
+    // row carries a non-null `category` (schema default 'MACHINE'; ABCA's
+    // legacy rows were backfilled to MACHINE), so an exact equality match
+    // is correct for every category, MACHINE included. The previous
+    // `OR: [{category:'MACHINE'},{category:null}]` form collapsed into a
+    // match-everything clause on the non-nullable enum (a `null` filter is
+    // not a valid IS NULL predicate), so a Bowling Machine export captured
+    // every category — the CSV equivalent of the list-view leak.
     if (categoryFilter) {
       const validCategories = new Set(['MACHINE', 'SIDEARM', 'COACHING', 'NET', 'FULL_COURT', 'CORPORATE_BATCH']);
       if (validCategories.has(categoryFilter)) {
-        if (categoryFilter === 'MACHINE') {
-          where.OR = [...(where.OR ?? []), { category: 'MACHINE' }, { category: null }];
-        } else {
-          where.category = categoryFilter;
-        }
+        where.category = categoryFilter;
       }
     }
 

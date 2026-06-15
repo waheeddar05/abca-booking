@@ -106,6 +106,7 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: 'allCenters requires super admin' }, { status: 403 });
     }
     const todayUTC = getISTTodayUTC();
+    const now = new Date();
 
     if (category === 'today') {
       where.date = todayUTC;
@@ -129,34 +130,6 @@ export async function GET(req: NextRequest) {
         gte: dateStringToUTC(from),
         lte: dateStringToUTC(to),
       };
-    }
-
-    // Save base where for summary counts (before status-derived time constraints)
-    const summaryBaseWhere = JSON.parse(JSON.stringify(where));
-    const now = new Date();
-
-    // Status filter: IN_PROGRESS, DONE, BOOKED(Upcoming) are derived statuses
-    // not stored in DB — computed from BOOKED + current time via getDisplayStatus()
-    if (status === 'IN_PROGRESS') {
-      where.status = 'BOOKED';
-      where.startTime = { lte: now };
-      where.endTime = { gt: now };
-    } else if (status === 'BOOKED') {
-      where.status = 'BOOKED';
-      where.startTime = { gt: now };
-    } else if (status === 'DONE') {
-      // Completed = BOOKED sessions that have ended, OR explicitly marked DONE in DB
-      where.AND = [
-        ...(where.AND || []),
-        {
-          OR: [
-            { status: 'DONE' },
-            { status: 'BOOKED', endTime: { lte: now } },
-          ],
-        },
-      ];
-    } else if (status) {
-      where.status = status;
     }
 
     if (customer) {
@@ -186,8 +159,7 @@ export async function GET(req: NextRequest) {
           { assignedStaffId: userId },
         ];
         // Compose with whatever OR / AND was already built up by the
-        // customer / status filters above so we don't accidentally drop
-        // those constraints.
+        // customer filter above so we don't accidentally drop it.
         if (where.OR) {
           where.AND = [...(where.AND || []), { OR: where.OR }, { OR: userClauses }];
           delete where.OR;
@@ -204,24 +176,58 @@ export async function GET(req: NextRequest) {
     }
 
     // Optional booking-category filter (Bowling Machine / Sidearm /
-    // Cricket Nets / Full Indoor Court / Personal Coaching). Replaces
-    // the legacy 'Machine' filter on the admin UI — both still work
-    // server-side for back-compat with any old bookmarks. Falls
-    // through unchanged when `categoryFilter` isn't supplied.
+    // Cricket Nets / Full Indoor Court / Personal Coaching). Every
+    // Booking row carries a non-null `category` (schema default
+    // 'MACHINE'; the resource-bookings migration backfilled ABCA's
+    // legacy rows to MACHINE), so an exact equality match is correct
+    // for every category — including MACHINE.
+    //
+    // BUGFIX: the MACHINE branch previously used
+    //   OR: [{ category: 'MACHINE' }, { category: null }]
+    // On a non-nullable enum a `null` filter is not a valid IS NULL
+    // predicate, so Prisma collapsed that OR into a match-everything
+    // clause — which is exactly why selecting "Bowling Machine"
+    // returned Cricket Nets (and every other) booking. Filtering by
+    // exact equality, the same way the other categories already do,
+    // fixes the leak.
     const categoryFilter = searchParams.get('categoryFilter');
     if (categoryFilter) {
       const validCategories = new Set(['MACHINE', 'SIDEARM', 'COACHING', 'NET', 'FULL_COURT', 'CORPORATE_BATCH']);
       if (validCategories.has(categoryFilter)) {
-        // NULL Booking.category rows are ABCA's legacy MACHINE-only
-        // shape — treat them as MACHINE for filtering so admins on
-        // ABCA still see their bowling-machine bookings under that
-        // chip.
-        if (categoryFilter === 'MACHINE') {
-          where.OR = [...(where.OR ?? []), { category: 'MACHINE' }, { category: null }];
-        } else {
-          where.category = categoryFilter;
-        }
+        where.category = categoryFilter;
       }
+    }
+
+    // Snapshot the where for the summary counts AFTER every non-status
+    // filter (center, date, customer, machine, category) so the
+    // booked / done / cancelled breakdown reflects exactly what the
+    // admin filtered to. Cloned BEFORE the explicit status filter
+    // because the summary derives its own per-status counts below.
+    const summaryBaseWhere = JSON.parse(JSON.stringify(where));
+
+    // Status filter: IN_PROGRESS, DONE, BOOKED(Upcoming) are derived
+    // statuses not stored in DB — computed from BOOKED + current time
+    // via getDisplayStatus().
+    if (status === 'IN_PROGRESS') {
+      where.status = 'BOOKED';
+      where.startTime = { lte: now };
+      where.endTime = { gt: now };
+    } else if (status === 'BOOKED') {
+      where.status = 'BOOKED';
+      where.startTime = { gt: now };
+    } else if (status === 'DONE') {
+      // Completed = BOOKED sessions that have ended, OR explicitly marked DONE in DB
+      where.AND = [
+        ...(where.AND || []),
+        {
+          OR: [
+            { status: 'DONE' },
+            { status: 'BOOKED', endTime: { lte: now } },
+          ],
+        },
+      ];
+    } else if (status) {
+      where.status = status;
     }
 
     const orderBy: any = [];
