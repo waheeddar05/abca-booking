@@ -11,7 +11,6 @@ import {
   adjustSiblingPricesForCancellation,
   processCancellationRefund,
 } from '@/lib/booking-cancellation';
-import { packageSessionRevenue } from '@/lib/package-revenue';
 import { log } from '@/lib/logger';
 
 type MachineIdFilter = 'GRAVITY' | 'YANTRA' | 'LEVERAGE_INDOOR' | 'LEVERAGE_OUTDOOR';
@@ -376,12 +375,13 @@ export async function GET(req: NextRequest) {
       }),
       prisma.booking.count({ where: { ...summaryBaseWhere, status: 'CANCELLED' } }),
       // Revenue for the filtered view. Counts non-cancelled (BOOKED + DONE)
-      // bookings and — critically — values BOTH regular bookings (net of
-      // refunds) AND package-redeemed sessions (per-session share of the
-      // package price + any extra/kit charge). Previously the Bookings view
-      // had no revenue figure at all, so package sessions (and regular
-      // bookings) weren't summed anywhere on this page. The formula mirrors
-      // the dashboard stats route so the numbers agree.
+      // bookings on the SAME basis as the dashboard "Bookings Revenue" card,
+      // so the two reconcile: regular bookings net of refunds, plus — for
+      // package-redeemed sessions — only the per-booking add-ons (upgrade
+      // extra charge + kit rental). A package's base value is recognised as
+      // package revenue in the month it was PURCHASED (see the dashboard's
+      // packageRevenue, sale-based), so counting the per-session base value
+      // here too would double-count it against that sale.
       (async () => {
         try {
           const revenueBookings = await prisma.booking.findMany({
@@ -389,20 +389,14 @@ export async function GET(req: NextRequest) {
             select: {
               price: true,
               kitRentalCharge: true,
-              packageBooking: {
-                select: {
-                  sessionsUsed: true,
-                  extraCharge: true,
-                  userPackage: { select: { amountPaid: true, totalSessions: true } },
-                },
-              },
+              packageBooking: { select: { extraCharge: true } },
               refunds: { select: { amount: true, status: true } },
             },
           });
           let revenue = 0;
           for (const b of revenueBookings) {
             if (b.packageBooking) {
-              revenue += packageSessionRevenue(b.packageBooking, b.kitRentalCharge);
+              revenue += (b.packageBooking.extraCharge || 0) + (b.kitRentalCharge || 0);
             } else {
               let net = b.price || 0;
               for (const r of b.refunds) {
