@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { ClipboardList, Loader2, ChevronLeft, ChevronRight, XCircle } from 'lucide-react';
 import { ContactFooter } from '@/components/ContactFooter';
 import { CancellationDialog } from '@/components/ui/CancellationDialog';
@@ -131,6 +131,37 @@ export default function BookingsPage() {
   useEffect(() => {
     fetchBookings();
   }, [fetchBookings]);
+
+  // Self-heal: when the user opens "My Bookings", reconcile any of their
+  // own payments that Razorpay took but that never confirmed into a
+  // booking (e.g. the verify call dropped after payment on mobile).
+  // Runs once per mount; cheap when there's nothing to recover.
+  const selfHealRan = useRef(false);
+  useEffect(() => {
+    if (selfHealRan.current) return;
+    selfHealRan.current = true;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch('/api/payments/recover-mine');
+        if (!res.ok) return;
+        const data = await res.json();
+        if (!cancelled && data?.recovered > 0) {
+          toast.success(
+            'Booking recovered',
+            `We found ${data.recovered} paid booking${data.recovered > 1 ? 's' : ''} that didn't confirm earlier and added ${data.recovered > 1 ? 'them' : 'it'} for you.`,
+          );
+          fetchBookings();
+        }
+      } catch {
+        /* best-effort — never block the page on this */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const handleCancelRequest = useCallback((bookingId: string) => {
     setConfirmCancelId(bookingId);

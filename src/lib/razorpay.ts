@@ -297,3 +297,39 @@ export async function fetchPaymentDetails(centerId: string, paymentId: string) {
   const razorpay = await getRazorpayInstanceForCenter(centerId);
   return razorpay.payments.fetch(paymentId);
 }
+
+/**
+ * A single Razorpay payment attempt on an order, as returned by
+ * `orders.fetchPayments`. Only the fields the reconciler cares about
+ * are typed; the SDK returns many more.
+ */
+export interface RazorpayOrderPaymentItem {
+  id?: string;
+  /** 'created' | 'authorized' | 'captured' | 'refunded' | 'failed' */
+  status?: string;
+  amount?: number;
+  method?: string;
+  [key: string]: unknown;
+}
+
+/**
+ * List all payment attempts made against a Razorpay order, using the
+ * center's account. This is the **source of truth** for "did the money
+ * actually come in?" — used by the reconciler to recover orphaned
+ * payments where neither the client `verify` call nor the webhook ran.
+ *
+ * Returns the raw collection `{ entity, count, items }`. A captured
+ * payment exists iff some `items[i].status === 'captured'`.
+ */
+export async function fetchOrderPayments(
+  centerId: string,
+  orderId: string,
+): Promise<{ entity?: string; count?: number; items?: RazorpayOrderPaymentItem[] }> {
+  const razorpay = await getRazorpayInstanceForCenter(centerId);
+  // The SDK's typings are loose here; the runtime shape is a collection.
+  return (await razorpay.orders.fetchPayments(orderId)) as unknown as {
+    entity?: string;
+    count?: number;
+    items?: RazorpayOrderPaymentItem[];
+  };
+}
