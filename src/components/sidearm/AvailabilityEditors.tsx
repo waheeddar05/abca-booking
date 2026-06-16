@@ -390,7 +390,7 @@ export function WeeklyAvailabilityEditor({
               value={effectiveFrom}
               max={effectiveTo || undefined}
               onChange={(e) => setEffectiveFrom(e.target.value)}
-              className="mt-0.5 w-full bg-white/[0.04] border border-white/[0.1] text-white rounded-lg px-2 py-2 text-sm outline-none focus:border-accent [color-scheme:dark]"
+              className="mt-1 w-full bg-white/[0.04] border border-white/[0.1] text-white rounded-lg px-2.5 py-2 text-xs sm:text-sm leading-tight tabular-nums outline-none focus:border-accent [color-scheme:dark]"
             />
           </label>
           <label className="block">
@@ -400,7 +400,7 @@ export function WeeklyAvailabilityEditor({
               value={effectiveTo}
               min={effectiveFrom || undefined}
               onChange={(e) => setEffectiveTo(e.target.value)}
-              className="mt-0.5 w-full bg-white/[0.04] border border-white/[0.1] text-white rounded-lg px-2 py-2 text-sm outline-none focus:border-accent [color-scheme:dark]"
+              className="mt-1 w-full bg-white/[0.04] border border-white/[0.1] text-white rounded-lg px-2.5 py-2 text-xs sm:text-sm leading-tight tabular-nums outline-none focus:border-accent [color-scheme:dark]"
             />
           </label>
         </div>
@@ -430,34 +430,39 @@ export function WeeklyAvailabilityEditor({
             {windows.map((w, i) => (
               <div
                 key={i}
-                className="flex items-center gap-2 rounded-lg bg-white/[0.02] border border-white/[0.05] p-1.5"
+                className="flex flex-wrap items-center gap-2 rounded-lg bg-white/[0.02] border border-white/[0.05] p-2"
               >
                 <select
                   value={w.dayOfWeek}
                   onChange={(e) => update(i, { dayOfWeek: Number(e.target.value) })}
-                  className="bg-white/[0.04] border border-white/[0.1] text-white rounded-lg px-2 py-2 text-sm outline-none focus:border-accent shrink-0"
+                  className="w-[4.5rem] shrink-0 bg-white/[0.04] border border-white/[0.1] text-white rounded-lg px-2 py-2 text-xs sm:text-sm leading-tight outline-none focus:border-accent"
                 >
                   {DAY_LABELS.map((d, idx) => (
                     <option key={idx} value={idx}>{d}</option>
                   ))}
                 </select>
-                <input
-                  type="time"
-                  value={w.startTime}
-                  onChange={(e) => update(i, { startTime: e.target.value })}
-                  className="min-w-0 flex-1 bg-white/[0.04] border border-white/[0.1] text-white rounded-lg px-2 py-2 text-sm outline-none focus:border-accent [color-scheme:dark]"
-                />
-                <span className="text-slate-500 text-xs shrink-0">–</span>
-                <input
-                  type="time"
-                  value={w.endTime}
-                  onChange={(e) => update(i, { endTime: e.target.value })}
-                  className="min-w-0 flex-1 bg-white/[0.04] border border-white/[0.1] text-white rounded-lg px-2 py-2 text-sm outline-none focus:border-accent [color-scheme:dark]"
-                />
+                {/* Times share a flex group with a min-width so they keep room
+                    for the full "HH:MM AM" value; on a narrow screen the group
+                    wraps to its own line instead of squeezing the text. */}
+                <div className="order-last w-full sm:order-none sm:w-auto flex flex-1 min-w-[9.5rem] items-center gap-1.5">
+                  <input
+                    type="time"
+                    value={w.startTime}
+                    onChange={(e) => update(i, { startTime: e.target.value })}
+                    className="min-w-0 flex-1 bg-white/[0.04] border border-white/[0.1] text-white rounded-lg px-2 py-2 text-xs sm:text-sm leading-tight tabular-nums outline-none focus:border-accent [color-scheme:dark]"
+                  />
+                  <span className="text-slate-500 text-xs shrink-0">–</span>
+                  <input
+                    type="time"
+                    value={w.endTime}
+                    onChange={(e) => update(i, { endTime: e.target.value })}
+                    className="min-w-0 flex-1 bg-white/[0.04] border border-white/[0.1] text-white rounded-lg px-2 py-2 text-xs sm:text-sm leading-tight tabular-nums outline-none focus:border-accent [color-scheme:dark]"
+                  />
+                </div>
                 <button
                   type="button"
                   onClick={() => setPendingDeleteIdx(i)}
-                  className="p-2 rounded-lg text-red-400/70 hover:bg-red-500/10 hover:text-red-400 cursor-pointer shrink-0"
+                  className="ml-auto p-2 rounded-lg text-red-400/70 hover:bg-red-500/10 hover:text-red-400 cursor-pointer shrink-0"
                   title="Delete Window"
                 >
                   <Trash2 className="w-4 h-4" />
