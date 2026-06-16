@@ -7,6 +7,7 @@ import {
 } from '@/app/api/slots/book-resource/route';
 import { getCenterRazorpayCredentials, verifyWebhookSignatureWithSecret } from '@/lib/razorpay';
 import { completePackagePurchase } from '@/lib/package-purchase';
+import { confirmHeldBookings } from '@/lib/booking-hold';
 
 /**
  * POST /api/webhooks/razorpay
@@ -134,6 +135,16 @@ export async function POST(req: NextRequest) {
       if (payment.bookingIds.length > 0) {
         console.log(`[RazorpayWebhook] Payment ${payment.id} already has bookings — skipping`);
         return NextResponse.json({ status: 'already_has_bookings' });
+      }
+
+      // Reserve-then-confirm: if the slot was held at create-order time,
+      // confirming is just flipping HOLD→BOOKED. Returns {confirmed:false}
+      // when no holds exist (flag off / swept) so we fall through to the
+      // legacy create-from-scratch path below.
+      const heldConfirm = await confirmHeldBookings(payment.id);
+      if (heldConfirm.confirmed) {
+        console.log(`[RazorpayWebhook] Confirmed ${heldConfirm.bookings.length} reserved booking(s) for ${payment.id}`);
+        return NextResponse.json({ status: 'bookings_confirmed', bookingIds: heldConfirm.bookings.map((b) => b.id) });
       }
 
       const meta = payment.metadata as Record<string, unknown> | null;

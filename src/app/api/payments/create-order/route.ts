@@ -10,6 +10,13 @@ import {
   isSlotPaymentRequired,
   isPackagePaymentRequired,
 } from '@/lib/razorpay';
+import { isReserveBeforePayment, newHoldExpiry, expireStaleHolds } from '@/lib/booking-hold';
+import {
+  executeResourceBooking,
+  ResourceBookingBodySchema,
+  ResourceBookingServiceError,
+} from '@/app/api/slots/book-resource/route';
+import { BookingResourceError } from '@/lib/resource-booking';
 
 // POST /api/payments/create-order
 export async function POST(req: NextRequest) {
@@ -92,6 +99,50 @@ export async function POST(req: NextRequest) {
     // Generate receipt ID
     const receipt = `rcpt_${type === 'PACKAGE_PURCHASE' ? 'pkg' : 'slot'}_${Date.now()}`;
 
+    // ─── Reserve-then-confirm (saga) ────────────────────────────────
+    // When RESERVE_BEFORE_PAYMENT is on for this center, claim the slot as
+    // a HOLD *before* creating the Razorpay order. If the slot is gone we
+    // fail here and the customer never pays a rupee — true all-or-nothing.
+    // The hold is confirmed (HOLD→BOOKED) by verify/webhook after capture,
+    // or swept to CANCELLED if the payment is never completed. Resource-
+    // based SLOT_BOOKING only for now (ABCA still books post-payment).
+    let heldBookingIds: string[] = [];
+    const reserveEnabled =
+      type === 'SLOT_BOOKING' &&
+      center.bookingModel === 'RESOURCE_BASED' &&
+      Array.isArray(bookingPayload) &&
+      bookingPayload.length > 0 &&
+      (await isReserveBeforePayment(center.id));
+
+    if (reserveEnabled) {
+      try {
+        // Free expired holds first so a stale unpaid hold can't block.
+        await expireStaleHolds(center.id);
+        const parsed = ResourceBookingBodySchema.safeParse(bookingPayload![0]);
+        if (!parsed.success) {
+          return NextResponse.json(
+            { error: 'Invalid booking details for reservation', issues: parsed.error.issues },
+            { status: 400 },
+          );
+        }
+        const held = await executeResourceBooking(
+          { id: user.id, name: user.name, email: user.email, role: user.role, isSuperAdmin: user.isSuperAdmin },
+          parsed.data,
+          { id: center.id, name: center.name, bookingModel: center.bookingModel },
+          { holdMode: true, holdExpiresAt: newHoldExpiry() },
+        );
+        heldBookingIds = held.map((b) => b.id);
+      } catch (reserveErr) {
+        const status =
+          reserveErr instanceof ResourceBookingServiceError ? reserveErr.status
+          : reserveErr instanceof BookingResourceError ? reserveErr.status
+          : 409;
+        const msg = reserveErr instanceof Error ? reserveErr.message : 'Could not reserve the slot — it may no longer be available.';
+        console.warn(`[CreateOrder] reservation failed for user=${user.id}: ${msg}`);
+        return NextResponse.json({ error: msg }, { status });
+      }
+    }
+
     // Create Razorpay order against the center's Razorpay account.
     const razorpayOrder = await createRazorpayOrder({
       centerId: center.id,
@@ -127,6 +178,15 @@ export async function POST(req: NextRequest) {
         } as Prisma.InputJsonValue,
       },
     });
+
+    // Link the reserved holds to this payment so confirm (verify/webhook)
+    // can flip exactly these rows, and the expiry sweep can spare them if
+    // the payment captures.
+    if (heldBookingIds.length > 0) {
+      await prisma.booking
+        .updateMany({ where: { id: { in: heldBookingIds } }, data: { paymentId: payment.id } })
+        .catch((e) => console.error('[CreateOrder] failed to link holds to payment', e));
+    }
 
     return NextResponse.json({
       orderId: razorpayOrder.id,

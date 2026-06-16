@@ -34,6 +34,7 @@ import { prisma } from './prisma';
 import { fetchOrderPayments, type RazorpayOrderPaymentItem } from './razorpay';
 import { markCaptureNeedsRecovery } from './payment-recovery';
 import { completePackagePurchase } from './package-purchase';
+import { confirmHeldBookings } from './booking-hold';
 import { log } from './logger';
 import { executeSlotBooking } from '@/app/api/slots/book/route';
 import {
@@ -168,6 +169,15 @@ async function finalizeCapturedPayment(
     }
   } else {
     return { paymentId, result: 'failed', error: `unexpected status ${payment.status}` };
+  }
+
+  // Reserve-then-confirm: if the slot was held before payment, finalizing
+  // is just flipping HOLD→BOOKED. Returns {confirmed:false} when no holds
+  // exist (flag off / swept) so we fall through to create-from-scratch.
+  const heldConfirm = await confirmHeldBookings(payment.id);
+  if (heldConfirm.confirmed) {
+    log.info({ ...ctx, bookingIds: heldConfirm.bookings.map((b) => b.id) }, 'Reconcile confirmed reserved hold(s)');
+    return { paymentId, result: 'booking_created', bookingIds: heldConfirm.bookings.map((b) => b.id) };
   }
 
   // Build the (lightweight) user the booking engine expects.

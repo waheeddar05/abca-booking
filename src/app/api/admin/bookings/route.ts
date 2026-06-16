@@ -248,6 +248,13 @@ export async function GET(req: NextRequest) {
       where.status = status;
     }
 
+    // Pre-payment HOLD rows (reserve-then-confirm) aren't real bookings —
+    // keep them out of the admin grid unless an explicit status filter is
+    // already narrowing things (which never selects HOLD).
+    if (where.status === undefined) {
+      where.status = { not: 'HOLD' };
+    }
+
     const orderBy: any = [];
     if (sortBy === 'createdAt') {
       orderBy.push({ createdAt: sortOrder });
