@@ -264,22 +264,60 @@ export async function getCenterCoaches(centerId: string): Promise<CenterMembersh
  * Center's ground-staff members, highest priority first. Unlike coaches /
  * sidearm specialists, ground staff are NOT an exclusive resource — they're
  * the floor contact and can cover several nets at once — so there's no
- * availability roster or conflict check here. The top-priority active member
- * is the default assignee for facility bookings (Cricket Nets / Full Court /
- * Corporate Batch), mirroring the center-level "default contact" the user
- * booking card already surfaces.
+ * occupancy/conflict check here. Their weekly availability (with optional
+ * effective date range) IS honored at assignment time, though: see
+ * `pickGroundStaffForSlot`, which the engine uses to choose the default
+ * assignee for facility bookings (Cricket Nets / Full Court / Corporate
+ * Batch), mirroring how coaches and sidearm specialists are filtered by
+ * availability.
  */
 export async function getCenterGroundStaff(
   centerId: string,
-): Promise<Array<{ userId: string; user: { id: string; name: string | null; mobileNumber: string | null } | null }>> {
+): Promise<Array<{
+  userId: string;
+  availability: AvailabilityWindow[];
+  user: { id: string; name: string | null; mobileNumber: string | null } | null;
+}>> {
   return prisma.centerMembership.findMany({
     where: { centerId, role: 'GROUND_STAFF', isActive: true },
     select: {
       userId: true,
+      availability: {
+        where: { isActive: true },
+        select: { dayOfWeek: true, startTime: true, endTime: true, effectiveFrom: true, effectiveTo: true },
+      },
       user: { select: { id: true, name: true, mobileNumber: true } },
     },
     orderBy: [{ priority: 'asc' }, { createdAt: 'asc' }],
   });
+}
+
+/**
+ * Default ground-staff contact for a facility booking at `slot`.
+ *
+ * Honors availability the same way coaches / sidearm specialists are
+ * filtered: prefer the highest-priority member whose weekly schedule
+ * (with its effective date range) covers the slot. Two ground-staff-
+ * specific rules keep the floor-contact behaviour intact:
+ *   - A member with NO availability configured is treated as always on the
+ *     floor (the legacy default-contact behaviour), so existing centers
+ *     that never set a schedule are unaffected.
+ *   - If nobody is explicitly scheduled for the slot, fall back to the
+ *     top-priority member so a facility booking never loses its contact
+ *     when the center has any ground staff at all.
+ *
+ * Returns null only when the center has no active ground staff.
+ */
+export function pickGroundStaffForSlot(
+  groundStaff: Array<{ userId: string; availability: AvailabilityWindow[] }>,
+  slot: BookableSlotWindow,
+): string | null {
+  if (groundStaff.length === 0) return null;
+  const available = groundStaff.find((gs) =>
+    // Unconfigured = always available (default floor contact).
+    gs.availability.length === 0 || slotMatchesMembershipAvailability(slot, gs.availability),
+  );
+  return (available ?? groundStaff[0]).userId;
 }
 
 export async function getCenterStaff(centerId: string): Promise<CenterMembershipUserRow[]> {
@@ -1222,9 +1260,10 @@ export async function planBooking(
     getActiveBlocksForSlot(plan.centerId, slot),
   ]);
   // Default facility assignee — the top-priority active ground-staff
-  // member. Used for NET / FULL_COURT / CORPORATE_BATCH; null when the
+  // member who is available for this slot (falls back to top-priority,
+  // then null). Used for NET / FULL_COURT / CORPORATE_BATCH; null when the
   // center has no ground staff configured.
-  const defaultGroundStaffId = groundStaff[0]?.userId ?? null;
+  const defaultGroundStaffId = pickGroundStaffForSlot(groundStaff, slot);
   const audience = context.audience ?? 'ALL';
   // Hold admin "count blocks" (block N units of a pitch) as virtual load
   // before computing availability so this booking respects the reserved

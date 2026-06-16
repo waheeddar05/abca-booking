@@ -22,6 +22,13 @@ function bookingAssignmentFilter(membership: { userId: string; role: string }) {
       return { assignedCoachId: membership.userId };
     case 'SIDEARM_SPECIALIST':
       return { assignedStaffId: membership.userId };
+    // GROUND_STAFF is a non-exclusive floor contact, not a booked
+    // resource — changing their availability must NOT cancel or refund
+    // the facility bookings they're listed on. Returning null means the
+    // availability editor reports "0 impacted bookings" and the save
+    // proceeds without touching any booking, which is the intended
+    // behaviour for ground staff (and ADMIN / OPERATOR).
+    case 'GROUND_STAFF':
     default:
       return null;
   }

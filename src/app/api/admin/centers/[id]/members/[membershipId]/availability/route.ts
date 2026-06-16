@@ -6,8 +6,8 @@ import { sanitizeApiError } from '@/lib/api-errors';
 import { autoCancelImpactedBookings, getImpactedBookings } from '@/lib/availability-sync';
 
 /**
- * Weekly recurring availability schedule for a coach or sidearm
- * specialist membership.
+ * Weekly recurring availability schedule for a coach, sidearm
+ * specialist, or ground-staff membership.
  *
  *   GET  /api/admin/centers/[id]/members/[membershipId]/availability
  *   PUT  /api/admin/centers/[id]/members/[membershipId]/availability
@@ -19,8 +19,8 @@ import { autoCancelImpactedBookings, getImpactedBookings } from '@/lib/availabil
  * default" per the engine's default).
  *
  * Auth: must be admin at this center, or super admin. Membership's
- * role must be COACH or SIDEARM_SPECIALIST — availability for ADMIN /
- * OPERATOR is not modeled.
+ * role must be COACH, SIDEARM_SPECIALIST, or GROUND_STAFF — availability
+ * for ADMIN / OPERATOR is not modeled.
  */
 
 type Params = { id: string; membershipId: string };
@@ -73,9 +73,9 @@ export async function GET(req: NextRequest, ctx: { params: Promise<Params> }) {
 
     const m = await loadMembership(centerId, membershipId);
     if (!m) return NextResponse.json({ error: 'Membership not found' }, { status: 404 });
-    if (m.role !== 'COACH' && m.role !== 'SIDEARM_SPECIALIST') {
+    if (m.role !== 'COACH' && m.role !== 'SIDEARM_SPECIALIST' && m.role !== 'GROUND_STAFF') {
       return NextResponse.json(
-        { error: 'Availability is only modeled for coaches and sidearm specialists' },
+        { error: 'Availability is only modeled for coaches, sidearm specialists, and ground staff' },
         { status: 400 },
       );
     }
@@ -117,9 +117,9 @@ export async function PUT(req: NextRequest, ctx: { params: Promise<Params> }) {
 
     const m = await loadMembership(centerId, membershipId);
     if (!m) return NextResponse.json({ error: 'Membership not found' }, { status: 404 });
-    if (m.role !== 'COACH' && m.role !== 'SIDEARM_SPECIALIST') {
+    if (m.role !== 'COACH' && m.role !== 'SIDEARM_SPECIALIST' && m.role !== 'GROUND_STAFF') {
       return NextResponse.json(
-        { error: 'Availability is only modeled for coaches and sidearm specialists' },
+        { error: 'Availability is only modeled for coaches, sidearm specialists, and ground staff' },
         { status: 400 },
       );
     }
