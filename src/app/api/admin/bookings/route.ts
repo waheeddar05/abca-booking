@@ -11,6 +11,7 @@ import {
   adjustSiblingPricesForCancellation,
   processCancellationRefund,
 } from '@/lib/booking-cancellation';
+import { packageSessionRevenue } from '@/lib/package-revenue';
 import { log } from '@/lib/logger';
 
 type MachineIdFilter = 'GRAVITY' | 'YANTRA' | 'LEVERAGE_INDOOR' | 'LEVERAGE_OUTDOOR';
@@ -374,29 +375,44 @@ export async function GET(req: NextRequest) {
         },
       }),
       prisma.booking.count({ where: { ...summaryBaseWhere, status: 'CANCELLED' } }),
-      // Revenue for the filtered view. Counts non-cancelled (BOOKED + DONE)
-      // bookings on the SAME basis as the dashboard "Bookings Revenue" card,
-      // so the two reconcile: regular bookings net of refunds, plus — for
-      // package-redeemed sessions — only the per-booking add-ons (upgrade
-      // extra charge + kit rental). A package's base value is recognised as
-      // package revenue in the month it was PURCHASED (see the dashboard's
-      // packageRevenue, sale-based), so counting the per-session base value
-      // here too would double-count it against that sale.
+      // Session revenue for the filtered view — per-session recognition.
+      // Counts only COMPLETED sessions (status DONE, or BOOKED whose endTime
+      // has already passed — the same "Completed" definition used for the
+      // doneCount above), valuing each one per session:
+      //   • regular booking → its price, net of refunds;
+      //   • package-redeemed session → its per-session share of the package
+      //     price (amountPaid / totalSessions × sessionsUsed) plus any upgrade
+      //     extra charge + kit rental.
+      // This is intentionally DIFFERENT from the dashboard's Total Revenue,
+      // which recognises a package's full value as a sale at purchase. Here the
+      // value is recognised as sessions are actually played, so this figure
+      // answers "revenue earned from completed sessions".
       (async () => {
         try {
           const revenueBookings = await prisma.booking.findMany({
-            where: { ...summaryBaseWhere, status: { in: ['BOOKED', 'DONE'] } },
+            where: {
+              AND: [
+                summaryBaseWhere,
+                { OR: [{ status: 'DONE' }, { status: 'BOOKED', endTime: { lte: now } }] },
+              ],
+            },
             select: {
               price: true,
               kitRentalCharge: true,
-              packageBooking: { select: { extraCharge: true } },
+              packageBooking: {
+                select: {
+                  sessionsUsed: true,
+                  extraCharge: true,
+                  userPackage: { select: { amountPaid: true, totalSessions: true } },
+                },
+              },
               refunds: { select: { amount: true, status: true } },
             },
           });
           let revenue = 0;
           for (const b of revenueBookings) {
             if (b.packageBooking) {
-              revenue += (b.packageBooking.extraCharge || 0) + (b.kitRentalCharge || 0);
+              revenue += packageSessionRevenue(b.packageBooking, b.kitRentalCharge);
             } else {
               let net = b.price || 0;
               for (const r of b.refunds) {

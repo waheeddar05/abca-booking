@@ -608,13 +608,13 @@ function AdminBookingsContent() {
         ))}
       </div>
 
-      {/* Summary - inline, wraps on mobile. The pill is "Bookings Revenue"
-          on the SAME basis as the dashboard's Bookings Revenue card —
-          regular bookings net of refunds + package add-ons (upgrade extra +
-          kit). A package's base value is recognised as package revenue when
-          it's PURCHASED, so a redeemed session's per-session value is shown
-          per row for reference but is NOT added here (that would double-count
-          it against the sale). Scoped to the active filters. */}
+      {/* Summary - inline, wraps on mobile. The pill is "Session Revenue":
+          revenue earned from COMPLETED sessions in the current view, recognised
+          per session — each regular booking's price (net of refunds) plus each
+          package session's per-session share of the package price (+ upgrade /
+          kit charges). This differs from the dashboard's Total Revenue, which
+          counts a package's full value as a sale at purchase; here it's earned
+          as sessions are played. Scoped to the active filters. */}
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 mb-3 px-1">
         <span className="text-xs text-slate-400">Showing <span className="text-white font-semibold">{summary.total}</span></span>
         <span className="text-[10px] text-green-400 font-medium">{summary.booked} booked</span>
@@ -622,7 +622,7 @@ function AdminBookingsContent() {
         <span className="inline-flex items-center gap-1 ml-auto px-2.5 py-1 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs font-bold">
           <IndianRupee className="w-3 h-3" />
           {summary.revenue.toLocaleString('en-IN')}
-          <span className="text-[9px] font-medium text-emerald-400/70 uppercase tracking-wide ml-0.5">bookings revenue</span>
+          <span className="text-[9px] font-medium text-emerald-400/70 uppercase tracking-wide ml-0.5">session revenue</span>
         </span>
       </div>
 
