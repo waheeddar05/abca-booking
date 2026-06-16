@@ -4,6 +4,7 @@ import { requireAdmin } from '@/lib/adminAuth';
 import { getAuthenticatedUser } from '@/lib/auth';
 import { resolveCurrentCenter } from '@/lib/centers';
 import { getISTTodayUTC, getISTLastMonthRange, dateStringToUTC } from '@/lib/time';
+import { packageSessionRevenue } from '@/lib/package-revenue';
 
 // Epoch millis for a nullable groupBy `_max.date`. Used to break ties when two
 // staff have the same session count so the most recent booking ranks higher.
@@ -227,10 +228,7 @@ export async function GET(req: NextRequest) {
 
             let net = 0;
             if (b.packageBooking) {
-              const pb = b.packageBooking;
-              const total = pb.userPackage.totalSessions || 0;
-              const perSession = total > 0 ? pb.userPackage.amountPaid / total : 0;
-              net = perSession * (pb.sessionsUsed || 1) + (pb.extraCharge || 0) + (b.kitRentalCharge || 0);
+              net = packageSessionRevenue(b.packageBooking, b.kitRentalCharge);
             } else {
               net = b.price || 0;
               for (const r of b.refunds) {
@@ -413,15 +411,6 @@ export async function GET(req: NextRequest) {
             userPackage: { select: { amountPaid: true, totalSessions: true } },
           } as const;
 
-          const packageSessionRevenue = (
-            pb: { sessionsUsed: number; extraCharge: number; userPackage: { amountPaid: number; totalSessions: number } } | null,
-          ) => {
-            if (!pb) return 0;
-            const total = pb.userPackage.totalSessions || 0;
-            const perSession = total > 0 ? pb.userPackage.amountPaid / total : 0;
-            return perSession * (pb.sessionsUsed || 1) + (pb.extraCharge || 0);
-          };
-
           const bookings = await prisma.booking.findMany({
             where: {
               ...centerFilter,
@@ -442,7 +431,7 @@ export async function GET(req: NextRequest) {
             const isPkg = !!b.packageBooking;
             let net = 0;
             if (isPkg) {
-              net += packageSessionRevenue(b.packageBooking) + (b.kitRentalCharge || 0);
+              net += packageSessionRevenue(b.packageBooking, b.kitRentalCharge);
             } else {
               net += b.price || 0;
               for (const r of b.refunds) {

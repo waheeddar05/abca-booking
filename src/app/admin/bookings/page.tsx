@@ -14,6 +14,7 @@ import { RefundDialog } from '@/components/ui/RefundDialog';
 import { BookingDetailsList } from '@/components/BookingDetailsList';
 import { useToast } from '@/components/ui/Toast';
 import { getDisplayStatus } from '@/lib/booking-utils';
+import { packageSessionRevenue } from '@/lib/package-revenue';
 
 type Category = 'all' | 'today' | 'upcoming' | 'previous' | 'lastMonth';
 
@@ -29,6 +30,9 @@ interface Summary {
   done: number;
   cancelled: number;
   total: number;
+  // Net revenue across the filtered set — regular bookings (net of refunds)
+  // plus package-redeemed sessions (per-session share of the package price).
+  revenue: number;
 }
 
 function AdminBookingsContent() {
@@ -38,7 +42,7 @@ function AdminBookingsContent() {
   const [loading, setLoading] = useState(true);
   const [category, setCategory] = useState<Category>((searchParams.get('category') as Category) || 'all');
   const [pagination, setPagination] = useState<Pagination>({ page: 1, limit: 50, total: 0, totalPages: 0 });
-  const [summary, setSummary] = useState<Summary>({ booked: 0, done: 0, cancelled: 0, total: 0 });
+  const [summary, setSummary] = useState<Summary>({ booked: 0, done: 0, cancelled: 0, total: 0, revenue: 0 });
   const [sortBy, setSortBy] = useState('date');
   const [sortOrder, setSortOrder] = useState('desc');
   const [filters, setFilters] = useState({
@@ -604,11 +608,19 @@ function AdminBookingsContent() {
         ))}
       </div>
 
-      {/* Summary - inline on mobile */}
-      <div className="flex items-center gap-3 mb-3 px-1">
+      {/* Summary - inline, wraps on mobile. The revenue pill is the net
+          total for the current filters (regular bookings net of refunds +
+          package-redeemed sessions), so package sessions are now counted
+          here rather than silently ignored. */}
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 mb-3 px-1">
         <span className="text-xs text-slate-400">Showing <span className="text-white font-semibold">{summary.total}</span></span>
         <span className="text-[10px] text-green-400 font-medium">{summary.booked} booked</span>
         <span className="text-[10px] text-slate-500 font-medium">{summary.cancelled} cancelled</span>
+        <span className="inline-flex items-center gap-1 ml-auto px-2.5 py-1 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs font-bold">
+          <IndianRupee className="w-3 h-3" />
+          {summary.revenue.toLocaleString('en-IN')}
+          <span className="text-[9px] font-medium text-emerald-400/70 uppercase tracking-wide ml-0.5">revenue</span>
+        </span>
       </div>
 
       {/* Filters - collapsible on mobile */}
@@ -833,7 +845,15 @@ function AdminBookingsContent() {
                           </div>
                         )}
                       </div>
-                      {booking.packageBooking ? null : booking.price != null ? (
+                      {booking.packageBooking ? (
+                        <span className="flex flex-col items-end">
+                          <span className="flex items-center gap-0.5 text-xs font-medium text-white">
+                            <IndianRupee className="w-3 h-3" />
+                            {Math.round(packageSessionRevenue(booking.packageBooking, booking.kitRentalCharge)).toLocaleString('en-IN')}
+                          </span>
+                          <span className="text-[9px] text-amber-400/80 font-medium">Package session</span>
+                        </span>
+                      ) : booking.price != null ? (
                         <span className="flex items-center gap-0.5 text-xs font-medium text-white">
                           <IndianRupee className="w-3 h-3" />
                           {booking.price}
@@ -956,8 +976,12 @@ function AdminBookingsContent() {
                         </td>
                         <td className="px-5 py-3.5">
                           {booking.packageBooking ? (
-                            <div className="flex flex-col">
-                              <span className="text-xs text-slate-400">Package Session</span>
+                            <div className="flex flex-col gap-0.5">
+                              <span className="flex items-center gap-0.5 text-sm font-bold text-white w-fit">
+                                <IndianRupee className="w-3 h-3" />
+                                {Math.round(packageSessionRevenue(booking.packageBooking, booking.kitRentalCharge)).toLocaleString('en-IN')}
+                              </span>
+                              <span className="text-[10px] text-amber-400/80">Package session</span>
                               <span className="text-[10px] text-slate-500 truncate max-w-[120px]">
                                 {booking.packageBooking.userPackage.package.name}
                               </span>

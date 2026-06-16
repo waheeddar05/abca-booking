@@ -11,6 +11,7 @@ import {
   adjustSiblingPricesForCancellation,
   processCancellationRefund,
 } from '@/lib/booking-cancellation';
+import { packageSessionRevenue } from '@/lib/package-revenue';
 import { log } from '@/lib/logger';
 
 type MachineIdFilter = 'GRAVITY' | 'YANTRA' | 'LEVERAGE_INDOOR' | 'LEVERAGE_OUTDOOR';
@@ -64,6 +65,23 @@ const SAFE_BOOKING_SELECT = {
   resourceAssignments: {
     select: {
       resource: { select: { id: true, name: true, type: true, category: true } },
+    },
+  },
+  // Package-redemption fields. Carried on the fallback select too so the
+  // admin Bookings list can value package sessions (per-session revenue =
+  // amountPaid / totalSessions × sessionsUsed + extraCharge) even when the
+  // primary query had to fall back.
+  packageBooking: {
+    select: {
+      sessionsUsed: true,
+      extraCharge: true,
+      userPackage: {
+        select: {
+          amountPaid: true,
+          totalSessions: true,
+          package: { select: { name: true } },
+        },
+      },
     },
   },
   user: { select: { name: true, email: true, mobileNumber: true } },
@@ -302,8 +320,16 @@ export async function GET(req: NextRequest) {
             },
             packageBooking: {
               select: {
+                // sessionsUsed + extraCharge + the parent package's
+                // amountPaid/totalSessions let the UI value each redeemed
+                // package session, so the Bookings list shows package
+                // revenue instead of a bare "Package Session" with no amount.
+                sessionsUsed: true,
+                extraCharge: true,
                 userPackage: {
                   select: {
+                    amountPaid: true,
+                    totalSessions: true,
                     package: { select: { name: true } },
                   },
                 },
@@ -331,7 +357,7 @@ export async function GET(req: NextRequest) {
     }
 
     // Summary counts use baseWhere (without status time constraints) + derived status logic
-    const [bookedCount, doneCount, cancelledCount] = await Promise.all([
+    const [bookedCount, doneCount, cancelledCount, revenueValue] = await Promise.all([
       // "Upcoming" = BOOKED bookings that haven't started yet
       prisma.booking.count({ where: { ...summaryBaseWhere, status: 'BOOKED', startTime: { gt: now } } }),
       // "Completed" = BOOKED sessions that ended + any explicitly DONE
@@ -349,6 +375,47 @@ export async function GET(req: NextRequest) {
         },
       }),
       prisma.booking.count({ where: { ...summaryBaseWhere, status: 'CANCELLED' } }),
+      // Revenue for the filtered view. Counts non-cancelled (BOOKED + DONE)
+      // bookings and — critically — values BOTH regular bookings (net of
+      // refunds) AND package-redeemed sessions (per-session share of the
+      // package price + any extra/kit charge). Previously the Bookings view
+      // had no revenue figure at all, so package sessions (and regular
+      // bookings) weren't summed anywhere on this page. The formula mirrors
+      // the dashboard stats route so the numbers agree.
+      (async () => {
+        try {
+          const revenueBookings = await prisma.booking.findMany({
+            where: { ...summaryBaseWhere, status: { in: ['BOOKED', 'DONE'] } },
+            select: {
+              price: true,
+              kitRentalCharge: true,
+              packageBooking: {
+                select: {
+                  sessionsUsed: true,
+                  extraCharge: true,
+                  userPackage: { select: { amountPaid: true, totalSessions: true } },
+                },
+              },
+              refunds: { select: { amount: true, status: true } },
+            },
+          });
+          let revenue = 0;
+          for (const b of revenueBookings) {
+            if (b.packageBooking) {
+              revenue += packageSessionRevenue(b.packageBooking, b.kitRentalCharge);
+            } else {
+              let net = b.price || 0;
+              for (const r of b.refunds) {
+                if (r.status !== 'FAILED') net -= r.amount;
+              }
+              revenue += net;
+            }
+          }
+          return Math.round(revenue);
+        } catch {
+          return 0;
+        }
+      })(),
     ]);
 
     return NextResponse.json({
@@ -364,6 +431,8 @@ export async function GET(req: NextRequest) {
         done: doneCount,
         cancelled: cancelledCount,
         total: bookedCount + doneCount + cancelledCount,
+        // Net revenue across the filtered set (regular + package sessions).
+        revenue: revenueValue,
       },
     });
   } catch (error: any) {
