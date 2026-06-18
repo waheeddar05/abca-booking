@@ -184,8 +184,18 @@ export async function GET(req: NextRequest) {
         wallets: {
           select: { centerId: true, balance: true },
         },
+        // Booking count shown per user in the admin list. It must respect
+        // the current scope: in the center-scoped view (default) count only
+        // bookings at the resolved center, so TopPlay admin sees TopPlay
+        // bookings and ABCA admin sees ABCA bookings — never the combined
+        // cross-center total. The all-users view (scopedCenterId === null)
+        // intentionally counts every booking across centers.
         _count: {
-          select: { bookings: true },
+          select: {
+            bookings: scopedCenterId
+              ? { where: { centerId: scopedCenterId } }
+              : true,
+          },
         },
       },
       orderBy: { createdAt: 'desc' },
