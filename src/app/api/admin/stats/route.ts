@@ -4,7 +4,6 @@ import { requireAdmin } from '@/lib/adminAuth';
 import { getAuthenticatedUser } from '@/lib/auth';
 import { resolveCurrentCenter } from '@/lib/centers';
 import { getISTTodayUTC, getISTLastMonthRange, dateStringToUTC } from '@/lib/time';
-import { packageSessionRevenue } from '@/lib/package-revenue';
 
 // Epoch millis for a nullable groupBy `_max.date`. Used to break ties when two
 // staff have the same session count so the most recent booking ranks higher.
@@ -67,7 +66,6 @@ export async function GET(req: NextRequest) {
       operatorSummary,
       sidearmSummary,
       coachSummary,
-      machineTypeRevenue,
       bookingDistribution,
       totalBookings,
       activeAdmins,
@@ -75,10 +73,8 @@ export async function GET(req: NextRequest) {
       upcomingBookings,
       lastMonthBookings,
       totalSlots,
-      bookingRevenueValue,
       totalDiscountValue,
-      packageRevenueValue,
-      revenueBreakdownEntries,
+      revenue,
       selfOperatedBookings,
       unassignedBookings,
     ] = await Promise.all([
@@ -165,83 +161,6 @@ export async function GET(req: NextRequest) {
             sessions: r._count._all,
           }));
       }).catch(() => []),
-      // Revenue by Machine. Only for MACHINE category.
-      // The label must always be the exact machine name shown in
-      // My Center → Resources, i.e. the Machine instance's `name`. We never
-      // fall back to the MachineType catalog name (e.g. "Leverage Tennis"),
-      // which is the design/category name and is inconsistent with Resources.
-      (async () => {
-        try {
-          // Resolve legacy enum bookings to the center's actual machine names.
-          const centerMachines = await prisma.machine.findMany({
-            where: { ...centerFilter },
-            select: { name: true, legacyMachineId: true },
-          });
-          const legacyNameMap = new Map<string, string>();
-          for (const m of centerMachines) {
-            if (m.legacyMachineId) legacyNameMap.set(m.legacyMachineId, m.name);
-          }
-
-          const bookings = await prisma.booking.findMany({
-            where: {
-              ...centerFilter,
-              category: 'MACHINE',
-              status: { in: ['BOOKED', 'DONE'] },
-              ...(hasDateFilter ? { date: dateFilter } : {}),
-            },
-            select: {
-              price: true,
-              kitRentalCharge: true,
-              machineId: true, // Legacy
-              assignedMachine: { select: { name: true, machineType: { select: { name: true } } } }, // New
-              packageBooking: {
-                select: {
-                  sessionsUsed: true,
-                  extraCharge: true,
-                  userPackage: { select: { amountPaid: true, totalSessions: true } },
-                },
-              },
-              refunds: { select: { amount: true, status: true } },
-            },
-          });
-
-          const revenueByType = new Map<string, number>();
-          for (const b of bookings) {
-            let typeName = 'Other';
-            if (b.assignedMachine?.name) {
-              // Resources display name (authoritative).
-              typeName = b.assignedMachine.name;
-            } else if (b.machineId) {
-              // Legacy enum booking — map to this center's machine name,
-              // falling back to a sensible label per enum value.
-              typeName =
-                legacyNameMap.get(b.machineId) ||
-                (b.machineId === 'YANTRA' ? 'Yantra'
-                  : b.machineId === 'LEVERAGE_OUTDOOR' ? 'iWinner (Outdoor)'
-                  : b.machineId === 'LEVERAGE_INDOOR' ? 'iWinner (Indoor)'
-                  : b.machineId === 'GRAVITY' ? 'Gravity'
-                  : 'Other');
-            } else if (b.assignedMachine?.machineType?.name) {
-              // Last resort only — should rarely happen.
-              typeName = b.assignedMachine.machineType.name;
-            }
-
-            let net = 0;
-            if (b.packageBooking) {
-              net = packageSessionRevenue(b.packageBooking, b.kitRentalCharge);
-            } else {
-              net = b.price || 0;
-              for (const r of b.refunds) {
-                if (r.status !== 'FAILED') net -= r.amount;
-              }
-            }
-            revenueByType.set(typeName, (revenueByType.get(typeName) || 0) + net);
-          }
-          return Array.from(revenueByType.entries()).map(([name, revenue]) => ({ name, revenue }));
-        } catch {
-          return [];
-        }
-      })(),
       // Booking Distribution Table Data (Category vs Today vs Upcoming).
       // "Today" and "Upcoming" are live operational snapshots that mean exactly
       // what their column headers say — today's bookings and future bookings.
@@ -307,40 +226,6 @@ export async function GET(req: NextRequest) {
         },
       }).catch(() => 0),
       prisma.slot.count({ where: centerFilter }).catch(() => 0),
-      // Booking revenue — net of refunds
-      (async () => {
-        try {
-          const bookings = await prisma.booking.findMany({
-            where: {
-              ...centerFilter,
-              status: { in: ['BOOKED', 'DONE'] },
-              ...(hasDateFilter ? { date: dateFilter } : {}),
-            },
-            select: {
-              price: true,
-              kitRentalCharge: true,
-              packageBooking: { select: { extraCharge: true } },
-              refunds: { select: { amount: true, status: true } },
-            },
-          });
-          let paid = 0;
-          let refunded = 0;
-          for (const b of bookings) {
-            const isPkg = !!b.packageBooking;
-            if (isPkg) {
-              paid += (b.packageBooking?.extraCharge || 0) + (b.kitRentalCharge || 0);
-            } else {
-              paid += b.price || 0;
-              for (const r of b.refunds) {
-                if (r.status !== 'FAILED') refunded += r.amount;
-              }
-            }
-          }
-          return paid - refunded;
-        } catch {
-          return 0;
-        }
-      })(),
       // Discount
       prisma.booking.aggregate({
         _sum: { discountAmount: true },
@@ -352,65 +237,62 @@ export async function GET(req: NextRequest) {
           ...(hasDateFilter ? { date: dateFilter } : {}),
         },
       }).then(r => r._sum.discountAmount || 0).catch(() => 0),
-      // Package revenue — total package SALES within the selected date range.
-      // Revenue is recognised at purchase, so we scope by the package's purchase
-      // timestamp (UserPackage.createdAt) using the dashboard From/To filter and
-      // net out refunds. Cancelled packages are excluded. Every package category
-      // (Bowling Machine, Cricket Net, Sidearm, Coaching, Court, …) is included
-      // because we don't filter by category. The createdAt bounds are shifted by
-      // the IST offset so a calendar day picked in the UI maps to the matching
-      // IST day (createdAt is a real timestamp, unlike the @db.Date booking col).
+      // ─── Revenue (cards + Revenue-by-Category + Revenue-by-Machine) ───
+      //
+      // All revenue figures are derived here from ONE shared pass so the
+      // three top cards, the category chart, and the machine chart always
+      // reconcile to the rupee. Revenue is recognised when the money is
+      // received, NOT when the session is consumed:
+      //
+      //   • Direct (non-package) booking → `price` − refunds, recognised on
+      //     the booking date and bucketed by the booking's category/machine.
+      //   • Package redemption booking   → only the per-booking extras
+      //     (`extraCharge` + kit rental) are booking revenue; the package's
+      //     base price is recognised at PURCHASE (below), not per session.
+      //   • Package purchase             → the FULL `amountPaid` − wallet
+      //     refunds, recognised on the purchase date and bucketed by the
+      //     PACKAGE's category/machine — regardless of how many sessions
+      //     have been used. Cancelled packages are excluded entirely.
+      //
+      // Therefore: Total = Booking + Package, and the sum over every
+      // category bucket equals Total Revenue by construction.
       (async () => {
+        const empty = {
+          bookingRevenue: 0,
+          packageRevenue: 0,
+          totalRevenue: 0,
+          revenueByCategory: [] as Array<{ key: string; _sum: { price: number } }>,
+          machineTypeRevenue: [] as Array<{ name: string; revenue: number }>,
+        };
         try {
-          const IST_OFFSET_MS = (5 * 60 + 30) * 60 * 1000;
-          let createdFilter: { gte?: Date; lt?: Date } | undefined;
-          if (fromDate || toDate) {
-            createdFilter = {};
-            if (fromDate) createdFilter.gte = new Date(fromDate.getTime() - IST_OFFSET_MS);
-            // toDate is UTC midnight of the end day — extend to the end of that IST day.
-            if (toDate) createdFilter.lt = new Date(toDate.getTime() + 24 * 60 * 60 * 1000 - IST_OFFSET_MS);
-          }
-          const ups = await prisma.userPackage.findMany({
-            where: {
-              ...(centerId ? { package: { centerId } } : {}),
-              status: { not: 'CANCELLED' },
-              ...(createdFilter ? { createdAt: createdFilter } : {}),
-            },
-            select: { id: true, amountPaid: true },
+          // Resolve legacy enum machine IDs → this center's actual machine
+          // names (the labels shown in My Center → Resources). We never fall
+          // back to the MachineType catalog name (e.g. "Leverage Tennis"),
+          // which is the design/category name and inconsistent with Resources.
+          const centerMachines = await prisma.machine.findMany({
+            where: { ...centerFilter },
+            select: { name: true, legacyMachineId: true },
           });
-          if (ups.length === 0) return 0;
-          const refundRows = await prisma.walletTransaction.findMany({
-            where: {
-              type: 'CREDIT_REFUND',
-              referenceId: { in: ups.map(u => u.id) },
-            },
-            select: { referenceId: true, amount: true },
-          });
-          const refundById = new Map<string, number>();
-          for (const r of refundRows) {
-            if (!r.referenceId) continue;
-            refundById.set(r.referenceId, (refundById.get(r.referenceId) || 0) + r.amount);
+          const legacyNameMap = new Map<string, string>();
+          for (const m of centerMachines) {
+            if (m.legacyMachineId) legacyNameMap.set(m.legacyMachineId, m.name);
           }
-          let paid = 0;
-          let refunded = 0;
-          for (const up of ups) {
-            paid += up.amountPaid;
-            refunded += refundById.get(up.id) || 0;
-          }
-          return paid - refunded;
-        } catch {
-          return 0;
-        }
-      })(),
-      // Revenue breakdown
-      (async () => {
-        try {
-          const packageSelect = {
-            sessionsUsed: true,
-            extraCharge: true,
-            userPackage: { select: { amountPaid: true, totalSessions: true } },
-          } as const;
+          const machineNameFromLegacy = (machineId: string): string =>
+            legacyNameMap.get(machineId) ||
+            (machineId === 'YANTRA' ? 'Yantra'
+              : machineId === 'LEVERAGE_OUTDOOR' ? 'iWinner (Outdoor)'
+              : machineId === 'LEVERAGE_INDOOR' ? 'iWinner (Indoor)'
+              : machineId === 'GRAVITY' ? 'Gravity'
+              : 'Other');
 
+          const byCategory = new Map<string, number>();
+          const byMachine = new Map<string, number>();
+          const addCategory = (cat: string, amount: number) =>
+            byCategory.set(cat, (byCategory.get(cat) || 0) + amount);
+          const addMachine = (name: string, amount: number) =>
+            byMachine.set(name, (byMachine.get(name) || 0) + amount);
+
+          // ── Bookings: direct payments + package-redemption extras ──
           const bookings = await prisma.booking.findMany({
             where: {
               ...centerFilter,
@@ -421,34 +303,107 @@ export async function GET(req: NextRequest) {
               category: true,
               price: true,
               kitRentalCharge: true,
-              packageBooking: { select: packageSelect },
+              machineId: true, // Legacy enum reference
+              assignedMachine: { select: { name: true, machineType: { select: { name: true } } } },
+              packageBooking: { select: { extraCharge: true } },
               refunds: { select: { amount: true, status: true } },
             },
           });
-          const byCategory = new Map<string, number>();
+
+          let bookingRevenue = 0;
           for (const b of bookings) {
-            const cat = b.category as string;
             const isPkg = !!b.packageBooking;
-            let net = 0;
+            let value = 0;
             if (isPkg) {
-              net += packageSessionRevenue(b.packageBooking, b.kitRentalCharge);
+              // Package base price is recognised at purchase, not here.
+              value = (b.packageBooking?.extraCharge || 0) + (b.kitRentalCharge || 0);
             } else {
-              net += b.price || 0;
+              value = b.price || 0;
               for (const r of b.refunds) {
-                if (r.status !== 'FAILED') net -= r.amount;
+                if (r.status !== 'FAILED') value -= r.amount;
               }
             }
-            byCategory.set(cat, (byCategory.get(cat) || 0) + net);
+            bookingRevenue += value;
+            addCategory(b.category, value);
+            if (b.category === 'MACHINE') {
+              let name = 'Other';
+              if (b.assignedMachine?.name) name = b.assignedMachine.name;
+              else if (b.machineId) name = machineNameFromLegacy(b.machineId);
+              else if (b.assignedMachine?.machineType?.name) name = b.assignedMachine.machineType.name;
+              addMachine(name, value);
+            }
           }
-          return Array.from(byCategory.entries()).map(([category, price]) => {
-            const count = bookings.filter(b => b.category === category).length;
-            return {
-              key: category,
-              _sum: { price, count },
-            };
+
+          // ── Package purchases: full amount recognised on purchase date ──
+          // Scope by UserPackage.createdAt with the dashboard From/To filter,
+          // shifting the bounds by the IST offset so a calendar day picked in
+          // the UI maps to the matching IST day (createdAt is a real timestamp,
+          // unlike the @db.Date booking column).
+          const IST_OFFSET_MS = (5 * 60 + 30) * 60 * 1000;
+          let createdFilter: { gte?: Date; lt?: Date } | undefined;
+          if (fromDate || toDate) {
+            createdFilter = {};
+            if (fromDate) createdFilter.gte = new Date(fromDate.getTime() - IST_OFFSET_MS);
+            if (toDate) createdFilter.lt = new Date(toDate.getTime() + 24 * 60 * 60 * 1000 - IST_OFFSET_MS);
+          }
+          const ups = await prisma.userPackage.findMany({
+            where: {
+              ...(centerId ? { package: { centerId } } : {}),
+              status: { not: 'CANCELLED' },
+              ...(createdFilter ? { createdAt: createdFilter } : {}),
+            },
+            select: {
+              id: true,
+              amountPaid: true,
+              package: {
+                select: {
+                  category: true,
+                  machineId: true,
+                  machineRow: { select: { name: true } },
+                },
+              },
+            },
           });
+
+          let packageRevenue = 0;
+          if (ups.length > 0) {
+            const refundRows = await prisma.walletTransaction.findMany({
+              where: { type: 'CREDIT_REFUND', referenceId: { in: ups.map(u => u.id) } },
+              select: { referenceId: true, amount: true },
+            });
+            const refundById = new Map<string, number>();
+            for (const r of refundRows) {
+              if (!r.referenceId) continue;
+              refundById.set(r.referenceId, (refundById.get(r.referenceId) || 0) + r.amount);
+            }
+            for (const up of ups) {
+              const net = up.amountPaid - (refundById.get(up.id) || 0);
+              packageRevenue += net;
+              // Legacy ABCA packages have a null category — they are bowling
+              // machine packages, so they fall into MACHINE.
+              const cat = up.package?.category || 'MACHINE';
+              addCategory(cat, net);
+              if (cat === 'MACHINE') {
+                let name = 'Other';
+                if (up.package?.machineRow?.name) name = up.package.machineRow.name;
+                else if (up.package?.machineId) name = machineNameFromLegacy(up.package.machineId);
+                addMachine(name, net);
+              }
+            }
+          }
+
+          return {
+            bookingRevenue,
+            packageRevenue,
+            totalRevenue: bookingRevenue + packageRevenue,
+            revenueByCategory: Array.from(byCategory.entries()).map(([category, price]) => ({
+              key: category,
+              _sum: { price },
+            })),
+            machineTypeRevenue: Array.from(byMachine.entries()).map(([name, revenue]) => ({ name, revenue })),
+          };
         } catch {
-          return [];
+          return empty;
         }
       })(),
       prisma.booking.count({
@@ -477,12 +432,12 @@ export async function GET(req: NextRequest) {
       upcomingBookings,
       lastMonthBookings,
       totalSlots,
-      totalRevenue: bookingRevenueValue + packageRevenueValue,
-      bookingRevenue: bookingRevenueValue,
-      packageRevenue: packageRevenueValue,
+      totalRevenue: revenue.totalRevenue,
+      bookingRevenue: revenue.bookingRevenue,
+      packageRevenue: revenue.packageRevenue,
       totalDiscount: totalDiscountValue,
-      revenueBreakdown: { axis: 'category', entries: revenueBreakdownEntries },
-      machineTypeRevenue,
+      revenueBreakdown: { axis: 'category', entries: revenue.revenueByCategory },
+      machineTypeRevenue: revenue.machineTypeRevenue,
       bookingDistribution,
       selfOperatedBookings,
       unassignedBookings,
