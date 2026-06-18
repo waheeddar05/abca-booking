@@ -430,42 +430,38 @@ export function WeeklyAvailabilityEditor({
             {windows.map((w, i) => (
               <div
                 key={i}
-                className="flex flex-wrap items-center gap-2 rounded-lg bg-white/[0.02] border border-white/[0.05] p-2"
+                className="flex items-center gap-1.5 rounded-lg bg-white/[0.02] border border-white/[0.05] p-1.5"
               >
                 <select
                   value={w.dayOfWeek}
                   onChange={(e) => update(i, { dayOfWeek: Number(e.target.value) })}
-                  className="w-[5.5rem] shrink-0 bg-white/[0.04] border border-white/[0.1] text-white rounded-lg px-2.5 py-2.5 text-base leading-tight outline-none focus:border-accent"
+                  className="w-16 shrink-0 bg-white/[0.04] border border-white/[0.1] text-white rounded-lg px-1.5 py-2 text-sm leading-tight outline-none focus:border-accent"
                 >
                   {DAY_LABELS.map((d, idx) => (
                     <option key={idx} value={idx}>{d}</option>
                   ))}
                 </select>
-                {/* Times share a flex group with a min-width so they keep room
-                    for the full "HH:MM AM" value; on a narrow screen the group
-                    wraps to its own line instead of squeezing the text. The
-                    16px (text-base) font keeps each value legible and stops
-                    iOS Safari from auto-zooming the page when the field is
-                    focused for editing. */}
-                <div className="order-last w-full sm:order-none sm:w-auto flex flex-1 min-w-[12rem] items-center gap-2">
-                  <input
-                    type="time"
-                    value={w.startTime}
-                    onChange={(e) => update(i, { startTime: e.target.value })}
-                    className="min-w-0 flex-1 bg-white/[0.04] border border-white/[0.1] text-white rounded-lg px-2.5 py-2.5 text-base leading-tight tabular-nums outline-none focus:border-accent [color-scheme:dark]"
-                  />
-                  <span className="text-slate-500 text-xs shrink-0">–</span>
-                  <input
-                    type="time"
-                    value={w.endTime}
-                    onChange={(e) => update(i, { endTime: e.target.value })}
-                    className="min-w-0 flex-1 bg-white/[0.04] border border-white/[0.1] text-white rounded-lg px-2.5 py-2.5 text-base leading-tight tabular-nums outline-none focus:border-accent [color-scheme:dark]"
-                  />
-                </div>
+                {/* Day + start/end times + delete all stay on a single row.
+                    The two time inputs flex to share the leftover width, and a
+                    compact 14px (text-sm) font keeps each "HH:MM" value legible
+                    while still fitting one line on a phone. */}
+                <input
+                  type="time"
+                  value={w.startTime}
+                  onChange={(e) => update(i, { startTime: e.target.value })}
+                  className="min-w-0 flex-1 bg-white/[0.04] border border-white/[0.1] text-white rounded-lg px-1.5 py-2 text-sm leading-tight tabular-nums outline-none focus:border-accent [color-scheme:dark]"
+                />
+                <span className="text-slate-500 text-xs shrink-0">–</span>
+                <input
+                  type="time"
+                  value={w.endTime}
+                  onChange={(e) => update(i, { endTime: e.target.value })}
+                  className="min-w-0 flex-1 bg-white/[0.04] border border-white/[0.1] text-white rounded-lg px-1.5 py-2 text-sm leading-tight tabular-nums outline-none focus:border-accent [color-scheme:dark]"
+                />
                 <button
                   type="button"
                   onClick={() => setPendingDeleteIdx(i)}
-                  className="ml-auto p-2 rounded-lg text-red-400/70 hover:bg-red-500/10 hover:text-red-400 cursor-pointer shrink-0"
+                  className="p-1.5 rounded-lg text-red-400/70 hover:bg-red-500/10 hover:text-red-400 cursor-pointer shrink-0"
                   title="Delete Window"
                 >
                   <Trash2 className="w-4 h-4" />
