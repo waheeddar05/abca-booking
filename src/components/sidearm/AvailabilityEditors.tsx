@@ -390,7 +390,7 @@ export function WeeklyAvailabilityEditor({
               value={effectiveFrom}
               max={effectiveTo || undefined}
               onChange={(e) => setEffectiveFrom(e.target.value)}
-              className="mt-1 w-full bg-white/[0.04] border border-white/[0.1] text-white rounded-lg px-2.5 py-2 text-xs sm:text-sm leading-tight tabular-nums outline-none focus:border-accent [color-scheme:dark]"
+              className="mt-1 w-full bg-white/[0.04] border border-white/[0.1] text-white rounded-lg px-3 py-2.5 text-base leading-tight tabular-nums outline-none focus:border-accent [color-scheme:dark]"
             />
           </label>
           <label className="block">
@@ -400,7 +400,7 @@ export function WeeklyAvailabilityEditor({
               value={effectiveTo}
               min={effectiveFrom || undefined}
               onChange={(e) => setEffectiveTo(e.target.value)}
-              className="mt-1 w-full bg-white/[0.04] border border-white/[0.1] text-white rounded-lg px-2.5 py-2 text-xs sm:text-sm leading-tight tabular-nums outline-none focus:border-accent [color-scheme:dark]"
+              className="mt-1 w-full bg-white/[0.04] border border-white/[0.1] text-white rounded-lg px-3 py-2.5 text-base leading-tight tabular-nums outline-none focus:border-accent [color-scheme:dark]"
             />
           </label>
         </div>
@@ -435,7 +435,7 @@ export function WeeklyAvailabilityEditor({
                 <select
                   value={w.dayOfWeek}
                   onChange={(e) => update(i, { dayOfWeek: Number(e.target.value) })}
-                  className="w-[4.5rem] shrink-0 bg-white/[0.04] border border-white/[0.1] text-white rounded-lg px-2 py-2 text-xs sm:text-sm leading-tight outline-none focus:border-accent"
+                  className="w-[5.5rem] shrink-0 bg-white/[0.04] border border-white/[0.1] text-white rounded-lg px-2.5 py-2.5 text-base leading-tight outline-none focus:border-accent"
                 >
                   {DAY_LABELS.map((d, idx) => (
                     <option key={idx} value={idx}>{d}</option>
@@ -443,20 +443,23 @@ export function WeeklyAvailabilityEditor({
                 </select>
                 {/* Times share a flex group with a min-width so they keep room
                     for the full "HH:MM AM" value; on a narrow screen the group
-                    wraps to its own line instead of squeezing the text. */}
-                <div className="order-last w-full sm:order-none sm:w-auto flex flex-1 min-w-[9.5rem] items-center gap-1.5">
+                    wraps to its own line instead of squeezing the text. The
+                    16px (text-base) font keeps each value legible and stops
+                    iOS Safari from auto-zooming the page when the field is
+                    focused for editing. */}
+                <div className="order-last w-full sm:order-none sm:w-auto flex flex-1 min-w-[12rem] items-center gap-2">
                   <input
                     type="time"
                     value={w.startTime}
                     onChange={(e) => update(i, { startTime: e.target.value })}
-                    className="min-w-0 flex-1 bg-white/[0.04] border border-white/[0.1] text-white rounded-lg px-2 py-2 text-xs sm:text-sm leading-tight tabular-nums outline-none focus:border-accent [color-scheme:dark]"
+                    className="min-w-0 flex-1 bg-white/[0.04] border border-white/[0.1] text-white rounded-lg px-2.5 py-2.5 text-base leading-tight tabular-nums outline-none focus:border-accent [color-scheme:dark]"
                   />
                   <span className="text-slate-500 text-xs shrink-0">–</span>
                   <input
                     type="time"
                     value={w.endTime}
                     onChange={(e) => update(i, { endTime: e.target.value })}
-                    className="min-w-0 flex-1 bg-white/[0.04] border border-white/[0.1] text-white rounded-lg px-2 py-2 text-xs sm:text-sm leading-tight tabular-nums outline-none focus:border-accent [color-scheme:dark]"
+                    className="min-w-0 flex-1 bg-white/[0.04] border border-white/[0.1] text-white rounded-lg px-2.5 py-2.5 text-base leading-tight tabular-nums outline-none focus:border-accent [color-scheme:dark]"
                   />
                 </div>
                 <button

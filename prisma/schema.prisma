@@ -438,6 +438,15 @@ model Booking {
   kitRental           Boolean               @default(false)
   kitRentalCharge     Float?
 
+  // ─── Reserve-then-confirm (saga) ────────────────────────────────
+  // Populated only on HOLD rows created before payment. `holdExpiresAt`
+  // is the lazy-expiry deadline (sweep cancels the hold once it passes
+  // if the payment never captured); `paymentId` links the hold to its
+  // originating online Payment so confirm flips exactly these rows and
+  // the sweep never cancels a hold whose payment was already captured.
+  holdExpiresAt       DateTime?
+  paymentId           String?
+
   // ─── Resource-based booking model (phase 5) ─────────────────────
   //
   // `category` discriminates what kind of session this is:
@@ -484,6 +493,10 @@ model Booking {
   @@index([centerId, date, status])
   @@index([centerId, status])
   @@index([centerId, category, date])
+  // Drives the lazy expiry sweep of stale HOLD rows.
+  @@index([status, holdExpiresAt])
+  // Confirm/expiry look up holds by their originating online payment.
+  @@index([paymentId])
   @@index([operatorId])
   @@index([assignedMachineId])
   @@index([assignedCoachId])
@@ -731,6 +744,15 @@ enum BookingStatus {
   BOOKED
   CANCELLED
   DONE
+  // Reserve-then-confirm (saga) pre-payment state. A HOLD row claims the
+  // slot/resources the instant the customer starts paying, BEFORE Razorpay
+  // takes the money. On a confirmed capture it is flipped to BOOKED; if the
+  // payment is never completed it is swept to CANCELLED once `holdExpiresAt`
+  // passes (lazy, on-access — no cron). HOLD rows must never surface as real
+  // bookings in user/admin lists, stats, or exports; they only count toward
+  // slot/resource occupancy. Only created when the per-center
+  // RESERVE_BEFORE_PAYMENT policy is enabled.
+  HOLD
 }
 
 enum BallType {

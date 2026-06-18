@@ -59,6 +59,13 @@ export async function GET(req: NextRequest) {
       where.status = 'CANCELLED';
     }
 
+    // Pre-payment HOLD rows (reserve-then-confirm) are not real bookings —
+    // never surface them in the user's history. The 'all' tab sets no status
+    // filter, so exclude HOLD explicitly there.
+    if (where.status === undefined && where.OR === undefined) {
+      where.status = { not: 'HOLD' };
+    }
+
     // Try full query first; if new columns don't exist, fall back to safe select
     let bookings: any[];
     let total: number;
