@@ -12,7 +12,7 @@ import { BookingResourceError } from '@/lib/resource-booking';
 import { completePackagePurchase } from '@/lib/package-purchase';
 import { log } from '@/lib/logger';
 import { markCaptureNeedsRecovery } from '@/lib/payment-recovery';
-import { confirmHeldBookings } from '@/lib/booking-hold';
+import { notifyAdminPaymentIssue } from '@/lib/notifications';
 
 // POST /api/payments/verify - Verify payment and complete booking/purchase
 export async function POST(req: NextRequest) {
@@ -236,6 +236,11 @@ export async function POST(req: NextRequest) {
         payment.id,
         'Verify lost claim but other path did not link bookings within 15s',
       ).catch((e) => log.error(baseCtx, 'Failed to flag for recovery', e));
+      await notifyAdminPaymentIssue({
+        paymentId: payment.id,
+        outcome: 'NEEDS_ATTENTION',
+        reason: 'Payment captured but no booking appeared after 15s — needs manual check.',
+      }).catch((e) => log.error(baseCtx, 'Admin payment-issue alert failed', e));
       return NextResponse.json({
         success: false,
         error: 'Payment captured but booking is still being processed. Please refresh in a moment — your booking should appear shortly. If not, our team has been notified.',
@@ -246,27 +251,6 @@ export async function POST(req: NextRequest) {
     }
 
     log.info(baseCtx, 'Signature verified, claim won — creating bookings');
-
-    // ─── Reserve-then-confirm (saga) ────────────────────────────────
-    // If the slot was reserved as a HOLD at create-order time, confirming
-    // is just flipping HOLD→BOOKED — the slot was already guaranteed, so
-    // this can't fail with "slot taken". When no holds exist (flag off, or
-    // a swept hold) confirm returns {confirmed:false} and we fall through
-    // to the legacy create-from-scratch path below.
-    const heldConfirm = await confirmHeldBookings(payment.id);
-    if (heldConfirm.confirmed) {
-      log.info(
-        { ...baseCtx, bookingIds: heldConfirm.bookings.map((b) => b.id) },
-        `Confirmed ${heldConfirm.bookings.length} reserved booking(s) from hold`,
-      );
-      return NextResponse.json({
-        success: true,
-        paymentId: payment.id,
-        razorpayPaymentId: razorpay_payment_id,
-        type: payment.paymentType,
-        bookings: heldConfirm.bookings,
-      });
-    }
 
     // Now complete the actual booking/purchase based on payment type
     let result: Record<string, unknown> = {};
@@ -401,6 +385,11 @@ export async function POST(req: NextRequest) {
           payment.id,
           'Verify called but bookingPayload missing in payment.metadata',
         ).catch((e) => log.error(baseCtx, 'Failed to flag for recovery', e));
+        await notifyAdminPaymentIssue({
+          paymentId: payment.id,
+          outcome: 'NEEDS_ATTENTION',
+          reason: 'Captured payment has no booking details stored — cannot auto-book; manual refund/booking needed.',
+        }).catch((e) => log.error(baseCtx, 'Admin payment-issue alert failed', e));
         return NextResponse.json({
           success: false,
           error:

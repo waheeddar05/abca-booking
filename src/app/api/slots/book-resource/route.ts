@@ -125,15 +125,6 @@ export interface ResourceBookingOptions {
   /** When set, attach this Payment to every created booking (mirrors
    *  the legacy executeSlotBooking flow). */
   onlinePaymentId?: string;
-  /** Reserve-then-confirm: create the booking(s) in HOLD state (before
-   *  payment) instead of BOOKED. Wallet debit + notifications are deferred
-   *  to confirm time. Mutually exclusive with onlinePaymentId. */
-  holdMode?: boolean;
-  /** Expiry deadline stamped on HOLD rows (required when holdMode). */
-  holdExpiresAt?: Date;
-  /** Originating online Payment id stamped on HOLD rows so confirm/expiry
-   *  can find them. May be linked just after creation instead. */
-  holdPaymentId?: string;
 }
 
 export class ResourceBookingServiceError extends Error {
@@ -254,7 +245,6 @@ export async function executeResourceBooking(
   }
 
   const onlinePaymentId = options.onlinePaymentId;
-  const { holdMode, holdExpiresAt, holdPaymentId } = options;
   const ctx = {
     op: 'booking.create.resource',
     user: { id: user.id, email: user.email, name: user.name },
@@ -277,7 +267,7 @@ export async function executeResourceBooking(
   try {
     let created: ResourceBookingResult[];
     try {
-      created = await executeResourceBookingCore(user, body, center, { onlinePaymentId, holdMode, holdExpiresAt, holdPaymentId });
+      created = await executeResourceBookingCore(user, body, center, { onlinePaymentId });
     } catch (firstErr) {
       // Auto-retry only captured online bookings; wallet / cash / free pass
       // straight through (retrying those could double-charge a wallet).
@@ -305,7 +295,7 @@ export async function executeResourceBooking(
           `Resource booking failed — retrying once before refund: ${firstErr instanceof Error ? firstErr.message : String(firstErr)}`,
         );
         await new Promise((r) => setTimeout(r, 600));
-        created = await executeResourceBookingCore(user, body, center, { onlinePaymentId, holdMode, holdExpiresAt, holdPaymentId });
+        created = await executeResourceBookingCore(user, body, center, { onlinePaymentId });
         log.info(ctx, 'Resource booking recovered on retry');
       }
     }
@@ -324,14 +314,10 @@ export async function executeResourceBooking(
     // flushed while keeping the serverless function alive. A plain `void`
     // lets Vercel suspend the lambda the instant we respond, aborting the
     // in-flight WhatsApp BSP fetch with "This operation was aborted".
-    // holdMode skips this: a reservation isn't a confirmed booking yet, so
-    // the customer/staff are notified at confirm time instead.
-    if (!holdMode) {
-      after(async () => {
-        await notifyCustomerNewBooking(createdIds);
-        await notifyAssignedStaffNewBooking(createdIds);
-      });
-    }
+    after(async () => {
+      await notifyCustomerNewBooking(createdIds);
+      await notifyAssignedStaffNewBooking(createdIds);
+    });
 
     return created;
   } catch (error) {
@@ -499,12 +485,9 @@ async function executeResourceBookingCore(
   user: AuthedUser,
   body: ResourceBookingBody,
   center: CenterRef,
-  options: { onlinePaymentId?: string; holdMode?: boolean; holdExpiresAt?: Date; holdPaymentId?: string },
+  options: { onlinePaymentId?: string },
 ): Promise<ResourceBookingResult[]> {
   const onlinePaymentId = options.onlinePaymentId;
-  const holdMode = !!options.holdMode;
-  const holdExpiresAt = options.holdExpiresAt ?? null;
-  const holdPaymentId = options.holdPaymentId ?? null;
 
   // CORPORATE_BATCH used to be admin-only; it's now bookable by any
   // user (the resource engine auto-claims the configured number of
@@ -1199,11 +1182,7 @@ async function executeResourceBookingCore(
                   date: plan.date,
                   startTime: plan.startTime,
                   endTime: plan.endTime,
-                  // Reserve-then-confirm: a hold claims the slot before
-                  // payment; confirm flips it to BOOKED.
-                  status: holdMode ? 'HOLD' : 'BOOKED',
-                  holdExpiresAt: holdMode ? holdExpiresAt : null,
-                  paymentId: holdMode ? holdPaymentId : null,
+                  status: 'BOOKED',
                   operatorId: assignedOperatorId,
                   operationMode,
                   // ballType column on Booking is non-null. For resource
@@ -1240,12 +1219,10 @@ async function executeResourceBookingCore(
                   discountType: appliedOffer
                     ? appliedOffer.discountType
                     : (recurringDiscount > 0 ? 'FIXED' : null),
-                  paymentMethod: (holdMode || onlinePaymentId)
+                  paymentMethod: onlinePaymentId
                     ? 'ONLINE'
                     : (body.paymentMethod ?? null),
-                  paymentStatus: holdMode
-                    ? 'PENDING'
-                    : onlinePaymentId
+                  paymentStatus: onlinePaymentId
                     ? 'PAID'
                     : (isFreeBooking
                         ? 'PAID'
@@ -1392,8 +1369,7 @@ async function executeResourceBookingCore(
   //      total from wallet.
   //   2. Partial wallet credit applied alongside ONLINE — `onlinePaymentId`
   //      is set and `body.walletDeduction` carries the wallet portion.
-  if (!isFreeBooking && !body.userPackageId && created.length > 0 && !holdMode) {
-    // (holdMode skips wallet debit — deferred to confirm time.)
+  if (!isFreeBooking && !body.userPackageId && created.length > 0) {
     // The actual price total per booking row isn't returned from the tx
     // (we only select id+status). For the wallet-only path, re-read the
     // bookings to compute the exact total to debit.

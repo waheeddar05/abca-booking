@@ -8,7 +8,8 @@ import {
   isValidMachineId, getBallTypeForMachine, getMachineCategory, LEATHER_MACHINES, MACHINES,
 } from '@/lib/constants';
 import { dateStringToUTC, formatIST } from '@/lib/time';
-import { notifyBookingConfirmed, notifyAssignedStaffNewBooking } from '@/lib/notifications';
+import { notifyBookingConfirmed, notifyAssignedStaffNewBooking, notifyAdminPaymentIssue } from '@/lib/notifications';
+import { markCaptureNeedsRecovery } from '@/lib/payment-recovery';
 import { getPricingConfig, getTimeSlabConfig, calculateNewPricing, getTimeSlab } from '@/lib/pricing';
 import { getCachedPolicies } from '@/lib/policy-cache';
 import { getPolicyValue, isPolicyEnabled } from '@/lib/policy';
@@ -1087,6 +1088,14 @@ export async function executeSlotBooking(
             'Auto-refunded to wallet after booking failure',
           );
 
+          // Alert center admins that a captured payment failed to book and
+          // was auto-refunded to wallet (parity with the resource engine).
+          await notifyAdminPaymentIssue({
+            paymentId: onlinePaymentId,
+            outcome: 'REFUNDED',
+            reason: error instanceof Error ? error.message : 'Booking failed after payment',
+          }).catch((e) => log.error(ctx, 'Admin payment-issue alert failed', e));
+
           const errMessage = error instanceof Error ? error.message : 'Booking failed';
           throw new BookingServiceError(
             `${errMessage}. ₹${refundAmount} has been refunded to your wallet.`,
@@ -1098,6 +1107,20 @@ export async function executeSlotBooking(
         if (refundErr instanceof BookingServiceError) throw refundErr;
         log.error(ctx, 'CRITICAL: auto-refund failed after booking failure', refundErr);
         log.error(ctx, 'Original booking error', error);
+        // Money captured, no booking, AND the wallet refund failed — the
+        // worst case. Flag for the orphan-recovery tool AND alert center
+        // admins as URGENT so a human refunds manually.
+        if (onlinePaymentId) {
+          const reason = `Booking failed AND auto-refund failed: ${error instanceof Error ? error.message : 'unknown'}`;
+          await markCaptureNeedsRecovery(onlinePaymentId, reason).catch((e) =>
+            log.error(ctx, 'Failed to flag for recovery', e),
+          );
+          await notifyAdminPaymentIssue({
+            paymentId: onlinePaymentId,
+            outcome: 'NEEDS_ATTENTION',
+            reason,
+          }).catch((e) => log.error(ctx, 'Admin payment-issue alert failed', e));
+        }
       }
     }
 
