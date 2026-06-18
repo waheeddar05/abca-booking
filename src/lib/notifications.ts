@@ -1052,7 +1052,7 @@ type StaffNotifyBooking = {
   centerId: string;
   cancelledBy: string | null;
   cancellationReason: string | null;
-  center: { name: string; mapUrl: string | null } | null;
+  center: { name: string; mapUrl: string | null; slug: string } | null;
   // Customer phone — surfaced to staff on the dedicated template so they
   // can reach the booker directly. The reused `booking_detail` template
   // has no slot for it (it's customer-facing), so it's only used when a
@@ -1086,7 +1086,7 @@ const STAFF_NOTIFY_SELECT = {
   centerId: true,
   cancelledBy: true,
   cancellationReason: true,
-  center: { select: { name: true, mapUrl: true } },
+  center: { select: { name: true, mapUrl: true, slug: true } },
   user: { select: { mobileNumber: true } },
   operator: { select: { id: true, name: true, mobileNumber: true } },
   assignedCoach: { select: { id: true, name: true, mobileNumber: true } },
@@ -1467,6 +1467,8 @@ export async function notifyAssignedStaffNewBooking(bookingIds: string[]): Promi
     // the already-approved customer `booking_detail` template so staff get
     // alerts immediately with no BSP changes. See docs/whatsapp-templates.md.
     const dedicatedTemplate = process.env.WHATSAPP_STAFF_BOOKING_TEMPLATE?.trim();
+    const bookingTemplate = process.env.WHATSAPP_BOOKING_TEMPLATE?.trim();
+    const centerSlug = primary.center?.slug || 'default';
     const buildWhatsAppTemplate = (recipient: StaffRecipient): WhatsAppTemplatePayload | null => {
       if (!recipient.mobileNumber) return null;
       if (dedicatedTemplate) {
@@ -1493,30 +1495,38 @@ export async function notifyAssignedStaffNewBooking(bookingIds: string[]): Promi
           ],
         };
       }
-      // Reuse the approved customer `booking_detail` template (7 params).
-      // The customer's name + phone are folded into the facility param
-      // ({{4}}) so the staff member knows who booked and how to reach them —
-      // the template has no dedicated customer slot, and {{4}} carries no
-      // misleading baked label (set WHATSAPP_STAFF_BOOKING_TEMPLATE for a
-      // fully staff-shaped message that puts the customer in its own field).
+      // Staff reuse the approved customer booking template (7 params). The
+      // customer's name + phone are folded into the facility param ({{4}}) so
+      // staff know who booked. When WHATSAPP_BOOKING_TEMPLATE is set, send
+      // that location-aware template AND attach the per-center "View Location"
+      // button (suffix = center slug) — so a Toplay operator gets Toplay's
+      // map, NOT ABCA's. Falls back to legacy booking_detail otherwise.
+      const staffBody: [string, string, string, string, string, string, string] = [
+        `${centerName} • ${dateStr}`,
+        `${timeStr}${slotSuffix}`,
+        bookingType,
+        `${facility} • Booked by ${bookedBy}`,
+        priceStr,
+        contactName,
+        contactPhone,
+      ];
+      if (bookingTemplate) {
+        return {
+          mobileNumber: recipient.mobileNumber,
+          templateName: bookingTemplate,
+          components: [
+            { type: 'body', parameters: staffBody.map((text) => ({ type: 'text', text })) },
+            { type: 'button', sub_type: 'url', index: '0', parameters: [{ type: 'text', text: centerSlug }] },
+          ],
+        };
+      }
       return {
         mobileNumber: recipient.mobileNumber,
         templateName: 'booking_detail',
         components: [
           {
             type: 'body',
-            parameters: buildBookingDetailParams(
-              [
-                `${centerName} • ${dateStr}`,
-                `${timeStr}${slotSuffix}`,
-                bookingType,
-                `${facility} • Booked by ${bookedBy}`,
-                priceStr,
-                contactName,
-                contactPhone,
-              ],
-              primary.center?.mapUrl ?? null,
-            ),
+            parameters: buildBookingDetailParams(staffBody, primary.center?.mapUrl ?? null),
           },
         ],
       };
