@@ -4,7 +4,6 @@ import { prisma } from '@/lib/prisma';
 import { getAuthenticatedUser } from '@/lib/auth';
 import { resolveCurrentCenter } from '@/lib/centers';
 import { getCenterOnlyPolicy } from '@/lib/policy';
-import { expireStaleHolds } from '@/lib/booking-hold';
 import {
   generateSlotsForDateDualWindow,
   filterPastSlots,
@@ -95,11 +94,6 @@ export async function GET(req: NextRequest) {
         { status: 400 },
       );
     }
-
-    // Lazily expire stale unpaid holds (reserve-then-confirm) so an
-    // abandoned reservation never keeps a slot/resource locked. No-op when
-    // the center has no holds (RESERVE_BEFORE_PAYMENT off).
-    await expireStaleHolds(center.id).catch(() => {});
 
     // Past dates: refuse for non-admins.
     const todayUTC = getISTTodayUTC();

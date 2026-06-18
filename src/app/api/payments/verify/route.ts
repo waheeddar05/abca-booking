@@ -12,7 +12,6 @@ import { BookingResourceError } from '@/lib/resource-booking';
 import { completePackagePurchase } from '@/lib/package-purchase';
 import { log } from '@/lib/logger';
 import { markCaptureNeedsRecovery } from '@/lib/payment-recovery';
-import { confirmHeldBookings } from '@/lib/booking-hold';
 
 // POST /api/payments/verify - Verify payment and complete booking/purchase
 export async function POST(req: NextRequest) {
@@ -246,27 +245,6 @@ export async function POST(req: NextRequest) {
     }
 
     log.info(baseCtx, 'Signature verified, claim won — creating bookings');
-
-    // ─── Reserve-then-confirm (saga) ────────────────────────────────
-    // If the slot was reserved as a HOLD at create-order time, confirming
-    // is just flipping HOLD→BOOKED — the slot was already guaranteed, so
-    // this can't fail with "slot taken". When no holds exist (flag off, or
-    // a swept hold) confirm returns {confirmed:false} and we fall through
-    // to the legacy create-from-scratch path below.
-    const heldConfirm = await confirmHeldBookings(payment.id);
-    if (heldConfirm.confirmed) {
-      log.info(
-        { ...baseCtx, bookingIds: heldConfirm.bookings.map((b) => b.id) },
-        `Confirmed ${heldConfirm.bookings.length} reserved booking(s) from hold`,
-      );
-      return NextResponse.json({
-        success: true,
-        paymentId: payment.id,
-        razorpayPaymentId: razorpay_payment_id,
-        type: payment.paymentType,
-        bookings: heldConfirm.bookings,
-      });
-    }
 
     // Now complete the actual booking/purchase based on payment type
     let result: Record<string, unknown> = {};
