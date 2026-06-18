@@ -50,14 +50,31 @@ interface CenterMachineLite {
   isActive: boolean;
 }
 
+// Booking categories selectable when authoring an offer. Corporate Batch is
+// intentionally excluded: it's an admin-only group reservation managed via the
+// CORPORATE_BATCH_CONFIG policy (a virtual overlay, not a user-bookable
+// category), so it must never appear as a targetable category in the
+// recurring / promotional offer dropdowns.
 const RESOURCE_CATEGORY_OPTIONS = [
   { id: 'MACHINE', label: 'Bowling Machine' },
   { id: 'SIDEARM', label: 'Sidearm' },
   { id: 'COACHING', label: 'Personal Coaching' },
   { id: 'NET', label: 'Cricket Nets' },
   { id: 'FULL_COURT', label: 'Full Indoor Court' },
-  { id: 'CORPORATE_BATCH', label: 'Corporate Batch' },
 ];
+
+// Full label lookup for displaying an offer's targeted categories on its card.
+// Includes non-selectable/legacy categories (e.g. Corporate Batch) so an
+// existing offer that still references one renders a friendly label instead of
+// a raw enum value, even though it can no longer be chosen.
+const RESOURCE_CATEGORY_LABELS: Record<string, string> = {
+  MACHINE: 'Bowling Machine',
+  SIDEARM: 'Sidearm',
+  COACHING: 'Personal Coaching',
+  NET: 'Cricket Nets',
+  FULL_COURT: 'Full Indoor Court',
+  CORPORATE_BATCH: 'Corporate Batch',
+};
 
 const MACHINE_OPTIONS = [
   { id: 'GRAVITY', label: 'Gravity' },
@@ -278,7 +295,7 @@ function TargetingRows({
           {hasCategories
             ? categories!.map((c) => (
                 <Badge key={c} color="purple">
-                  {RESOURCE_CATEGORY_OPTIONS.find((o) => o.id === c)?.label ?? c}
+                  {RESOURCE_CATEGORY_LABELS[c] ?? c}
                 </Badge>
               ))
             : allHint('All categories')}
