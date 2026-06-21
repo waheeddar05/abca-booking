@@ -25,31 +25,37 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: 'allCenters requires super admin' }, { status: 403 });
     }
 
-    // Optional date range — filters UserPackages by activationDate, matching
-    // the CSV export so the on-screen summary and the download agree.
+    // Optional date range — scope UserPackages by PURCHASE date (createdAt),
+    // IST-shifted so a calendar day picked in the UI maps to the matching IST
+    // day. This mirrors the admin dashboard's Package Revenue exactly, so this
+    // report's Total Revenue and the dashboard agree to the rupee.
+    //
+    // Previously this filtered by activationDate, which recognised a package's
+    // revenue in the month it was first activated rather than the month it was
+    // paid for — so a package bought in April but activated in May showed up in
+    // May here while the dashboard (correctly) counted it in April. createdAt
+    // also can't be null, unlike activationDate, so not-yet-activated packages
+    // are no longer silently dropped from a dated range.
     // Empty range = existing all-time behaviour.
-    let activationFilter: { gte?: Date; lte?: Date } | undefined;
+    const IST_OFFSET_MS = (5 * 60 + 30) * 60 * 1000;
+    let createdFilter: { gte?: Date; lt?: Date } | undefined;
     if (fromDate || toDate) {
-      activationFilter = {};
-      if (fromDate) activationFilter.gte = new Date(fromDate);
-      if (toDate) {
-        const end = new Date(toDate);
-        end.setHours(23, 59, 59, 999);
-        activationFilter.lte = end;
-      }
+      createdFilter = {};
+      if (fromDate) createdFilter.gte = new Date(new Date(fromDate).getTime() - IST_OFFSET_MS);
+      if (toDate) createdFilter.lt = new Date(new Date(toDate).getTime() + 24 * 60 * 60 * 1000 - IST_OFFSET_MS);
     }
 
     // UserPackage doesn't carry centerId directly — derive via Package.centerId.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const upCenterFilter: any = {};
     if (centerId) upCenterFilter.package = { centerId };
-    if (activationFilter) upCenterFilter.activationDate = activationFilter;
+    if (createdFilter) upCenterFilter.createdAt = createdFilter;
 
     // PackageBooking scopes through its UserPackage relation.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const upSubFilter: any = {};
     if (centerId) upSubFilter.package = { centerId };
-    if (activationFilter) upSubFilter.activationDate = activationFilter;
+    if (createdFilter) upSubFilter.createdAt = createdFilter;
     const pbCenterFilter = Object.keys(upSubFilter).length
       ? { userPackage: upSubFilter }
       : {};
@@ -119,13 +125,18 @@ export async function GET(req: NextRequest) {
     const totalSessionsSold = nonCancelled.reduce((sum, up) => sum + up.totalSessions, 0);
     const totalSessionsConsumed = allUserPackages.reduce((sum, up) => sum + up.usedSessions, 0);
     const totalExtraChargesCollected = packageBookings.reduce((sum, pb) => sum + pb.extraCharge, 0);
-    const totalRevenue = allUserPackages.reduce((sum, up) => sum + netRevenueForUP(up), 0);
+    // Revenue excludes CANCELLED packages — same as the admin dashboard's
+    // Package Revenue. (Counts/sessions below still cover all statuses so the
+    // Active/Expired/Cancelled cards stay accurate.)
+    const totalRevenue = nonCancelled.reduce((sum, up) => sum + netRevenueForUP(up), 0);
     const totalRefunded = allUserPackages.reduce(
       (sum, up) => sum + (refundByPackage.get(up.id) || 0),
       0,
     );
 
-    // Revenue per package type (net of refunds, all statuses)
+    // Revenue per package type (net of refunds). Revenue + sold exclude
+    // CANCELLED so the per-package rows sum to totalRevenue (and the dashboard);
+    // sessionsUsed still covers all statuses.
     const packageNameMap = new Map(packages.map(p => [p.id, p.name]));
     const revenueByPackage: Record<string, { revenue: number; sold: number; sessionsUsed: number }> = {};
     for (const up of allUserPackages) {
@@ -133,8 +144,10 @@ export async function GET(req: NextRequest) {
       if (!revenueByPackage[name]) {
         revenueByPackage[name] = { revenue: 0, sold: 0, sessionsUsed: 0 };
       }
-      revenueByPackage[name].revenue += netRevenueForUP(up);
-      if (up.status !== 'CANCELLED') revenueByPackage[name].sold += 1;
+      if (up.status !== 'CANCELLED') {
+        revenueByPackage[name].revenue += netRevenueForUP(up);
+        revenueByPackage[name].sold += 1;
+      }
       revenueByPackage[name].sessionsUsed += up.usedSessions;
     }
 

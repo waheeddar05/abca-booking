@@ -40,14 +40,14 @@ export async function GET(req: NextRequest) {
     if (status) where.status = status;
     if (packageId) where.packageId = packageId;
     if (userId) where.userId = userId;
+    // Scope by PURCHASE date (createdAt), IST-shifted — same basis as the
+    // Packages report summary and the admin dashboard, so the exported rows
+    // reconcile with the on-screen Total Revenue. (Was activationDate.)
     if (fromDate || toDate) {
-      where.activationDate = {} as { gte?: Date; lte?: Date };
-      if (fromDate) where.activationDate.gte = new Date(fromDate);
-      if (toDate) {
-        const end = new Date(toDate);
-        end.setHours(23, 59, 59, 999);
-        where.activationDate.lte = end;
-      }
+      const IST_OFFSET_MS = (5 * 60 + 30) * 60 * 1000;
+      where.createdAt = {} as { gte?: Date; lt?: Date };
+      if (fromDate) where.createdAt.gte = new Date(new Date(fromDate).getTime() - IST_OFFSET_MS);
+      if (toDate) where.createdAt.lt = new Date(new Date(toDate).getTime() + 24 * 60 * 60 * 1000 - IST_OFFSET_MS);
     }
 
     const userPackages = await prisma.userPackage.findMany({
@@ -71,7 +71,7 @@ export async function GET(req: NextRequest) {
           },
         },
       },
-      orderBy: { activationDate: 'desc' },
+      orderBy: { createdAt: 'desc' },
     });
 
     // Fetch refund transactions keyed by userPackageId
