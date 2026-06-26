@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { requireSuperAdmin, getAdminSession } from '@/lib/adminAuth';
-import { executeSlotBooking } from '@/app/api/slots/book/route';
+import { executeResourceBooking, ResourceBookingBodySchema } from '@/app/api/slots/book-resource/route';
 import { initiateRefund } from '@/lib/razorpay';
 import { sanitizeApiError } from '@/lib/api-errors';
 
@@ -112,25 +112,41 @@ export async function POST(req: NextRequest, ctx: { params: Promise<Params> }) {
     const SUPER_ADMIN_EMAIL = process.env.SUPER_ADMIN_EMAIL || process.env.INITIAL_ADMIN_EMAIL || '';
     const isPayerSuperAdmin = !!(payment.user.email && SUPER_ADMIN_EMAIL && payment.user.email === SUPER_ADMIN_EMAIL);
 
-    const bookings = await executeSlotBooking(
+    // All centers use the resource-based model; the legacy executeSlotBooking
+    // engine has been removed. Recreate the booking via executeResourceBooking
+    // using the resource-shaped payload stored in metadata.bookingPayload[0].
+    const center = await prisma.center.findUnique({
+      where: { id: payment.centerId },
+      select: { id: true, name: true, bookingModel: true },
+    });
+    if (!center) {
+      return NextResponse.json({ error: 'Center not found for this payment' }, { status: 400 });
+    }
+    const parsed = ResourceBookingBodySchema.safeParse(bookingPayload[0]);
+    if (!parsed.success) {
+      return NextResponse.json(
+        { error: 'Stored booking payload is not a valid resource booking — refund instead.' },
+        { status: 400 },
+      );
+    }
+
+    const bookings = await executeResourceBooking(
       {
         id: payment.user.id,
         name: payment.user.name || undefined,
         role: payment.user.role,
         email: payment.user.email || undefined,
         isSuperAdmin: isPayerSuperAdmin,
-        isFreeUser: payment.user.isFreeUser,
-        isSpecialUser: payment.user.isSpecialUser,
-        mobileVerified: payment.user.mobileVerified,
       },
-      bookingPayload.map((slot) => ({ ...slot, paymentId: payment.id })),
-      payment.centerId,
+      parsed.data,
+      center,
       { onlinePaymentId: payment.id },
     );
 
     await prisma.payment.update({
       where: { id: payment.id },
       data: {
+        bookingIds: bookings.map((b) => b.id),
         metadata: stampRecoveryHandled(payment.metadata, `Booking created by ${adminLabel}`),
       },
     });

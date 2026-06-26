@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { getAuthenticatedUser } from '@/lib/auth';
 import { verifyPaymentSignatureForCenter } from '@/lib/razorpay';
-import { executeSlotBooking, BookingServiceError } from '@/app/api/slots/book/route';
 import {
   executeResourceBooking,
   ResourceBookingBodySchema,
@@ -331,43 +330,21 @@ export async function POST(req: NextRequest) {
           });
         }
 
-        try {
-          // Attach paymentId to each slot so the booking logic links them
-          const slotsWithPayment = bookingPayload.map(slot => ({
-            ...slot,
-            paymentId: payment.id,
-          }));
-
-          const bookings = await executeSlotBooking(user, slotsWithPayment, payment.centerId, {
-            onlinePaymentId: payment.id,
-          });
-
-          log.info({ ...baseCtx, bookingIds: bookings.map(b => b.id) }, 'Bookings created successfully');
-          result = { bookings };
-        } catch (bookingErr) {
-          // Booking failed after payment was captured. executeSlotBooking
-          // *attempts* an auto-refund to wallet, but in production we
-          // have observed cases where neither booking nor refund landed
-          // (e.g. Prisma schema drift, DB connection blip). Mark the
-          // payment row so the orphan-recovery admin endpoint can find
-          // it later. Returning 5xx so the client also alerts the user.
-          const errMsg = bookingErr instanceof Error ? bookingErr.message : 'Booking creation failed after payment';
-          log.error(baseCtx, 'Booking creation failed after payment CAPTURED', bookingErr);
-
-          await markCaptureNeedsRecovery(payment.id, errMsg).catch((e) =>
-            log.error(baseCtx, 'Failed to mark recovery flag', e),
-          );
-
-          const extra = bookingErr instanceof BookingServiceError ? bookingErr.extra : {};
-          return NextResponse.json({
-            success: false,
-            error: errMsg,
-            paymentId: payment.id,
-            razorpayPaymentId: razorpay_payment_id,
-            type: payment.paymentType,
-            ...extra,
-          }, { status: bookingErr instanceof BookingServiceError ? bookingErr.status : 500 });
-        }
+        // All centers use the resource-based model; the legacy
+        // executeSlotBooking engine has been removed. Reaching here means a
+        // misconfigured (non-resource) center — flag for recovery rather
+        // than silently confirming a booking we can't create.
+        log.error(baseCtx, `Unsupported booking model ${center.bookingModel} for center ${center.id}`);
+        await markCaptureNeedsRecovery(payment.id, `Unsupported booking model ${center.bookingModel}`).catch((e) =>
+          log.error(baseCtx, 'Failed to mark recovery flag', e),
+        );
+        return NextResponse.json({
+          success: false,
+          error: 'Payment captured but this center is misconfigured. Our team has been notified and will reconcile shortly.',
+          paymentId: payment.id,
+          razorpayPaymentId: razorpay_payment_id,
+          type: payment.paymentType,
+        }, { status: 500 });
       } else {
         // No bookingPayload in metadata for a SLOT_BOOKING is a bug, not
         // a benign legacy fallthrough. Used to silently return success;

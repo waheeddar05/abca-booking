@@ -20,22 +20,12 @@
  *
  * Total refunded = ₹900 = original total. Correct.
  *
- * Both ABCA (MACHINE_PITCH, legacy `machineId` enum) and Toplay
- * (RESOURCE_BASED, `assignedMachineId` FK) are supported.
+ * All centers use the resource-based model; repricing keys on the
+ * `assignedMachineId` / `assignedCoachId` / `assignedStaffId` axes.
  */
 
 import { prisma } from '@/lib/prisma';
 import type { Booking } from '@prisma/client';
-import {
-  calculateNewPricing,
-  getPricingConfig,
-  getTimeSlabConfig,
-} from '@/lib/pricing';
-import {
-  getBallTypeForMachine,
-  MACHINE_A_BALLS,
-} from '@/lib/constants';
-import type { MachineId } from '@prisma/client';
 import { getResourceSlotPrice, getResourcePricingConfig } from '@/lib/resource-pricing';
 import { creditWallet, getDefaultRefundMethod, isWalletEnabled } from '@/lib/wallet';
 import { notifyWalletCredit } from '@/lib/notifications';
@@ -64,11 +54,9 @@ export async function adjustSiblingPricesForCancellation(
 
   let consecutiveAdjustment = 0;
   try {
-    if (center.bookingModel === 'RESOURCE_BASED') {
-      consecutiveAdjustment = await adjustSiblingsResourceBased(booking, center.id);
-    } else {
-      consecutiveAdjustment = await adjustSiblingsMachinePitch(booking);
-    }
+    // All centers use the resource-based model; the legacy MACHINE_PITCH
+    // sibling-reprice path has been removed.
+    consecutiveAdjustment = await adjustSiblingsResourceBased(booking, center.id);
   } catch (e) {
     console.error('[BookingCancel] Sibling reprice failed:', e);
     return 0;
@@ -84,144 +72,6 @@ export async function adjustSiblingPricesForCancellation(
     booking.price = adjustedPrice;
   }
   return consecutiveAdjustment;
-}
-
-// ─── ABCA (MACHINE_PITCH) — legacy logic, lifted from /api/slots/cancel ──
-
-async function adjustSiblingsMachinePitch(booking: Booking): Promise<number> {
-  if (!booking.machineId || !booking.userId) return 0;
-
-  const siblings = await prisma.booking.findMany({
-    where: {
-      id: { not: booking.id },
-      userId: booking.userId,
-      date: booking.date,
-      machineId: booking.machineId,
-      pitchType: booking.pitchType,
-      status: 'BOOKED',
-    },
-    orderBy: { startTime: 'asc' },
-  });
-  if (siblings.length === 0) return 0;
-
-  const ballType = booking.ballType || getBallTypeForMachine(booking.machineId);
-  const category: 'MACHINE' | 'TENNIS' = MACHINE_A_BALLS.includes(ballType) ? 'MACHINE' : 'TENNIS';
-
-  // Center-aware reads so the sibling re-price uses the same pricing rows
-  // the original booking was created with.
-  const pricingConfig = await getPricingConfig(booking.centerId);
-  const timeSlabConfig = await getTimeSlabConfig(booking.centerId);
-
-  const remainingSlots = siblings.map((b) => ({
-    startTime: new Date(b.startTime),
-    endTime: new Date(b.endTime),
-  }));
-
-  const newPricing = calculateNewPricing(
-    remainingSlots,
-    category,
-    ballType,
-    booking.pitchType,
-    timeSlabConfig,
-    pricingConfig,
-    booking.machineId as MachineId,
-  );
-
-  // Re-apply recurring slot discounts so sibling prices match what
-  // executeSlotBooking would have charged if they'd been booked alone.
-  await reapplyRecurringDiscounts({
-    booking,
-    siblings,
-    newPricing,
-  });
-
-  let adjustment = 0;
-  for (let i = 0; i < siblings.length; i++) {
-    const sibling = siblings[i];
-    const newPrice = newPricing[i].price;
-    const oldPrice = sibling.price || 0;
-    const increase = newPrice - oldPrice;
-    if (increase > 0) {
-      adjustment += increase;
-      await prisma.booking.update({
-        where: { id: sibling.id },
-        data: {
-          price: newPrice,
-          originalPrice: newPricing[i].originalPrice,
-          discountAmount: newPricing[i].discountAmount > 0 ? newPricing[i].discountAmount : null,
-          discountType: newPricing[i].discountAmount > 0 ? 'FIXED' : null,
-        },
-      });
-    }
-  }
-  return adjustment;
-}
-
-async function reapplyRecurringDiscounts({
-  booking,
-  siblings,
-  newPricing,
-}: {
-  booking: Booking;
-  siblings: Booking[];
-  newPricing: Array<{ price: number; originalPrice: number; discountAmount: number }>;
-}): Promise<void> {
-  let rules: Array<{
-    days: number[];
-    slotStartTime: string;
-    slotEndTime: string | null;
-    machineIds: string[];
-    oneSlotDiscount: number;
-    twoSlotDiscount: number;
-  }> = [];
-  try {
-    rules = (await prisma.recurringSlotDiscount.findMany({
-      where: { enabled: true, centerId: booking.centerId },
-    })) as typeof rules;
-  } catch {
-    // Table or column may not exist on older DBs — skip silently.
-    return;
-  }
-  if (rules.length === 0) return;
-
-  const getISTTimeStr = (d: Date): string => {
-    const istMs = d.getTime() + (5 * 60 + 30) * 60 * 1000;
-    const ist = new Date(istMs);
-    return `${ist.getUTCHours().toString().padStart(2, '0')}:${ist.getUTCMinutes().toString().padStart(2, '0')}`;
-  };
-  const getISTDay = (d: Date): number => {
-    const istMs = d.getTime() + (5 * 60 + 30) * 60 * 1000;
-    return new Date(istMs).getUTCDay();
-  };
-
-  const remainingConsecutive = siblings.length >= 2;
-  const perSlotKey = remainingConsecutive ? 'twoSlotDiscount' : 'oneSlotDiscount';
-
-  for (let i = 0; i < siblings.length; i++) {
-    const start = siblings[i].startTime;
-    const dow = getISTDay(start);
-    const istTime = getISTTimeStr(start);
-
-    for (const rule of rules) {
-      if (!rule.days.includes(dow)) continue;
-      const ruleStart = rule.slotStartTime.padStart(5, '0');
-      const ruleEnd = (rule.slotEndTime || rule.slotStartTime).padStart(5, '0');
-      if (istTime < ruleStart || istTime >= ruleEnd) continue;
-      if (
-        rule.machineIds &&
-        rule.machineIds.length > 0 &&
-        booking.machineId &&
-        !rule.machineIds.includes(booking.machineId)
-      ) {
-        continue;
-      }
-      const discount = rule[perSlotKey];
-      const reduction = Math.min(discount, newPricing[i].price);
-      newPricing[i].price = Math.max(0, newPricing[i].price - reduction);
-      newPricing[i].discountAmount += reduction;
-      break;
-    }
-  }
 }
 
 // ─── Toplay (RESOURCE_BASED) — same idea via getResourceSlotPrice ────

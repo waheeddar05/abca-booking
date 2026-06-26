@@ -35,7 +35,6 @@ import { fetchOrderPayments, type RazorpayOrderPaymentItem } from './razorpay';
 import { markCaptureNeedsRecovery } from './payment-recovery';
 import { completePackagePurchase } from './package-purchase';
 import { log } from './logger';
-import { executeSlotBooking } from '@/app/api/slots/book/route';
 import {
   executeResourceBooking,
   ResourceBookingBodySchema,
@@ -247,12 +246,15 @@ async function finalizeCapturedPayment(
       return { paymentId, result: 'booking_created', bookingIds: bookings.map((b) => b.id) };
     }
 
-    const slotsWithPayment = bookingPayload.map((slot) => ({ ...slot, paymentId: payment.id }));
-    const bookings = await executeSlotBooking(authedUser, slotsWithPayment, payment.centerId, {
-      onlinePaymentId: payment.id,
-    });
-    log.info({ ...ctx, bookingIds: bookings.map((b) => b.id) }, 'Reconcile created booking(s)');
-    return { paymentId, result: 'booking_created', bookingIds: bookings.map((b) => b.id) };
+    // All centers use the resource-based model; the legacy
+    // executeSlotBooking engine has been removed. A non-resource center
+    // here is a misconfiguration — flag for manual recovery rather than
+    // booking via the removed legacy path.
+    await markCaptureNeedsRecovery(
+      payment.id,
+      `[reconcile/${source}] unsupported booking model ${center.bookingModel}`,
+    ).catch(() => {});
+    return { paymentId, result: 'failed', error: `unsupported booking model ${center.bookingModel}` };
   } catch (e) {
     // executeSlotBooking auto-refunds to wallet on a genuine booking
     // failure (slot gone, etc.); we just record the outcome here.

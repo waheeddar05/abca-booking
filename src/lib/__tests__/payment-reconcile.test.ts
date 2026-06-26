@@ -10,7 +10,6 @@ vi.mock('@/lib/package-purchase', () => ({ completePackagePurchase: vi.fn() }));
 vi.mock('@/lib/logger', () => ({
   log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }));
-vi.mock('@/app/api/slots/book/route', () => ({ executeSlotBooking: vi.fn() }));
 vi.mock('@/app/api/slots/book-resource/route', () => ({
   executeResourceBooking: vi.fn(),
   ResourceBookingBodySchema: { safeParse: vi.fn() },

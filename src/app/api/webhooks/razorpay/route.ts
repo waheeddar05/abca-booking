@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { executeSlotBooking } from '@/app/api/slots/book/route';
 import {
   executeResourceBooking,
   ResourceBookingBodySchema,
@@ -210,29 +209,12 @@ export async function POST(req: NextRequest) {
         }
       }
 
-      try {
-        const slotsWithPayment = bookingPayload.map(slot => ({
-          ...slot,
-          paymentId: payment.id,
-        }));
-
-        console.log(`[RazorpayWebhook] Creating ${bookingPayload.length} booking(s) for payment ${payment.id} user=${user.id}`);
-
-        const bookings = await executeSlotBooking(
-          authedUser,
-          slotsWithPayment,
-          payment.centerId,
-          { onlinePaymentId: payment.id },
-        );
-
-        console.log(`[RazorpayWebhook] Bookings created via webhook: ${bookings.map(b => b.id).join(', ')}`);
-        return NextResponse.json({ status: 'bookings_created', bookingIds: bookings.map(b => b.id) });
-      } catch (bookingErr) {
-        // executeSlotBooking already handles auto-refund to wallet internally
-        const errMsg = bookingErr instanceof Error ? bookingErr.message : 'Booking failed';
-        console.error(`[RazorpayWebhook] Booking creation failed for payment ${payment.id}:`, bookingErr);
-        return NextResponse.json({ status: 'booking_failed', error: errMsg });
-      }
+      // All centers use the resource-based model; the legacy
+      // executeSlotBooking engine has been removed. A non-resource center
+      // reaching here is a misconfiguration — report booking_failed so the
+      // payment is surfaced for review rather than silently confirmed.
+      console.error(`[RazorpayWebhook] Unsupported booking model ${center.bookingModel} for payment ${payment.id}`);
+      return NextResponse.json({ status: 'booking_failed', error: `unsupported booking model ${center.bookingModel}` });
     }
 
     // PACKAGE_PURCHASE completion. Previously this branch just logged
