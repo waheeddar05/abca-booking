@@ -52,6 +52,18 @@ export const PACKAGE_BALL_LABEL: Record<string, string> = {
   TENNIS: 'Tennis',
 };
 
+// Fixed Ball Type choices for the admin Assign Package form. Unlike the
+// create/edit forms (whose options are derived from the selected
+// machine's effective ball types), the Assign tab offers an explicit,
+// machine-independent pick of Leather / Tennis / Machine — the admin
+// records the ball type the assigned package is for, and it is saved
+// verbatim. Order matches the product spec.
+export const PACKAGE_BALL_ALL_OPTIONS = [
+  { value: 'LEATHER', label: 'Leather' },
+  { value: 'TENNIS', label: 'Tennis' },
+  { value: 'MACHINE', label: 'Machine' },
+] as const;
+
 /**
  * Ball-type dropdown options valid for a machine's category.
  *   - Leather machines (Gravity / Yantra) → Machine / Leather.

@@ -59,7 +59,6 @@ export async function GET(req: NextRequest) {
             name: true,
             machineType: true,
             totalSessions: true,
-            price: true,
             // `category` discriminates Bowling Machine / Cricket Nets /
             // Sidearm / Personal Coaching / Full Indoor Court. Legacy
             // ABCA rows have null here — `packageCategoryLabel` falls
@@ -182,8 +181,10 @@ export async function GET(req: NextRequest) {
       'Wallet Amount',
       'Online Amount',
       'Refunded Amount',
-      'Package Price',
       'Status',
+      // Date the package was purchased / assigned (UserPackage.createdAt),
+      // IST. Replaces the former "Package Price" column.
+      'Package Bought Date',
       'Activation Date',
       'Expiry Date',
     ];
@@ -209,8 +210,8 @@ export async function GET(req: NextRequest) {
         split.wallet,
         split.online,
         refundByPackage.get(up.id) || 0,
-        up.package?.price || '',
         up.status,
+        up.createdAt ? new Date(up.createdAt).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata' }) : '',
         up.activationDate ? new Date(up.activationDate).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata' }) : 'Not Yet Activated',
         up.expiryDate ? new Date(up.expiryDate).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata' }) : 'N/A',
       ];

@@ -50,6 +50,7 @@ export async function GET(req: NextRequest) {
     const to = searchParams.get('to');
     const status = searchParams.get('status');
     const customer = searchParams.get('customer');
+    const userId = searchParams.get('userId');
     const categoryFilter = searchParams.get('categoryFilter');
     const allCenters = searchParams.get('allCenters') === 'true';
 
@@ -118,9 +119,14 @@ export async function GET(req: NextRequest) {
       where.status = status;
     }
 
-    // Customer search — same name/email match the list uses, so the CSV
-    // reflects exactly the rows the admin is looking at.
-    if (customer) {
+    // Exact-customer filter — when the admin picked a specific customer
+    // from the Customer autocomplete, the list scopes to that user's id.
+    // Mirror it here so the CSV contains only that customer's rows.
+    if (userId) {
+      where.userId = userId;
+    } else if (customer) {
+      // Free-text fallback (admin typed a name without selecting) — same
+      // name/email substring match the list uses.
       where.OR = [
         { playerName: { contains: customer, mode: 'insensitive' } },
         { user: { name: { contains: customer, mode: 'insensitive' } } },

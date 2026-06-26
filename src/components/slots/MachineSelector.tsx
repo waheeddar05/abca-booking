@@ -7,9 +7,13 @@ import type { MachineId } from '@/lib/schemas';
 interface MachineSelectorProps {
   selectedMachineId: MachineId;
   onSelect: (id: MachineId) => void;
+  /** Machine cards in display order. Defaults to the static MACHINE_CARDS
+   *  list; the slots page passes a copy reordered to match the center's
+   *  admin-configured machine priority (Machine.displayOrder). */
+  cards?: MachineCard[];
 }
 
-export const MachineSelector = memo(function MachineSelector({ selectedMachineId, onSelect }: MachineSelectorProps) {
+export const MachineSelector = memo(function MachineSelector({ selectedMachineId, onSelect, cards = MACHINE_CARDS }: MachineSelectorProps) {
   return (
     <div className="mb-4" role="radiogroup" aria-label="Machine Type">
       <label className="block text-[10px] font-medium text-accent mb-1 uppercase tracking-wider">
@@ -18,7 +22,7 @@ export const MachineSelector = memo(function MachineSelector({ selectedMachineId
 
       {/* Single grid: max two boxes per row, remaining wrap to the next row */}
       <div className="grid grid-cols-2 gap-2">
-        {MACHINE_CARDS.map((card) => (
+        {cards.map((card) => (
           <MachineCardButton
             key={card.id}
             card={card}

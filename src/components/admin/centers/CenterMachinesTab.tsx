@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Plus, Loader2, Pencil, Check, X, Power, PowerOff } from 'lucide-react';
+import { Plus, Loader2, Pencil, Check, X, Power, PowerOff, ChevronUp, ChevronDown } from 'lucide-react';
 import { Field, TextInput, SelectInput, PrimaryButton, SecondaryButton, Banner } from './centerForms';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 
@@ -46,6 +46,7 @@ export function CenterMachinesTab({ centerId }: { centerId: string }) {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [confirmDeactivateId, setConfirmDeactivateId] = useState<string | null>(null);
   const [deactivating, setDeactivating] = useState(false);
+  const [reordering, setReordering] = useState(false);
 
   // We no longer fetch resources here — the "default lane" picker has
   // been removed from the simplified editor. Resources are still
@@ -91,6 +92,37 @@ export function CenterMachinesTab({ centerId }: { centerId: string }) {
     if (res.ok) refresh();
   };
 
+  // Move a machine up (dir = -1) or down (dir = +1) in the priority order
+  // and persist the new sequence. The saved displayOrder also drives the
+  // user-facing "Book Your Slot" machine order. Optimistically reorder the
+  // list, then reconcile with the server response (revert on failure).
+  const moveMachine = async (index: number, dir: -1 | 1) => {
+    const target = index + dir;
+    if (reordering || target < 0 || target >= machines.length) return;
+    const reordered = [...machines];
+    const [moved] = reordered.splice(index, 1);
+    reordered.splice(target, 0, moved);
+    setMachines(reordered);
+    setReordering(true);
+    try {
+      const res = await fetch(`/api/admin/centers/${centerId}/machines/reorder`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ machineIds: reordered.map((m) => m.id) }),
+      });
+      if (res.ok) {
+        setMachines(await res.json());
+      } else {
+        // Reordering failed — pull the authoritative order back.
+        refresh();
+      }
+    } catch {
+      refresh();
+    } finally {
+      setReordering(false);
+    }
+  };
+
   if (loading) {
     return <div className="flex items-center gap-2 text-slate-400 py-6 justify-center"><Loader2 className="w-4 h-4 animate-spin" /> Loading…</div>;
   }
@@ -133,73 +165,104 @@ export function CenterMachinesTab({ centerId }: { centerId: string }) {
       {machines.length === 0 ? (
         <div className="text-center text-slate-500 py-6 text-sm">No machines configured yet.</div>
       ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
-          {machines.map((m) => (
-            <div key={m.id} className="rounded-xl bg-white/[0.02] border border-white/[0.06] p-2.5">
-              {editingId === m.id ? (
-                <MachineEditor
-                  centerId={centerId}
-                  types={types}
-                  initial={m}
-                  onCancel={() => setEditingId(null)}
-                  onSaved={() => { setEditingId(null); refresh(); }}
-                />
-              ) : (
-                <div className="flex items-center justify-between gap-2">
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-1.5 flex-wrap">
-                      <span className="text-sm font-semibold text-white">{m.name}</span>
-                      <span className={`inline-flex items-center gap-1 text-[9px] px-1.5 py-0.5 rounded uppercase tracking-wide ${m.isActive ? 'bg-emerald-500/10 text-emerald-400' : 'bg-red-500/10 text-red-400'}`}>
-                        {m.isActive ? 'Active' : 'Inactive'}
-                      </span>
+        <>
+          {machines.length > 1 && (
+            <p className="text-[11px] text-slate-500 -mt-1">
+              Use the arrows to set the machine order. This order is shown to
+              users in the &ldquo;Book Your Slot&rdquo; section.
+            </p>
+          )}
+          <div className="space-y-2">
+            {machines.map((m, i) => (
+              <div key={m.id} className="rounded-xl bg-white/[0.02] border border-white/[0.06] p-2.5">
+                {editingId === m.id ? (
+                  <MachineEditor
+                    centerId={centerId}
+                    types={types}
+                    initial={m}
+                    onCancel={() => setEditingId(null)}
+                    onSaved={() => { setEditingId(null); refresh(); }}
+                  />
+                ) : (
+                  <div className="flex items-center justify-between gap-2">
+                    {/* Reorder controls — move this machine up/down in the
+                        priority order. Disabled at the list boundaries and
+                        while a reorder request is in flight. */}
+                    <div className="flex flex-col flex-shrink-0">
+                      <button
+                        onClick={() => moveMachine(i, -1)}
+                        disabled={i === 0 || reordering}
+                        className="p-0.5 rounded text-slate-400 hover:bg-white/[0.06] hover:text-white cursor-pointer disabled:opacity-25 disabled:cursor-not-allowed"
+                        title="Move up"
+                        aria-label={`Move ${m.name} up`}
+                      >
+                        <ChevronUp className="w-4 h-4" />
+                      </button>
+                      <button
+                        onClick={() => moveMachine(i, 1)}
+                        disabled={i === machines.length - 1 || reordering}
+                        className="p-0.5 rounded text-slate-400 hover:bg-white/[0.06] hover:text-white cursor-pointer disabled:opacity-25 disabled:cursor-not-allowed"
+                        title="Move down"
+                        aria-label={`Move ${m.name} down`}
+                      >
+                        <ChevronDown className="w-4 h-4" />
+                      </button>
                     </div>
-                    <div className="text-[11px] text-slate-500 mt-0.5">
-                      {m.machineType.name} · {m.machineType.ballType.toLowerCase()} ball
-                    </div>
-                    {m.supportedPitchTypes.length > 0 && (
-                      <div className="flex flex-wrap gap-1 mt-1.5">
-                        {m.supportedPitchTypes.map((p) => (
-                          <span
-                            key={`p-${p}`}
-                            className="text-[9px] uppercase tracking-wide px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-300 border border-blue-500/15"
-                          >
-                            {PITCH_TYPE_OPTIONS.find((o) => o.id === p)?.label ?? p}
-                          </span>
-                        ))}
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <span className="text-sm font-semibold text-white">{m.name}</span>
+                        <span className={`inline-flex items-center gap-1 text-[9px] px-1.5 py-0.5 rounded uppercase tracking-wide ${m.isActive ? 'bg-emerald-500/10 text-emerald-400' : 'bg-red-500/10 text-red-400'}`}>
+                          {m.isActive ? 'Active' : 'Inactive'}
+                        </span>
                       </div>
-                    )}
-                  </div>
-                  <div className="flex gap-0.5 flex-shrink-0">
-                    <button
-                      onClick={() => setEditingId(m.id)}
-                      className="p-1.5 rounded-lg text-slate-400 hover:bg-white/[0.06] hover:text-white cursor-pointer"
-                      title="Edit"
-                    >
-                      <Pencil className="w-3.5 h-3.5" />
-                    </button>
-                    {m.isActive ? (
+                      <div className="text-[11px] text-slate-500 mt-0.5">
+                        {m.machineType.name} · {m.machineType.ballType.toLowerCase()} ball
+                      </div>
+                      {m.supportedPitchTypes.length > 0 && (
+                        <div className="flex flex-wrap gap-1 mt-1.5">
+                          {m.supportedPitchTypes.map((p) => (
+                            <span
+                              key={`p-${p}`}
+                              className="text-[9px] uppercase tracking-wide px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-300 border border-blue-500/15"
+                            >
+                              {PITCH_TYPE_OPTIONS.find((o) => o.id === p)?.label ?? p}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                    <div className="flex gap-0.5 flex-shrink-0">
                       <button
-                        onClick={() => setConfirmDeactivateId(m.id)}
-                        className="p-1.5 rounded-lg text-amber-400/70 hover:bg-amber-500/10 hover:text-amber-400 cursor-pointer"
-                        title="Deactivate"
+                        onClick={() => setEditingId(m.id)}
+                        className="p-1.5 rounded-lg text-slate-400 hover:bg-white/[0.06] hover:text-white cursor-pointer"
+                        title="Edit"
                       >
-                        <PowerOff className="w-3.5 h-3.5" />
+                        <Pencil className="w-3.5 h-3.5" />
                       </button>
-                    ) : (
-                      <button
-                        onClick={() => activate(m.id)}
-                        className="p-1.5 rounded-lg text-emerald-400/70 hover:bg-emerald-500/10 hover:text-emerald-400 cursor-pointer"
-                        title="Activate"
-                      >
-                        <Power className="w-3.5 h-3.5" />
-                      </button>
-                    )}
+                      {m.isActive ? (
+                        <button
+                          onClick={() => setConfirmDeactivateId(m.id)}
+                          className="p-1.5 rounded-lg text-amber-400/70 hover:bg-amber-500/10 hover:text-amber-400 cursor-pointer"
+                          title="Deactivate"
+                        >
+                          <PowerOff className="w-3.5 h-3.5" />
+                        </button>
+                      ) : (
+                        <button
+                          onClick={() => activate(m.id)}
+                          className="p-1.5 rounded-lg text-emerald-400/70 hover:bg-emerald-500/10 hover:text-emerald-400 cursor-pointer"
+                          title="Activate"
+                        >
+                          <Power className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                    </div>
                   </div>
-                </div>
-              )}
-            </div>
-          ))}
-        </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </>
       )}
 
       <ConfirmDialog

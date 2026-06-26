@@ -47,7 +47,14 @@ function AdminBookingsContent() {
   const [sortOrder, setSortOrder] = useState('desc');
   const [filters, setFilters] = useState({
     status: '',
+    // `customer` holds the text shown in the Customer field. When the
+    // admin picks a specific person from the autocomplete, `customerId`
+    // is set and the list filters by that exact user id (so ONLY that
+    // customer's bookings appear). Plain typing without a selection
+    // keeps `customerId` empty and falls back to a name/email substring
+    // search.
     customer: '',
+    customerId: '',
     date: '',
     from: '',
     to: '',
@@ -58,6 +65,11 @@ function AdminBookingsContent() {
     // center's ENABLED_BOOKING_CATEGORIES policy below.
     categoryFilter: '',
   });
+  // Customer autocomplete state (Filters → Customer). Reuses the
+  // /api/admin/users search the "Book on Behalf" modal uses.
+  const [customerResults, setCustomerResults] = useState<any[]>([]);
+  const [customerSearching, setCustomerSearching] = useState(false);
+  const [showCustomerDropdown, setShowCustomerDropdown] = useState(false);
   const [bookableCategories, setBookableCategories] = useState<string[]>([]);
   const [showDateRange, setShowDateRange] = useState(false);
   const [showFilters, setShowFilters] = useState(false);
@@ -94,7 +106,13 @@ function AdminBookingsContent() {
       const params = new URLSearchParams();
       if (category !== 'all') params.set('category', category);
       if (filters.status) params.set('status', filters.status);
-      if (filters.customer) params.set('customer', filters.customer);
+      // Exact customer (selected from autocomplete) wins; otherwise fall
+      // back to the free-text name/email substring search.
+      if (filters.customerId) {
+        params.set('userId', filters.customerId);
+      } else if (filters.customer) {
+        params.set('customer', filters.customer);
+      }
       if (filters.date) params.set('date', filters.date);
       if (filters.from && filters.to) {
         params.set('from', filters.from);
@@ -201,6 +219,56 @@ function AdminBookingsContent() {
 
   const handleFilterChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     setFilters(prev => ({ ...prev, [e.target.name]: e.target.value }));
+    setPagination(prev => ({ ...prev, page: 1 }));
+  };
+
+  // Live customer search — runs only while no exact customer is locked
+  // in (filters.customerId empty). Selecting a result locks the filter to
+  // that user's id so the list shows that customer's bookings only.
+  useEffect(() => {
+    if (filters.customerId) { setCustomerResults([]); return; }
+    const q = filters.customer.trim();
+    if (q.length < 2) { setCustomerResults([]); return; }
+    const timer = setTimeout(async () => {
+      setCustomerSearching(true);
+      try {
+        const res = await fetch(`/api/admin/users?search=${encodeURIComponent(q)}`);
+        if (res.ok) {
+          const data = await res.json();
+          const list = Array.isArray(data) ? data : (data.users || []);
+          setCustomerResults(list.slice(0, 8));
+        }
+      } catch {
+        setCustomerResults([]);
+      } finally {
+        setCustomerSearching(false);
+      }
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [filters.customer, filters.customerId]);
+
+  // Typing in the Customer field clears any locked-in selection so the
+  // admin can search again; the substring fallback applies until they
+  // pick someone from the dropdown.
+  const handleCustomerInput = (value: string) => {
+    setFilters(prev => ({ ...prev, customer: value, customerId: '' }));
+    setShowCustomerDropdown(true);
+    setPagination(prev => ({ ...prev, page: 1 }));
+  };
+
+  // Lock the filter to a specific customer (exact userId match).
+  const selectCustomer = (user: any) => {
+    const name = user.name || user.email || user.mobileNumber || 'Customer';
+    setFilters(prev => ({ ...prev, customer: name, customerId: user.id }));
+    setCustomerResults([]);
+    setShowCustomerDropdown(false);
+    setPagination(prev => ({ ...prev, page: 1 }));
+  };
+
+  const clearCustomer = () => {
+    setFilters(prev => ({ ...prev, customer: '', customerId: '' }));
+    setCustomerResults([]);
+    setShowCustomerDropdown(false);
     setPagination(prev => ({ ...prev, page: 1 }));
   };
 
@@ -409,7 +477,11 @@ function AdminBookingsContent() {
     const params = new URLSearchParams();
     if (category !== 'all') params.set('category', category);
     if (filters.status) params.set('status', filters.status);
-    if (filters.customer) params.set('customer', filters.customer);
+    if (filters.customerId) {
+      params.set('userId', filters.customerId);
+    } else if (filters.customer) {
+      params.set('customer', filters.customer);
+    }
     if (filters.categoryFilter) params.set('categoryFilter', filters.categoryFilter);
     if (filters.date) params.set('date', filters.date);
     if (filters.from && filters.to) {
@@ -695,19 +767,58 @@ function AdminBookingsContent() {
                 ))}
             </select>
           </div>
-          <div>
+          <div className="relative">
             <label className="block text-[11px] font-semibold text-slate-300 mb-1.5">Customer</label>
             <div className="relative">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
               <input
                 type="text"
                 name="customer"
-                placeholder="Search name or email..."
+                placeholder="Search & select a customer..."
                 value={filters.customer}
-                onChange={handleFilterChange}
-                className="w-full bg-white/[0.06] border border-white/[0.15] text-white placeholder:text-slate-500 rounded-lg pl-9 pr-3 py-2.5 text-sm outline-none focus:border-accent focus:ring-1 focus:ring-accent/20"
+                onChange={e => handleCustomerInput(e.target.value)}
+                onFocus={() => { if (customerResults.length > 0) setShowCustomerDropdown(true); }}
+                onBlur={() => setTimeout(() => setShowCustomerDropdown(false), 150)}
+                autoComplete="off"
+                className={`w-full bg-white/[0.06] border text-white placeholder:text-slate-500 rounded-lg pl-9 pr-8 py-2.5 text-sm outline-none focus:border-accent focus:ring-1 focus:ring-accent/20 ${filters.customerId ? 'border-accent/50' : 'border-white/[0.15]'}`}
               />
+              {customerSearching && !filters.customerId && (
+                <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 animate-spin" />
+              )}
+              {(filters.customer || filters.customerId) && !customerSearching && (
+                <button
+                  type="button"
+                  onClick={clearCustomer}
+                  title="Clear customer filter"
+                  className="absolute right-2 top-1/2 -translate-y-1/2 p-0.5 text-slate-400 hover:text-white cursor-pointer"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              )}
+              {showCustomerDropdown && !filters.customerId && customerResults.length > 0 && (
+                <div className="absolute z-30 mt-1 w-full bg-[#1a1a2e] border border-white/[0.12] rounded-lg shadow-2xl max-h-56 overflow-y-auto">
+                  {customerResults.map(u => (
+                    <button
+                      key={u.id}
+                      type="button"
+                      onMouseDown={e => e.preventDefault()}
+                      onClick={() => selectCustomer(u)}
+                      className="w-full text-left px-3 py-2 hover:bg-white/[0.06] transition-colors cursor-pointer border-b border-white/[0.04] last:border-0"
+                    >
+                      <div className="text-sm text-white truncate">{u.name || u.email || u.mobileNumber}</div>
+                      <div className="text-[10px] text-slate-400 truncate">
+                        {u.email && <span>{u.email}</span>}
+                        {u.email && u.mobileNumber && <span className="mx-1">·</span>}
+                        {u.mobileNumber && <span>{u.mobileNumber}</span>}
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
+            {filters.customerId && (
+              <p className="text-[10px] text-accent mt-1">Showing this customer&apos;s bookings only</p>
+            )}
           </div>
           <div>
             <label className="block text-[11px] font-semibold text-slate-300 mb-1.5">Single Date</label>

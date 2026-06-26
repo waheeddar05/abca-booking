@@ -3,7 +3,6 @@ import { prisma } from '@/lib/prisma';
 import { requireCenterAdmin } from '@/lib/adminAuth';
 import { getAuthenticatedUser } from '@/lib/auth';
 import { resolveCurrentCenter } from '@/lib/centers';
-import { coerceBallTypeForMachineType } from '@/lib/package-admin-labels';
 
 // POST /api/admin/packages/assign - Assign a custom package to a user
 export async function POST(req: NextRequest) {
@@ -51,13 +50,11 @@ export async function POST(req: NextRequest) {
     if (ballType && !['MACHINE', 'LEATHER', 'BOTH', 'TENNIS'].includes(ballType)) {
       return NextResponse.json({ error: 'Invalid ballType' }, { status: 400 });
     }
-    // Normalise the machine/ball-type pair instead of rejecting it.
-    // Leather machines accept Machine/Leather; tennis machines accept
-    // Machine/Tennis. An incompatible pair only comes from stale client
-    // UI state, so we heal it rather than blocking the assignment.
-    const normalizedBallType = ballType
-      ? coerceBallTypeForMachineType(machineType, ballType)
-      : ballType;
+    // The Assign tab offers an explicit Ball Type pick (Leather / Tennis /
+    // Machine) that is independent of the chosen machine. Persist exactly
+    // what the admin selected — the package's machineType (not ballType)
+    // is what gates redemption compatibility, so storing the ball type
+    // verbatim is safe and matches the admin's intent.
     if (wicketType && !['CEMENT', 'ASTRO', 'NATURAL', 'BOTH'].includes(wicketType)) {
       return NextResponse.json({ error: 'Invalid wicketType' }, { status: 400 });
     }
@@ -104,7 +101,7 @@ export async function POST(req: NextRequest) {
           name,
           machineId: machineId || null,
           machineType,
-          ballType: normalizedBallType || null,
+          ballType: ballType || null,
           wicketType: wicketType || null,
           timingType,
           totalSessions,

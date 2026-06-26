@@ -38,6 +38,7 @@ import {
   PACKAGE_TIMING_LABEL,
   PACKAGE_TIMING_DAY_LABEL,
   PACKAGE_TIMING_EVENING_LABEL,
+  PACKAGE_BALL_ALL_OPTIONS,
   packageCategoryLabel,
   ballOptionsFromEffective,
   isBallTypeValidForMachineType,
@@ -225,11 +226,13 @@ function AdminPackagesLegacy() {
           const first = active.find((m) => m.legacyMachineId) || active[0];
           if (!first) return f;
           const mt = first.machineType.ballType === 'TENNIS' ? 'TENNIS' : 'LEATHER';
+          // Ball Type is an independent pick in the Assign tab — seed only
+          // the machine + derived machineType, leaving ballType at its
+          // default so the explicit dropdown choice is never overwritten.
           return {
             ...f,
             machineId: first.legacyMachineId || first.id,
             machineType: mt,
-            ballType: coerceBallTypeFromEffective(first.effectiveBallTypes, f.ballType),
           };
         });
       })
@@ -285,10 +288,6 @@ function AdminPackagesLegacy() {
     }
     if (!assignForm.totalSessions || assignForm.totalSessions <= 0) { setAssignMessage({ text: 'Sessions must be a positive number', type: 'error' }); return; }
     if (!assignForm.validityDays || assignForm.validityDays <= 0) { setAssignMessage({ text: 'Validity days must be a positive number', type: 'error' }); return; }
-    if (!isBallTypeValidForMachineType(assignForm.machineType, assignForm.ballType)) {
-      setAssignMessage({ text: 'Selected ball type is not valid for this machine type', type: 'error' });
-      return;
-    }
 
     setAssigning(true);
     setAssignMessage({ text: '', type: '' });
@@ -303,14 +302,15 @@ function AdminPackagesLegacy() {
         setSelectedUser(null);
         setAssignSearch('');
         setAssignSearchResults([]);
-        // Reset but keep the first machine as default again.
+        // Reset but keep the first machine as default again. Ball Type is
+        // an independent pick in the Assign tab, so it resets to Leather.
         const first = centerMachines.find((m) => m.legacyMachineId) || centerMachines[0];
         const firstMachineType = first?.machineType.ballType === 'TENNIS' ? 'TENNIS' : 'LEATHER';
         setAssignForm({
           name: '',
           machineId: first ? (first.legacyMachineId || first.id) : '',
           machineType: firstMachineType,
-          ballType: coerceBallTypeFromEffective(first?.effectiveBallTypes, 'LEATHER'),
+          ballType: 'LEATHER',
           wicketType: 'ASTRO',
           timingType: 'DAY',
           totalSessions: 4,
@@ -1101,13 +1101,13 @@ function AdminPackagesLegacy() {
                   onChange={e => {
                     const m = findMachineOption(e.target.value);
                     const nextMachineType = m?.machineType.ballType === 'TENNIS' ? 'TENNIS' : 'LEATHER';
+                    // Ball Type is an independent, explicit choice in the
+                    // Assign tab (see the Ball Type field below) — changing
+                    // the machine no longer rewrites it.
                     setAssignForm(prev => ({
                       ...prev,
                       machineId: e.target.value,
                       machineType: nextMachineType,
-                      // Auto-clear a ball type the new machine doesn't
-                      // support (e.g. a tennis machine offers Tennis only).
-                      ballType: coerceBallTypeFromEffective(m?.effectiveBallTypes, prev.ballType),
                     }));
                   }}
                   className="w-full bg-white/[0.04] border border-white/[0.1] text-white text-sm rounded-lg px-3 py-2 outline-none focus:border-accent"
@@ -1125,20 +1125,22 @@ function AdminPackagesLegacy() {
                   ))}
                 </select>
               </div>
-              {(isLeatherSelectedMachine(assignForm.machineId) || isTennisSelectedMachine(assignForm.machineId)) && (
-                <div>
-                  <label className="block text-[10px] font-medium text-slate-400 mb-1">Ball Type</label>
-                  <select
-                    value={assignForm.ballType}
-                    onChange={e => setAssignForm(prev => ({ ...prev, ballType: e.target.value }))}
-                    className="w-full bg-white/[0.04] border border-white/[0.1] text-white text-sm rounded-lg px-3 py-2 outline-none focus:border-accent"
-                  >
-                    {ballOptionsFromEffective(findMachineOption(assignForm.machineId)?.effectiveBallTypes).map(b => (
-                      <option key={b.value} value={b.value}>{b.label}</option>
-                    ))}
-                  </select>
-                </div>
-              )}
+              {/* Ball Type — explicit Leather / Tennis / Machine pick for
+                  the assigned package, independent of the selected machine.
+                  Always shown in the Assign tab; the chosen value is saved
+                  verbatim with the package. */}
+              <div>
+                <label className="block text-[10px] font-medium text-slate-400 mb-1">Ball Type</label>
+                <select
+                  value={assignForm.ballType}
+                  onChange={e => setAssignForm(prev => ({ ...prev, ballType: e.target.value }))}
+                  className="w-full bg-white/[0.04] border border-white/[0.1] text-white text-sm rounded-lg px-3 py-2 outline-none focus:border-accent"
+                >
+                  {PACKAGE_BALL_ALL_OPTIONS.map(b => (
+                    <option key={b.value} value={b.value}>{b.label}</option>
+                  ))}
+                </select>
+              </div>
             </div>
 
             <div className="grid grid-cols-2 gap-3">

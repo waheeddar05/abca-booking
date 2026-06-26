@@ -19,7 +19,7 @@ import { useSlots } from '@/hooks/useSlots';
 import { usePackages } from '@/hooks/usePackages';
 import { usePricing } from '@/hooks/usePricing';
 import { api } from '@/lib/api-client';
-import { MACHINE_CARDS, PITCH_TYPE_LABELS, getMachineCard } from '@/lib/client-constants';
+import { MACHINE_CARDS, PITCH_TYPE_LABELS, getMachineCard, type MachineCard } from '@/lib/client-constants';
 import { useRazorpay, usePaymentConfig } from '@/lib/useRazorpay';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { useToast } from '@/components/ui/Toast';
@@ -70,8 +70,13 @@ function SlotsContent() {
   const [useWallet, setUseWallet] = useState(false);
   const [walletBalance, setWalletBalance] = useState<number>(0);
   const [kitRental, setKitRental] = useState(false);
+  // Machine cards in the order configured by the admin (My Center →
+  // Machines). Starts as the static list; reordered once the center's
+  // machines (with displayOrder) load.
+  const [orderedCards, setOrderedCards] = useState<MachineCard[]>(MACHINE_CARDS);
 
   const { data: session } = useSession();
+  const { currentCenter } = useCenter();
   const toast = useToast();
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -114,6 +119,12 @@ function SlotsContent() {
 
   // ─── Refs ──────────────────────────────────────────────
   const hasAutoSelectedMachineRef = useRef(false);
+  // True once a machine has been chosen by the user or a package-driven
+  // auto-select — gates the order-based default so it never overrides an
+  // explicit choice.
+  const machineTouchedRef = useRef(false);
+  // One-shot guard so the order-based default is applied at most once.
+  const orderDefaultRef = useRef(false);
 
   // ─── Hooks ─────────────────────────────────────────────
   const { slots, loading, error, fetchSlots } = useSlots();
@@ -142,6 +153,43 @@ function SlotsContent() {
       .then(setMachineConfig)
       .catch(() => {});
   }, []);
+
+  // ─── Apply admin-configured machine order ──────────────
+  // Reorder the machine cards to match the center's Machine.displayOrder
+  // (set in Admin → My Center → Machines). Each Machine row bridges to the
+  // MachineId enum via `legacyMachineId`, which equals the card id.
+  useEffect(() => {
+    if (!currentCenter?.id) return;
+    let cancelled = false;
+    fetch(`/api/centers/${currentCenter.id}/machines`)
+      .then((r) => (r.ok ? r.json() : []))
+      .then((machines: Array<{ legacyMachineId: string | null }>) => {
+        if (cancelled) return;
+        const orderIndex = new Map<string, number>();
+        (Array.isArray(machines) ? machines : []).forEach((m, idx) => {
+          if (m.legacyMachineId) orderIndex.set(m.legacyMachineId, idx);
+        });
+        // Stable sort by configured order; cards with no matching machine
+        // keep their original relative position at the end.
+        const sorted = [...MACHINE_CARDS].sort((a, b) => {
+          const ai = orderIndex.has(a.id) ? orderIndex.get(a.id)! : Number.MAX_SAFE_INTEGER;
+          const bi = orderIndex.has(b.id) ? orderIndex.get(b.id)! : Number.MAX_SAFE_INTEGER;
+          return ai - bi;
+        });
+        setOrderedCards(sorted);
+        // Default the selected machine to the first in the configured
+        // order, unless the user (or a package auto-select) already picked
+        // one. ballType follows the machine category; pitch stays at its
+        // default like the previous hard-coded GRAVITY default did.
+        if (!machineTouchedRef.current && !orderDefaultRef.current && sorted[0]) {
+          orderDefaultRef.current = true;
+          setSelectedMachineId(sorted[0].id);
+          setBallType(sorted[0].category === 'LEATHER' ? 'LEATHER' : 'TENNIS');
+        }
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [currentCenter?.id]);
 
   // ─── Fetch packages when session is ready ──────────────
   useEffect(() => {
@@ -239,6 +287,10 @@ function SlotsContent() {
   }, []);
 
   const handleMachineSelect = useCallback((machineId: MachineId) => {
+    // Mark that a machine has been explicitly chosen so the order-based
+    // default never overrides it (covers user clicks and the package
+    // auto-select, which both route through here).
+    machineTouchedRef.current = true;
     const card = MACHINE_CARDS.find(m => m.id === machineId)!;
     setSelectedMachineId(machineId);
     setSelectedSlots([]);
@@ -503,6 +555,7 @@ function SlotsContent() {
       <MachineSelector
         selectedMachineId={selectedMachineId}
         onSelect={handleMachineSelect}
+        cards={orderedCards}
       />
 
       <hr className="border-white/[0.06] my-4" />
