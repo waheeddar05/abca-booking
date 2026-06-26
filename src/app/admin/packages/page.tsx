@@ -45,6 +45,7 @@ import {
   coerceBallTypeFromEffective,
   coerceBallTypeForMachineType,
 } from '@/lib/package-admin-labels';
+import { MACHINES, LEATHER_MACHINES, TENNIS_MACHINES } from '@/lib/constants';
 
 interface PackageData {
   id: string;
@@ -1537,20 +1538,35 @@ function PackageForm({
 
   // Cross-machine redemption: a package pinned to one machine (e.g.
   // Yantra) can be redeemed on another machine of the *same ball type*
-  // (e.g. Gravity). List those sibling machines so the admin can set a
-  // per-direction surcharge (`<from>_TO_<to>`). Different-ball-type
-  // machines never apply (a leather package can't book a tennis machine),
-  // so they're excluded.
+  // (e.g. Gravity). Build the list of those sibling machines so the admin
+  // can set a per-direction surcharge (`<from>_TO_<to>`; 0 = no charge).
+  // Different-ball-type machines never apply (a leather package can't
+  // book a tennis machine), so they're excluded.
   const pkgMachineCategory = isTennisSelectedMachine(form.machineId) ? 'TENNIS' : 'LEATHER';
-  const machineUpgradeSiblings = centerMachines.filter((m) => {
-    const cat = m.machineType.ballType === 'TENNIS' ? 'TENNIS' : 'LEATHER';
-    const val = m.legacyMachineId || m.id;
-    return cat === pkgMachineCategory && val !== form.machineId;
-  });
   const pkgMachineLabel = (() => {
     const m = findMachineOption(form.machineId);
     return m ? m.shortName || m.name : form.machineId;
   })();
+  // Prefer the center's real machines. Fall back to the legacy enum set
+  // (Gravity/Yantra, the two iWinner units) so the options are always
+  // present even before the machine list loads or when it's sparse —
+  // matching how the Ball / Pitch upgrades are always shown.
+  const centerSiblings = centerMachines
+    .filter((m) => (m.machineType.ballType === 'TENNIS' ? 'TENNIS' : 'LEATHER') === pkgMachineCategory)
+    .map((m) => ({ id: m.legacyMachineId || m.id, name: m.shortName || m.name }));
+  const enumIds = pkgMachineCategory === 'TENNIS' ? TENNIS_MACHINES : LEATHER_MACHINES;
+  const enumSiblings = enumIds.map((id) => {
+    const nm = MACHINES[id].name;
+    // Disambiguate machines that share a display name (the two iWinner
+    // tennis units) so the upgrade path reads clearly.
+    const dup = enumIds.filter((x) => MACHINES[x].name === nm).length > 1;
+    const tag = dup
+      ? id.includes('OUTDOOR') ? ' (Outdoor)' : id.includes('INDOOR') ? ' (Indoor)' : ` (${id})`
+      : '';
+    return { id: id as string, name: nm + tag };
+  });
+  const machineUpgradeTargets = (centerSiblings.length >= 2 ? centerSiblings : enumSiblings)
+    .filter((t) => t.id && t.id !== form.machineId);
 
   return (
     <div className={`bg-white/[0.04] backdrop-blur-sm rounded-xl border ${wrapperBorder} p-5 mb-5`}>
@@ -1758,22 +1774,22 @@ function PackageForm({
             </div>
           </div>
 
-          {/* Machine Upgrade Paths — applied when this package is redeemed
-              on a different machine of the same ball type (e.g. a Yantra
+          {/* Machine Upgrade Paths — always shown, just like the Ball and
+              Pitch upgrades above. Charged when this package is redeemed on
+              a different machine of the same ball type (e.g. a Yantra
               package used to book Gravity). Each direction is priced
               independently; the reverse (Gravity → Yantra) is set on that
-              machine's own package. */}
-          {machineUpgradeSiblings.length > 0 && (
-            <div className="mt-3">
-              <label className="block text-[10px] text-slate-500 mb-1">Machine Upgrade Options (₹ per half-hour slot)</label>
-              <p className="text-[9px] text-slate-600 mb-2">
-                Charged when this {pkgMachineLabel} package is used to book a different machine of the same ball type.
-              </p>
+              machine's own package. Leave 0 for no charge. */}
+          <div className="mt-3">
+            <label className="block text-[10px] text-slate-500 mb-1">Machine Upgrade Options (₹ per half-hour slot)</label>
+            <p className="text-[9px] text-slate-600 mb-2">
+              Charged when this {pkgMachineLabel} package is used to book a different machine of the same ball type. Leave 0 for no charge.
+            </p>
+            {machineUpgradeTargets.length > 0 ? (
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                {machineUpgradeSiblings.map(m => {
-                  const toVal = m.legacyMachineId || m.id;
-                  const key = `${form.machineId}_TO_${toVal}`;
-                  const label = `${pkgMachineLabel} → ${m.shortName || m.name}`;
+                {machineUpgradeTargets.map(t => {
+                  const key = `${form.machineId}_TO_${t.id}`;
+                  const label = `${pkgMachineLabel} → ${t.name}`;
                   return (
                     <div key={key} className="bg-white/[0.02] rounded-lg p-2.5 border border-white/[0.06]">
                       <label className="block text-[10px] text-accent/80 font-medium mb-1">{label}</label>
@@ -1801,8 +1817,12 @@ function PackageForm({
                   );
                 })}
               </div>
-            </div>
-          )}
+            ) : (
+              <p className="text-[10px] text-slate-500 italic">
+                No other {pkgMachineCategory === 'TENNIS' ? 'tennis' : 'leather'} machines configured at this center.
+              </p>
+            )}
+          </div>
         </div>
 
         <div className="flex gap-2">
