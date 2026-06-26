@@ -88,6 +88,17 @@ export const PackageValidationResponseSchema = z.object({
   error: z.string().optional(),
   extraCharge: z.number().optional(),
   extraChargeType: z.string().nullable().optional(),
+  // Per-component breakdown of the extra charge (per single slot). Lets
+  // the UI describe *why* an upgrade fee applies — e.g. a cross-machine
+  // surcharge stacked on an evening-timing upgrade.
+  breakdown: z
+    .object({
+      ballTypeExtra: z.number(),
+      wicketTypeExtra: z.number(),
+      timingExtra: z.number(),
+      machineExtra: z.number(),
+    })
+    .optional(),
 });
 
 // ─── Machine Config ──────────────────────────────────────

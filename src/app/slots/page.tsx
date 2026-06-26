@@ -582,6 +582,8 @@ function SlotsContent() {
           onSelect={pkg.setSelectedPackageId}
           validation={pkg.validation}
           isValidating={pkg.isValidating}
+          currentMachineId={selectedMachineId}
+          isLeatherMachine={isLeatherMachine}
         />
       )}
 

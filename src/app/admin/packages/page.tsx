@@ -1534,6 +1534,24 @@ function PackageForm({
   compact?: boolean;
 }) {
   const wrapperBorder = compact ? 'border-accent/20' : 'border-white/[0.07]';
+
+  // Cross-machine redemption: a package pinned to one machine (e.g.
+  // Yantra) can be redeemed on another machine of the *same ball type*
+  // (e.g. Gravity). List those sibling machines so the admin can set a
+  // per-direction surcharge (`<from>_TO_<to>`). Different-ball-type
+  // machines never apply (a leather package can't book a tennis machine),
+  // so they're excluded.
+  const pkgMachineCategory = isTennisSelectedMachine(form.machineId) ? 'TENNIS' : 'LEATHER';
+  const machineUpgradeSiblings = centerMachines.filter((m) => {
+    const cat = m.machineType.ballType === 'TENNIS' ? 'TENNIS' : 'LEATHER';
+    const val = m.legacyMachineId || m.id;
+    return cat === pkgMachineCategory && val !== form.machineId;
+  });
+  const pkgMachineLabel = (() => {
+    const m = findMachineOption(form.machineId);
+    return m ? m.shortName || m.name : form.machineId;
+  })();
+
   return (
     <div className={`bg-white/[0.04] backdrop-blur-sm rounded-xl border ${wrapperBorder} p-5 mb-5`}>
       <h2 className="text-sm font-semibold text-white mb-3">{heading}</h2>
@@ -1739,6 +1757,52 @@ function PackageForm({
               })}
             </div>
           </div>
+
+          {/* Machine Upgrade Paths — applied when this package is redeemed
+              on a different machine of the same ball type (e.g. a Yantra
+              package used to book Gravity). Each direction is priced
+              independently; the reverse (Gravity → Yantra) is set on that
+              machine's own package. */}
+          {machineUpgradeSiblings.length > 0 && (
+            <div className="mt-3">
+              <label className="block text-[10px] text-slate-500 mb-1">Machine Upgrade Options (₹ per half-hour slot)</label>
+              <p className="text-[9px] text-slate-600 mb-2">
+                Charged when this {pkgMachineLabel} package is used to book a different machine of the same ball type.
+              </p>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                {machineUpgradeSiblings.map(m => {
+                  const toVal = m.legacyMachineId || m.id;
+                  const key = `${form.machineId}_TO_${toVal}`;
+                  const label = `${pkgMachineLabel} → ${m.shortName || m.name}`;
+                  return (
+                    <div key={key} className="bg-white/[0.02] rounded-lg p-2.5 border border-white/[0.06]">
+                      <label className="block text-[10px] text-accent/80 font-medium mb-1">{label}</label>
+                      <div className="flex items-center gap-2">
+                        <span className="text-[10px] text-slate-500">₹</span>
+                        <input
+                          type="number"
+                          min={0}
+                          value={form.extraChargeRules.machineUpgrades?.[key] || 0}
+                          onChange={e => setForm({
+                            ...form,
+                            extraChargeRules: {
+                              ...form.extraChargeRules,
+                              machineUpgrades: {
+                                ...form.extraChargeRules.machineUpgrades,
+                                [key]: parseFloat(e.target.value) || 0,
+                              },
+                            },
+                          })}
+                          placeholder="0"
+                          className="w-full bg-white/[0.04] border border-white/[0.1] rounded-lg px-3 py-1.5 text-sm text-white outline-none focus:border-accent"
+                        />
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
         </div>
 
         <div className="flex gap-2">
