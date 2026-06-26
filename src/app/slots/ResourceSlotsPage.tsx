@@ -421,31 +421,56 @@ export default function ResourceSlotsPage() {
     setUserDeclinedPackage(false);
   }, [category]);
 
-  // Drop the package selection when the user switches machines if the
-  // selected package is pinned to a different machine row.
+  // Drop the package selection when the user switches machines only if
+  // the selected package can no longer apply. A package pinned to a
+  // different machine row is kept when the new machine shares its ball
+  // type (cross-machine redemption with a surcharge); it's dropped only
+  // when the ball types differ (e.g. switching from a leather machine to
+  // a tennis one).
   useEffect(() => {
     if (!selectedPackageId) return;
     const pkg = myPackages.find((p) => p.id === selectedPackageId);
-    if (pkg?.machineRowId && pkg.machineRowId !== machineId) {
-      setSelectedPackageId(null);
-    }
-  }, [machineId, selectedPackageId, myPackages]);
+    if (!pkg?.machineRowId || pkg.machineRowId === machineId) return;
+    const pinnedMachine = machines.find((m) => m.id === pkg.machineRowId);
+    const currentMachine = machineId ? machines.find((m) => m.id === machineId) : null;
+    const sameBallType =
+      category === 'MACHINE'
+      && !!pinnedMachine
+      && !!currentMachine
+      && (pinnedMachine.machineType.ballType === 'TENNIS')
+        === (currentMachine.machineType.ballType === 'TENNIS');
+    if (!sameBallType) setSelectedPackageId(null);
+  }, [machineId, selectedPackageId, myPackages, machines, category]);
 
   /** Active packages compatible with the current category + machine
    *  selection. Mirrors the server-side gates in
    *  `/api/slots/book-resource` (category match, machineRowId match if
    *  pinned, status ACTIVE, sessions remaining). */
   const eligiblePackages = useMemo(() => {
+    const currentMachine =
+      category === 'MACHINE' && machineId ? machines.find((m) => m.id === machineId) : null;
     return myPackages.filter((p) => {
       if (p.status !== 'ACTIVE') return false;
       if (p.remainingSessions <= 0) return false;
       // Category must match (or be null on legacy ABCA-shape packages).
       if (p.category && p.category !== category) return false;
-      // If pinned to a machine row, the user must have picked that one.
-      if (p.machineRowId && p.machineRowId !== machineId) return false;
+      // If pinned to a machine row other than the current pick, allow it
+      // only when both machines share a ball type — a package bought for
+      // one machine (e.g. Yantra) can be redeemed on another machine of
+      // the same ball type (e.g. Gravity), with an optional surcharge.
+      // Cross-ball-type (leather package → tennis machine) stays hidden.
+      if (p.machineRowId && p.machineRowId !== machineId) {
+        if (category !== 'MACHINE' || !currentMachine) return false;
+        const pinnedMachine = machines.find((m) => m.id === p.machineRowId);
+        if (!pinnedMachine) return false;
+        const sameBallType =
+          (pinnedMachine.machineType.ballType === 'TENNIS')
+          === (currentMachine.machineType.ballType === 'TENNIS');
+        if (!sameBallType) return false;
+      }
       return true;
     });
-  }, [myPackages, category, machineId]);
+  }, [myPackages, category, machineId, machines]);
 
   const selectedPackage = useMemo(
     () => eligiblePackages.find((p) => p.id === selectedPackageId) ?? null,
@@ -465,8 +490,14 @@ export default function ResourceSlotsPage() {
   useEffect(() => {
     if (userDeclinedPackage) return;
     if (eligiblePackages.length === 0 || selectedPackageId) return;
-    setSelectedPackageId(eligiblePackages[0].id);
-  }, [eligiblePackages, selectedPackageId, userDeclinedPackage]);
+    // Auto-select only a same-machine or unpinned package — never a
+    // cross-machine one, so a surcharge is never applied without the
+    // user explicitly picking that package.
+    const preferred = eligiblePackages.find(
+      (p) => !p.machineRowId || p.machineRowId === machineId,
+    );
+    if (preferred) setSelectedPackageId(preferred.id);
+  }, [eligiblePackages, selectedPackageId, userDeclinedPackage, machineId]);
 
   // ─── Auto-select compatible package once slots are chosen ─────────
   // Mirrors ABCA's effect at src/app/slots/page.tsx:194. Prefers a
@@ -1827,7 +1858,9 @@ export default function ResourceSlotsPage() {
                                 ? 'Leather ball upgrade'
                                 : packageValidation.extraChargeType === 'WICKET_TYPE'
                                   ? 'Wicket type upgrade'
-                                  : 'Booking upgrade'}
+                                  : packageValidation.extraChargeType === 'MACHINE'
+                                    ? 'Different machine upgrade'
+                                    : 'Booking upgrade'}
                           </p>
                         </div>
                       )}

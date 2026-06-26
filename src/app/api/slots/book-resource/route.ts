@@ -635,6 +635,10 @@ async function executeResourceBookingCore(
       wicketType: string | null;
       extraChargeRules: unknown;
       validityDays: number;
+      // Ball-type category of the package's pinned machine (LEATHER /
+      // TENNIS / MACHINE). Used to gate cross-machine redemption to
+      // same-ball-type machines (e.g. a Yantra package -> Gravity).
+      pinnedMachineBallType: string | null;
     };
   } | null = null;
   if (body.userPackageId) {
@@ -653,6 +657,10 @@ async function executeResourceBookingCore(
             centerId: true,
             category: true,
             machineRowId: true,
+            // Pinned machine's ball-type category — gates cross-machine
+            // redemption (a leather package can only cross to another
+            // leather machine, never to a tennis one).
+            machineRow: { select: { machineType: { select: { ballType: true } } } },
             timingType: true,
             // `ballType` drives the machine-ball → leather-ball upgrade
             // charge. Null on legacy ABCA-style packages that don't
@@ -709,11 +717,22 @@ async function executeResourceBookingCore(
         400,
       );
     }
-    // Machine row gate — only if pinned.
-    if (found.package.machineRowId) {
-      if (!body.machineId || found.package.machineRowId !== body.machineId) {
+    // Machine row gate — only if pinned. A package pinned to one machine
+    // may be redeemed on that machine OR on another machine of the SAME
+    // ball type (a per-direction surcharge from `machineUpgrades` is
+    // applied below). Cross-ball-type redemption (e.g. a leather package
+    // on a tennis machine) stays blocked.
+    const pinnedMachineBallType = found.package.machineRow?.machineType?.ballType ?? null;
+    if (found.package.machineRowId && body.machineId !== found.package.machineRowId) {
+      const sameBallType =
+        body.category === 'MACHINE'
+        && !!body.machineId
+        && !!pinnedMachineBallType
+        && !!machineTypeBallType
+        && (pinnedMachineBallType === 'TENNIS') === (machineTypeBallType === 'TENNIS');
+      if (!sameBallType) {
         throw new ResourceBookingServiceError(
-          'This package is constrained to a specific machine; pick that machine to redeem',
+          'This package can only be redeemed on its machine or another machine of the same ball type',
           400,
         );
       }
@@ -732,6 +751,7 @@ async function executeResourceBookingCore(
         wicketType: found.package.wicketType,
         extraChargeRules: found.package.extraChargeRules,
         validityDays: found.package.validityDays,
+        pinnedMachineBallType,
       },
     };
   }
@@ -921,6 +941,7 @@ async function executeResourceBookingCore(
                   timingUpgrade?: number;
                   ballTypeUpgrade?: number;
                   wicketTypeUpgrades?: Record<string, number>;
+                  machineUpgrades?: Record<string, number>;
                 };
                 // DAY package, evening slot → upgrade charge.
                 if (userPackage.package.timingType === 'DAY' && slab === 'evening') {
@@ -953,6 +974,23 @@ async function executeResourceBookingCore(
                   const pathFee = rules.wicketTypeUpgrades?.[pathKey];
                   if (typeof pathFee === 'number' && pathFee > 0) {
                     packageExtra += Math.floor(pathFee);
+                  }
+                }
+                // Machine upgrade — package pinned to one machine row,
+                // redeemed on a different (same-ball-type) machine. Keyed
+                // by Machine row id (`<pinned>_TO_<booked>`), matching the
+                // admin form and validatePackageBooking. 0 / missing = no
+                // charge (cross-machine still allowed by the gate above).
+                if (
+                  plan.category === 'MACHINE'
+                  && userPackage.package.machineRowId
+                  && body.machineId
+                  && userPackage.package.machineRowId !== body.machineId
+                ) {
+                  const mKey = `${userPackage.package.machineRowId}_TO_${body.machineId}`;
+                  const mFee = rules.machineUpgrades?.[mKey];
+                  if (typeof mFee === 'number' && mFee > 0) {
+                    packageExtra += Math.floor(mFee);
                   }
                 }
               }

@@ -79,6 +79,7 @@ interface PackageRow {
     timingUpgrade?: number;
     ballTypeUpgrade?: number;
     wicketTypeUpgrades?: Record<string, number>;
+    machineUpgrades?: Record<string, number>;
   } | null;
   _count?: { userPackages: number };
 }
@@ -131,6 +132,11 @@ const emptyForm = {
   // shape ABCA writes to `extraChargeRules.wicketTypeUpgrades`. Only
   // meaningful when wicketType is a specific pitch (not BOTH).
   wicketTypeUpgrades: {} as Record<string, number>,
+  // Per-direction cross-machine upgrade fees, keyed by Machine row id
+  // `${pinnedRowId}_TO_${targetRowId}`. Lets a package pinned to one
+  // machine (e.g. Yantra) be redeemed on another machine of the same
+  // ball type (e.g. Gravity) for an optional surcharge. 0 = free.
+  machineUpgrades: {} as Record<string, number>,
 };
 
 export function ResourcePackageManagement() {
@@ -225,6 +231,7 @@ export function ResourcePackageManagement() {
         timingUpgrade?: number;
         ballTypeUpgrade?: number;
         wicketTypeUpgrades?: Record<string, number>;
+        machineUpgrades?: Record<string, number>;
       } = {};
       if (form.timingType === 'DAY' && form.timingUpgrade > 0) {
         rules.timingUpgrade = form.timingUpgrade;
@@ -251,6 +258,22 @@ export function ResourcePackageManagement() {
         }
         if (Object.keys(filtered).length > 0) {
           rules.wicketTypeUpgrades = filtered;
+        }
+      }
+      // Machine upgrade paths — only meaningful for a MACHINE package
+      // pinned to a specific machine. Keep only paths that start FROM the
+      // pinned machine and carry a positive fee (0 = free cross-machine,
+      // which needs no stored entry since the booking allows same-ball-
+      // type cross-redemption by default).
+      if (form.category === 'MACHINE' && form.machineRowId) {
+        const filteredMachine: Record<string, number> = {};
+        for (const [key, val] of Object.entries(form.machineUpgrades)) {
+          if (val > 0 && key.startsWith(`${form.machineRowId}_TO_`)) {
+            filteredMachine[key] = val;
+          }
+        }
+        if (Object.keys(filteredMachine).length > 0) {
+          rules.machineUpgrades = filteredMachine;
         }
       }
       const extraChargeRules = Object.keys(rules).length > 0 ? rules : null;
@@ -320,6 +343,7 @@ export function ResourcePackageManagement() {
       timingUpgrade: rules?.timingUpgrade ?? 0,
       ballTypeUpgrade: rules?.ballTypeUpgrade ?? 0,
       wicketTypeUpgrades: rules?.wicketTypeUpgrades ?? {},
+      machineUpgrades: rules?.machineUpgrades ?? {},
     });
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
@@ -358,6 +382,20 @@ export function ResourcePackageManagement() {
   const selectedMachine = machines.find((m) => m.id === form.machineRowId);
   const ballTypeOptions = ballOptionsFromEffective(selectedMachine?.effectiveBallTypes);
   const isTennisMachine = selectedMachine?.machineType?.ballType === 'TENNIS';
+
+  // Other active machines of the SAME ball type as the pinned machine —
+  // the valid cross-machine redemption targets. Only relevant when this
+  // is a MACHINE package pinned to a specific machine; an "any machine"
+  // package already covers every machine of its category.
+  const machineUpgradeSiblings =
+    form.category === 'MACHINE' && form.machineRowId && selectedMachine
+      ? machines.filter(
+          (m) =>
+            m.id !== form.machineRowId
+            && (m.machineType?.ballType === 'TENNIS')
+              === (selectedMachine.machineType?.ballType === 'TENNIS'),
+        )
+      : [];
 
   return (
     <div className="space-y-5">
@@ -599,6 +637,52 @@ export function ResourcePackageManagement() {
                       </div>
                     );
                   })}
+              </div>
+            </div>
+          )}
+
+          {/* Machine upgrade paths — cross-machine redemption for a
+              pinned MACHINE package. Lists other machines of the same
+              ball type; the per-slot fee is charged when this package is
+              redeemed on that machine. 0 = free cross-machine use. */}
+          {form.category === 'MACHINE' && form.machineRowId && machineUpgradeSiblings.length > 0 && (
+            <div className="mt-3">
+              <label className="block text-[11px] font-medium text-slate-400 mb-1">
+                Machine upgrade paths (₹ per slot)
+              </label>
+              <p className="mb-2 text-[10px] text-slate-500">
+                Charged when this package is redeemed on a different machine of the same ball type. Leave 0 for no charge.
+              </p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                {machineUpgradeSiblings.map((m) => {
+                  const key = `${form.machineRowId}_TO_${m.id}`;
+                  const fromLabel = selectedMachine?.shortName ?? selectedMachine?.name ?? 'This machine';
+                  const label = `${fromLabel} → ${m.shortName ?? m.name}`;
+                  return (
+                    <div key={key} className="bg-white/[0.02] rounded-lg p-2.5 border border-white/[0.06]">
+                      <label className="block text-[10px] text-accent/80 font-medium mb-1">{label}</label>
+                      <div className="flex items-center gap-2">
+                        <span className="text-[10px] text-slate-500">₹</span>
+                        <input
+                          type="number"
+                          min={0}
+                          value={form.machineUpgrades?.[key] || 0}
+                          onChange={(e) =>
+                            setForm({
+                              ...form,
+                              machineUpgrades: {
+                                ...form.machineUpgrades,
+                                [key]: parseInt(e.target.value, 10) || 0,
+                              },
+                            })
+                          }
+                          placeholder="0"
+                          className={inputClass}
+                        />
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
             </div>
           )}

@@ -308,8 +308,18 @@ export async function validatePackageBooking(
     const wicketTypeExtra = usesPitch
       ? getWicketTypeExtraCharge(userPackage.package.wicketType, bookingPitchType, rules)
       : 0;
-    totalExtra = timingExtra + ballTypeExtra + wicketTypeExtra;
-    breakdown = { ballTypeExtra, wicketTypeExtra, timingExtra, machineExtra: 0 };
+    // Machine upgrade — a MACHINE package pinned to one machine row can
+    // be redeemed on another machine of the same ball type for a
+    // per-direction surcharge (e.g. a Yantra package booking Gravity).
+    // Keyed by Machine row id (`<pinned>_TO_<booked>`), matching the
+    // admin form and book-resource. Non-MACHINE / unpinned packages and
+    // same-machine bookings resolve to 0.
+    const machineExtra =
+      userPackage.package.category === 'MACHINE'
+        ? getMachineExtraCharge(userPackage.package.machineRowId, bookingMachineId || null, rules)
+        : 0;
+    totalExtra = timingExtra + ballTypeExtra + wicketTypeExtra + machineExtra;
+    breakdown = { ballTypeExtra, wicketTypeExtra, timingExtra, machineExtra };
   } else {
     // Machine type check — ABCA-only; resource packages skip this.
     if (!isMachineTypeCompatible(userPackage.package.machineType, bookingBallType)) {
