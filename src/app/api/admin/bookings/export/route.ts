@@ -196,6 +196,32 @@ export async function GET(req: NextRequest) {
     const priceByBookingId = new Map<string, number>(
       bookings.map(b => [b.id, b.price ?? 0]),
     );
+
+    // A single Payment can cover several bookings (multi-slot order), and
+    // its bookingIds may reference bookings that fall OUTSIDE the current
+    // filtered export - e.g. the CSV is scoped to one day/status but the
+    // customer paid for slots across two days in one order. Those siblings
+    // are absent from priceByBookingId, so the orderTotal used to pro-rate
+    // the wallet/online split below would be undercounted and the per-row
+    // amounts would inflate toward the FULL order amount (a single booking
+    // Online Amount then shows the whole order Total Amount Paid).
+    // Backfill the price of every booking these payments reference so
+    // orderTotal reflects the true order, not just the exported subset.
+    const referencedBookingIds = new Set<string>();
+    for (const p of payments) {
+      for (const bId of p.bookingIds) referencedBookingIds.add(bId);
+    }
+    const missingPriceIds = [...referencedBookingIds].filter(
+      (id) => !priceByBookingId.has(id),
+    );
+    if (missingPriceIds.length > 0) {
+      const siblingPrices = await prisma.booking.findMany({
+        where: { id: { in: missingPriceIds } },
+        select: { id: true, price: true },
+      });
+      for (const b of siblingPrices) priceByBookingId.set(b.id, b.price ?? 0);
+    }
+
     const paymentByBookingId = new Map<string, typeof payments[number]>();
     for (const p of payments) {
       for (const bId of p.bookingIds) paymentByBookingId.set(bId, p);
