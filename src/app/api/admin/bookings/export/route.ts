@@ -313,6 +313,12 @@ export async function GET(req: NextRequest) {
       'Staff',
       'Operation Mode',
       'Status',
+      // Booking Price = the slot's list/charged price (per-session extra +
+      // kit rental for package rows). What the booking costs, which is not
+      // necessarily what was collected.
+      'Booking Price',
+      // Amount = what was actually collected for this booking = Wallet +
+      // Online, so the money columns always reconcile.
       'Amount',
       // Split of the booking amount across the two funding sources.
       // For a mixed payment (some wallet + some Razorpay), the wallet
@@ -423,7 +429,10 @@ export async function GET(req: NextRequest) {
         b.assignedStaff?.name || 'Not Applicable',
         machineRow ? (b.operationMode || '') : 'Not Applicable',
         b.status,
+        // Booking Price (list/charged price; per-session extra + kit for packages)
         pkg ? ((b.packageBooking?.extraCharge || 0) + (b.kitRentalCharge || 0)).toString() : (b.price?.toString() || ''),
+        // Amount = actually collected = Wallet + Online (reconciles by construction)
+        (split.wallet + split.online).toString(),
         // Wallet / online amounts paired with the same row as the
         // total so a quick sum check is obvious in Excel.
         split.wallet.toString(),
