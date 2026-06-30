@@ -52,26 +52,51 @@ export function bookingAmountPaidNet(b: BookingForAmount, refunds: RefundLite[] 
 }
 
 /**
- * Wallet rupees actually debited per booking, read from the wallet ledger
- * (WalletTransaction type=DEBIT_BOOKING, referenceId=bookingId). This is the
- * authoritative record of wallet spend and fixes the case where a partial
- * wallet payment showed ₹0 because Payment.metadata.walletDeduction was absent.
+ * Wallet rupees attributed to each booking, read from the wallet ledger
+ * (WalletTransaction type=DEBIT_BOOKING). This is the authoritative record of
+ * wallet spend and fixes the case where a partial wallet payment showed ₹0
+ * because Payment.metadata.walletDeduction was absent.
  *
- * Note: a multi-slot order debits the wallet ONCE, referencing the first
- * booking of the order, so for a multi-slot order the wallet shows against that
- * first slot. Column totals stay exact; per-slot attribution within a single
- * multi-slot order is approximate.
+ * A multi-slot order debits the wallet ONCE, referencing the first booking of
+ * the order. We therefore look up that order's slots via Payment.bookingIds and
+ * split the debit EVENLY across them, so each slot of the order shows its share
+ * of the wallet rather than the whole amount landing on the first slot. The
+ * per-order total is preserved exactly; single-slot orders are unaffected.
  */
-export async function getBookingWalletDebits(bookingIds: string[]): Promise<Map<string, number>> {
+export async function getBookingWalletShares(bookingIds: string[]): Promise<Map<string, number>> {
   const out = new Map<string, number>();
   if (bookingIds.length === 0) return out;
-  const txns = await prisma.walletTransaction.findMany({
+
+  const debits = await prisma.walletTransaction.findMany({
     where: { type: 'DEBIT_BOOKING', referenceId: { in: bookingIds } },
     select: { referenceId: true, amount: true },
   });
-  for (const t of txns) {
-    if (!t.referenceId) continue;
-    out.set(t.referenceId, (out.get(t.referenceId) ?? 0) + t.amount);
+  if (debits.length === 0) return out;
+
+  // Resolve the order each debit belongs to (the Payment whose bookingIds
+  // contains the referenced booking) so a multi-slot order's wallet is spread
+  // across its slots instead of concentrated on the first one.
+  const refIds = debits.map((d) => d.referenceId).filter((id): id is string => !!id);
+  const payments = refIds.length > 0
+    ? await prisma.payment.findMany({
+        where: { bookingIds: { hasSome: refIds } },
+        select: { bookingIds: true },
+      })
+    : [];
+
+  for (const d of debits) {
+    if (!d.referenceId) continue;
+    const group = payments.find((p) => p.bookingIds.includes(d.referenceId!))?.bookingIds;
+    if (group && group.length > 1) {
+      // Even split, rounded; the small rounding remainder is harmless for a
+      // display column (online is derived as amount − wallet per slot).
+      const share = Math.round(d.amount / group.length);
+      for (const bId of group) out.set(bId, (out.get(bId) ?? 0) + share);
+    } else {
+      // Single-slot order (or no Payment grouping, e.g. wallet-only): the whole
+      // debit stays on the referenced booking.
+      out.set(d.referenceId, (out.get(d.referenceId) ?? 0) + d.amount);
+    }
   }
   return out;
 }
