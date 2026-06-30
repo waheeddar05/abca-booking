@@ -4,6 +4,7 @@ import { requireAdmin } from '@/lib/adminAuth';
 import { getAuthenticatedUser } from '@/lib/auth';
 import { resolveCurrentCenter } from '@/lib/centers';
 import { getISTTodayUTC, getISTLastMonthRange, dateStringToUTC } from '@/lib/time';
+import { getBookingPaymentSplits } from '@/lib/booking-payment';
 
 // Epoch millis for a nullable groupBy `_max.date`. Used to break ties when two
 // staff have the same session count so the most recent booking ranks higher.
@@ -241,14 +242,17 @@ export async function GET(req: NextRequest) {
       //
       // All revenue figures are derived here from ONE shared pass so the
       // three top cards, the category chart, and the machine chart always
-      // reconcile to the rupee. Revenue is recognised when the money is
-      // received, NOT when the session is consumed:
+      // reconcile to the rupee. Revenue is what was actually COLLECTED from
+      // the customer (not the list price), recognised when the money is
+      // received:
       //
-      //   • Direct (non-package) booking → `price` − refunds, recognised on
-      //     the booking date and bucketed by the booking's category/machine.
-      //   • Package redemption booking   → only the per-booking extras
-      //     (`extraCharge` + kit rental) are booking revenue; the package's
-      //     base price is recognised at PURCHASE (below), not per session.
+      //   • Booking revenue (any booking) → (online + wallet) − refunds,
+      //     i.e. the funds actually collected for that booking, bucketed by
+      //     the booking's category/machine. CASH and free bookings collect
+      //     nothing through these rails and contribute 0. This holds for
+      //     package-redemption rows too: a package session's collected amount
+      //     is whatever upgrade it paid (online/wallet) — the package base was
+      //     already counted at PURCHASE below, so it is not double-counted.
       //   • Package purchase             → the FULL `amountPaid` − wallet
       //     refunds, recognised on the purchase date and bucketed by the
       //     PACKAGE's category/machine — regardless of how many sessions
@@ -300,28 +304,31 @@ export async function GET(req: NextRequest) {
               ...(hasDateFilter ? { date: dateFilter } : {}),
             },
             select: {
+              id: true,
               category: true,
               price: true,
-              kitRentalCharge: true,
+              paymentMethod: true,
               machineId: true, // Legacy enum reference
               assignedMachine: { select: { name: true, machineType: { select: { name: true } } } },
-              packageBooking: { select: { extraCharge: true } },
               refunds: { select: { amount: true, status: true } },
             },
           });
 
+          // Funds actually collected per booking (online + wallet), shared
+          // with the CSV export and the admin bookings list so all three
+          // reconcile. Pure-cash / free bookings resolve to {0,0}.
+          const splits = await getBookingPaymentSplits(
+            bookings.map((b) => ({ id: b.id, price: b.price ?? 0, paymentMethod: b.paymentMethod })),
+          );
+
           let bookingRevenue = 0;
           for (const b of bookings) {
-            const isPkg = !!b.packageBooking;
-            let value = 0;
-            if (isPkg) {
-              // Package base price is recognised at purchase, not here.
-              value = (b.packageBooking?.extraCharge || 0) + (b.kitRentalCharge || 0);
-            } else {
-              value = b.price || 0;
-              for (const r of b.refunds) {
-                if (r.status !== 'FAILED') value -= r.amount;
-              }
+            const split = splits.get(b.id) ?? { wallet: 0, online: 0 };
+            // Collected (online + wallet), then net of non-failed refunds —
+            // identical recognition for regular and package-redemption rows.
+            let value = split.wallet + split.online;
+            for (const r of b.refunds) {
+              if (r.status !== 'FAILED') value -= r.amount;
             }
             bookingRevenue += value;
             addCategory(b.category, value);

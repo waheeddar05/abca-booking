@@ -935,6 +935,13 @@ async function executeResourceBookingCore(
               // it 1:1 so the user sees the same total at booking
               // commit as they did in the validation panel.
               let packageExtra = 0;
+              // Component breakdown so the persisted PackageBooking records
+              // both the amount AND a human-readable extraChargeType (machine >
+              // ball > wicket > timing priority, mirroring packages.ts).
+              let timingExtra = 0;
+              let ballTypeExtra = 0;
+              let wicketTypeExtra = 0;
+              let machineExtra = 0;
               if (isPackageRedemption && userPackage) {
                 const slab = getTimeSlab(plan.startTime, timeSlabConfig);
                 const rules = (userPackage.package.extraChargeRules || {}) as {
@@ -945,7 +952,7 @@ async function executeResourceBookingCore(
                 };
                 // DAY package, evening slot → upgrade charge.
                 if (userPackage.package.timingType === 'DAY' && slab === 'evening') {
-                  packageExtra += Math.max(0, Math.floor(rules.timingUpgrade ?? 0));
+                  timingExtra = Math.max(0, Math.floor(rules.timingUpgrade ?? 0));
                 }
                 // Machine-ball package, leather-ball booking → upgrade.
                 if (
@@ -953,7 +960,7 @@ async function executeResourceBookingCore(
                   && userPackage.package.ballType === 'MACHINE'
                   && body.ballType === 'LEATHER'
                 ) {
-                  packageExtra += Math.max(0, Math.floor(rules.ballTypeUpgrade ?? 0));
+                  ballTypeExtra = Math.max(0, Math.floor(rules.ballTypeUpgrade ?? 0));
                 }
                 // Wicket-type upgrade — per-path map from the admin
                 // form. ASTRO < CEMENT < NATURAL. A package pinned to
@@ -973,7 +980,7 @@ async function executeResourceBookingCore(
                   const pathKey = `${userPackage.package.wicketType}_TO_${body.pitchType}`;
                   const pathFee = rules.wicketTypeUpgrades?.[pathKey];
                   if (typeof pathFee === 'number' && pathFee > 0) {
-                    packageExtra += Math.floor(pathFee);
+                    wicketTypeExtra = Math.floor(pathFee);
                   }
                 }
                 // Machine upgrade — package pinned to one machine row,
@@ -990,10 +997,17 @@ async function executeResourceBookingCore(
                   const mKey = `${userPackage.package.machineRowId}_TO_${body.machineId}`;
                   const mFee = rules.machineUpgrades?.[mKey];
                   if (typeof mFee === 'number' && mFee > 0) {
-                    packageExtra += Math.floor(mFee);
+                    machineExtra = Math.floor(mFee);
                   }
                 }
+                packageExtra = timingExtra + ballTypeExtra + wicketTypeExtra + machineExtra;
               }
+              const packageExtraType: string | null =
+                machineExtra > 0 ? 'MACHINE'
+                  : ballTypeExtra > 0 ? 'BALL_TYPE'
+                    : wicketTypeExtra > 0 ? 'WICKET_TYPE'
+                      : timingExtra > 0 ? 'TIMING'
+                        : null;
 
               const basePrice = isFreeBooking
                 ? 0
@@ -1336,6 +1350,14 @@ async function executeResourceBookingCore(
                     userPackageId: userPackage.id,
                     bookingId: booking.id,
                     sessionsUsed: 1,
+                    // Persist the per-session upgrade charge (and its kind) so
+                    // exports, package reports, and the "Booking Price" column
+                    // reflect what the user actually paid on top of the package.
+                    // Previously this was left at the schema default 0, which
+                    // silently dropped package upgrade revenue from those
+                    // surfaces even though it was collected in Booking.price.
+                    extraCharge: packageExtra,
+                    extraChargeType: packageExtraType,
                   },
                 });
               }
