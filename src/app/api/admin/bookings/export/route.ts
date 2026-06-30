@@ -4,6 +4,7 @@ import { requireAdmin } from '@/lib/adminAuth';
 import { getAuthenticatedUser } from '@/lib/auth';
 import { resolveCurrentCenter } from '@/lib/centers';
 import { getISTTodayUTC, getISTLastMonthRange, dateStringToUTC, formatIST } from '@/lib/time';
+import { getBookingPaymentSplits, paymentMethodLabel } from '@/lib/booking-payment';
 
 const SAFE_BOOKING_SELECT = {
   id: true,
@@ -184,88 +185,16 @@ export async function GET(req: NextRequest) {
     // Build CSV
     const isPackage = (b: any) => !!b.packageBooking;
 
-    // Load all payments linked to these bookings so we can compute the
-    // wallet/online split per booking. A single Payment can cover multiple
-    // bookings (multi-slot order) — we allocate the wallet + online
-    // portions proportionally to each booking's price.
-    const bookingIds = bookings.filter(b => !isPackage(b)).map(b => b.id);
-    const payments = bookingIds.length > 0
-      ? await prisma.payment.findMany({
-          where: {
-            status: 'CAPTURED',
-            bookingIds: { hasSome: bookingIds },
-          },
-          select: { id: true, amount: true, metadata: true, bookingIds: true },
-        })
-      : [];
-
-    const priceByBookingId = new Map<string, number>(
-      bookings.map(b => [b.id, b.price ?? 0]),
+    // Wallet/online actually collected per booking — for EVERY booking,
+    // including package redemptions. A package upgrade paid online (or from
+    // wallet) is real money the user handed over, so it must surface here
+    // instead of the old "package → 0/0/NA" short-circuit that hid it. The
+    // shared helper loads the CAPTURED payments, pro-rates multi-slot orders,
+    // and back-fills sibling prices that fall outside this filtered export.
+    const splits = await getBookingPaymentSplits(
+      bookings.map((b) => ({ id: b.id, price: b.price ?? 0, paymentMethod: b.paymentMethod })),
     );
-
-    // A single Payment can cover several bookings (multi-slot order), and
-    // its bookingIds may reference bookings that fall OUTSIDE the current
-    // filtered export - e.g. the CSV is scoped to one day/status but the
-    // customer paid for slots across two days in one order. Those siblings
-    // are absent from priceByBookingId, so the orderTotal used to pro-rate
-    // the wallet/online split below would be undercounted and the per-row
-    // amounts would inflate toward the FULL order amount (a single booking
-    // Online Amount then shows the whole order Total Amount Paid).
-    // Backfill the price of every booking these payments reference so
-    // orderTotal reflects the true order, not just the exported subset.
-    const referencedBookingIds = new Set<string>();
-    for (const p of payments) {
-      for (const bId of p.bookingIds) referencedBookingIds.add(bId);
-    }
-    const missingPriceIds = [...referencedBookingIds].filter(
-      (id) => !priceByBookingId.has(id),
-    );
-    if (missingPriceIds.length > 0) {
-      const siblingPrices = await prisma.booking.findMany({
-        where: { id: { in: missingPriceIds } },
-        select: { id: true, price: true },
-      });
-      for (const b of siblingPrices) priceByBookingId.set(b.id, b.price ?? 0);
-    }
-
-    const paymentByBookingId = new Map<string, typeof payments[number]>();
-    for (const p of payments) {
-      for (const bId of p.bookingIds) paymentByBookingId.set(bId, p);
-    }
-
-    const computeSplit = (b: any): { wallet: number; online: number } => {
-      if (isPackage(b)) return { wallet: 0, online: 0 };
-      // Pure wallet booking — booking row records this via paymentMethod.
-      if (b.paymentMethod === 'WALLET') {
-        return { wallet: b.price || 0, online: 0 };
-      }
-      if (b.paymentMethod === 'CASH') {
-        return { wallet: 0, online: 0 };
-      }
-      const payment = paymentByBookingId.get(b.id);
-      if (!payment) {
-        // No captured payment — fall back to recorded method.
-        if (b.paymentMethod === 'ONLINE') {
-          return { wallet: 0, online: b.price || 0 };
-        }
-        return { wallet: 0, online: 0 };
-      }
-      const orderTotal = payment.bookingIds.reduce(
-        (sum, bId) => sum + (priceByBookingId.get(bId) ?? 0),
-        0,
-      );
-      const meta = (payment.metadata as Record<string, unknown> | null) ?? null;
-      const walletPortion = typeof meta?.walletDeduction === 'number' ? meta.walletDeduction : 0;
-      const onlinePortion = payment.amount;
-      const myPrice = b.price ?? 0;
-      if (orderTotal > 0) {
-        return {
-          wallet: Math.round((myPrice / orderTotal) * walletPortion),
-          online: Math.round((myPrice / orderTotal) * onlinePortion),
-        };
-      }
-      return { wallet: walletPortion, online: onlinePortion };
-    };
+    const ZERO_SPLIT = { wallet: 0, online: 0 };
 
     // Check if there are any package bookings to decide whether to show Extra Amount column
     const hasPackageBookings = bookings.some((b: any) => !!b.packageBooking);
@@ -381,31 +310,18 @@ export async function GET(req: NextRequest) {
         || b.assignedMachine?.name
         || 'Not Applicable';
 
-      // Wallet / online split for this booking. computeSplit() returns
-      // {0, 0} for package + cash rows; for mixed wallet+Razorpay
-      // payments it pro-rates the funding across all bookings in the
-      // same order so the per-row numbers always sum back to the
+      // Wallet / online actually collected for this booking. {0, 0} for cash
+      // rows and for package sessions with no upgrade paid; for mixed
+      // wallet+Razorpay payments it pro-rates the funding across all bookings
+      // in the same order so the per-row numbers always sum back to the
       // captured payment.
-      const split = computeSplit(b);
+      const split = splits.get(b.id) ?? ZERO_SPLIT;
       const machineRow = isMachineBooking(b);
-      // Payment Method display:
-      //   pkg rows           → 'NA' (unchanged)
-      //   wallet > 0 && online > 0 → 'Wallet + Online'
-      //   wallet > 0 only    → 'Wallet'
-      //   online > 0 only    → 'Online'
-      //   else               → raw paymentMethod (covers CASH / unknown)
-      let paymentMethodCol: string;
-      if (pkg) {
-        paymentMethodCol = 'NA';
-      } else if (split.wallet > 0 && split.online > 0) {
-        paymentMethodCol = 'Wallet + Online';
-      } else if (split.wallet > 0) {
-        paymentMethodCol = 'Wallet';
-      } else if (split.online > 0) {
-        paymentMethodCol = 'Online';
-      } else {
-        paymentMethodCol = b.paymentMethod || '';
-      }
+      // Payment Method reflects the money actually split above (not the raw
+      // enum): a mixed payment reads "Wallet + Online", an online-paid package
+      // upgrade reads "Online". Previously every package row was hard-coded to
+      // "NA", which is exactly what hid an online-paid package upgrade.
+      const paymentMethodCol = paymentMethodLabel(split, { paymentMethod: b.paymentMethod, isPackage: pkg });
       return [
         b.id,
         formatIST(b.date, 'yyyy-MM-dd'),

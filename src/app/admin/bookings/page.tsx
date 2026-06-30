@@ -14,7 +14,6 @@ import { RefundDialog } from '@/components/ui/RefundDialog';
 import { BookingDetailsList } from '@/components/BookingDetailsList';
 import { useToast } from '@/components/ui/Toast';
 import { getDisplayStatus } from '@/lib/booking-utils';
-import { packageSessionRevenue } from '@/lib/package-revenue';
 
 type Category = 'all' | 'today' | 'upcoming' | 'previous' | 'lastMonth';
 
@@ -30,8 +29,9 @@ interface Summary {
   done: number;
   cancelled: number;
   total: number;
-  // Net revenue across the filtered set — regular bookings (net of refunds)
-  // plus package-redeemed sessions (per-session share of the package price).
+  // Amount collected across the filtered set — (online + wallet) − refunds
+  // over the active (BOOKED + DONE) bookings. Matches the dashboard's Booking
+  // Revenue and the CSV export money columns.
   revenue: number;
 }
 
@@ -680,13 +680,13 @@ function AdminBookingsContent() {
         ))}
       </div>
 
-      {/* Summary - inline, wraps on mobile. The pill is "Session Revenue":
-          revenue earned from COMPLETED sessions in the current view, recognised
-          per session — each regular booking's price (net of refunds) plus each
-          package session's per-session share of the package price (+ upgrade /
-          kit charges). This differs from the dashboard's Total Revenue, which
-          counts a package's full value as a sale at purchase; here it's earned
-          as sessions are played. Scoped to the active filters. */}
+      {/* Summary - inline, wraps on mobile. The pill is "Collected": the total
+          amount customers actually paid across the active (BOOKED + DONE)
+          bookings in the current view = (online + wallet) − refunds. Cash/free
+          bookings collect nothing through these rails and add 0. This matches
+          the dashboard's Booking Revenue definition and the CSV export's money
+          columns, so the pill, the per-row amounts, and the dashboard all
+          reconcile. Scoped to the active filters. */}
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 mb-3 px-1">
         <span className="text-xs text-slate-400">Showing <span className="text-white font-semibold">{summary.total}</span></span>
         <span className="text-[10px] text-green-400 font-medium">{summary.booked} booked</span>
@@ -694,7 +694,7 @@ function AdminBookingsContent() {
         <span className="inline-flex items-center gap-1 ml-auto px-2.5 py-1 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs font-bold">
           <IndianRupee className="w-3 h-3" />
           {summary.revenue.toLocaleString('en-IN')}
-          <span className="text-[9px] font-medium text-emerald-400/70 uppercase tracking-wide ml-0.5">session revenue</span>
+          <span className="text-[9px] font-medium text-emerald-400/70 uppercase tracking-wide ml-0.5">collected</span>
         </span>
       </div>
 
@@ -959,22 +959,23 @@ function AdminBookingsContent() {
                           </div>
                         )}
                       </div>
-                      {booking.packageBooking ? (
-                        <span className="flex flex-col items-end">
-                          <span className="flex items-center gap-0.5 text-xs font-medium text-white">
-                            <IndianRupee className="w-3 h-3" />
-                            {Math.round(packageSessionRevenue(booking.packageBooking, booking.kitRentalCharge)).toLocaleString('en-IN')}
+                      {(() => {
+                        // Amount the customer actually paid for this booking
+                        // (online + wallet), supplied by the API. Falls back to
+                        // the list price if the split lookup was unavailable.
+                        const paid = booking.amountPaid != null ? booking.amountPaid : (booking.price ?? 0);
+                        return (
+                          <span className="flex flex-col items-end">
+                            <span className="flex items-center gap-0.5 text-xs font-medium text-white">
+                              <IndianRupee className="w-3 h-3" />
+                              {Math.round(paid).toLocaleString('en-IN')}
+                            </span>
+                            <span className="text-[9px] text-slate-500 font-medium">
+                              {booking.packageBooking ? 'Package session' : 'paid'}
+                            </span>
                           </span>
-                          <span className="text-[9px] text-amber-400/80 font-medium">Package session</span>
-                        </span>
-                      ) : booking.price != null ? (
-                        <span className="flex items-center gap-0.5 text-xs font-medium text-white">
-                          <IndianRupee className="w-3 h-3" />
-                          {booking.price}
-                        </span>
-                      ) : (
-                        <span className="text-[10px] text-slate-500 italic">No price set</span>
-                      )}
+                        );
+                      })()}
                     </div>
 
                     {/* Standardized labeled details (same component &
@@ -1034,7 +1035,7 @@ function AdminBookingsContent() {
                     <th className="px-5 py-3 text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Date / Time</th>
                     <th className="px-5 py-3 text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Created</th>
                     <th className="px-5 py-3 text-[11px] font-semibold text-slate-400 uppercase tracking-wider min-w-[260px]">Details</th>
-                    <th className="px-5 py-3 text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Price</th>
+                    <th className="px-5 py-3 text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Amount Paid</th>
                     <th className="px-5 py-3 text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Status</th>
                     <th className="px-5 py-3 text-[11px] font-semibold text-slate-400 uppercase tracking-wider text-right">Actions</th>
                   </tr>
@@ -1089,35 +1090,33 @@ function AdminBookingsContent() {
                           />
                         </td>
                         <td className="px-5 py-3.5">
-                          {booking.packageBooking ? (
-                            <div className="flex flex-col gap-0.5">
-                              <span className="flex items-center gap-0.5 text-sm font-bold text-white w-fit">
-                                <IndianRupee className="w-3 h-3" />
-                                {Math.round(packageSessionRevenue(booking.packageBooking, booking.kitRentalCharge)).toLocaleString('en-IN')}
-                              </span>
-                              <span className="text-[10px] text-amber-400/80">Package session</span>
-                              <span className="text-[10px] text-slate-500 truncate max-w-[120px]">
-                                {booking.packageBooking.userPackage.package.name}
-                              </span>
-                            </div>
-                          ) : booking.price != null ? (
-                            <div className="flex flex-col gap-1">
-                              <span className="text-sm text-white w-fit">
-                                <span className="flex items-center gap-0.5 font-bold">
-                                  <IndianRupee className="w-3 h-3" />{booking.price}
+                          {(() => {
+                            // Amount actually paid by the customer for this
+                            // booking (online + wallet), from the API. For a
+                            // package session this is the upgrade they paid
+                            // (₹0 when the session was fully package-covered);
+                            // the package base was paid at purchase. Falls back
+                            // to the list price if the split was unavailable.
+                            const paid = booking.amountPaid != null ? booking.amountPaid : (booking.price ?? 0);
+                            return (
+                              <div className="flex flex-col gap-0.5">
+                                <span className="flex items-center gap-0.5 text-sm font-bold text-white w-fit">
+                                  <IndianRupee className="w-3 h-3" />
+                                  {Math.round(paid).toLocaleString('en-IN')}
                                 </span>
-                              </span>
-                              {/* Payment method now lives in the Details column
-                                  (standardized labeled list), so it's no longer
-                                  duplicated here — the Price column shows the
-                                  amount once (read-only), plus any discount applied. */}
-                              {booking.discountAmount > 0 && (
-                                <div className="text-[9px] text-green-400/70 italic">₹{booking.discountAmount} discount applied</div>
-                              )}
-                            </div>
-                          ) : (
-                            <span className="text-xs text-slate-500 italic">No price set</span>
-                          )}
+                                {booking.packageBooking ? (
+                                  <>
+                                    <span className="text-[10px] text-amber-400/80">Package session</span>
+                                    <span className="text-[10px] text-slate-500 truncate max-w-[120px]">
+                                      {booking.packageBooking.userPackage.package.name}
+                                    </span>
+                                  </>
+                                ) : booking.discountAmount > 0 ? (
+                                  <div className="text-[9px] text-green-400/70 italic">₹{booking.discountAmount} discount applied</div>
+                                ) : null}
+                              </div>
+                            );
+                          })()}
                         </td>
                         <td className="px-5 py-3.5">
                           <div className="flex flex-col gap-1">

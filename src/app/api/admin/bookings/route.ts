@@ -11,7 +11,7 @@ import {
   adjustSiblingPricesForCancellation,
   processCancellationRefund,
 } from '@/lib/booking-cancellation';
-import { packageSessionRevenue } from '@/lib/package-revenue';
+import { getBookingPaymentSplits } from '@/lib/booking-payment';
 import { log } from '@/lib/logger';
 
 type MachineIdFilter = 'GRAVITY' | 'YANTRA' | 'LEVERAGE_INDOOR' | 'LEVERAGE_OUTDOOR';
@@ -356,6 +356,25 @@ export async function GET(req: NextRequest) {
       ]);
     }
 
+    // Attach the funds actually collected (online + wallet) per row so the
+    // admin list can show "amount paid by the user" instead of the list
+    // price. Same shared helper the dashboard + CSV export use, so the three
+    // surfaces reconcile. Best-effort: a lookup failure leaves amountPaid null
+    // and the client falls back to the price.
+    try {
+      const pageSplits = await getBookingPaymentSplits(
+        bookings.map((b) => ({ id: b.id, price: b.price ?? 0, paymentMethod: b.paymentMethod })),
+      );
+      for (const b of bookings) {
+        const s = pageSplits.get(b.id) ?? { wallet: 0, online: 0 };
+        b.amountPaid = s.wallet + s.online;
+        b.amountWallet = s.wallet;
+        b.amountOnline = s.online;
+      }
+    } catch {
+      for (const b of bookings) b.amountPaid = b.amountPaid ?? null;
+    }
+
     // Summary counts use baseWhere (without status time constraints) + derived status logic
     const [bookedCount, doneCount, cancelledCount, revenueValue] = await Promise.all([
       // "Upcoming" = BOOKED bookings that haven't started yet
@@ -375,51 +394,39 @@ export async function GET(req: NextRequest) {
         },
       }),
       prisma.booking.count({ where: { ...summaryBaseWhere, status: 'CANCELLED' } }),
-      // Session revenue for the filtered view — per-session recognition.
-      // Counts only COMPLETED sessions (status DONE, or BOOKED whose endTime
-      // has already passed — the same "Completed" definition used for the
-      // doneCount above), valuing each one per session:
-      //   • regular booking → its price, net of refunds;
-      //   • package-redeemed session → its per-session share of the package
-      //     price (amountPaid / totalSessions × sessionsUsed) plus any upgrade
-      //     extra charge + kit rental.
-      // This is intentionally DIFFERENT from the dashboard's Total Revenue,
-      // which recognises a package's full value as a sale at purchase. Here the
-      // value is recognised as sessions are actually played, so this figure
-      // answers "revenue earned from completed sessions".
+      // Amount collected for the filtered view — the sum of what customers
+      // actually paid across the active (BOOKED + DONE) bookings in scope:
+      // (online + wallet) − non-failed refunds. Cash/free bookings collect
+      // nothing through these rails and add 0. This matches the dashboard's
+      // Booking Revenue definition and the CSV export's money columns, so the
+      // pill, the per-row amounts, and the dashboard all reconcile.
       (async () => {
         try {
           const revenueBookings = await prisma.booking.findMany({
             where: {
               AND: [
                 summaryBaseWhere,
-                { OR: [{ status: 'DONE' }, { status: 'BOOKED', endTime: { lte: now } }] },
+                { status: { in: ['BOOKED', 'DONE'] } },
               ],
             },
             select: {
+              id: true,
               price: true,
-              kitRentalCharge: true,
-              packageBooking: {
-                select: {
-                  sessionsUsed: true,
-                  extraCharge: true,
-                  userPackage: { select: { amountPaid: true, totalSessions: true } },
-                },
-              },
+              paymentMethod: true,
               refunds: { select: { amount: true, status: true } },
             },
           });
+          const splits = await getBookingPaymentSplits(
+            revenueBookings.map((b) => ({ id: b.id, price: b.price ?? 0, paymentMethod: b.paymentMethod })),
+          );
           let revenue = 0;
           for (const b of revenueBookings) {
-            if (b.packageBooking) {
-              revenue += packageSessionRevenue(b.packageBooking, b.kitRentalCharge);
-            } else {
-              let net = b.price || 0;
-              for (const r of b.refunds) {
-                if (r.status !== 'FAILED') net -= r.amount;
-              }
-              revenue += net;
+            const split = splits.get(b.id) ?? { wallet: 0, online: 0 };
+            let net = split.wallet + split.online;
+            for (const r of b.refunds) {
+              if (r.status !== 'FAILED') net -= r.amount;
             }
+            revenue += net;
           }
           return Math.round(revenue);
         } catch {
