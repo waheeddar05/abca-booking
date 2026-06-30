@@ -11,7 +11,7 @@ import {
   adjustSiblingPricesForCancellation,
   processCancellationRefund,
 } from '@/lib/booking-cancellation';
-import { getBookingPaymentSplits } from '@/lib/booking-payment';
+import { bookingAmountPaidNet } from '@/lib/booking-payment';
 import { log } from '@/lib/logger';
 
 type MachineIdFilter = 'GRAVITY' | 'YANTRA' | 'LEVERAGE_INDOOR' | 'LEVERAGE_OUTDOOR';
@@ -356,23 +356,16 @@ export async function GET(req: NextRequest) {
       ]);
     }
 
-    // Attach the funds actually collected (online + wallet) per row so the
-    // admin list can show "amount paid by the user" instead of the list
-    // price. Same shared helper the dashboard + CSV export use, so the three
-    // surfaces reconcile. Best-effort: a lookup failure leaves amountPaid null
-    // and the client falls back to the price.
-    try {
-      const pageSplits = await getBookingPaymentSplits(
-        bookings.map((b) => ({ id: b.id, price: b.price ?? 0, paymentMethod: b.paymentMethod })),
+    // Attach the funds actually collected (online + wallet) per row, net of
+    // refunds, so the admin list shows "amount paid by the user" instead of the
+    // list price. Based on the booking's own price (cash/free/package-covered →
+    // 0); same definition the dashboard + CSV export use, so the three surfaces
+    // reconcile. A fully-refunded cancelled slot correctly shows ₹0.
+    for (const b of bookings) {
+      b.amountPaid = bookingAmountPaidNet(
+        { price: b.price, paymentMethod: b.paymentMethod },
+        b.refunds ?? [],
       );
-      for (const b of bookings) {
-        const s = pageSplits.get(b.id) ?? { wallet: 0, online: 0 };
-        b.amountPaid = s.wallet + s.online;
-        b.amountWallet = s.wallet;
-        b.amountOnline = s.online;
-      }
-    } catch {
-      for (const b of bookings) b.amountPaid = b.amountPaid ?? null;
     }
 
     // Summary counts use baseWhere (without status time constraints) + derived status logic
@@ -410,23 +403,17 @@ export async function GET(req: NextRequest) {
               ],
             },
             select: {
-              id: true,
               price: true,
               paymentMethod: true,
               refunds: { select: { amount: true, status: true } },
             },
           });
-          const splits = await getBookingPaymentSplits(
-            revenueBookings.map((b) => ({ id: b.id, price: b.price ?? 0, paymentMethod: b.paymentMethod })),
-          );
           let revenue = 0;
           for (const b of revenueBookings) {
-            const split = splits.get(b.id) ?? { wallet: 0, online: 0 };
-            let net = split.wallet + split.online;
-            for (const r of b.refunds) {
-              if (r.status !== 'FAILED') net -= r.amount;
-            }
-            revenue += net;
+            revenue += bookingAmountPaidNet(
+              { price: b.price, paymentMethod: b.paymentMethod },
+              b.refunds,
+            );
           }
           return Math.round(revenue);
         } catch {

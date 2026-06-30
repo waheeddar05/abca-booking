@@ -4,7 +4,7 @@ import { requireAdmin } from '@/lib/adminAuth';
 import { getAuthenticatedUser } from '@/lib/auth';
 import { resolveCurrentCenter } from '@/lib/centers';
 import { getISTTodayUTC, getISTLastMonthRange, dateStringToUTC } from '@/lib/time';
-import { getBookingPaymentSplits } from '@/lib/booking-payment';
+import { bookingAmountPaidNet } from '@/lib/booking-payment';
 
 // Epoch millis for a nullable groupBy `_max.date`. Used to break ties when two
 // staff have the same session count so the most recent booking ranks higher.
@@ -314,22 +314,17 @@ export async function GET(req: NextRequest) {
             },
           });
 
-          // Funds actually collected per booking (online + wallet), shared
-          // with the CSV export and the admin bookings list so all three
-          // reconcile. Pure-cash / free bookings resolve to {0,0}.
-          const splits = await getBookingPaymentSplits(
-            bookings.map((b) => ({ id: b.id, price: b.price ?? 0, paymentMethod: b.paymentMethod })),
-          );
-
           let bookingRevenue = 0;
           for (const b of bookings) {
-            const split = splits.get(b.id) ?? { wallet: 0, online: 0 };
-            // Collected (online + wallet), then net of non-failed refunds —
-            // identical recognition for regular and package-redemption rows.
-            let value = split.wallet + split.online;
-            for (const r of b.refunds) {
-              if (r.status !== 'FAILED') value -= r.amount;
-            }
+            // Funds actually collected for this booking (online + wallet) net of
+            // non-failed refunds. Based on the booking's own price (= what was
+            // charged for the slot) — cash/free/package-covered rows resolve to
+            // 0. Same definition the CSV export and admin list use, so all three
+            // reconcile. Identical for regular and package-redemption rows.
+            const value = bookingAmountPaidNet(
+              { price: b.price, paymentMethod: b.paymentMethod },
+              b.refunds,
+            );
             bookingRevenue += value;
             addCategory(b.category, value);
             if (b.category === 'MACHINE') {

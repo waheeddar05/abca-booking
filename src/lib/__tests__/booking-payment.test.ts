@@ -6,86 +6,82 @@ import { describe, it, expect, vi } from 'vitest';
 vi.mock('@/lib/prisma', () => ({ prisma: {} }));
 
 import {
-  computeBookingPaymentSplit,
+  bookingAmountPaidGross,
+  bookingAmountPaidNet,
+  bookingPaymentSplit,
   paymentMethodLabel,
-  type PaymentForSplit,
 } from '../booking-payment';
 
-describe('computeBookingPaymentSplit', () => {
-  it('online-only payment → full amount under online', () => {
-    const payment: PaymentForSplit = { amount: 450, metadata: {}, bookingIds: ['b1'] };
-    const prices = new Map([['b1', 450]]);
-    expect(
-      computeBookingPaymentSplit({ id: 'b1', price: 450, paymentMethod: 'ONLINE' }, payment, prices),
-    ).toEqual({ wallet: 0, online: 450 });
+describe('bookingAmountPaidGross', () => {
+  it('online booking → its price', () => {
+    expect(bookingAmountPaidGross({ price: 550, paymentMethod: 'ONLINE' })).toBe(550);
   });
-
-  it('package upgrade paid online (the Shubham ₹50 case) → Online, not NA', () => {
-    // Package-redemption booking: price = the upgrade/extra charge, paid online.
-    const payment: PaymentForSplit = { amount: 50, metadata: {}, bookingIds: ['pkg1'] };
-    const prices = new Map([['pkg1', 50]]);
-    const split = computeBookingPaymentSplit(
-      { id: 'pkg1', price: 50, paymentMethod: 'ONLINE' },
-      payment,
-      prices,
-    );
-    expect(split).toEqual({ wallet: 0, online: 50 });
-    expect(paymentMethodLabel(split, { paymentMethod: 'ONLINE', isPackage: true })).toBe('Online');
+  it('wallet booking → its price', () => {
+    expect(bookingAmountPaidGross({ price: 250, paymentMethod: 'WALLET' })).toBe(250);
   });
-
-  it('mixed wallet + online payment splits by metadata.walletDeduction', () => {
-    const payment: PaymentForSplit = { amount: 300, metadata: { walletDeduction: 150 }, bookingIds: ['b1'] };
-    const prices = new Map([['b1', 450]]);
-    expect(
-      computeBookingPaymentSplit({ id: 'b1', price: 450, paymentMethod: 'ONLINE' }, payment, prices),
-    ).toEqual({ wallet: 150, online: 300 });
+  it('cash booking → 0 (excluded, digital-only)', () => {
+    expect(bookingAmountPaidGross({ price: 550, paymentMethod: 'CASH' })).toBe(0);
   });
-
-  it('pro-rates a multi-booking order across its bookings', () => {
-    // One order of ₹600 online + ₹200 wallet covering two ₹400 bookings.
-    const payment: PaymentForSplit = {
-      amount: 600,
-      metadata: { walletDeduction: 200 },
-      bookingIds: ['b1', 'b2'],
-    };
-    const prices = new Map([['b1', 400], ['b2', 400]]);
-    expect(
-      computeBookingPaymentSplit({ id: 'b1', price: 400, paymentMethod: 'ONLINE' }, payment, prices),
-    ).toEqual({ wallet: 100, online: 300 });
+  it('package-covered / pay-later (no method) → 0', () => {
+    expect(bookingAmountPaidGross({ price: 0, paymentMethod: null })).toBe(0);
+    expect(bookingAmountPaidGross({ price: 550, paymentMethod: null })).toBe(0);
   });
-
-  it('pure wallet booking (no payment row) → full price under wallet', () => {
-    expect(
-      computeBookingPaymentSplit({ id: 'b1', price: 250, paymentMethod: 'WALLET' }, undefined, new Map()),
-    ).toEqual({ wallet: 250, online: 0 });
+  it('online package upgrade (the Shubham ₹50 case) → 50', () => {
+    expect(bookingAmountPaidGross({ price: 50, paymentMethod: 'ONLINE' })).toBe(50);
   });
+});
 
-  it('legacy/unlinked online booking (no payment row) approximated by price', () => {
+describe('bookingAmountPaidNet', () => {
+  it('subtracts non-failed refunds', () => {
     expect(
-      computeBookingPaymentSplit({ id: 'b1', price: 250, paymentMethod: 'ONLINE' }, undefined, new Map()),
-    ).toEqual({ wallet: 0, online: 250 });
+      bookingAmountPaidNet({ price: 550, paymentMethod: 'ONLINE' }, [{ amount: 100, status: 'PROCESSED' }]),
+    ).toBe(450);
   });
-
-  it('cash booking collects nothing digitally → {0,0}', () => {
+  it('ignores FAILED refunds', () => {
     expect(
-      computeBookingPaymentSplit({ id: 'b1', price: 250, paymentMethod: 'CASH' }, undefined, new Map()),
-    ).toEqual({ wallet: 0, online: 0 });
+      bookingAmountPaidNet({ price: 550, paymentMethod: 'ONLINE' }, [{ amount: 100, status: 'FAILED' }]),
+    ).toBe(550);
   });
-
-  it('package session with no extra (price 0, no payment) → {0,0}', () => {
+  it('a cancelled slot fully refunded nets to 0 (no more phantom ₹600)', () => {
+    // The 10:00 Gravity slot: charged 600, fully refunded to wallet on cancel.
     expect(
-      computeBookingPaymentSplit({ id: 'pkg1', price: 0, paymentMethod: null }, undefined, new Map()),
-    ).toEqual({ wallet: 0, online: 0 });
+      bookingAmountPaidNet({ price: 600, paymentMethod: 'ONLINE' }, [{ amount: 600, status: 'PROCESSED' }]),
+    ).toBe(0);
+  });
+  it('an active consecutive slot shows its own price, not a pro-rated fraction', () => {
+    // The 08:30 / 09:00 Gravity slots: each charged 550, no refund → 550 each,
+    // instead of the old 310/550 pro-rating artifacts.
+    expect(bookingAmountPaidNet({ price: 550, paymentMethod: 'ONLINE' }, [])).toBe(550);
+  });
+});
+
+describe('bookingPaymentSplit', () => {
+  it('pure online booking → all online', () => {
+    expect(bookingPaymentSplit({ price: 550, paymentMethod: 'ONLINE' }, 0)).toEqual({ wallet: 0, online: 550 });
+  });
+  it('pure wallet booking → all wallet (ledger debit ignored, method is authoritative)', () => {
+    expect(bookingPaymentSplit({ price: 250, paymentMethod: 'WALLET' }, 999)).toEqual({ wallet: 250, online: 0 });
+  });
+  it('part-wallet + online → wallet from ledger, remainder online', () => {
+    // Charged 550 for the slot, ₹240 came from wallet → ₹310 online.
+    expect(bookingPaymentSplit({ price: 550, paymentMethod: 'ONLINE' }, 240)).toEqual({ wallet: 240, online: 310 });
+  });
+  it('caps wallet at the slot amount (sum never exceeds what was charged)', () => {
+    // Multi-slot order debits the whole wallet against the first slot; cap so
+    // wallet + online == this slot's charge.
+    expect(bookingPaymentSplit({ price: 550, paymentMethod: 'ONLINE' }, 800)).toEqual({ wallet: 550, online: 0 });
+  });
+  it('cash / package-covered → 0 / 0', () => {
+    expect(bookingPaymentSplit({ price: 550, paymentMethod: 'CASH' }, 0)).toEqual({ wallet: 0, online: 0 });
+    expect(bookingPaymentSplit({ price: 0, paymentMethod: null }, 0)).toEqual({ wallet: 0, online: 0 });
   });
 });
 
 describe('paymentMethodLabel', () => {
-  it('labels a mixed payment', () => {
-    expect(paymentMethodLabel({ wallet: 100, online: 300 }, { paymentMethod: 'ONLINE' })).toBe('Wallet + Online');
-  });
-  it('labels wallet-only and online-only', () => {
-    expect(paymentMethodLabel({ wallet: 100, online: 0 }, { paymentMethod: 'WALLET' })).toBe('Wallet');
-    expect(paymentMethodLabel({ wallet: 0, online: 300 }, { paymentMethod: 'ONLINE' })).toBe('Online');
+  it('labels mixed / wallet / online', () => {
+    expect(paymentMethodLabel({ wallet: 240, online: 310 }, { paymentMethod: 'ONLINE' })).toBe('Wallet + Online');
+    expect(paymentMethodLabel({ wallet: 250, online: 0 }, { paymentMethod: 'WALLET' })).toBe('Wallet');
+    expect(paymentMethodLabel({ wallet: 0, online: 550 }, { paymentMethod: 'ONLINE' })).toBe('Online');
   });
   it('labels cash', () => {
     expect(paymentMethodLabel({ wallet: 0, online: 0 }, { paymentMethod: 'CASH' })).toBe('Cash');
