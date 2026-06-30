@@ -4,7 +4,7 @@ import { requireAdmin } from '@/lib/adminAuth';
 import { getAuthenticatedUser } from '@/lib/auth';
 import { resolveCurrentCenter } from '@/lib/centers';
 import { getISTTodayUTC, getISTLastMonthRange, dateStringToUTC, formatIST } from '@/lib/time';
-import { getBookingWalletDebits, bookingPaymentSplit, paymentMethodLabel } from '@/lib/booking-payment';
+import { getBookingWalletShares, bookingPaymentSplit, paymentMethodLabel } from '@/lib/booking-payment';
 
 const SAFE_BOOKING_SELECT = {
   id: true,
@@ -185,13 +185,14 @@ export async function GET(req: NextRequest) {
     // Build CSV
     const isPackage = (b: any) => !!b.packageBooking;
 
-    // Wallet actually debited per booking, read from the wallet ledger
-    // (WalletTransaction DEBIT_BOOKING). This fixes partial-wallet payments
-    // that previously showed ₹0 because Payment.metadata.walletDeduction was
-    // absent. The online portion is derived as (amount − wallet) per booking,
-    // so Wallet + Online always equals what was charged for that slot — no
-    // fragile pro-rating of a shared order payment by mutable per-slot prices.
-    const walletDebits = await getBookingWalletDebits(bookings.map((b) => b.id));
+    // Wallet attributed per booking from the wallet ledger (DEBIT_BOOKING),
+    // split evenly across a multi-slot order's slots. This fixes partial-wallet
+    // payments that previously showed ₹0 (they relied on
+    // Payment.metadata.walletDeduction, which can be absent). The online portion
+    // is derived as (amount − wallet) per booking, so Wallet + Online always
+    // equals what was charged for that slot — no fragile pro-rating of a shared
+    // payment by mutable per-slot prices.
+    const walletShares = await getBookingWalletShares(bookings.map((b) => b.id));
 
     // Check if there are any package bookings to decide whether to show Extra Amount column
     const hasPackageBookings = bookings.some((b: any) => !!b.packageBooking);
@@ -314,7 +315,7 @@ export async function GET(req: NextRequest) {
       // Amount column carries refunds separately).
       const split = bookingPaymentSplit(
         { price: b.price ?? 0, paymentMethod: b.paymentMethod },
-        walletDebits.get(b.id) ?? 0,
+        walletShares.get(b.id) ?? 0,
       );
       const machineRow = isMachineBooking(b);
       // Payment Method reflects the money actually split above (not the raw

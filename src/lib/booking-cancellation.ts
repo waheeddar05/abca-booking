@@ -1,157 +1,39 @@
 /**
- * Booking cancellation — consecutive-discount-aware sibling repricing.
+ * Booking cancellation refunds.
  *
- * When a booking that was part of a consecutive chain is cancelled, the
- * remaining siblings are no longer in that chain (or are in a smaller
- * chain) and lose their per-slot consecutive discount. The user's refund
- * is reduced by the price increase on those siblings, so the user
- * effectively pays the single-slot price for each remaining slot.
+ * POLICY: each cancelled slot is refunded the price that slot was actually
+ * charged — an even, per-slot refund.
  *
- * Example with ABCA single=₹500 / 2-consecutive=₹900 (₹450/slot):
- *   User books 2 consecutive slots → paid ₹900 (each booking row = ₹450).
- *   User cancels slot #1:
- *     - Sibling slot #2 is re-priced ₹450 → ₹500 (+₹50 increase).
- *     - consecutiveAdjustment = ₹50.
- *     - Refund = cancelled.price - adjustment = ₹450 - ₹50 = ₹400.
- *     - Sibling now reflects ₹500 on the booking row.
- *   User then cancels slot #2:
- *     - No remaining siblings → no adjustment.
- *     - Refund = ₹500 (the repriced amount).
+ * We deliberately DO NOT re-price the remaining consecutive siblings to claw
+ * back the multi-slot discount on cancellation. That older behaviour produced
+ * uneven, confusing refunds (e.g. ₹0 on the first cancelled slot of a chain and
+ * the whole amount on the next) and is what made a multi-slot cancellation look
+ * wrong. With it removed, `processCancellationRefund` simply refunds
+ * `booking.price` for each cancelled slot, so two cancellations of equally
+ * priced slots refund the same amount.
  *
- * Total refunded = ₹900 = original total. Correct.
- *
- * All centers use the resource-based model; repricing keys on the
- * `assignedMachineId` / `assignedCoachId` / `assignedStaffId` axes.
+ * Trade-off (intentional, product decision): a customer who cancels part of a
+ * consecutive booking keeps the multi-slot discounted rate on the slots they
+ * retain, instead of being re-charged the single-slot rate.
  */
 
 import { prisma } from '@/lib/prisma';
 import type { Booking } from '@prisma/client';
-import { getResourceSlotPrice, getResourcePricingConfig } from '@/lib/resource-pricing';
 import { creditWallet, getDefaultRefundMethod, isWalletEnabled } from '@/lib/wallet';
 import { notifyWalletCredit } from '@/lib/notifications';
 
 /**
- * Re-prices the cancelled booking's BOOKED siblings and writes the
- * higher price back onto each sibling row. Returns the total
- * `consecutiveAdjustment` (sum of per-sibling price increases) that
- * should be subtracted from the cancelled booking's refund.
- *
- * - Never lowers a sibling's price (we already charged the user that
- *   amount; lowering would misalign with what's on the payment).
- * - Mutates the passed `booking` object's `price` field after applying
- *   the adjustment so the caller's refund math uses the adjusted value.
+ * No-op retained for call-site compatibility (user cancel, admin cancel, slot
+ * block, availability sync all call this). It used to re-price the cancelled
+ * booking's consecutive siblings and claw the discount back from the refund;
+ * that is disabled so every cancelled slot refunds its own charged price.
+ * Always returns 0 and never mutates any price.
  */
-export async function adjustSiblingPricesForCancellation(
+export function adjustSiblingPricesForCancellation(
   booking: Booking,
 ): Promise<number> {
-  if (!booking.userId || !booking.price) return 0;
-
-  const center = await prisma.center.findUnique({
-    where: { id: booking.centerId },
-    select: { id: true, bookingModel: true },
-  });
-  if (!center) return 0;
-
-  let consecutiveAdjustment = 0;
-  try {
-    // All centers use the resource-based model; the legacy MACHINE_PITCH
-    // sibling-reprice path has been removed.
-    consecutiveAdjustment = await adjustSiblingsResourceBased(booking, center.id);
-  } catch (e) {
-    console.error('[BookingCancel] Sibling reprice failed:', e);
-    return 0;
-  }
-
-  if (consecutiveAdjustment > 0 && booking.price) {
-    const adjustedPrice = Math.max(0, booking.price - consecutiveAdjustment);
-    await prisma.booking.update({
-      where: { id: booking.id },
-      data: { price: adjustedPrice },
-    });
-    // Mirror the new value onto the caller's reference.
-    booking.price = adjustedPrice;
-  }
-  return consecutiveAdjustment;
-}
-
-// ─── Toplay (RESOURCE_BASED) — same idea via getResourceSlotPrice ────
-
-async function adjustSiblingsResourceBased(booking: Booking, centerId: string): Promise<number> {
-  if (!booking.userId) return 0;
-
-  // Sibling set: same user, same date, same category, same assigned
-  // machine (if MACHINE) / same assigned coach (if COACHING) / same
-  // assigned staff (if SIDEARM). Same axes the pricing engine keys on.
-  const siblings = await prisma.booking.findMany({
-    where: {
-      id: { not: booking.id },
-      userId: booking.userId,
-      centerId,
-      date: booking.date,
-      category: booking.category,
-      status: 'BOOKED',
-      ...(booking.assignedMachineId ? { assignedMachineId: booking.assignedMachineId } : {}),
-      ...(booking.assignedCoachId ? { assignedCoachId: booking.assignedCoachId } : {}),
-      ...(booking.assignedStaffId ? { assignedStaffId: booking.assignedStaffId } : {}),
-      pitchType: booking.pitchType ?? null,
-    },
-    orderBy: { startTime: 'asc' },
-  });
-  if (siblings.length === 0) return 0;
-
-  // Resolve the machine type code once so we don't re-read inside the loop.
-  let machineTypeCode: string | null = null;
-  if (booking.assignedMachineId) {
-    const m = await prisma.machine.findUnique({
-      where: { id: booking.assignedMachineId },
-      select: { machineType: { select: { code: true } } },
-    });
-    machineTypeCode = m?.machineType.code ?? null;
-  }
-
-  const pricingConfig = await getResourcePricingConfig(centerId);
-
-  // Recompute each sibling's price assuming the NEW set of siblings
-  // (without the cancelled one). A sibling is "in a chain" if any
-  // OTHER remaining sibling is adjacent to it (start==otherEnd or
-  // end==otherStart). This mirrors planIsConsecutive in book-resource.
-  let adjustment = 0;
-  for (let i = 0; i < siblings.length; i++) {
-    const s = siblings[i];
-    const isConsecutive = siblings.some((q, j) => {
-      if (i === j) return false;
-      return (
-        s.startTime.getTime() === q.endTime.getTime() ||
-        s.endTime.getTime() === q.startTime.getTime()
-      );
-    });
-
-    const newPrice = await getResourceSlotPrice({
-      category: s.category,
-      machineTypeCode,
-      machineRowId: s.assignedMachineId,
-      pitchType: s.pitchType,
-      ballType: s.ballType,
-      isConsecutive,
-      startTime: s.startTime,
-      centerId,
-      pricingConfig,
-    });
-
-    const oldPrice = s.price || 0;
-    const increase = newPrice - oldPrice;
-    if (increase > 0) {
-      adjustment += increase;
-      await prisma.booking.update({
-        where: { id: s.id },
-        data: {
-          price: newPrice,
-          originalPrice: newPrice,
-        },
-      });
-    }
-  }
-  return adjustment;
+  void booking; // retained for call-site compatibility; intentionally unused
+  return Promise.resolve(0);
 }
 
 // ─── Shared cancellation refund ──────────────────────────────────────
@@ -223,8 +105,8 @@ export async function processCancellationRefund(opts: {
 
   // ─── Case 1: Wallet-paid booking ─────────────────────────────────
   if (booking.paymentMethod === 'WALLET' && booking.paymentStatus === 'PAID') {
-    // Booking.price is already post-adjustSiblingPricesForCancellation
-    // so the remainder is the right amount to claw back to wallet.
+    // Refund the slot's own charged price (no consecutive clawback), minus
+    // anything already refunded on this booking.
     const remaining = booking.price - alreadyRefunded;
     if (remaining <= 0) {
       // Already fully refunded — just flip the booking flag so the UI
