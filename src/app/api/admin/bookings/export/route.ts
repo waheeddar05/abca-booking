@@ -4,7 +4,7 @@ import { requireAdmin } from '@/lib/adminAuth';
 import { getAuthenticatedUser } from '@/lib/auth';
 import { resolveCurrentCenter } from '@/lib/centers';
 import { getISTTodayUTC, getISTLastMonthRange, dateStringToUTC, formatIST } from '@/lib/time';
-import { getBookingPaymentSplits, paymentMethodLabel } from '@/lib/booking-payment';
+import { getBookingWalletDebits, bookingPaymentSplit, paymentMethodLabel } from '@/lib/booking-payment';
 
 const SAFE_BOOKING_SELECT = {
   id: true,
@@ -185,16 +185,13 @@ export async function GET(req: NextRequest) {
     // Build CSV
     const isPackage = (b: any) => !!b.packageBooking;
 
-    // Wallet/online actually collected per booking — for EVERY booking,
-    // including package redemptions. A package upgrade paid online (or from
-    // wallet) is real money the user handed over, so it must surface here
-    // instead of the old "package → 0/0/NA" short-circuit that hid it. The
-    // shared helper loads the CAPTURED payments, pro-rates multi-slot orders,
-    // and back-fills sibling prices that fall outside this filtered export.
-    const splits = await getBookingPaymentSplits(
-      bookings.map((b) => ({ id: b.id, price: b.price ?? 0, paymentMethod: b.paymentMethod })),
-    );
-    const ZERO_SPLIT = { wallet: 0, online: 0 };
+    // Wallet actually debited per booking, read from the wallet ledger
+    // (WalletTransaction DEBIT_BOOKING). This fixes partial-wallet payments
+    // that previously showed ₹0 because Payment.metadata.walletDeduction was
+    // absent. The online portion is derived as (amount − wallet) per booking,
+    // so Wallet + Online always equals what was charged for that slot — no
+    // fragile pro-rating of a shared order payment by mutable per-slot prices.
+    const walletDebits = await getBookingWalletDebits(bookings.map((b) => b.id));
 
     // Check if there are any package bookings to decide whether to show Extra Amount column
     const hasPackageBookings = bookings.some((b: any) => !!b.packageBooking);
@@ -311,11 +308,14 @@ export async function GET(req: NextRequest) {
         || 'Not Applicable';
 
       // Wallet / online actually collected for this booking. {0, 0} for cash
-      // rows and for package sessions with no upgrade paid; for mixed
-      // wallet+Razorpay payments it pro-rates the funding across all bookings
-      // in the same order so the per-row numbers always sum back to the
-      // captured payment.
-      const split = splits.get(b.id) ?? ZERO_SPLIT;
+      // rows and for package sessions with no upgrade paid. Online/wallet rows
+      // use the booking's own price (= what was charged for this slot) with the
+      // wallet portion taken from the ledger; gross of refunds (the Refund
+      // Amount column carries refunds separately).
+      const split = bookingPaymentSplit(
+        { price: b.price ?? 0, paymentMethod: b.paymentMethod },
+        walletDebits.get(b.id) ?? 0,
+      );
       const machineRow = isMachineBooking(b);
       // Payment Method reflects the money actually split above (not the raw
       // enum): a mixed payment reads "Wallet + Online", an online-paid package
