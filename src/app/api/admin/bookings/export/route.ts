@@ -144,7 +144,7 @@ export async function GET(req: NextRequest) {
     // not a valid IS NULL predicate), so a Bowling Machine export captured
     // every category — the CSV equivalent of the list-view leak.
     if (categoryFilter) {
-      const validCategories = new Set(['MACHINE', 'SIDEARM', 'COACHING', 'NET', 'FULL_COURT', 'CORPORATE_BATCH']);
+      const validCategories = new Set(['MACHINE', 'SIDEARM', 'COACHING', 'NET', 'FULL_COURT', 'CORPORATE_BATCH', 'MATCH_SIMULATION']);
       if (validCategories.has(categoryFilter)) {
         where.category = categoryFilter;
       }
@@ -208,6 +208,7 @@ export async function GET(req: NextRequest) {
       FULL_COURT: 'Full Indoor Court',
       COACHING: 'Personal Coaching',
       CORPORATE_BATCH: 'Corporate Batch',
+      MATCH_SIMULATION: 'Match Simulation',
     };
     const categoryLabel = (raw: string | null | undefined): string =>
       (raw && CATEGORY_LABELS[raw]) || 'Bowling Machine';

@@ -43,12 +43,14 @@ const CATEGORY_LABELS: Record<string, string> = {
   NET: 'Cricket Nets',
   FULL_COURT: 'Full Indoor Court',
   CORPORATE_BATCH: 'Corporate Batch',
+  MATCH_SIMULATION: 'Match Simulation',
 };
 
-// CORPORATE_BATCH intentionally omitted — the DB enum value stays
-// for back-compat with historical bookings but the admin block-slot
-// UI no longer offers it as a target category.
-const ALL_CATEGORIES = ['MACHINE', 'SIDEARM', 'COACHING', 'NET', 'FULL_COURT'] as const;
+// Match Practice categories are blockable too — the seat-based booking
+// path runs the same evaluateBlockForBooking check, so an admin can
+// take a corporate-batch or match-simulation session off the schedule
+// (e.g. for a holiday) without touching the config.
+const ALL_CATEGORIES = ['MACHINE', 'SIDEARM', 'COACHING', 'NET', 'FULL_COURT', 'CORPORATE_BATCH', 'MATCH_SIMULATION'] as const;
 
 type TabId = 'block' | 'active';
 

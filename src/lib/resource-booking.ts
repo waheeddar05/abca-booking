@@ -76,13 +76,19 @@ export interface CorporateBatchConfig {
 // arrangement, not a platform-wide policy. Centers that want it must
 // set `CORPORATE_BATCH_CONFIG` in CenterPolicy with `enabled: true` plus
 // their own window/nets. Leaving the default off means a brand-new
-// center won't have phantom blocks Mon–Fri mornings just because it
-// hasn't configured anything yet.
+// center won't have phantom blocks just because it hasn't configured
+// anything yet.
+//
+// NOTE: the same policy key also carries the Match Practice enrollment
+// knobs (coach, fees, capacity, half-month) — see
+// `src/lib/match-practice.ts → getCorporateBatchSettings`, which merges
+// the full shape. This engine only consumes the net-hold subset below;
+// keep the two defaults' shared fields (days/times/nets) in sync.
 export const DEFAULT_CORPORATE_BATCH_CONFIG: CorporateBatchConfig = {
   enabled: false,
-  days: [1, 2, 3, 4, 5],
-  startTime: '07:30',
-  endTime: '09:30',
+  days: [1, 3, 5], // Mon / Wed / Fri
+  startTime: '07:00',
+  endTime: '09:00',
   netsConsumed: 2,
 };
 
@@ -958,7 +964,7 @@ export function applyBlocksToAvailability(
     if (!hasAnyAxis) {
       // Block every booking-category we know about. The frontend uses
       // this to grey out every tab in the slot picker.
-      const ALL_CATS: BookingCategory[] = ['MACHINE', 'SIDEARM', 'COACHING', 'NET', 'FULL_COURT', 'CORPORATE_BATCH'];
+      const ALL_CATS: BookingCategory[] = ['MACHINE', 'SIDEARM', 'COACHING', 'NET', 'FULL_COURT', 'CORPORATE_BATCH', 'MATCH_SIMULATION'];
       addToPitch(null, ALL_CATS, []);
 
       // Catchall — claims the whole indoor pool too.
@@ -979,7 +985,7 @@ export function applyBlocksToAvailability(
       && b.resourceIds.length === 0
       && b.netCount == null; // a count block reserves units, it isn't a full-pitch block
     if (isPitchOnlyBlock && b.pitchType) {
-      const ALL_CATS: BookingCategory[] = ['MACHINE', 'SIDEARM', 'COACHING', 'NET', 'FULL_COURT', 'CORPORATE_BATCH'];
+      const ALL_CATS: BookingCategory[] = ['MACHINE', 'SIDEARM', 'COACHING', 'NET', 'FULL_COURT', 'CORPORATE_BATCH', 'MATCH_SIMULATION'];
       for (const c of ALL_CATS) blockedByPitch[b.pitchType].categories.add(c);
     }
 
@@ -1413,11 +1419,14 @@ export async function planBooking(
       };
     }
     case 'CORPORATE_BATCH': {
-      // Two paths:
+      // LEGACY PATH — user-facing corporate-batch bookings are now
+      // seat-based enrollments handled by src/lib/match-practice.ts;
+      // the booking route dispatches them before calling planBooking.
+      // This case is kept for any remaining caller that still asks the
+      // resource planner to claim nets explicitly (admin overrides):
       //  - Caller pre-supplied resourceIds → use them (admin override).
       //  - Otherwise → auto-claim the configured number of indoor nets,
-      //    matching the policy-driven virtual reservation. This lets
-      //    end users book a "small group" session without picking nets.
+      //    matching the policy-driven virtual reservation.
       if (plan.resourceIds && plan.resourceIds.length > 0) {
         return {
           category: 'CORPORATE_BATCH',
@@ -1459,6 +1468,16 @@ export async function planBooking(
         staffId: null,
         groundStaffId: defaultGroundStaffId,
       };
+    }
+    case 'MATCH_SIMULATION': {
+      // Match Practice sessions are seat-based, not resource-based —
+      // they're handled by src/lib/match-practice.ts and the booking
+      // route dispatches them before ever calling planBooking. Reaching
+      // here means a caller wired the category into the wrong engine.
+      throw new BookingResourceError(
+        'Match simulation bookings are seat-based — not handled by the resource planner',
+        400,
+      );
     }
   }
   })();

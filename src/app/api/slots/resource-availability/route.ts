@@ -356,15 +356,21 @@ export async function GET(req: NextRequest) {
           total: number;
         }>> = {};
 
-        for (const cat of enabledCategories) {
+        // MATCH_PRACTICE is a UI umbrella tab (Corporate Batch + Match
+        // Simulation) with its own availability endpoint — it has no
+        // slot-grid price, so it's excluded from the per-slot preview.
+        const previewCategories = enabledCategories.filter(
+          (c): c is Exclude<typeof c, 'MATCH_PRACTICE'> => c !== 'MATCH_PRACTICE',
+        );
+        for (const cat of previewCategories) {
           // The no-pitch category default is 0 for per-pitch-priced
           // categories (SIDEARM / NET / COACHING). Fall back to the best
           // configured per-pitch rate so their discount preview isn't
           // skipped — otherwise an "all categories" offer only shows on
           // MACHINE. See `representativeCategoryBase`.
-          let basePrice = prices[cat as BookingCategory] ?? 0;
+          let basePrice = prices[cat] ?? 0;
           if (basePrice <= 0) {
-            basePrice = representativeCategoryBase(cat as BookingCategory, pricingConfig, timeSlab);
+            basePrice = representativeCategoryBase(cat, pricingConfig, timeSlab);
           }
           if (basePrice <= 0) continue;
 

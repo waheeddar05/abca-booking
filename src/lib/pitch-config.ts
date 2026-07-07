@@ -105,11 +105,15 @@ export type BookableCategoryId =
   | 'COACHING'
   // CORPORATE_BATCH is preserved as a DB enum value for back-compat
   // with any historical bookings / policies, but is intentionally
-  // omitted from the user/admin-facing category lists. Adding it
-  // back would require restoring the editor row + the user-side tab
-  // and a category card; the engine still understands it if a
-  // CenterPolicy explicitly re-enables it via raw JSON.
-  | 'FULL_COURT';
+  // omitted from the user/admin-facing category lists — corporate
+  // batch is now booked through the MATCH_PRACTICE tab below.
+  | 'FULL_COURT'
+  // UI-level umbrella tab for Match Practice (Corporate Batch + Match
+  // Simulation). NOT a BookingCategory enum value — bookings made from
+  // this tab persist as CORPORATE_BATCH or MATCH_SIMULATION rows. The
+  // tab renders only when at least one subcategory is enabled in its
+  // config (CORPORATE_BATCH_CONFIG / MATCH_SIMULATION_CONFIG).
+  | 'MATCH_PRACTICE';
 
 export const ALL_BOOKABLE_CATEGORIES: BookableCategoryId[] = [
   'MACHINE',
@@ -117,6 +121,7 @@ export const ALL_BOOKABLE_CATEGORIES: BookableCategoryId[] = [
   'SIDEARM',
   'COACHING',
   'FULL_COURT',
+  'MATCH_PRACTICE',
 ];
 
 export async function getEnabledBookingCategories(
