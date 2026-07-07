@@ -60,7 +60,7 @@ import {
  *   machineId?: string,       // for MACHINE
  *   coachId?: string,         // for COACHING
  *   staffId?: string,         // for SIDEARM
- *   corporateMode?: 'MONTHLY' | 'HALF_MONTH' | 'ADHOC', // CORPORATE_BATCH
+ *   corporateMode?: 'MONTHLY' | 'HALF_MONTH' | 'REGULAR', // CORPORATE_BATCH
  *   enrollmentPeriod?: 'YYYY-MM' | 'YYYY-MM-H1' | 'YYYY-MM-H2',
  *   userId?: string,          // admin can book on behalf
  *   paymentMethod?: 'ONLINE' | 'CASH'
@@ -87,8 +87,10 @@ export const ResourceBookingBodySchema = z.object({
   category: z.enum(['MACHINE', 'SIDEARM', 'COACHING', 'FULL_COURT', 'CORPORATE_BATCH', 'NET', 'MATCH_SIMULATION']),
   playerName: z.string().min(1).max(120),
   /** Match Practice → Corporate Batch purchase mode. Required for
-   *  CORPORATE_BATCH bookings; ignored for every other category. */
-  corporateMode: z.enum(['MONTHLY', 'HALF_MONTH', 'ADHOC']).optional().nullable(),
+   *  CORPORATE_BATCH bookings; ignored for every other category.
+   *  ADHOC is accepted as a legacy alias for REGULAR so a payment
+   *  captured just before the rename still verifies. */
+  corporateMode: z.enum(['MONTHLY', 'HALF_MONTH', 'REGULAR', 'ADHOC']).optional().nullable(),
   /** Enrollment period for MONTHLY ("YYYY-MM") / HALF_MONTH
    *  ("YYYY-MM-H1" | "YYYY-MM-H2") corporate-batch bookings. The server
    *  derives the actual session window from this + the center config —
@@ -806,13 +808,20 @@ async function executeResourceBookingCore(
   if (isMatchPractice) {
     mpPlans = await resolveMatchPracticePlans(center.id, {
       category: body.category as 'CORPORATE_BATCH' | 'MATCH_SIMULATION',
-      corporateMode: body.corporateMode ?? null,
+      // Legacy alias: payments captured before the Ad-hoc → Regular
+      // rename carry corporateMode=ADHOC in their stored payload.
+      corporateMode: body.corporateMode === 'ADHOC' ? 'REGULAR' : (body.corporateMode ?? null),
       enrollmentPeriod: body.enrollmentPeriod ?? null,
       slots: body.slots,
     });
     // Fail-fast block check — an admin block targeting the category (or
     // a catchall) refuses the seat before any payment-side work.
+    // MONTHLY / HALF_MONTH enrollments are exempt: they buy a month-long
+    // membership, not one session, so a block on a single date (the
+    // derived "starts on" session) must not reject the enrollment —
+    // blocked dates simply aren't playable for anyone that day.
     for (const p of mpPlans) {
+      if (p.mode === 'MONTHLY' || p.mode === 'HALF_MONTH') continue;
       const blocks = await getActiveBlocksForSlot(center.id, {
         date: p.date,
         startTime: p.startTime,

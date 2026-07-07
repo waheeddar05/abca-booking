@@ -38,7 +38,7 @@ describe('normalizeCorporateBatchSettings', () => {
     // New enrollment knobs fall back to requirement defaults.
     expect(merged.coachName).toBe('Govind Lashkare');
     expect(merged.monthlyFee).toBe(2000);
-    expect(merged.adhocFee).toBe(200);
+    expect(merged.regularFee).toBe(200);
     expect(merged.maxCapacity).toBe(25);
     expect(merged.halfMonth.enabled).toBe(false);
   });
@@ -52,6 +52,14 @@ describe('normalizeCorporateBatchSettings', () => {
     expect(merged.days).toEqual([0, 3]);
     expect(merged.maxCapacity).toBeGreaterThanOrEqual(1);
     expect(merged.halfMonth.splitDay).toBeLessThanOrEqual(27);
+  });
+
+  it('reads the per-session fee from the legacy adhocFee key', () => {
+    // Configs saved before the Ad-hoc → Regular rename stored the
+    // per-session fee under `adhocFee` — it must survive the rename.
+    expect(normalizeCorporateBatchSettings({ adhocFee: 350 }).regularFee).toBe(350);
+    // New key wins when both are present.
+    expect(normalizeCorporateBatchSettings({ adhocFee: 350, regularFee: 400 }).regularFee).toBe(400);
   });
 });
 

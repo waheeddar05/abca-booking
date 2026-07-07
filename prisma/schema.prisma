@@ -525,11 +525,12 @@ enum BookingCategory {
 // seat-based enrollment product (Match Practice → Corporate Batch):
 //   MONTHLY    — one row per user per month (enrollmentPeriod "YYYY-MM")
 //   HALF_MONTH — one row per user per half-month ("YYYY-MM-H1" / "-H2")
-//   ADHOC      — one row per user per attended session date
+//   REGULAR    — one row per user per attended session date (renamed
+//                from ADHOC in-place via migration; no data movement)
 enum CorporateBatchMode {
   MONTHLY
   HALF_MONTH
-  ADHOC
+  REGULAR
 }
 
 // Many-to-many between a Booking and the Resources (nets/courts/turf

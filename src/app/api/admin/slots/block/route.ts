@@ -196,7 +196,13 @@ export async function POST(req: NextRequest) {
       });
       validatedResourceIds = rows.map((r) => r.id);
     }
-    const validBookingCategories = ['MACHINE', 'SIDEARM', 'COACHING', 'NET', 'FULL_COURT', 'CORPORATE_BATCH'];
+    // Keep this list in sync with the BookingCategory enum. A category
+    // missing here is SILENTLY STRIPPED from the block — which is worse
+    // than a validation error: a block that only targeted the stripped
+    // category loses its last axis and becomes a catchall that blocks
+    // EVERY booking in the window (the bug that hit MATCH_SIMULATION
+    // when it wasn't listed).
+    const validBookingCategories = ['MACHINE', 'SIDEARM', 'COACHING', 'NET', 'FULL_COURT', 'CORPORATE_BATCH', 'MATCH_SIMULATION'];
     const validatedCategories: string[] = Array.isArray(categories)
       ? categories.filter((c) => typeof c === 'string' && validBookingCategories.includes(c))
       : [];
@@ -230,6 +236,13 @@ export async function POST(req: NextRequest) {
       centerId: center.id,
       date: { gte: start, lte: end },
       status: 'BOOKED',
+      // Monthly / half-month corporate-batch ENROLLMENTS are month-long
+      // memberships whose Booking row is merely anchored on the first
+      // session date — a block covering that one date must not cancel
+      // (and refund) the whole membership. Regular (per-session) rows
+      // and every other category still cancel normally. Mirrors the
+      // enrollment exemption in the booking route's block pre-flight.
+      NOT: { corporateBatchMode: { in: ['MONTHLY', 'HALF_MONTH'] } },
     };
 
     if (validatedMachineIds.length > 0) {
@@ -642,7 +655,9 @@ export async function PUT(req: NextRequest) {
       }
     }
     if (Array.isArray(categories)) {
-      const validBookingCategories = ['MACHINE', 'SIDEARM', 'COACHING', 'NET', 'FULL_COURT', 'CORPORATE_BATCH'];
+      // Same list as POST — a stripped category can silently widen the
+      // block into a catchall (see the comment there).
+      const validBookingCategories = ['MACHINE', 'SIDEARM', 'COACHING', 'NET', 'FULL_COURT', 'CORPORATE_BATCH', 'MATCH_SIMULATION'];
       updateData.categories = categories.filter(
         (c: unknown): c is string => typeof c === 'string' && validBookingCategories.includes(c),
       );
