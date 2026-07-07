@@ -50,11 +50,11 @@ interface CenterMachineLite {
   isActive: boolean;
 }
 
-// Booking categories selectable when authoring an offer. Corporate Batch is
-// intentionally excluded: it's an admin-only group reservation managed via the
-// CORPORATE_BATCH_CONFIG policy (a virtual overlay, not a user-bookable
-// category), so it must never appear as a targetable category in the
-// recurring / promotional offer dropdowns.
+// Booking categories selectable when authoring an offer. Match Practice
+// categories (Corporate Batch / Match Simulation) are intentionally
+// excluded: their fees are flat admin-set amounts and the booking engine
+// doesn't run recurring / promotional discount math for them, so
+// targeting them here would silently do nothing.
 const RESOURCE_CATEGORY_OPTIONS = [
   { id: 'MACHINE', label: 'Bowling Machine' },
   { id: 'SIDEARM', label: 'Sidearm' },
@@ -74,6 +74,7 @@ const RESOURCE_CATEGORY_LABELS: Record<string, string> = {
   NET: 'Cricket Nets',
   FULL_COURT: 'Full Indoor Court',
   CORPORATE_BATCH: 'Corporate Batch',
+  MATCH_SIMULATION: 'Match Simulation',
 };
 
 const MACHINE_OPTIONS = [

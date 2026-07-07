@@ -15,10 +15,12 @@ type CategoryId =
   | 'NET'
   | 'SIDEARM'
   | 'COACHING'
-  // CORPORATE_BATCH stays in the DB enum but is intentionally
-  // omitted from the admin-editable list — it's been hidden from
-  // every user-facing surface.
-  | 'FULL_COURT';
+  // CORPORATE_BATCH stays in the DB enum but is intentionally omitted
+  // from this list — corporate batch is booked through the Match
+  // Practice tab (MATCH_PRACTICE below), configured in the Match
+  // Practice card on this page.
+  | 'FULL_COURT'
+  | 'MATCH_PRACTICE';
 
 const ALL_CATEGORIES: Array<{ id: CategoryId; label: string; sub: string }> = [
   { id: 'MACHINE',         label: 'Bowling Machine',      sub: 'Yantra / Leverage' },
@@ -26,6 +28,7 @@ const ALL_CATEGORIES: Array<{ id: CategoryId; label: string; sub: string }> = [
   { id: 'SIDEARM',         label: 'Sidearm',              sub: 'Bowled by staff' },
   { id: 'COACHING',        label: 'Personal Coaching',    sub: 'With a coach' },
   { id: 'FULL_COURT',      label: 'Full Indoor Court',    sub: 'All indoor nets' },
+  { id: 'MATCH_PRACTICE',  label: 'Match Practice',       sub: 'Corporate batch & match sims' },
 ];
 
 export function EnabledCategoriesEditor({

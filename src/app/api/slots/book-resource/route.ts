@@ -8,8 +8,18 @@ import {
   planBooking,
   persistResourceAssignments,
   BookingResourceError,
+  getActiveBlocksForSlot,
+  evaluateBlockForBooking,
+  getCenterGroundStaff,
+  pickGroundStaffForSlot,
   type BookingPlan,
 } from '@/lib/resource-booking';
+import {
+  resolveMatchPracticePlans,
+  assertMatchPracticeSeat,
+  isMatchPracticeCategory,
+  type MatchPracticePlan,
+} from '@/lib/match-practice';
 import { notifyAssignedStaffNewBooking, notifyCustomerNewBooking, notifyAdminPaymentIssue } from '@/lib/notifications';
 import { markCaptureNeedsRecovery } from '@/lib/payment-recovery';
 import { getResourceSlotPrice } from '@/lib/resource-pricing';
@@ -43,15 +53,23 @@ import {
  * Body:
  * {
  *   slots: [{ date: 'YYYY-MM-DD', startTime, endTime }],
- *   category: 'MACHINE' | 'SIDEARM' | 'COACHING' | 'FULL_COURT' | 'CORPORATE_BATCH',
+ *   category: 'MACHINE' | 'SIDEARM' | 'COACHING' | 'FULL_COURT'
+ *           | 'CORPORATE_BATCH' | 'NET' | 'MATCH_SIMULATION',
  *   playerName,
  *   resourceIds?: string[],   // optional pin (otherwise engine picks)
  *   machineId?: string,       // for MACHINE
  *   coachId?: string,         // for COACHING
  *   staffId?: string,         // for SIDEARM
+ *   corporateMode?: 'MONTHLY' | 'HALF_MONTH' | 'ADHOC', // CORPORATE_BATCH
+ *   enrollmentPeriod?: 'YYYY-MM' | 'YYYY-MM-H1' | 'YYYY-MM-H2',
  *   userId?: string,          // admin can book on behalf
  *   paymentMethod?: 'ONLINE' | 'CASH'
  * }
+ *
+ * Match Practice (CORPORATE_BATCH / MATCH_SIMULATION) bookings are
+ * seat-based: capacity + fees come from CORPORATE_BATCH_CONFIG /
+ * MATCH_SIMULATION_CONFIG (see src/lib/match-practice.ts) and no
+ * machine / pitch / operator / net is involved.
  *
  * Behaviour: each slot becomes one Booking row. Resource assignments
  * are atomic — if any slot fails, none are created. Pricing comes from
@@ -66,8 +84,16 @@ const SlotSchema = z.object({
 
 export const ResourceBookingBodySchema = z.object({
   slots: z.array(SlotSchema).min(1).max(8),
-  category: z.enum(['MACHINE', 'SIDEARM', 'COACHING', 'FULL_COURT', 'CORPORATE_BATCH', 'NET']),
+  category: z.enum(['MACHINE', 'SIDEARM', 'COACHING', 'FULL_COURT', 'CORPORATE_BATCH', 'NET', 'MATCH_SIMULATION']),
   playerName: z.string().min(1).max(120),
+  /** Match Practice → Corporate Batch purchase mode. Required for
+   *  CORPORATE_BATCH bookings; ignored for every other category. */
+  corporateMode: z.enum(['MONTHLY', 'HALF_MONTH', 'ADHOC']).optional().nullable(),
+  /** Enrollment period for MONTHLY ("YYYY-MM") / HALF_MONTH
+   *  ("YYYY-MM-H1" | "YYYY-MM-H2") corporate-batch bookings. The server
+   *  derives the actual session window from this + the center config —
+   *  client-sent slot times are ignored for those modes. */
+  enrollmentPeriod: z.string().regex(/^\d{4}-\d{2}(-H[12])?$/).optional().nullable(),
   resourceIds: z.array(z.string()).optional(),
   machineId: z.string().optional().nullable(),
   coachId: z.string().optional().nullable(),
@@ -489,9 +515,12 @@ async function executeResourceBookingCore(
 ): Promise<ResourceBookingResult[]> {
   const onlinePaymentId = options.onlinePaymentId;
 
-  // CORPORATE_BATCH used to be admin-only; it's now bookable by any
-  // user (the resource engine auto-claims the configured number of
-  // nets, same as it does for the policy-driven virtual reservation).
+  // Match Practice categories (CORPORATE_BATCH enrollments + MATCH_
+  // SIMULATION sessions) are SEAT-based: capacity comes from the center
+  // config, no machine / pitch / operator / net is claimed, and pricing
+  // is a flat per-mode fee. They share this function's payment / wallet /
+  // refund machinery but skip the resource-planning pipeline entirely.
+  const isMatchPractice = isMatchPracticeCategory(body.category);
 
   // Admin can book on behalf of another user.
   const isAdmin = user.role === 'ADMIN' || user.isSuperAdmin;
@@ -614,6 +643,14 @@ async function executeResourceBookingCore(
   // matches the booking's category + machine row (if pinned). All
   // failures here surface a clear 400 to the client; the actual
   // session decrement happens inside the transaction below.
+  // Match-practice bookings are flat-fee seat purchases — package
+  // sessions, kit rental, and the machine/pitch pipeline don't apply.
+  if (isMatchPractice && body.userPackageId) {
+    throw new ResourceBookingServiceError(
+      'Packages cannot be redeemed for match practice bookings',
+      400,
+    );
+  }
   let userPackage: {
     id: string;
     totalSessions: number;
@@ -759,33 +796,69 @@ async function executeResourceBookingCore(
   // Validate every slot's plan up front (without taking any locks).
   // The actual create runs inside a serializable transaction, which
   // re-checks resource availability under a tighter consistency window.
-  const plans = body.slots.map((s) => {
-    const startTime = new Date(s.startTime);
-    const endTime = new Date(s.endTime);
-    const date = dateStringToUTC(s.date);
-    return {
-      category: body.category as BookingCategory,
-      centerId: center.id,
-      startTime,
-      endTime,
-      date,
-      resourceIds: body.resourceIds,
-      machineId: body.machineId ?? null,
-      coachId: body.coachId ?? null,
-      staffId: body.staffId ?? null,
-      // pickNetFor uses this to steer the booking onto the right
-      // pool (NET / CEMENT_WICKET / TURF_WICKET). Without it the
-      // engine falls back to the indoor-net default — which is what
-      // we want for category=COACHING/FULL_COURT where the user
-      // doesn't pick a pitch.
-      pitchType: body.pitchType ?? null,
-    } satisfies BookingPlan;
-  });
+  //
+  // Match-practice categories resolve through their own planner: the
+  // server derives the real session windows from the center config
+  // (client times are only trusted as a session selector) and the
+  // capacity / duplicate checks re-run inside the transaction below.
+  let plans: BookingPlan[] = [];
+  let mpPlans: MatchPracticePlan[] = [];
+  if (isMatchPractice) {
+    mpPlans = await resolveMatchPracticePlans(center.id, {
+      category: body.category as 'CORPORATE_BATCH' | 'MATCH_SIMULATION',
+      corporateMode: body.corporateMode ?? null,
+      enrollmentPeriod: body.enrollmentPeriod ?? null,
+      slots: body.slots,
+    });
+    // Fail-fast block check — an admin block targeting the category (or
+    // a catchall) refuses the seat before any payment-side work.
+    for (const p of mpPlans) {
+      const blocks = await getActiveBlocksForSlot(center.id, {
+        date: p.date,
+        startTime: p.startTime,
+        endTime: p.endTime,
+      });
+      const reason = evaluateBlockForBooking(
+        blocks,
+        { category: p.category, resourceIds: [] },
+        audience,
+      );
+      if (reason) throw new BookingResourceError(reason, 409);
+    }
+  } else {
+    plans = body.slots.map((s) => {
+      const startTime = new Date(s.startTime);
+      const endTime = new Date(s.endTime);
+      const date = dateStringToUTC(s.date);
+      return {
+        category: body.category as BookingCategory,
+        centerId: center.id,
+        startTime,
+        endTime,
+        date,
+        resourceIds: body.resourceIds,
+        machineId: body.machineId ?? null,
+        coachId: body.coachId ?? null,
+        staffId: body.staffId ?? null,
+        // pickNetFor uses this to steer the booking onto the right
+        // pool (NET / CEMENT_WICKET / TURF_WICKET). Without it the
+        // engine falls back to the indoor-net default — which is what
+        // we want for category=COACHING/FULL_COURT where the user
+        // doesn't pick a pitch.
+        pitchType: body.pitchType ?? null,
+      } satisfies BookingPlan;
+    });
 
-  // Pre-check (cheap; helps fail fast with a clear message).
-  for (const plan of plans) {
-    await planBooking(plan, { audience });
+    // Pre-check (cheap; helps fail fast with a clear message).
+    for (const plan of plans) {
+      await planBooking(plan, { audience });
+    }
   }
+
+  // Default ground-staff contact for match-practice sessions — same
+  // assignment rule facility bookings (NET / FULL_COURT) use inside
+  // planBooking. Fetched once; picked per session window below.
+  const mpGroundStaff = isMatchPractice ? await getCenterGroundStaff(center.id) : [];
 
   // Resolve the center's time-slab config once (CenterPolicy → default).
   // Needed for operator scheduling on MACHINE bookings to mirror ABCA's
@@ -799,7 +872,7 @@ async function executeResourceBookingCore(
   // RESOURCE_BASED centers store per-Machine-row config in
   // `KIT_RENTAL_CONFIG.machineRowConfigs`; we use the row override
   // when present, fall back to the global price otherwise.
-  const kitRentalRequested = !!body.kitRental;
+  const kitRentalRequested = !!body.kitRental && !isMatchPractice;
   let kitRental = false;
   let kitRentalChargePerSlot = 0;
   if (kitRentalRequested) {
@@ -831,8 +904,9 @@ async function executeResourceBookingCore(
 
   // Recurring slot discounts for this center. Fetched once and matched
   // per-slot inside the tx — same shape ABCA uses, but matched on the
-  // resource axes (categories + machineRowIds).
-  const recurringRules = await getCenterRecurringDiscountRules(center.id);
+  // resource axes (categories + machineRowIds). Match-practice fees are
+  // flat admin-set amounts — recurring/promo discounts don't apply.
+  const recurringRules = isMatchPractice ? [] : await getCenterRecurringDiscountRules(center.id);
 
     // Detect consecutive slot chains. ABCA's pricing config has a
     // separate `consecutive` price for back-to-back slot pairs;
@@ -861,7 +935,58 @@ async function executeResourceBookingCore(
         const results = await prisma.$transaction(
           async (tx) => {
             const out: { id: string; status: string }[] = [];
-            for (let i = 0; i < plans.length; i++) {
+            const txPlanCount = isMatchPractice ? mpPlans.length : plans.length;
+            for (let i = 0; i < txPlanCount; i++) {
+              // ─── Match Practice: seat-based creation ─────────────
+              // Capacity + one-seat-per-user re-checked INSIDE the
+              // serializable tx so two concurrent submits for the last
+              // seat conflict — the loser retries via the outer P2034
+              // handler and lands on a clean "session full" rejection.
+              if (isMatchPractice) {
+                const mp = mpPlans[i];
+                await assertMatchPracticeSeat(tx, center.id, targetUserId, mp);
+                const groundStaffId = pickGroundStaffForSlot(mpGroundStaff, {
+                  date: mp.date,
+                  startTime: mp.startTime,
+                  endTime: mp.endTime,
+                });
+                const booking = await tx.booking.create({
+                  data: {
+                    centerId: center.id,
+                    userId: targetUserId,
+                    date: mp.date,
+                    startTime: mp.startTime,
+                    endTime: mp.endTime,
+                    status: 'BOOKED',
+                    playerName: body.playerName,
+                    category: mp.category,
+                    corporateBatchMode: mp.mode,
+                    enrollmentPeriod: mp.enrollmentPeriod,
+                    assignedGroundStaffId: groundStaffId,
+                    isSuperAdminBooking: !!user.isSuperAdmin,
+                    createdBy: user.name || user.id,
+                    // Flat admin-configured fee — no slab/discount math.
+                    price: isFreeBooking ? 0 : mp.fee,
+                    originalPrice: mp.fee,
+                    paymentMethod: onlinePaymentId
+                      ? 'ONLINE'
+                      : (body.paymentMethod ?? null),
+                    paymentStatus: onlinePaymentId
+                      ? 'PAID'
+                      : (isFreeBooking
+                          ? 'PAID'
+                          : isWalletPayment
+                            ? 'PAID'
+                            : isCashPayment
+                              ? 'PENDING'
+                              : 'UNPAID'),
+                  },
+                  select: { id: true, status: true },
+                });
+                out.push(booking);
+                continue;
+              }
+
               const plan = plans[i];
               const isConsecutive = planIsConsecutive[i];
               // Operator-availability pre-check for MACHINE bookings.
@@ -1014,7 +1139,9 @@ async function executeResourceBookingCore(
                 : isPackageRedemption
                   ? packageExtra
                   : await getResourceSlotPrice({
-                      category: plan.category as Exclude<BookingCategory, never>,
+                      // Match-practice categories never reach this branch
+                      // (dispatched above), so the narrowing cast is safe.
+                      category: plan.category as Exclude<BookingCategory, 'MATCH_SIMULATION'>,
                       machineTypeCode,
                       // Most-specific override axis: per-Machine-row
                       // pricing (e.g. "Yantra 1" priced separately from

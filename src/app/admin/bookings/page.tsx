@@ -742,8 +742,9 @@ function AdminBookingsContent() {
               Personal Coaching) instead. Options are sourced from
               the center's ENABLED_BOOKING_CATEGORIES policy so adding
               or disabling a category in Admin → Settings flows here
-              automatically. CORPORATE_BATCH is intentionally
-              filtered out — hidden everywhere else for now. */}
+              automatically. MATCH_PRACTICE is a UI umbrella tab — it
+              expands into the two real categories its bookings persist
+              as (Corporate Batch + Match Simulation). */}
           <div>
             <label className="block text-[11px] font-semibold text-slate-300 mb-1.5">Category</label>
             <select
@@ -754,7 +755,7 @@ function AdminBookingsContent() {
             >
               <option value="">All categories</option>
               {bookableCategories
-                .filter((c) => c !== 'CORPORATE_BATCH')
+                .flatMap((c) => (c === 'MATCH_PRACTICE' ? ['CORPORATE_BATCH', 'MATCH_SIMULATION'] : [c]))
                 .map((c) => (
                   <option key={c} value={c}>
                     {c === 'MACHINE' ? 'Bowling Machine'
@@ -762,6 +763,8 @@ function AdminBookingsContent() {
                       : c === 'SIDEARM' ? 'Sidearm'
                       : c === 'COACHING' ? 'Personal Coaching'
                       : c === 'FULL_COURT' ? 'Full Indoor Court'
+                      : c === 'CORPORATE_BATCH' ? 'Corporate Batch'
+                      : c === 'MATCH_SIMULATION' ? 'Match Simulation'
                       : c}
                   </option>
                 ))}

@@ -118,6 +118,11 @@ export interface BookingCardData {
   operatorName: string | null;
   operatorMobile: string | null;
   category: string | null;
+  // Match Practice (Corporate Batch) enrollment context — drives the
+  // "Enrollment: Monthly · July 2026" row on the booking card. Null for
+  // every other category.
+  corporateBatchMode: string | null;
+  enrollmentPeriod: string | null;
   assignedMachineName: string | null;
   assignedMachineFullName: string | null;
   assignedCoachName: string | null;
@@ -185,6 +190,8 @@ export function mapBookingForCard(
     operatorName: b.operator?.name || null,
     operatorMobile: b.operator?.mobileNumber || null,
     category: b.category ?? null,
+    corporateBatchMode: b.corporateBatchMode ?? null,
+    enrollmentPeriod: b.enrollmentPeriod ?? null,
     assignedMachineName: b.assignedMachine
       ? b.assignedMachine.shortName || b.assignedMachine.name
       : null,

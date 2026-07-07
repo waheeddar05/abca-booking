@@ -63,8 +63,19 @@ import { useCenter } from '@/lib/center-context';
 import { api } from '@/lib/api-client';
 import { useRazorpay, usePaymentConfig } from '@/lib/useRazorpay';
 import { computeSlotDiscount, type OfferDescriptor } from '@/lib/offer-calc';
+import MatchPracticePanel from './MatchPracticePanel';
 
-type Category = 'MACHINE' | 'SIDEARM' | 'COACHING' | 'FULL_COURT' | 'NET' | 'CORPORATE_BATCH';
+type Category =
+  | 'MACHINE'
+  | 'SIDEARM'
+  | 'COACHING'
+  | 'FULL_COURT'
+  | 'NET'
+  | 'CORPORATE_BATCH'
+  // UI umbrella tab for Match Practice (Corporate Batch enrollments +
+  // Match Simulation sessions). Renders <MatchPracticePanel /> instead
+  // of the machine/pitch pickers + slot grid.
+  | 'MATCH_PRACTICE';
 
 /**
  * Raw discount inputs returned per category / machine by
@@ -287,10 +298,10 @@ const CATEGORIES: Array<{ key: Category; label: string; icon: typeof Settings2; 
   { key: 'NET',             label: 'Cricket Nets',         icon: LayoutGrid, sub: 'Bare net for self practice' },
   { key: 'SIDEARM',         label: 'Sidearm',             icon: Users,      sub: 'Bowled by a specialist' },
   { key: 'COACHING',        label: 'Personal Coaching',   icon: UserCog,    sub: 'With a coach' },
-  // CORPORATE_BATCH intentionally hidden — kept as a DB enum value
-  // so existing historical bookings stay valid, but the user-facing
-  // slot picker no longer exposes a tab for it.
+  // CORPORATE_BATCH as a standalone tab stays hidden — corporate batch
+  // enrollments are booked through the Match Practice tab below.
   { key: 'FULL_COURT',      label: 'Full Indoor Court',   icon: LayoutGrid, sub: 'All indoor nets' },
+  { key: 'MATCH_PRACTICE',  label: 'Match Practice',      icon: Goal,       sub: 'Corporate batch & match sims' },
 ];
 
 export default function ResourceSlotsPage() {
@@ -1063,7 +1074,11 @@ export default function ResourceSlotsPage() {
     const slab = s.timeSlab;
     const cfg = data?.pricingConfig;
 
-    if (!cfg) return s.prices[category] || 0;
+    // MATCH_PRACTICE has no per-slot price — it never reaches this
+    // helper (the panel replaces the slot grid), so the narrowing cast
+    // below is safe.
+    const priceCategory = category as Exclude<Category, 'MATCH_PRACTICE'>;
+    if (!cfg) return s.prices[priceCategory] || 0;
 
     if (category === 'MACHINE' && machineId) {
       // Most-specific axis first: per-Machine-row pair pricing.
@@ -1126,7 +1141,7 @@ export default function ResourceSlotsPage() {
       if (r != null) return r;
     }
 
-    return cfg.categoryRates[category]?.[slab] ?? s.prices[category] ?? 0;
+    return cfg.categoryRates[category]?.[slab] ?? s.prices[priceCategory] ?? 0;
   };
 
   /** Per-slot price WITH consecutive rate applied. Used by the totalPrice
@@ -1537,6 +1552,24 @@ export default function ResourceSlotsPage() {
 
       <hr className="border-white/[0.06] my-4" />
 
+      {/* Match Practice — Corporate Batch + Match Simulation. Entirely
+          seat-based: no machine / pitch / ball / operator pickers and no
+          slot grid. The panel fetches its own availability, runs the same
+          payment flows, and renders its own booking bar; everything below
+          this branch is the standard resource flow, skipped while the
+          Match Practice tab is active. */}
+      {category === 'MATCH_PRACTICE' ? (
+        <>
+          <MatchPracticePanel
+            playerName={session?.user?.name || 'Player'}
+            userEmail={session?.user?.email}
+            isFreeBooking={isFreeBooking}
+            paymentConfig={paymentConfig}
+          />
+          <ContactFooter />
+        </>
+      ) : (
+      <>
       {/* Machine picker — keeps richer pill-with-image layout (ABCA's
           MachineSelector also uses cards-with-images) but the chips line
           up with the same accent treatment. */}
@@ -2345,6 +2378,8 @@ export default function ResourceSlotsPage() {
             </button>
           </div>
         </div>
+      )}
+      </>
       )}
     </div>
   );

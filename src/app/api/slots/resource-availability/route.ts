@@ -382,7 +382,13 @@ export async function GET(req: NextRequest) {
 
         const discountsByCategory: Partial<Record<BookingCategory, DiscountInputs>> = {};
 
-        for (const cat of enabledCategories) {
+        // MATCH_PRACTICE is a UI umbrella tab (Corporate Batch + Match
+        // Simulation) with its own availability endpoint — it has no
+        // slot-grid price, so it's excluded from the per-slot preview.
+        const previewCategories = enabledCategories.filter(
+          (c): c is Exclude<typeof c, 'MATCH_PRACTICE'> => c !== 'MATCH_PRACTICE',
+        );
+        for (const cat of previewCategories) {
           // Recurring (matched at category-level only — machineRowId is
           // resolved per-machine and folded in by the client when the
           // user picks a specific machine).

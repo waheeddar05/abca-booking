@@ -471,6 +471,7 @@ const DETAIL_CATEGORY_LABELS: Record<BookingCategory, string> = {
   NET: 'Cricket Nets',
   FULL_COURT: 'Full Indoor Court',
   CORPORATE_BATCH: 'Corporate Batch',
+  MATCH_SIMULATION: 'Match Simulation',
 };
 
 const DETAIL_PITCH_LABELS: Record<string, string> = {
@@ -1011,7 +1012,7 @@ const STAFF_ROLE_LABELS = {
 // covers the floor). MACHINE is excluded — its operator is the on-ground
 // contact. Used to decide when to additionally ping the center's
 // GROUND_STAFF member about a booking.
-const GROUND_STAFF_CATEGORIES: BookingCategory[] = ['NET', 'FULL_COURT', 'SIDEARM', 'COACHING'];
+const GROUND_STAFF_CATEGORIES: BookingCategory[] = ['NET', 'FULL_COURT', 'SIDEARM', 'COACHING', 'CORPORATE_BATCH', 'MATCH_SIMULATION'];
 
 /** Human-readable labels for each booking category. */
 const CATEGORY_LABELS: Record<BookingCategory, string> = {
@@ -1021,6 +1022,7 @@ const CATEGORY_LABELS: Record<BookingCategory, string> = {
   FULL_COURT: 'Full Court',
   CORPORATE_BATCH: 'Corporate Batch',
   NET: 'Net Practice',
+  MATCH_SIMULATION: 'Match Simulation',
 };
 
 type StaffRoleKey = keyof typeof STAFF_ROLE_LABELS;
@@ -1704,6 +1706,7 @@ const CUSTOMER_CATEGORY_LABELS: Record<BookingCategory, string> = {
   NET: 'Cricket Net',
   FULL_COURT: 'Full Indoor Court',
   CORPORATE_BATCH: 'Corporate Batch',
+  MATCH_SIMULATION: 'Match Simulation',
 };
 
 const CUSTOMER_PITCH_LABELS: Record<string, string> = {
