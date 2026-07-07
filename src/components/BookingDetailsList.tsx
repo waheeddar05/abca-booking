@@ -20,11 +20,14 @@ const CATEGORY_LABELS: Record<string, string> = {
 
 // Corporate-batch purchase mode → user-facing label. Rendered as an
 // extra "Enrollment" row so a monthly member's booking card reads
-// "Monthly · July 2026" instead of a bare session date.
+// "Monthly · July 2026" instead of a bare session date. ADHOC is kept
+// as a legacy alias — the enum value was renamed to REGULAR in-place,
+// but stale API payloads may still carry the old string briefly.
 const CORPORATE_MODE_LABELS: Record<string, string> = {
   MONTHLY: 'Monthly',
   HALF_MONTH: 'Half Month',
-  ADHOC: 'Ad-hoc Session',
+  REGULAR: 'Regular',
+  ADHOC: 'Regular',
 };
 
 const MONTH_NAMES = [

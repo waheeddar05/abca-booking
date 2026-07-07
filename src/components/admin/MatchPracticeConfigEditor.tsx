@@ -38,7 +38,7 @@ interface CorporateState {
   netsConsumed: number;
   coachName: string;
   monthlyFee: number;
-  adhocFee: number;
+  regularFee: number;
   maxCapacity: number;
   halfMonth: HalfMonthState;
 }
@@ -69,7 +69,7 @@ const DEFAULT_CORPORATE: CorporateState = {
   netsConsumed: 2,
   coachName: 'Govind Lashkare',
   monthlyFee: 2000,
-  adhocFee: 200,
+  regularFee: 200,
   maxCapacity: 25,
   halfMonth: { enabled: false, fee: 1000, firstHalf: true, secondHalf: true, splitDay: 15 },
 };
@@ -98,11 +98,14 @@ const inputClass =
 
 function mergeCorporate(raw: unknown): CorporateState {
   if (!raw || typeof raw !== 'object') return { ...DEFAULT_CORPORATE, halfMonth: { ...DEFAULT_CORPORATE.halfMonth } };
-  const r = raw as Partial<CorporateState> & { halfMonth?: Partial<HalfMonthState> };
+  const r = raw as Partial<CorporateState> & { halfMonth?: Partial<HalfMonthState>; adhocFee?: number };
   return {
     ...DEFAULT_CORPORATE,
     ...Object.fromEntries(Object.entries(r).filter(([k, v]) => k !== 'halfMonth' && v !== undefined && v !== null)),
     days: Array.isArray(r.days) ? r.days.filter((d) => typeof d === 'number' && d >= 0 && d <= 6) : DEFAULT_CORPORATE.days,
+    // Legacy key: configs saved before the Ad-hoc → Regular rename
+    // stored the per-session fee as `adhocFee`.
+    regularFee: r.regularFee ?? r.adhocFee ?? DEFAULT_CORPORATE.regularFee,
     halfMonth: { ...DEFAULT_CORPORATE.halfMonth, ...(r.halfMonth ?? {}) },
   } as CorporateState;
 }
@@ -337,9 +340,9 @@ export function MatchPracticeConfigEditor({
             <input type="number" min={0} value={corp.monthlyFee} className={inputClass}
               onChange={(e) => setCorp((p) => ({ ...p, monthlyFee: Math.max(0, Number(e.target.value) || 0) }))} />
           </Field>
-          <Field label="Ad-hoc Fee (₹/session)">
-            <input type="number" min={0} value={corp.adhocFee} className={inputClass}
-              onChange={(e) => setCorp((p) => ({ ...p, adhocFee: Math.max(0, Number(e.target.value) || 0) }))} />
+          <Field label="Regular Fee (₹/session)">
+            <input type="number" min={0} value={corp.regularFee} className={inputClass}
+              onChange={(e) => setCorp((p) => ({ ...p, regularFee: Math.max(0, Number(e.target.value) || 0) }))} />
           </Field>
           <Field label="Max Batch Capacity">
             <input type="number" min={1} value={corp.maxCapacity} className={inputClass}

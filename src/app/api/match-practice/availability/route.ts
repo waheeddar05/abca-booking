@@ -14,7 +14,13 @@ import {
   formatPeriodLabel,
   overlappingPeriods,
   periodsCoveringDate,
+  type SessionOccurrence,
 } from '@/lib/match-practice';
+import {
+  filterBlocksForSlotSync,
+  evaluateBlockForBooking,
+} from '@/lib/resource-booking';
+import type { BookingCategory } from '@prisma/client';
 
 /**
  * GET /api/match-practice/availability
@@ -26,7 +32,7 @@ import {
  *     - months: enrollable periods with live enrolled counts
  *       ("18 of 25 members enrolled") + the derived first-session slot
  *       the client echoes back as the booking's `slots[0]`
- *     - sessions: upcoming ad-hoc session dates with seat counts
+ *     - sessions: upcoming regular (per-session) dates with seat counts
  *       ("12 of 25 seats booked")
  *   matchSimulation:
  *     - resolved config + upcoming session occurrences with seat counts
@@ -127,8 +133,8 @@ export async function GET(req: NextRequest) {
           : [],
       }));
 
-    // ─── Corporate batch: upcoming ad-hoc sessions ────────────────────
-    const corporateOccurrences = corporate.enabled
+    // ─── Corporate batch: upcoming regular (per-session) dates ────────
+    let corporateOccurrences = corporate.enabled
       ? listCorporateSessionDates(corporate, {
           fromDate: todayIST,
           horizonDays: SESSION_HORIZON_DAYS,
@@ -137,13 +143,72 @@ export async function GET(req: NextRequest) {
       : [];
 
     // ─── Match simulation: upcoming occurrences ───────────────────────
-    const simOccurrences = matchSim.enabled
+    let simOccurrences = matchSim.enabled
       ? listMatchSimOccurrences(matchSim, {
           fromDate: todayIST,
           horizonDays: SESSION_HORIZON_DAYS,
           now,
         })
       : [];
+
+    // ─── Admin blocks ─────────────────────────────────────────────────
+    // Sessions taken off the schedule via /admin/slots (a block targeting
+    // the category, or a catchall) must not render as bookable — without
+    // this, the user only finds out via a 409 at submit. One query covers
+    // the whole horizon; per-occurrence filtering mirrors the booking
+    // route's evaluateBlockForBooking check exactly. Monthly enrollment
+    // months are intentionally NOT block-filtered (an enrollment is a
+    // month-long membership, not one session).
+    if (corporateOccurrences.length > 0 || simOccurrences.length > 0) {
+      const horizonEndDate = new Date(
+        dateStringToUTC(todayIST).getTime() + SESSION_HORIZON_DAYS * 86_400_000,
+      );
+      const blockRows = await prisma.blockedSlot.findMany({
+        where: {
+          centerId: center.id,
+          startDate: { lte: horizonEndDate },
+          endDate: { gte: dateStringToUTC(todayIST) },
+        },
+        select: {
+          id: true,
+          startDate: true,
+          endDate: true,
+          startTime: true,
+          endTime: true,
+          recurringDays: true,
+          reason: true,
+          appliesTo: true,
+          machineRowIds: true,
+          resourceIds: true,
+          categories: true,
+          netCount: true,
+          machineId: true,
+          machineIds: true,
+          machineType: true,
+          pitchType: true,
+        },
+      });
+      const isOccurrenceBlocked = (occ: SessionOccurrence, category: BookingCategory): boolean => {
+        if (blockRows.length === 0) return false;
+        const occDate = dateStringToUTC(occ.date);
+        const dayCandidates = blockRows.filter(
+          (b) => b.startDate <= occDate && b.endDate >= occDate,
+        );
+        if (dayCandidates.length === 0) return false;
+        const active = filterBlocksForSlotSync(dayCandidates, {
+          date: occDate,
+          startTime: occ.startTime,
+          endTime: occ.endTime,
+        });
+        return evaluateBlockForBooking(active, { category, resourceIds: [] }, 'ALL') !== null;
+      };
+      corporateOccurrences = corporateOccurrences.filter(
+        (occ) => !isOccurrenceBlocked(occ, 'CORPORATE_BATCH'),
+      );
+      simOccurrences = simOccurrences.filter(
+        (occ) => !isOccurrenceBlocked(occ, 'MATCH_SIMULATION'),
+      );
+    }
 
     // Seat counts for every occurrence in one query per category.
     const horizonEnd = new Date(
@@ -167,15 +232,15 @@ export async function GET(req: NextRequest) {
           })
         : [];
 
-    const adhocSeatKey = (dateISO: string, startISO: string) => `${dateISO}|${startISO}`;
-    const corporateAdhocCounts = new Map<string, number>();
+    const seatKey = (dateISO: string, startISO: string) => `${dateISO}|${startISO}`;
+    const corporateRegularCounts = new Map<string, number>();
     const simSeatCounts = new Map<string, number>();
     for (const row of seatRows) {
-      const key = adhocSeatKey(row.date.toISOString().slice(0, 10), row.startTime.toISOString());
+      const key = seatKey(row.date.toISOString().slice(0, 10), row.startTime.toISOString());
       if (row.category === 'MATCH_SIMULATION') {
         simSeatCounts.set(key, (simSeatCounts.get(key) ?? 0) + 1);
-      } else if (row.corporateBatchMode === 'ADHOC') {
-        corporateAdhocCounts.set(key, (corporateAdhocCounts.get(key) ?? 0) + 1);
+      } else if (row.corporateBatchMode === 'REGULAR') {
+        corporateRegularCounts.set(key, (corporateRegularCounts.get(key) ?? 0) + 1);
       }
     }
 
@@ -187,13 +252,13 @@ export async function GET(req: NextRequest) {
     const corporateSessions = corporateOccurrences.map((occ) => {
       const seats =
         membersCoveringDate(occ.date)
-        + (corporateAdhocCounts.get(adhocSeatKey(occ.date, occ.startTime.toISOString())) ?? 0);
+        + (corporateRegularCounts.get(seatKey(occ.date, occ.startTime.toISOString())) ?? 0);
       return {
         date: occ.date,
         dayLabel: DAY_LABELS[occ.dayOfWeek],
         startTime: occ.startTime.toISOString(),
         endTime: occ.endTime.toISOString(),
-        fee: corporate.adhocFee,
+        fee: corporate.regularFee,
         seatsBooked: Math.min(seats, corporate.maxCapacity),
         capacity: corporate.maxCapacity,
         remaining: Math.max(0, corporate.maxCapacity - seats),
@@ -202,7 +267,7 @@ export async function GET(req: NextRequest) {
     });
 
     const simSessions = simOccurrences.map((occ) => {
-      const booked = simSeatCounts.get(adhocSeatKey(occ.date, occ.startTime.toISOString())) ?? 0;
+      const booked = simSeatCounts.get(seatKey(occ.date, occ.startTime.toISOString())) ?? 0;
       return {
         sessionId: occ.session.id,
         label: occ.session.label,
@@ -228,7 +293,7 @@ export async function GET(req: NextRequest) {
         endTime: corporate.endTime,
         coachName: corporate.coachName || null,
         monthlyFee: corporate.monthlyFee,
-        adhocFee: corporate.adhocFee,
+        regularFee: corporate.regularFee,
         maxCapacity: corporate.maxCapacity,
         halfMonth: corporate.halfMonth,
         months,

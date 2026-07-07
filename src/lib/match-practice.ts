@@ -18,11 +18,12 @@
  *   MONTHLY     one row per user per month; enrollmentPeriod "YYYY-MM".
  *   HALF_MONTH  one row per user per half-month; "YYYY-MM-H1" / "-H2".
  *               Only offered when config.halfMonth.enabled.
- *   ADHOC       one row per user per attended session date; counted by
+ *   REGULAR     one row per user per attended session date; counted by
  *               (date, startTime), enrollmentPeriod stays null.
  *
  * Seats for a given session date = members whose enrollment period covers
- * the date (full month, or the matching half) + ad-hoc rows on that date.
+ * the date (full month, or the matching half) + regular (per-session)
+ * rows on that date.
  *
  * ### Match Simulation  (Booking.category = MATCH_SIMULATION)
  *
@@ -63,8 +64,9 @@ export interface CorporateBatchSettings {
   netsConsumed: number;
   coachName: string;
   monthlyFee: number;
-  adhocFee: number;
-  /** Seats per batch — monthly members and ad-hoc attendees share it. */
+  /** ₹ fee for a single Regular (per-session) booking. */
+  regularFee: number;
+  /** Seats per batch — monthly members and regular attendees share it. */
   maxCapacity: number;
   halfMonth: HalfMonthConfig;
 }
@@ -80,7 +82,7 @@ export const DEFAULT_CORPORATE_BATCH_SETTINGS: CorporateBatchSettings = {
   netsConsumed: 2,
   coachName: 'Govind Lashkare',
   monthlyFee: 2000,
-  adhocFee: 200,
+  regularFee: 200,
   maxCapacity: 25,
   halfMonth: {
     enabled: false,
@@ -112,7 +114,9 @@ export function normalizeCorporateBatchSettings(
     netsConsumed: num(r.netsConsumed, d.netsConsumed),
     coachName: typeof r.coachName === 'string' ? r.coachName : d.coachName,
     monthlyFee: num(r.monthlyFee, d.monthlyFee),
-    adhocFee: num(r.adhocFee, d.adhocFee),
+    // Accept the legacy `adhocFee` key so configs saved before the
+    // Ad-hoc → Regular rename keep their fee.
+    regularFee: num(r.regularFee ?? (r as { adhocFee?: number }).adhocFee, d.regularFee),
     maxCapacity: Math.max(1, num(r.maxCapacity, d.maxCapacity)),
     halfMonth: {
       enabled: typeof r.halfMonth?.enabled === 'boolean' ? r.halfMonth.enabled : d.halfMonth.enabled,
@@ -426,7 +430,8 @@ export async function countEnrollments(
 }
 
 /** Seats taken for one corporate-batch session date = members whose
- *  period covers the date + ad-hoc rows for that exact session. */
+ *  period covers the date + regular (per-session) rows for that
+ *  exact session. */
 export async function countCorporateSessionSeats(
   client: BookingCountClient,
   centerId: string,
@@ -447,7 +452,7 @@ export async function countCorporateSessionSeats(
       where: {
         centerId,
         category: 'CORPORATE_BATCH',
-        corporateBatchMode: 'ADHOC',
+        corporateBatchMode: 'REGULAR',
         status: { not: 'CANCELLED' },
         date: dateStringToUTC(dateStr),
         startTime,
@@ -477,7 +482,7 @@ export async function countMatchSimSeats(
 // ─── Booking-plan resolution (server-side source of truth) ───────────
 
 export type MatchPracticeCategory = 'CORPORATE_BATCH' | 'MATCH_SIMULATION';
-export type CorporateMode = 'MONTHLY' | 'HALF_MONTH' | 'ADHOC';
+export type CorporateMode = 'MONTHLY' | 'HALF_MONTH' | 'REGULAR';
 
 export interface MatchPracticePlan {
   category: MatchPracticeCategory;
@@ -510,7 +515,7 @@ export interface MatchPracticeBookingRequest {
  * sent is re-validated against the center's config:
  *   - MONTHLY / HALF_MONTH ignore client slots entirely — the session
  *     window is derived from the enrollment period + configured days.
- *   - ADHOC / MATCH_SIMULATION slots must land exactly on a configured
+ *   - REGULAR / MATCH_SIMULATION slots must land exactly on a configured
  *     session (weekday + start/end time) and start in the future.
  * Throws BookingResourceError with a user-facing message on any mismatch.
  */
@@ -578,7 +583,7 @@ export async function resolveMatchPracticePlans(
       }];
     }
 
-    // ADHOC — every requested slot must be a real upcoming batch session.
+    // REGULAR — every requested slot must be a real upcoming batch session.
     if (body.slots.length === 0) {
       throw new BookingResourceError('Select at least one session', 400);
     }
@@ -600,13 +605,13 @@ export async function resolveMatchPracticePlans(
       }
       return {
         category: 'CORPORATE_BATCH' as const,
-        mode: 'ADHOC' as const,
+        mode: 'REGULAR' as const,
         enrollmentPeriod: null,
         dateStr: s.date,
         date: dateStringToUTC(s.date),
         startTime,
         endTime,
-        fee: settings.adhocFee,
+        fee: settings.regularFee,
         capacity: settings.maxCapacity,
         label: `${s.date} ${settings.startTime}–${settings.endTime}`,
         coachName: settings.coachName || null,
@@ -717,7 +722,7 @@ export async function assertMatchPracticeSeat(
   }
 
   if (plan.category === 'CORPORATE_BATCH') {
-    // ADHOC — duplicate: same user, same session; or a membership that
+    // REGULAR — duplicate: same user, same session; or a membership that
     // already covers this date (no point paying twice).
     const dupAdhoc = await tx.booking.findFirst({
       where: {

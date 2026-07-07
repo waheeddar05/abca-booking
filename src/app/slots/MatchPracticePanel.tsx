@@ -10,7 +10,7 @@
  *   Corporate Batch
  *     - Monthly (or Half-Month when enabled): pick a month → see
  *       "18 of 25 members enrolled" → pay the flat monthly fee.
- *     - Ad-hoc Session: pick one or more upcoming batch dates → see
+ *     - Regular Session: pick one or more upcoming batch dates → see
  *       "12 of 25 seats booked" per session → pay per session.
  *
  *   Match Simulation
@@ -105,7 +105,7 @@ interface MatchPracticeAvailability {
     endTime: string;
     coachName: string | null;
     monthlyFee: number;
-    adhocFee: number;
+    regularFee: number;
     maxCapacity: number;
     halfMonth: HalfMonthInfo;
     months: MonthOption[];
@@ -169,13 +169,13 @@ export default function MatchPracticePanel({
 
   type Sub = 'CORPORATE' | 'SIMULATION';
   const [sub, setSub] = useState<Sub | null>(null);
-  const [corpMode, setCorpMode] = useState<'MONTHLY' | 'ADHOC'>('MONTHLY');
+  const [corpMode, setCorpMode] = useState<'MONTHLY' | 'REGULAR'>('MONTHLY');
   /** Selected enrollment period — a month ("2026-07") or a half
    *  ("2026-07-H1"). Only one enrollment at a time. */
   const [selectedPeriod, setSelectedPeriod] = useState<string | null>(null);
   /** Which month card is expanded (relevant when half-month is on). */
   const [expandedMonth, setExpandedMonth] = useState<string | null>(null);
-  const [selectedAdhoc, setSelectedAdhoc] = useState<Set<string>>(new Set());
+  const [selectedRegular, setSelectedRegular] = useState<Set<string>>(new Set());
   const [selectedSim, setSelectedSim] = useState<Set<string>>(new Set());
 
   const [paymentMethod, setPaymentMethod] = useState<'ONLINE' | 'CASH'>('ONLINE');
@@ -208,7 +208,7 @@ export default function MatchPracticePanel({
   useEffect(() => {
     setSelectedPeriod(null);
     setExpandedMonth(null);
-    setSelectedAdhoc(new Set());
+    setSelectedRegular(new Set());
     setSelectedSim(new Set());
   }, [sub, corpMode]);
 
@@ -231,9 +231,9 @@ export default function MatchPracticePanel({
     return null;
   }, [data, selectedPeriod]);
 
-  const selectedAdhocSessions = useMemo(
-    () => (data?.corporateBatch.sessions ?? []).filter((s) => selectedAdhoc.has(sessionKey(s.date, s.startTime))),
-    [data, selectedAdhoc],
+  const selectedRegularSessions = useMemo(
+    () => (data?.corporateBatch.sessions ?? []).filter((s) => selectedRegular.has(sessionKey(s.date, s.startTime))),
+    [data, selectedRegular],
   );
 
   const selectedSimSessions = useMemo(
@@ -265,19 +265,19 @@ export default function MatchPracticePanel({
         },
       };
     }
-    if (sub === 'CORPORATE' && corpMode === 'ADHOC') {
-      if (selectedAdhocSessions.length === 0) return { count: 0, total: 0, summary: '', body: null, slots: [] };
-      const slots = selectedAdhocSessions.map((s) => ({ date: s.date, startTime: s.startTime, endTime: s.endTime }));
+    if (sub === 'CORPORATE' && corpMode === 'REGULAR') {
+      if (selectedRegularSessions.length === 0) return { count: 0, total: 0, summary: '', body: null, slots: [] };
+      const slots = selectedRegularSessions.map((s) => ({ date: s.date, startTime: s.startTime, endTime: s.endTime }));
       return {
         count: slots.length,
-        total: selectedAdhocSessions.reduce((sum, s) => sum + s.fee, 0),
+        total: selectedRegularSessions.reduce((sum, s) => sum + s.fee, 0),
         summary: `Corporate Batch · ${slots.length} session${slots.length === 1 ? '' : 's'}`,
         slots,
         body: {
           slots,
           category: 'CORPORATE_BATCH',
           playerName,
-          corporateMode: 'ADHOC',
+          corporateMode: 'REGULAR',
         },
       };
     }
@@ -297,7 +297,7 @@ export default function MatchPracticePanel({
       };
     }
     return { count: 0, total: 0, summary: '', body: null, slots: [] };
-  }, [sub, corpMode, selectedMonthOption, selectedAdhocSessions, selectedSimSessions, playerName]);
+  }, [sub, corpMode, selectedMonthOption, selectedRegularSessions, selectedSimSessions, playerName]);
 
   // ─── Submit (mirrors ResourceSlotsPage.submit payment routing) ─────
 
@@ -493,7 +493,7 @@ export default function MatchPracticePanel({
             )}
           </div>
 
-          {/* Monthly / Ad-hoc toggle */}
+          {/* Monthly / Regular toggle */}
           <div className="mb-4">
             <label className="block text-[10px] font-medium text-accent mb-1 uppercase tracking-wider">
               Booking Option
@@ -501,7 +501,7 @@ export default function MatchPracticePanel({
             <div className="grid grid-cols-2 gap-1.5">
               {([
                 { key: 'MONTHLY' as const, label: 'Monthly', sub2: `₹${cb.monthlyFee}/month` },
-                { key: 'ADHOC' as const, label: 'Ad-hoc Session', sub2: `₹${cb.adhocFee}/session` },
+                { key: 'REGULAR' as const, label: 'Regular', sub2: `₹${cb.regularFee}/session` },
               ]).map(({ key, label, sub2 }) => {
                 const active = corpMode === key;
                 return (
@@ -617,7 +617,7 @@ export default function MatchPracticePanel({
             </div>
           )}
 
-          {corpMode === 'ADHOC' && (
+          {corpMode === 'REGULAR' && (
             <div className="mb-5">
               <label className="block text-[10px] font-medium text-accent mb-2 uppercase tracking-wider">
                 Upcoming Sessions
@@ -640,9 +640,9 @@ export default function MatchPracticePanel({
                     isFull: s.isFull,
                     seatNoun: 'seats',
                   }))}
-                  selected={selectedAdhoc}
+                  selected={selectedRegular}
                   onToggle={(key) => {
-                    setSelectedAdhoc((prev) => {
+                    setSelectedRegular((prev) => {
                       const next = new Set(prev);
                       if (next.has(key)) next.delete(key); else next.add(key);
                       return next;

@@ -213,6 +213,29 @@ export async function GET(req: NextRequest) {
     const categoryLabel = (raw: string | null | undefined): string =>
       (raw && CATEGORY_LABELS[raw]) || 'Bowling Machine';
 
+    // Corporate-batch rows carry their purchase mode so revenue splits
+    // cleanly in the sheet: "Corporate Batch (Monthly · 2026-07)" /
+    // "Corporate Batch (Regular)". ADHOC is the legacy pre-rename value
+    // — render it as Regular too.
+    const CORPORATE_MODE_LABELS: Record<string, string> = {
+      MONTHLY: 'Monthly',
+      HALF_MONTH: 'Half Month',
+      REGULAR: 'Regular',
+      ADHOC: 'Regular',
+    };
+    const categoryCell = (b: {
+      category?: string | null;
+      corporateBatchMode?: string | null;
+      enrollmentPeriod?: string | null;
+    }): string => {
+      const base = categoryLabel(b.category);
+      if (b.category === 'CORPORATE_BATCH' && b.corporateBatchMode) {
+        const mode = CORPORATE_MODE_LABELS[b.corporateBatchMode] || b.corporateBatchMode;
+        return b.enrollmentPeriod ? `${base} (${mode} · ${b.enrollmentPeriod})` : `${base} (${mode})`;
+      }
+      return base;
+    };
+
     // Ball type / operation mode only apply to bowling-machine sessions.
     // For sidearm / nets / coaching / full-court / corporate-batch the
     // cell reads "Not Applicable" (mirrors the admin bookings page
@@ -339,10 +362,11 @@ export async function GET(req: NextRequest) {
         machineRow ? b.ballType : 'Not Applicable',
         b.pitchType || 'Not Applicable',
         machineLabel,
-        // Resource-based columns: category (human label), coach, staff.
-        // Legacy ABCA rows have null category but represent bowling
-        // machine sessions, so the label falls back to "Bowling Machine".
-        categoryLabel(b.category),
+        // Resource-based columns: category (human label + corporate-batch
+        // mode/period when applicable), coach, staff. Legacy ABCA rows
+        // have null category but represent bowling machine sessions, so
+        // the label falls back to "Bowling Machine".
+        categoryCell(b),
         b.assignedCoach?.name || 'Not Applicable',
         b.assignedStaff?.name || 'Not Applicable',
         machineRow ? (b.operationMode || '') : 'Not Applicable',
