@@ -9,8 +9,7 @@
  * / GROUND_STAFF memberships at a center, and this page surfaces a tab
  * for each role the user actually has (admins see all four). Switching
  * tabs filters the booking list by the booking *category* that role
- * handles — every such booking at the center, regardless of which staff
- * member is assigned:
+ * handles:
  *
  *   - Operator     → MACHINE  bookings (bowling-machine sessions)
  *   - Coach        → COACHING bookings (personal-coaching sessions)
@@ -18,6 +17,12 @@
  *   - Ground Staff → every other (facility) booking — Cricket Nets,
  *                    Full Indoor Court, etc. (non-operator / non-sidearm
  *                    / non-coaching), which ground staff handle on-floor
+ *
+ * Operator and Ground Staff see every booking of their category at the
+ * center (full operational visibility, regardless of assignment) so they
+ * can coordinate the floor. Sidearm specialists and coaches see only the
+ * sessions assigned to them. Admins overseeing keep full visibility on
+ * every tab.
  */
 
 import { useEffect, useState, useCallback } from 'react';

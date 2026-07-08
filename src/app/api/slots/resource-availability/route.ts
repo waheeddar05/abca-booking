@@ -3,7 +3,7 @@ import { isValid, isSameDay } from 'date-fns';
 import { prisma } from '@/lib/prisma';
 import { getAuthenticatedUser } from '@/lib/auth';
 import { resolveCurrentCenter } from '@/lib/centers';
-import { getCenterOnlyPolicy } from '@/lib/policy';
+import { getCenterOnlyPolicy, getCenterOnlyPolicyJson } from '@/lib/policy';
 import {
   generateSlotsForDateDualWindow,
   filterPastSlots,
@@ -16,14 +16,15 @@ import {
   getCenterCoaches,
   getCenterStaff,
   getCorporateBatchConfig,
-  getCorporateBatchNetsForSlot,
+  computeReservedByPitchForSlot,
   computeSlotAvailability,
   getDayCandidateBlocks,
   filterBlocksForSlotSync,
   applyBlocksToAvailability,
   applyPitchReservations,
+  type PitchReservationWindow,
 } from '@/lib/resource-booking';
-import { getResourcePricingConfig, getResourceSlotPrice, representativeCategoryBase } from '@/lib/resource-pricing';
+import { getResourcePricingConfig, getResourceSlotPrice } from '@/lib/resource-pricing';
 import { getSidearmPitchTypes, getNetPitchTypes, getCoachingPitchTypes, getEnabledBookingCategories } from '@/lib/pitch-config';
 import { sanitizeApiError } from '@/lib/api-errors';
 import { getOperatorCount } from '@/lib/operatorAssign';
@@ -146,6 +147,7 @@ export async function GET(req: NextRequest) {
       enabledCategories,
       bookings,
       batchConfig,
+      matchSimConfig,
     ] = await Promise.all([
       getCenterOnlyPolicy('SLOT_DURATION', center.id, null),
       getCenterOnlyPolicy('DISABLED_DATES', center.id, null),
@@ -180,7 +182,19 @@ export async function GET(req: NextRequest) {
         },
       }),
       getCorporateBatchConfig(center.id),
+      getCenterOnlyPolicyJson<{ enabled?: boolean; sessions?: PitchReservationWindow[] }>(
+        'MATCH_SIMULATION_CONFIG',
+        center.id,
+        { enabled: false, sessions: [] },
+      ),
     ]);
+
+    // Match-simulation sessions that hold wickets — only when the config
+    // is enabled. Each session carries its own days/window + wicketsHeld.
+    const matchSimSessions: PitchReservationWindow[] =
+      matchSimConfig?.enabled && Array.isArray(matchSimConfig.sessions)
+        ? matchSimConfig.sessions
+        : [];
 
     const disabledDates = disabledDatesRaw ? disabledDatesRaw.split(',') : [];
     if (disabledDates.includes(dateStr)) {
@@ -225,24 +239,15 @@ export async function GET(req: NextRequest) {
           startTime: slot.startTime,
           endTime: slot.endTime,
         };
-        // Corporate batch — was a per-slot async call into the same
-        // policy (already prefetched as `batchConfig`). Inline the
-        // overlap check so we don't hit the policy cache per slot.
-        const batchNets = (() => {
-          if (!batchConfig.enabled || batchConfig.netsConsumed <= 0) return 0;
-          const dow = getDayOfWeekIST(slotWindow.startTime);
-          if (batchConfig.days.length > 0 && !batchConfig.days.includes(dow)) return 0;
-
-          const startMin = getMinutesOfDayIST(slotWindow.startTime);
-          const endMin = getMinutesOfDayIST(slotWindow.endTime);
-
-          const batchStartMin = timeStrToMinutes(batchConfig.startTime);
-          const batchEndMin = timeStrToMinutes(batchConfig.endTime);
-
-          if (endMin <= batchStartMin) return 0;
-          if (startMin >= batchEndMin) return 0;
-          return batchConfig.netsConsumed;
-        })();
+        // Recurring reservations (corporate batch + match simulation) —
+        // both configs were prefetched. `computeReservedByPitchForSlot`
+        // sums the per-pitch wickets held for any window whose day + time
+        // overlap this slot. Fully dynamic across pitch types.
+        const reservedByPitch = computeReservedByPitchForSlot(
+          batchConfig,
+          matchSimSessions,
+          slotWindow,
+        );
         const blocks = filterBlocksForSlotSync(candidateBlocks, slotWindow);
         // Hold admin "count blocks" (block N units of a pitch) as virtual
         // load before availability is computed, so the pool reflects the
@@ -261,7 +266,7 @@ export async function GET(req: NextRequest) {
             busyMachineIds,
             hasFullCourtBooking,
           },
-          batchNets,
+          reservedByPitch,
           // Pass the slot so coaches/specialists outside their weekly
           // schedule don't appear as "free" for this time window.
           slot: slotWindow,
@@ -342,32 +347,53 @@ export async function GET(req: NextRequest) {
         };
 
         // ── Per-category discount preview ───────────────────────────
-        // For each enabled category, compute the user-visible discount
-        // (₹ off this slot) from recurring rules + promotional offers.
-        // Shown as a badge / used to update the displayed slot price.
-        // Audience-aware (isSpecialUser); the actual booking will
-        // recompute server-side — these numbers are the "preview".
+        // For each enabled category, surface the recurring + promotional
+        // offers that apply to this slot as RAW inputs (the recurring ₹
+        // for one vs. two consecutive slots, plus the applicable offer
+        // descriptors). The client then computes the actual ₹ off against
+        // the exact price it charges — i.e. AFTER multi-slot pricing —
+        // so a percentage offer is applied to the multi-slot-adjusted
+        // amount, not the pre-multi-slot single-slot price. This keeps the
+        // displayed/charged total identical to what the booking route
+        // records server-side. Audience-aware (isSpecialUser).
         const slotDayOfWeek = getDayOfWeekIST(slot.startTime);
         const slotMinutes = getMinutesOfDayIST(slot.startTime);
-        const discountsByCategory: Partial<Record<BookingCategory, {
-          recurring: number;
-          promo: number;
-          promoName: string | null;
-          total: number;
-        }>> = {};
 
-        for (const cat of enabledCategories) {
-          // The no-pitch category default is 0 for per-pitch-priced
-          // categories (SIDEARM / NET / COACHING). Fall back to the best
-          // configured per-pitch rate so their discount preview isn't
-          // skipped — otherwise an "all categories" offer only shows on
-          // MACHINE. See `representativeCategoryBase`.
-          let basePrice = prices[cat as BookingCategory] ?? 0;
-          if (basePrice <= 0) {
-            basePrice = representativeCategoryBase(cat as BookingCategory, pricingConfig, timeSlab);
+        // Shared promo filter — a promo applies to this slot when it
+        // passes the audience / day / time gates. Category and machine-row
+        // gates are layered on by each caller below.
+        const promoPassesSlotGates = (offer: (typeof activePromoOffers)[number]): boolean => {
+          if (offer.appliesTo === 'SPECIAL' && !isSpecialUser) return false;
+          if (offer.appliesTo === 'NON_SPECIAL' && isSpecialUser) return false;
+          if (offer.days && offer.days.length > 0 && !offer.days.includes(slotDayOfWeek)) return false;
+          if (offer.timeSlotStart && offer.timeSlotEnd) {
+            const oStart = timeStrToMinutes(offer.timeSlotStart);
+            const oEnd = timeStrToMinutes(offer.timeSlotEnd);
+            if (slotMinutes < oStart || slotMinutes >= oEnd) return false;
           }
-          if (basePrice <= 0) continue;
+          return true;
+        };
+        const toOfferDescriptor = (offer: (typeof activePromoOffers)[number]) => ({
+          name: offer.name,
+          discountType: offer.discountType as 'PERCENTAGE' | 'FIXED',
+          discountValue: offer.discountValue,
+        });
 
+        interface DiscountInputs {
+          recurringOneSlot: number;
+          recurringTwoSlot: number;
+          offers: Array<{ name: string; discountType: 'PERCENTAGE' | 'FIXED'; discountValue: number }>;
+        }
+
+        const discountsByCategory: Partial<Record<BookingCategory, DiscountInputs>> = {};
+
+        // MATCH_PRACTICE is a UI umbrella tab (Corporate Batch + Match
+        // Simulation) with its own availability endpoint — it has no
+        // slot-grid price, so it's excluded from the per-slot preview.
+        const previewCategories = enabledCategories.filter(
+          (c): c is Exclude<typeof c, 'MATCH_PRACTICE'> => c !== 'MATCH_PRACTICE',
+        );
+        for (const cat of previewCategories) {
           // Recurring (matched at category-level only — machineRowId is
           // resolved per-machine and folded in by the client when the
           // user picks a specific machine).
@@ -379,66 +405,42 @@ export async function GET(req: NextRequest) {
               machineRowId: null,
             }),
           );
-          const recSummary = computeRecurringDiscountForSlot({
+          const recurringOneSlot = computeRecurringDiscountForSlot({
             matches: matched,
-            isConsecutive: false, // grid shows single-slot estimate
+            isConsecutive: false,
             isSpecialUser,
-          });
-          const recurringAmount = Math.min(recSummary.total, basePrice);
+          }).total;
+          const recurringTwoSlot = computeRecurringDiscountForSlot({
+            matches: matched,
+            isConsecutive: true,
+            isSpecialUser,
+          }).total;
 
           // Promotional offers — filter the prefetched list in-memory.
           // Mirrors getAllApplicablePromoDiscounts but with category +
           // audience + slot context applied here so we don't pay the
           // round-trip per (slot × category).
-          let promoAmount = 0;
-          let promoName: string | null = null;
-          const remaining = Math.max(0, basePrice - recurringAmount);
-          if (remaining > 0) {
-            for (const offer of activePromoOffers) {
-              // Audience gate
-              if (offer.appliesTo === 'SPECIAL' && !isSpecialUser) continue;
-              if (offer.appliesTo === 'NON_SPECIAL' && isSpecialUser) continue;
-              // Day-of-week gate
-              if (offer.days && offer.days.length > 0 && !offer.days.includes(slotDayOfWeek)) continue;
-              // Time-of-day gate (offer.timeSlotStart / End are HH:MM strings)
-              if (offer.timeSlotStart && offer.timeSlotEnd) {
-                const oStart = timeStrToMinutes(offer.timeSlotStart);
-                const oEnd = timeStrToMinutes(offer.timeSlotEnd);
-                if (slotMinutes < oStart || slotMinutes >= oEnd) continue;
-              }
+          const offers = activePromoOffers
+            .filter((offer) => {
+              if (!promoPassesSlotGates(offer)) return false;
               // Category gate — non-empty list means "only these
               // categories". Empty list means "any category".
               if (offer.categories && offer.categories.length > 0
-                && !offer.categories.includes(cat as any)) continue;
-              // Resource-row gate: machine-row-pinned offers are
-              // handled below in `machineDiscounts` (per machineId)
-              // so the user can see them when they pick that specific
-              // machine. The category-level preview here intentionally
-              // ignores them for MACHINE category so the discount
-              // doesn't appear for the wrong machine. For other
-              // categories (SIDEARM, etc.), we ignore this gate so an
-              // "All Categories" offer can apply even if some machines
-              // are pinned.
-              if (cat === 'MACHINE' && offer.machineRowIds && offer.machineRowIds.length > 0) continue;
+                && !offer.categories.includes(cat as BookingCategory)) return false;
+              // Resource-row gate: machine-row-pinned offers are handled
+              // below in `machineDiscounts` (per machineId) so the user
+              // sees them when they pick that specific machine. The
+              // category-level preview ignores them for MACHINE so the
+              // discount doesn't appear for the wrong machine. Other
+              // categories ignore this gate so an "All Categories" offer
+              // still applies even if some machines are pinned.
+              if (cat === 'MACHINE' && offer.machineRowIds && offer.machineRowIds.length > 0) return false;
+              return true;
+            })
+            .map(toOfferDescriptor);
 
-              const d = offer.discountType === 'PERCENTAGE'
-                ? Math.min(remaining, Math.floor((remaining * offer.discountValue) / 100))
-                : Math.min(remaining, Math.floor(offer.discountValue));
-              if (d > promoAmount) {
-                promoAmount = d;
-                promoName = offer.name;
-              }
-            }
-          }
-
-          const total = recurringAmount + promoAmount;
-          if (total > 0) {
-            discountsByCategory[cat] = {
-              recurring: recurringAmount,
-              promo: promoAmount,
-              promoName,
-              total,
-            };
+          if (recurringOneSlot > 0 || recurringTwoSlot > 0 || offers.length > 0) {
+            discountsByCategory[cat] = { recurringOneSlot, recurringTwoSlot, offers };
           }
         }
 
@@ -464,23 +466,15 @@ export async function GET(req: NextRequest) {
         // preview above (no way to know which machine the user picks
         // there). Here we evaluate each machine row independently so
         // when the user picks Yantra 2 the discount for "Yantra 2
-        // weekend offer" shows up on the slot cards. The category
-        // bucket (`discountsByCategory.MACHINE`) acts as the floor —
-        // a global MACHINE offer applies to every machine; a
-        // machine-row offer adds to it only for the matching row.
-        const machineDiscounts: Record<string, {
-          recurring: number;
-          promo: number;
-          promoName: string | null;
-          total: number;
-        }> = {};
-        const machineCategoryFloor = discountsByCategory.MACHINE ?? {
-          recurring: 0, promo: 0, promoName: null, total: 0,
-        };
+        // weekend offer" shows up on the slot cards. Center-wide MACHINE
+        // offers (empty machineRowIds) are included here too, so this
+        // per-machine bucket is the single source of truth the client
+        // reads when a machine is selected. Values are RAW inputs (the
+        // recurring ₹ for one vs. two slots + the applicable offer
+        // descriptors); the client applies them to the exact
+        // multi-slot-adjusted price it charges.
+        const machineDiscounts: Record<string, DiscountInputs> = {};
         for (const m of machines) {
-          const mBase = machinePrices[m.id];
-          if (mBase <= 0) continue;
-
           // Recurring rules matched to this machine row.
           const mMatched = recurringRules.filter((rule) =>
             recurringRuleMatches({
@@ -490,58 +484,40 @@ export async function GET(req: NextRequest) {
               machineRowId: m.id,
             }),
           );
-          const mRecSummary = computeRecurringDiscountForSlot({
+          const mRecurringOneSlot = computeRecurringDiscountForSlot({
             matches: mMatched,
             isConsecutive: false,
             isSpecialUser,
-          });
-          const mRecurring = Math.min(mRecSummary.total, mBase);
+          }).total;
+          const mRecurringTwoSlot = computeRecurringDiscountForSlot({
+            matches: mMatched,
+            isConsecutive: true,
+            isSpecialUser,
+          }).total;
 
-          // Promo offers — both center-wide (empty machineRowIds, gated
-          // out of the category preview here? no — those WERE counted
-          // above; we re-evaluate so the per-machine bucket is the
-          // single source of truth) and row-pinned offers that match
-          // this machine.
-          let mPromo = 0;
-          let mPromoName: string | null = null;
-          const mRemaining = Math.max(0, mBase - mRecurring);
-          if (mRemaining > 0) {
-            for (const offer of activePromoOffers) {
-              if (offer.appliesTo === 'SPECIAL' && !isSpecialUser) continue;
-              if (offer.appliesTo === 'NON_SPECIAL' && isSpecialUser) continue;
-              if (offer.days && offer.days.length > 0 && !offer.days.includes(slotDayOfWeek)) continue;
-              if (offer.timeSlotStart && offer.timeSlotEnd) {
-                const oStart = timeStrToMinutes(offer.timeSlotStart);
-                const oEnd = timeStrToMinutes(offer.timeSlotEnd);
-                if (slotMinutes < oStart || slotMinutes >= oEnd) continue;
-              }
+          // Promo offers — both center-wide (empty machineRowIds) and
+          // row-pinned offers that match this machine.
+          const mOffers = activePromoOffers
+            .filter((offer) => {
+              if (!promoPassesSlotGates(offer)) return false;
               // Category gate: empty = all categories; otherwise must
               // include MACHINE since this loop only previews MACHINE
               // bookings against the picked machine row.
               if (offer.categories && offer.categories.length > 0
-                && !offer.categories.includes('MACHINE')) continue;
+                && !offer.categories.includes('MACHINE')) return false;
               // Machine-row gate: empty = applies to every machine;
               // otherwise must include THIS row.
               if (offer.machineRowIds && offer.machineRowIds.length > 0
-                && !offer.machineRowIds.includes(m.id)) continue;
+                && !offer.machineRowIds.includes(m.id)) return false;
+              return true;
+            })
+            .map(toOfferDescriptor);
 
-              const d = offer.discountType === 'PERCENTAGE'
-                ? Math.min(mRemaining, Math.floor((mRemaining * offer.discountValue) / 100))
-                : Math.min(mRemaining, Math.floor(offer.discountValue));
-              if (d > mPromo) {
-                mPromo = d;
-                mPromoName = offer.name;
-              }
-            }
-          }
-
-          const mTotal = mRecurring + mPromo;
-          if (mTotal > 0 || machineCategoryFloor.total > 0) {
+          if (mRecurringOneSlot > 0 || mRecurringTwoSlot > 0 || mOffers.length > 0) {
             machineDiscounts[m.id] = {
-              recurring: mRecurring,
-              promo: mPromo,
-              promoName: mPromoName,
-              total: mTotal,
+              recurringOneSlot: mRecurringOneSlot,
+              recurringTwoSlot: mRecurringTwoSlot,
+              offers: mOffers,
             };
           }
         }
@@ -574,6 +550,9 @@ export async function GET(req: NextRequest) {
           fullCourtAvailable:
             availability.fullCourtAvailable && !blockedCategories.has('FULL_COURT'),
           corporateBatchHolds: availability.corporateBatchNetsHeld,
+          // Per-pitch breakdown of the wickets held by recurring
+          // reservations (corporate batch + match simulation) at this slot.
+          reservedByPitch: availability.reservedByPitch,
           prices,
           machinePrices,
         // Blocks applied at this slot. The client uses these to grey
@@ -602,14 +581,19 @@ export async function GET(req: NextRequest) {
           // for a slot the server would 409 on submit because another
           // booking already claimed that specific machine.
           busyMachineIds: Array.from(busyMachineIds),
-          // Recurring + promo discounts by category. Empty when no rule
-          // matches; client treats missing entries as 0 discount.
+          // Raw recurring + promo discount inputs by category
+          // (recurring ₹ for one vs. two consecutive slots + the
+          // applicable offer descriptors). The client applies these to
+          // the exact multi-slot-adjusted price it charges so a
+          // percentage offer lands on the post-multi-slot amount. Empty
+          // when no rule/offer matches; the client treats a missing
+          // entry as no discount.
           discountsByCategory,
-          // Per-machine MACHINE-category discount preview. When the
-          // user has picked a specific machine the client should prefer
-          // this entry over discountsByCategory.MACHINE so machine-row
-          // pinned offers reflect in the slot card. Empty when no
-          // offer / recurring rule matches any machine here.
+          // Per-machine MACHINE-category discount inputs. When the user
+          // has picked a specific machine the client prefers this entry
+          // over discountsByCategory.MACHINE so machine-row pinned offers
+          // reflect in the slot card. Empty when no offer / recurring
+          // rule matches any machine here.
           machineDiscounts,
         };
       }),
@@ -636,6 +620,7 @@ export async function GET(req: NextRequest) {
       pricingConfig,
       timeSlabConfig,
       corporateBatchConfig: batchConfig,
+      matchSimulationConfig: matchSimConfig,
       slots: result,
     });
   } catch (error) {

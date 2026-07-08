@@ -48,6 +48,10 @@ const SAFE_BOOKING_SELECT = {
   // CORPORATE_BATCH); the three assigned* joins resolve human-
   // readable names; resourceAssignments lists the consumed nets.
   category: true,
+  // Match Practice (Corporate Batch) enrollment context — drives the
+  // "Enrollment: Monthly · July 2026" row in BookingDetailsList.
+  corporateBatchMode: true,
+  enrollmentPeriod: true,
   assignedMachineId: true,
   assignedMachine: {
     select: {
@@ -210,7 +214,7 @@ export async function GET(req: NextRequest) {
     // fixes the leak.
     const categoryFilter = searchParams.get('categoryFilter');
     if (categoryFilter) {
-      const validCategories = new Set(['MACHINE', 'SIDEARM', 'COACHING', 'NET', 'FULL_COURT', 'CORPORATE_BATCH']);
+      const validCategories = new Set(['MACHINE', 'SIDEARM', 'COACHING', 'NET', 'FULL_COURT', 'CORPORATE_BATCH', 'MATCH_SIMULATION']);
       if (validCategories.has(categoryFilter)) {
         where.category = categoryFilter;
       }

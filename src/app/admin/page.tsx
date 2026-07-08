@@ -65,7 +65,15 @@ const CATEGORY_LABELS: Record<string, string> = {
   FULL_COURT: 'Full Indoor Court',
   COACHING: 'Personal Coaching',
   CORPORATE_BATCH: 'Corporate Batch',
+  MATCH_SIMULATION: 'Match Simulation',
 };
+
+// Categories shown on the Booking Distribution table + Revenue by
+// Category chart. Match Practice categories included so corporate-batch
+// enrollments and match-simulation seats show up in counts and revenue.
+const DASHBOARD_CATEGORIES = [
+  'MACHINE', 'SIDEARM', 'COACHING', 'NET', 'FULL_COURT', 'CORPORATE_BATCH', 'MATCH_SIMULATION',
+];
 
 interface AxisTickProps {
   x?: number;
@@ -165,7 +173,7 @@ export default function AdminDashboard() {
   }, [from, to, invalidRange, reloadKey]);
 
   const revenueByCategoryData = (stats?.revenueBreakdown?.entries || [])
-    .filter(entry => entry && ['MACHINE', 'SIDEARM', 'COACHING', 'NET', 'FULL_COURT'].includes(entry.key))
+    .filter(entry => entry && DASHBOARD_CATEGORIES.includes(entry.key))
     .map(entry => ({
       name: CATEGORY_LABELS[entry.key] || entry.key,
       revenue: safeNumber(entry?._sum?.price),
@@ -292,7 +300,7 @@ export default function AdminDashboard() {
             </thead>
             <tbody className="divide-y divide-white/[0.05]">
               {loading ? (
-                ['MACHINE', 'SIDEARM', 'COACHING', 'NET', 'FULL_COURT'].map((cat) => (
+                DASHBOARD_CATEGORIES.map((cat) => (
                   <tr key={cat} className="animate-pulse">
                     <td className="px-4 py-4 border-r border-white/[0.07]"><div className="h-4 bg-white/10 rounded w-24" /></td>
                     <td className="px-4 py-4 border-r border-white/[0.07]"><div className="h-4 bg-white/10 rounded w-12 mx-auto" /></td>
@@ -300,7 +308,7 @@ export default function AdminDashboard() {
                   </tr>
                 ))
               ) : stats?.bookingDistribution && stats.bookingDistribution.length > 0 ? (
-                ['MACHINE', 'SIDEARM', 'COACHING', 'NET', 'FULL_COURT'].map(cat => {
+                DASHBOARD_CATEGORIES.map(cat => {
                   const item = stats.bookingDistribution.find(d => d.category === cat) || { category: cat, today: 0, upcoming: 0 };
                   return (
                     <tr key={cat} className="hover:bg-white/[0.02] transition-colors">

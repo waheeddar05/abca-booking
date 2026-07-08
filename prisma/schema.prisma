@@ -463,6 +463,17 @@ model Booking {
   // staff when null.
   assignedGroundStaffId String?
 
+  // ─── Match Practice (Corporate Batch + Match Simulation) ────────
+  //
+  // Corporate-batch enrollments are seat-based, not resource-based:
+  // `corporateBatchMode` says how the seat was bought and
+  // `enrollmentPeriod` ("2026-07", "2026-07-H1", "2026-07-H2") is set
+  // for MONTHLY / HALF_MONTH memberships so capacity can be counted per
+  // month without date math. Both stay null for every other category
+  // (and for ADHOC rows, which count by (date, startTime) instead).
+  corporateBatchMode CorporateBatchMode?
+  enrollmentPeriod   String?
+
   center              Center                      @relation(fields: [centerId], references: [id])
   user                User?                       @relation(fields: [userId], references: [id])
   operator            User?                       @relation("OperatorBookings", fields: [operatorId], references: [id])
@@ -484,6 +495,8 @@ model Booking {
   @@index([centerId, date, status])
   @@index([centerId, status])
   @@index([centerId, category, date])
+  // Monthly / half-month corporate-batch capacity counting.
+  @@index([centerId, category, enrollmentPeriod])
   @@index([operatorId])
   @@index([assignedMachineId])
   @@index([assignedCoachId])
@@ -502,6 +515,22 @@ enum BookingCategory {
   // user from the per-center NET_PITCH_TYPES policy. Mostly used for
   // bring-your-own-bowler practice or warm-up sessions.
   NET
+  // Match Practice → Match Simulation: seat-based group session
+  // (capacity per configured session, no machine/pitch/operator).
+  // Sessions are defined in the MATCH_SIMULATION_CONFIG center policy.
+  MATCH_SIMULATION
+}
+
+// How a CORPORATE_BATCH booking row was purchased. Corporate batch is a
+// seat-based enrollment product (Match Practice → Corporate Batch):
+//   MONTHLY    — one row per user per month (enrollmentPeriod "YYYY-MM")
+//   HALF_MONTH — one row per user per half-month ("YYYY-MM-H1" / "-H2")
+//   REGULAR    — one row per user per attended session date (renamed
+//                from ADHOC in-place via migration; no data movement)
+enum CorporateBatchMode {
+  MONTHLY
+  HALF_MONTH
+  REGULAR
 }
 
 // Many-to-many between a Booking and the Resources (nets/courts/turf

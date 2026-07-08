@@ -15,9 +15,7 @@ import type { Prisma } from '@prisma/client';
  *
  * Query params:
  *   role     OPERATOR | COACH | SIDEARM_SPECIALIST | GROUND_STAFF  (required)
- *            Selects the booking *category* to show — every booking of
- *            that category at the center, regardless of which staff
- *            member is assigned:
+ *            Selects the booking *category* to show:
  *              - OPERATOR  → MACHINE  bookings (legacy ABCA rows are
  *                            MACHINE too — the column is NOT NULL with
  *                            a default of MACHINE)
@@ -28,6 +26,15 @@ import type { Prisma } from '@prisma/client';
  *                            non-operator / non-sidearm / non-coaching
  *                            booking, which is what the center's ground
  *                            staff handle on the floor.
+ *
+ *            Visibility within a category depends on the role:
+ *              - OPERATOR / GROUND_STAFF get *full* visibility — every
+ *                booking of the category at the center, regardless of
+ *                which operator / ground-staff member is assigned, so
+ *                they can coordinate the whole floor.
+ *              - SIDEARM_SPECIALIST / COACH get *assignment-scoped*
+ *                visibility — only the sessions assigned to the viewing
+ *                staff member. Admins overseeing keep full visibility.
  *   center filter, date filters, sort, pagination — same shape as
  *   the legacy /api/operator/bookings endpoint.
  *
@@ -127,10 +134,12 @@ export async function GET(req: NextRequest) {
       ...(centerId ? { centerId } : {}),
     };
 
-    // The role tab is a booking-*category* filter, not a per-staff
-    // filter: selecting a tab shows every booking of that category at
-    // the center, regardless of which operator / coach / specialist is
-    // assigned.
+    // The role tab first selects a booking *category*. For Operator and
+    // Ground Staff this is the whole story — every booking of that
+    // category at the center shows, regardless of which operator /
+    // ground-staff member is assigned. Sidearm and Coach add a second,
+    // per-staff predicate below so a specialist / coach sees only their
+    // own assigned sessions.
     //
     //   OPERATOR           → MACHINE  (bowling-machine sessions; legacy
     //                        ABCA rows are MACHINE too — Booking.category
@@ -162,6 +171,27 @@ export async function GET(req: NextRequest) {
       bookingWhere.category = 'SIDEARM';
     } else if (role === 'GROUND_STAFF') {
       bookingWhere.category = { notIn: [...GROUND_STAFF_NON_CATEGORIES] };
+    }
+
+    // Assignment-based visibility for Sidearm & Coach.
+    //
+    //   OPERATOR / GROUND_STAFF → full operational visibility: every
+    //     booking of the category, regardless of which staff member is
+    //     assigned. This lets operators and ground staff coordinate the
+    //     day's floor without being boxed into their own assignments.
+    //   SIDEARM_SPECIALIST / COACH → assignment-scoped: a staff member
+    //     sees only the sessions actually assigned to them
+    //     (assignedStaffId / assignedCoachId).
+    //
+    // Admins (super, global, or center) are overseeing rather than
+    // working a shift, so they keep full visibility on every tab — the
+    // narrowing only applies to the staff member themselves.
+    if (!isAdmin) {
+      if (role === 'SIDEARM_SPECIALIST') {
+        bookingWhere.assignedStaffId = user.id;
+      } else if (role === 'COACH') {
+        bookingWhere.assignedCoachId = user.id;
+      }
     }
 
     // Date / category filters — shared with legacy operator endpoint.

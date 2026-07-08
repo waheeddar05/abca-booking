@@ -49,6 +49,7 @@ describe('applyBlocksToAvailability', () => {
     freeSidearmStaff: [],
     fullCourtAvailable: true,
     corporateBatchNetsHeld: 0,
+    reservedByPitch: { ASTRO: 0, CEMENT: 0, NATURAL: 0 },
   };
 
   it('Issue 1: Full-court block is independent — blocks ONLY full court', () => {

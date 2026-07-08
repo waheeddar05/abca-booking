@@ -62,8 +62,33 @@ import { ContactFooter } from '@/components/ContactFooter';
 import { useCenter } from '@/lib/center-context';
 import { api } from '@/lib/api-client';
 import { useRazorpay, usePaymentConfig } from '@/lib/useRazorpay';
+import { computeSlotDiscount, type OfferDescriptor } from '@/lib/offer-calc';
+import MatchPracticePanel from './MatchPracticePanel';
 
-type Category = 'MACHINE' | 'SIDEARM' | 'COACHING' | 'FULL_COURT' | 'NET' | 'CORPORATE_BATCH';
+type Category =
+  | 'MACHINE'
+  | 'SIDEARM'
+  | 'COACHING'
+  | 'FULL_COURT'
+  | 'NET'
+  | 'CORPORATE_BATCH'
+  // UI umbrella tab for Match Practice (Corporate Batch enrollments +
+  // Match Simulation sessions). Renders <MatchPracticePanel /> instead
+  // of the machine/pitch pickers + slot grid.
+  | 'MATCH_PRACTICE';
+
+/**
+ * Raw discount inputs returned per category / machine by
+ * /api/slots/resource-availability. The recurring ₹ amounts are the
+ * best rule the user qualifies for (single vs. two-consecutive slot);
+ * `offers` is the applicable promo list. The client feeds these to
+ * `computeSlotDiscount` against the multi-slot-adjusted price it charges.
+ */
+interface SlotDiscountInputs {
+  recurringOneSlot: number;
+  recurringTwoSlot: number;
+  offers: OfferDescriptor[];
+}
 
 interface NetLite { id: string; name: string }
 interface ResourceLite { id: string; name: string; type: string }
@@ -113,29 +138,19 @@ interface ResourceSlot {
    *  the booking proceeds, but the user is expected to operate the
    *  machine themselves. Mirrors ABCA's tennis-machine self-operate. */
   selfOperate?: boolean;
-  /** Per-category discount preview. The active category's entry (if any)
-   *  is rendered as a small "₹X off" badge on the slot card and
-   *  subtracted from the displayed slot price; the actual booking
-   *  recomputes server-side. Mirrors ABCA's recurring/promo slot
-   *  badging from /api/slots/available. */
-  discountsByCategory?: Partial<Record<Category, {
-    recurring: number;
-    promo: number;
-    promoName: string | null;
-    total: number;
-  }>>;
-  /** Per-Machine-row discount preview for MACHINE bookings. Includes
-   *  offers pinned to specific machineRowIds, which would otherwise
-   *  be invisible at the category level (no way to know which machine
-   *  the user picks from a category-aggregate). When the user has
-   *  selected a machine, the slot card uses this entry; falls back to
+  /** Raw per-category discount inputs. The client applies these to the
+   *  exact price it charges (AFTER multi-slot pricing) via
+   *  `computeSlotDiscount`, so a percentage offer lands on the
+   *  multi-slot-adjusted amount — matching the booking route server-side.
+   *  Missing entry = no discount. */
+  discountsByCategory?: Partial<Record<Category, SlotDiscountInputs>>;
+  /** Raw per-Machine-row discount inputs for MACHINE bookings. Includes
+   *  offers pinned to specific machineRowIds, which would otherwise be
+   *  invisible at the category level (no way to know which machine the
+   *  user picks from a category-aggregate). When a machine is selected
+   *  the client prefers this entry; falls back to
    *  discountsByCategory.MACHINE when absent. */
-  machineDiscounts?: Record<string, {
-    recurring: number;
-    promo: number;
-    promoName: string | null;
-    total: number;
-  }>;
+  machineDiscounts?: Record<string, SlotDiscountInputs>;
   /** Categories blocked at this slot by an admin block. Empty when the
    *  slot is fully open. Used to grey out the slot card for the active
    *  category — without this, the user could tap an apparently-free
@@ -283,10 +298,10 @@ const CATEGORIES: Array<{ key: Category; label: string; icon: typeof Settings2; 
   { key: 'NET',             label: 'Cricket Nets',         icon: LayoutGrid, sub: 'Bare net for self practice' },
   { key: 'SIDEARM',         label: 'Sidearm',             icon: Users,      sub: 'Bowled by a specialist' },
   { key: 'COACHING',        label: 'Personal Coaching',   icon: UserCog,    sub: 'With a coach' },
-  // CORPORATE_BATCH intentionally hidden — kept as a DB enum value
-  // so existing historical bookings stay valid, but the user-facing
-  // slot picker no longer exposes a tab for it.
+  // CORPORATE_BATCH as a standalone tab stays hidden — corporate batch
+  // enrollments are booked through the Match Practice tab below.
   { key: 'FULL_COURT',      label: 'Full Indoor Court',   icon: LayoutGrid, sub: 'All indoor nets' },
+  { key: 'MATCH_PRACTICE',  label: 'Match Practice',      icon: Goal,       sub: 'Corporate batch & match sims' },
 ];
 
 export default function ResourceSlotsPage() {
@@ -1017,29 +1032,36 @@ export default function ResourceSlotsPage() {
     return machines;
   }, [machines]);
 
-  /** Server-computed discount preview for this slot under the active
-   *  category. Returns null when no recurring or promotional offer
-   *  applies. The slot card uses this to render a "₹X off" badge and
-   *  `slotPriceFor` subtracts it from the displayed price so the user
-   *  sees what they'll actually pay (server recomputes on book).
-   *
-   *  For MACHINE bookings, prefer the per-machine discount entry
-   *  (s.machineDiscounts[machineId]) so machine-row-pinned offers
-   *  reflect in the card. Falls back to the category-level bucket
-   *  when no per-machine entry exists. */
-  const discountFor = (s: ResourceSlot): {
-    amount: number;
-    promoName: string | null;
-  } | null => {
+  /** Raw discount inputs (recurring ₹ for one/two slots + applicable promo
+   *  offers) for this slot under the active category. For MACHINE with a
+   *  picked machine, prefer the per-machine entry so machine-row-pinned
+   *  offers count; otherwise fall back to the category-level bucket.
+   *  Returns null when no recurring rule or promotional offer applies. */
+  const rawDiscountInputsFor = (s: ResourceSlot): SlotDiscountInputs | null => {
     if (category === 'MACHINE' && machineId) {
-      const mDisc = s.machineDiscounts?.[machineId];
-      if (mDisc && mDisc.total > 0) {
-        return { amount: mDisc.total, promoName: mDisc.promoName };
-      }
+      const m = s.machineDiscounts?.[machineId];
+      if (m) return m;
     }
-    const d = s.discountsByCategory?.[category];
-    if (!d || d.total <= 0) return null;
-    return { amount: d.total, promoName: d.promoName };
+    return s.discountsByCategory?.[category] ?? null;
+  };
+
+  /** Recurring + promotional discount for this slot, computed on the
+   *  supplied base price in the canonical order: the `base` already
+   *  reflects multi-slot (consecutive) pricing, recurring comes off
+   *  first, then the best promo lands on the remainder. Mirrors the
+   *  booking route server-side via `computeSlotDiscount`, so the amount
+   *  the user is shown/charged equals the recorded booking price.
+   *  Returns null when no discount applies to this slot. */
+  const discountResultFor = (s: ResourceSlot, base: number, isConsecutive: boolean) => {
+    const inputs = rawDiscountInputsFor(s);
+    if (!inputs) return null;
+    return computeSlotDiscount({
+      base,
+      recurringOneSlot: inputs.recurringOneSlot,
+      recurringTwoSlot: inputs.recurringTwoSlot,
+      isConsecutive,
+      offers: inputs.offers,
+    });
   };
 
   /** Shared backend — picks the right rate against the prefetched
@@ -1052,7 +1074,11 @@ export default function ResourceSlotsPage() {
     const slab = s.timeSlab;
     const cfg = data?.pricingConfig;
 
-    if (!cfg) return s.prices[category] || 0;
+    // MATCH_PRACTICE has no per-slot price — it never reaches this
+    // helper (the panel replaces the slot grid), so the narrowing cast
+    // below is safe.
+    const priceCategory = category as Exclude<Category, 'MATCH_PRACTICE'>;
+    if (!cfg) return s.prices[priceCategory] || 0;
 
     if (category === 'MACHINE' && machineId) {
       // Most-specific axis first: per-Machine-row pair pricing.
@@ -1115,7 +1141,7 @@ export default function ResourceSlotsPage() {
       if (r != null) return r;
     }
 
-    return cfg.categoryRates[category]?.[slab] ?? s.prices[category] ?? 0;
+    return cfg.categoryRates[category]?.[slab] ?? s.prices[priceCategory] ?? 0;
   };
 
   /** Per-slot price WITH consecutive rate applied. Used by the totalPrice
@@ -1133,12 +1159,22 @@ export default function ResourceSlotsPage() {
     return slotPriceWithConsecutive(s, false);
   };
 
-  /** Final ₹ for this slot after applying recurring + promo discounts. */
+  /** Card-badge discount — computed on the SINGLE-slot price so the
+   *  "₹X off" pill matches the single rate shown on the card and doesn't
+   *  shift when a second back-to-back slot is added. The consecutive-
+   *  aware savings land on the booking bar (via `slotPriceFor`) instead. */
+  const discountFor = (s: ResourceSlot): { amount: number; promoName: string | null } | null => {
+    const r = discountResultFor(s, slotSinglePriceFor(s), false);
+    if (!r || r.total <= 0) return null;
+    return { amount: r.total, promoName: r.promoName };
+  };
+
+  /** Final ₹ for this slot after applying recurring + promo discounts on
+   *  top of the multi-slot-adjusted (consecutive) base price. */
   const slotPriceFor = (s: ResourceSlot): number => {
     const base = slotBaseFor(s);
-    const disc = discountFor(s);
-    if (!disc) return base;
-    return Math.max(0, base - disc.amount);
+    const r = discountResultFor(s, base, isSlotConsecutive(s));
+    return r ? r.final : base;
   };
 
   /** Whether the active package covers every selected slot (consumes
@@ -1219,29 +1255,26 @@ export default function ResourceSlotsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedSlots, category, machineId, pitchType, ballType, data?.pricingConfig, packageCoversBooking]);
 
-  /** Aggregate per-slot discount preview into two buckets for the
-   *  booking-bar breakdown. promoLabel uses the first non-null
-   *  promoName encountered so the user sees a real offer name when
-   *  one is in play. */
+  /** Aggregate per-slot discount into two buckets for the booking-bar
+   *  breakdown. Computed on each slot's multi-slot-adjusted price and
+   *  consecutive status so the Save line matches the total. promoLabel
+   *  uses the first non-null promoName encountered so the user sees a
+   *  real offer name when one is in play. */
   const discountBreakdown = useMemo(() => {
     let recurring = 0;
     let promo = 0;
     let promoLabel: string | null = null;
     for (const s of selectedSlots) {
-      // For MACHINE bookings with a picked machine, the per-machine
-      // bucket wins so machine-row-pinned offers count toward the
-      // bottom-bar Save line. Falls back to the category bucket when
-      // no per-machine entry exists.
-      const d = category === 'MACHINE' && machineId
-        ? (s.machineDiscounts?.[machineId] ?? s.discountsByCategory?.[category])
-        : s.discountsByCategory?.[category];
-      if (!d) continue;
-      recurring += d.recurring || 0;
-      promo += d.promo || 0;
-      if (!promoLabel && d.promoName) promoLabel = d.promoName;
+      const r = discountResultFor(s, slotBaseFor(s), isSlotConsecutive(s));
+      if (!r) continue;
+      recurring += r.recurring;
+      promo += r.promo;
+      if (!promoLabel && r.promoName) promoLabel = r.promoName;
     }
     return { recurring, promo, promoLabel };
-  }, [selectedSlots, category, machineId]);
+    // discountResultFor/slotBaseFor depend on the selection axes below.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedSlots, category, machineId, pitchType, ballType, data?.pricingConfig]);
   const totalSavings = originalTotal - totalPrice;
 
   const toggleSlot = (slot: ResourceSlot) => {
@@ -1519,6 +1552,24 @@ export default function ResourceSlotsPage() {
 
       <hr className="border-white/[0.06] my-4" />
 
+      {/* Match Practice — Corporate Batch + Match Simulation. Entirely
+          seat-based: no machine / pitch / ball / operator pickers and no
+          slot grid. The panel fetches its own availability, runs the same
+          payment flows, and renders its own booking bar; everything below
+          this branch is the standard resource flow, skipped while the
+          Match Practice tab is active. */}
+      {category === 'MATCH_PRACTICE' ? (
+        <>
+          <MatchPracticePanel
+            playerName={session?.user?.name || 'Player'}
+            userEmail={session?.user?.email}
+            isFreeBooking={isFreeBooking}
+            paymentConfig={paymentConfig}
+          />
+          <ContactFooter />
+        </>
+      ) : (
+      <>
       {/* Machine picker — keeps richer pill-with-image layout (ABCA's
           MachineSelector also uses cards-with-images) but the chips line
           up with the same accent treatment. */}
@@ -2327,6 +2378,8 @@ export default function ResourceSlotsPage() {
             </button>
           </div>
         </div>
+      )}
+      </>
       )}
     </div>
   );

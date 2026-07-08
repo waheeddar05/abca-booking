@@ -15,7 +15,35 @@ const CATEGORY_LABELS: Record<string, string> = {
   COACHING: 'Personal Coaching',
   FULL_COURT: 'Full Indoor Court',
   CORPORATE_BATCH: 'Corporate Batch',
+  MATCH_SIMULATION: 'Match Simulation',
 };
+
+// Corporate-batch purchase mode → user-facing label. Rendered as an
+// extra "Enrollment" row so a monthly member's booking card reads
+// "Monthly · July 2026" instead of a bare session date. ADHOC is kept
+// as a legacy alias — the enum value was renamed to REGULAR in-place,
+// but stale API payloads may still carry the old string briefly.
+const CORPORATE_MODE_LABELS: Record<string, string> = {
+  MONTHLY: 'Monthly',
+  HALF_MONTH: 'Half Month',
+  REGULAR: 'Regular',
+  ADHOC: 'Regular',
+};
+
+const MONTH_NAMES = [
+  'January', 'February', 'March', 'April', 'May', 'June',
+  'July', 'August', 'September', 'October', 'November', 'December',
+];
+
+/** "2026-07" → "July 2026"; "2026-07-H1" → "July 2026 · First Half". */
+function enrollmentPeriodLabel(period: string): string {
+  const m = /^(\d{4})-(\d{2})(?:-(H1|H2))?$/.exec(period);
+  if (!m) return period;
+  const base = `${MONTH_NAMES[Number(m[2]) - 1] ?? m[2]} ${m[1]}`;
+  if (m[3] === 'H1') return `${base} · First Half`;
+  if (m[3] === 'H2') return `${base} · Second Half`;
+  return base;
+}
 
 const MACHINE_LABELS: Record<string, string> = {
   GRAVITY: 'Gravity',
@@ -176,11 +204,27 @@ export function BookingDetailsList({
   const showSidearmRow = category === 'SIDEARM';
   const showCoachRow = category === 'COACHING';
   const showGroundStaffRow =
-    category === 'NET' || category === 'FULL_COURT' || category === 'CORPORATE_BATCH';
+    category === 'NET'
+    || category === 'FULL_COURT'
+    || category === 'CORPORATE_BATCH'
+    || category === 'MATCH_SIMULATION';
+
+  // Corporate-batch enrollment context. For a MONTHLY / HALF_MONTH
+  // enrollment the row's date is just "membership starts here", so the
+  // period label is what actually tells the user what they bought.
+  const corporateModeLabel =
+    category === 'CORPORATE_BATCH' && booking.corporateBatchMode
+      ? CORPORATE_MODE_LABELS[booking.corporateBatchMode] || booking.corporateBatchMode
+      : null;
+  const enrollmentLabel =
+    corporateModeLabel && booking.enrollmentPeriod
+      ? `${corporateModeLabel} · ${enrollmentPeriodLabel(booking.enrollmentPeriod)}`
+      : corporateModeLabel;
 
   return (
     <div className={`mb-2 ${className || ''}`}>
       <DetailRow label="Booking Category">{CATEGORY_LABELS[category] || category}</DetailRow>
+      {enrollmentLabel && <DetailRow label="Enrollment">{enrollmentLabel}</DetailRow>}
       {machineLabel && <DetailRow label="Machine Type">{machineLabel}</DetailRow>}
       {showPitch && <DetailRow label="Pitch Type">{pitchLabel}</DetailRow>}
       {ballLabel && <DetailRow label="Ball Type">{ballLabel}</DetailRow>}

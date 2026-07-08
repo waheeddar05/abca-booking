@@ -182,21 +182,31 @@ Centers with `bookingModel = RESOURCE_BASED` (e.g. Toplay) use a different booki
 - `SIDEARM` — sidearm-staff session: 1 net + 1 SIDEARM_STAFF user.
 - `COACHING` — personal coaching: 1 net + 1 COACH user.
 - `FULL_COURT` — full indoor court: every active indoor net.
-- `CORPORATE_BATCH` — admin-only group session.
+- `CORPORATE_BATCH` — seat-based Match Practice enrollment (see "Match Practice" below).
+- `MATCH_SIMULATION` — seat-based Match Practice group session (see below).
 
 ABCA's existing rows default to `MACHINE` and have no `BookingResourceAssignment` rows; nothing changes for them.
 
 **Key files**:
-- `src/lib/resource-booking.ts` — availability lookup (`getSlotAvailability`, `computeSlotAvailability`), booking-plan resolution (`planBooking`, `BookingResourceError`), and atomic resource-assignment persistence (`persistResourceAssignments`). Corporate batch is handled here as a virtual reservation overlay (no real Booking row), driven by the `CORPORATE_BATCH_CONFIG` policy.
+- `src/lib/resource-booking.ts` — availability lookup (`getSlotAvailability`, `computeSlotAvailability`), booking-plan resolution (`planBooking`, `BookingResourceError`), and atomic resource-assignment persistence (`persistResourceAssignments`). The corporate-batch indoor-net hold is a virtual reservation overlay driven by the `CORPORATE_BATCH_CONFIG` policy.
 - `src/lib/resource-pricing.ts` — per-category pricing (`RESOURCE_PRICING_CONFIG` policy) with optional Yantra/Leverage overrides via `MachineType.code`.
 - `/api/slots/resource-availability` — slot grid for RESOURCE_BASED centers (returns free nets, coaches, staff, full-court status, and per-category prices).
 - `/api/slots/book-resource` — booking creation for RESOURCE_BASED centers; serializable transaction with retry on serialization conflicts.
 
-**Default `CORPORATE_BATCH_CONFIG`**: Mon–Fri, 07:30–09:30 IST, 2 indoor nets held. Override via `CenterPolicy('CORPORATE_BATCH_CONFIG')`.
+**Default `CORPORATE_BATCH_CONFIG`**: Mon/Wed/Fri, 07:00–09:00 IST, 2 indoor nets held, disabled until the admin turns it on. Override via `CenterPolicy('CORPORATE_BATCH_CONFIG')` — the same key also carries the Match Practice enrollment knobs (coach, fees, capacity, half-month; see below).
 
 **User UI**: `/slots` page now routes via `SlotsRouter` based on `currentCenter.bookingModel`:
 - `MACHINE_PITCH` → existing `SlotsContent` (legacy ABCA flow, untouched).
-- `RESOURCE_BASED` → `src/app/slots/ResourceSlotsPage.tsx` — date picker, category tabs (Machine / Sidearm / Coaching / Full Court), per-category secondary picker (machine / coach / staff), slot grid with per-slot bookability + price, multi-slot selection, sticky booking bar, confirm dialog, submits to `/api/slots/book-resource`.
+- `RESOURCE_BASED` → `src/app/slots/ResourceSlotsPage.tsx` — date picker, category tabs (Machine / Sidearm / Coaching / Full Court / Match Practice), per-category secondary picker (machine / coach / staff), slot grid with per-slot bookability + price, multi-slot selection, sticky booking bar, confirm dialog, submits to `/api/slots/book-resource`.
+
+### Match Practice (Corporate Batch + Match Simulation)
+
+Seat-based booking category for RESOURCE_BASED centers — no machine, ball type, pitch type, or operator anywhere in the flow. The user-facing "Match Practice" tab (`MATCH_PRACTICE` in `ENABLED_BOOKING_CATEGORIES`, a UI umbrella, NOT a `BookingCategory` value) renders `src/app/slots/MatchPracticePanel.tsx` with two subcategories:
+
+- **Corporate Batch** (`Booking.category = CORPORATE_BATCH`): fixed weekly batch (default Mon/Wed/Fri 07:00–09:00, coach Govind Lashkare, capacity 25). Two purchase modes on `Booking.corporateBatchMode`: `MONTHLY` (₹2000 default; one row per user per month, `enrollmentPeriod = "YYYY-MM"`; optional `HALF_MONTH` split — "YYYY-MM-H1"/"-H2" — when enabled in config) and `REGULAR` (₹200/session default; one row per attended date; renamed from `ADHOC` — config key `regularFee`, legacy `adhocFee` still read). Session seats = members whose period covers the date + regular (per-session) rows for that date. Config: `CORPORATE_BATCH_CONFIG` (shared with the net-hold overlay).
+- **Match Simulation** (`Booking.category = MATCH_SIMULATION`): admin-CRUD session list in `MATCH_SIMULATION_CONFIG` — each session has days (default Tue/Thu/Fri/Sat/Sun), a time window (default 07:00–09:00), capacity (default 10), fee, optional coach, and an enabled flag; multiple sessions per day supported. Seats counted per `(date, startTime)`.
+
+**Key files**: `src/lib/match-practice.ts` (config normalization, session/occurrence generation, `resolveMatchPracticePlans`, in-tx `assertMatchPracticeSeat` capacity + duplicate guards), `/api/match-practice/availability` (months with enrollment counts + upcoming sessions with seat counts), `/api/slots/book-resource` (dispatches both categories through the same payment/wallet/refund machinery; capacity re-checked inside the serializable tx), `src/components/admin/MatchPracticeConfigEditor.tsx` (Admin → Settings → Match Practice card). Fees are flat admin-set amounts — recurring/promotional discounts and packages don't apply; admin blocks (`BlockedSlot.categories`) do.
 
 ### Per-center Razorpay (phase 6)
 

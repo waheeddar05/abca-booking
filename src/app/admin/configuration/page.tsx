@@ -10,6 +10,7 @@ import { AdminToggle } from '@/components/admin/AdminToggle';
 import { useCenter } from '@/lib/center-context';
 import { ResourcePricingEditor } from '@/components/admin/ResourcePricingEditor';
 import { EnabledCategoriesEditor } from '@/components/admin/EnabledCategoriesEditor';
+import { MatchPracticeConfigEditor } from '@/components/admin/MatchPracticeConfigEditor';
 import { EnabledPitchTypesEditor } from '@/components/admin/EnabledPitchTypesEditor';
 import { Ticket } from 'lucide-react';
 
@@ -204,9 +205,10 @@ export default function ConfigurationPage() {
   const [categoriesSaveStatus, setCategoriesSaveStatus] = useState<{ saving: boolean; message: { text: string; ok: boolean } | null }>({ saving: false, message: null });
   const [pitchTypesSaveStatus, setPitchTypesSaveStatus] = useState<{ saving: boolean; message: { text: string; ok: boolean } | null }>({ saving: false, message: null });
   const [resourcePricingSaveStatus, setResourcePricingSaveStatus] = useState<{ saving: boolean; message: { text: string; ok: boolean } | null }>({ saving: false, message: null });
-  const isSettingsSaving = categoriesSaveStatus.saving || pitchTypesSaveStatus.saving || resourcePricingSaveStatus.saving;
+  const [matchPracticeSaveStatus, setMatchPracticeSaveStatus] = useState<{ saving: boolean; message: { text: string; ok: boolean } | null }>({ saving: false, message: null });
+  const isSettingsSaving = categoriesSaveStatus.saving || pitchTypesSaveStatus.saving || resourcePricingSaveStatus.saving || matchPracticeSaveStatus.saving;
   const settingsError =
-    [categoriesSaveStatus, pitchTypesSaveStatus, resourcePricingSaveStatus]
+    [categoriesSaveStatus, pitchTypesSaveStatus, resourcePricingSaveStatus, matchPracticeSaveStatus]
       .map((s) => s.message)
       .find((m) => m && !m.ok) ?? null;
 
@@ -1145,6 +1147,28 @@ export default function ConfigurationPage() {
               />
             </div>
           </div>
+        </AdminCard>
+      )}
+
+      {/* Match Practice — Corporate Batch (monthly / regular enrollment)
+          + Match Simulation session CRUD. Both are seat-based booking
+          flows surfaced under the user-side "Match Practice" category
+          tab (enable/disable the tab itself under Booking Categories
+          above). Saves with the single global Save button below. */}
+      {currentCenter?.bookingModel === 'RESOURCE_BASED' && (
+        <AdminCard
+          title="Match Practice"
+          icon={<Ticket className="w-4 h-4 text-accent" />}
+          collapsible
+          defaultOpen={false}
+        >
+          <MatchPracticeConfigEditor
+            scope={scope}
+            centerId={currentCenter.id}
+            centerLabel={currentCenter.shortName ?? currentCenter.name}
+            externalSaveTrigger={settingsSaveTrigger}
+            onSaveStatus={setMatchPracticeSaveStatus}
+          />
         </AdminCard>
       )}
 
