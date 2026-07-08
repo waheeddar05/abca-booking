@@ -3,7 +3,7 @@ import { isValid, isSameDay } from 'date-fns';
 import { prisma } from '@/lib/prisma';
 import { getAuthenticatedUser } from '@/lib/auth';
 import { resolveCurrentCenter } from '@/lib/centers';
-import { getCenterOnlyPolicy } from '@/lib/policy';
+import { getCenterOnlyPolicy, getCenterOnlyPolicyJson } from '@/lib/policy';
 import {
   generateSlotsForDateDualWindow,
   filterPastSlots,
@@ -16,12 +16,13 @@ import {
   getCenterCoaches,
   getCenterStaff,
   getCorporateBatchConfig,
-  getCorporateBatchNetsForSlot,
+  computeReservedByPitchForSlot,
   computeSlotAvailability,
   getDayCandidateBlocks,
   filterBlocksForSlotSync,
   applyBlocksToAvailability,
   applyPitchReservations,
+  type PitchReservationWindow,
 } from '@/lib/resource-booking';
 import { getResourcePricingConfig, getResourceSlotPrice } from '@/lib/resource-pricing';
 import { getSidearmPitchTypes, getNetPitchTypes, getCoachingPitchTypes, getEnabledBookingCategories } from '@/lib/pitch-config';
@@ -146,6 +147,7 @@ export async function GET(req: NextRequest) {
       enabledCategories,
       bookings,
       batchConfig,
+      matchSimConfig,
     ] = await Promise.all([
       getCenterOnlyPolicy('SLOT_DURATION', center.id, null),
       getCenterOnlyPolicy('DISABLED_DATES', center.id, null),
@@ -180,7 +182,19 @@ export async function GET(req: NextRequest) {
         },
       }),
       getCorporateBatchConfig(center.id),
+      getCenterOnlyPolicyJson<{ enabled?: boolean; sessions?: PitchReservationWindow[] }>(
+        'MATCH_SIMULATION_CONFIG',
+        center.id,
+        { enabled: false, sessions: [] },
+      ),
     ]);
+
+    // Match-simulation sessions that hold wickets — only when the config
+    // is enabled. Each session carries its own days/window + wicketsHeld.
+    const matchSimSessions: PitchReservationWindow[] =
+      matchSimConfig?.enabled && Array.isArray(matchSimConfig.sessions)
+        ? matchSimConfig.sessions
+        : [];
 
     const disabledDates = disabledDatesRaw ? disabledDatesRaw.split(',') : [];
     if (disabledDates.includes(dateStr)) {
@@ -225,24 +239,15 @@ export async function GET(req: NextRequest) {
           startTime: slot.startTime,
           endTime: slot.endTime,
         };
-        // Corporate batch — was a per-slot async call into the same
-        // policy (already prefetched as `batchConfig`). Inline the
-        // overlap check so we don't hit the policy cache per slot.
-        const batchNets = (() => {
-          if (!batchConfig.enabled || batchConfig.netsConsumed <= 0) return 0;
-          const dow = getDayOfWeekIST(slotWindow.startTime);
-          if (batchConfig.days.length > 0 && !batchConfig.days.includes(dow)) return 0;
-
-          const startMin = getMinutesOfDayIST(slotWindow.startTime);
-          const endMin = getMinutesOfDayIST(slotWindow.endTime);
-
-          const batchStartMin = timeStrToMinutes(batchConfig.startTime);
-          const batchEndMin = timeStrToMinutes(batchConfig.endTime);
-
-          if (endMin <= batchStartMin) return 0;
-          if (startMin >= batchEndMin) return 0;
-          return batchConfig.netsConsumed;
-        })();
+        // Recurring reservations (corporate batch + match simulation) —
+        // both configs were prefetched. `computeReservedByPitchForSlot`
+        // sums the per-pitch wickets held for any window whose day + time
+        // overlap this slot. Fully dynamic across pitch types.
+        const reservedByPitch = computeReservedByPitchForSlot(
+          batchConfig,
+          matchSimSessions,
+          slotWindow,
+        );
         const blocks = filterBlocksForSlotSync(candidateBlocks, slotWindow);
         // Hold admin "count blocks" (block N units of a pitch) as virtual
         // load before availability is computed, so the pool reflects the
@@ -261,7 +266,7 @@ export async function GET(req: NextRequest) {
             busyMachineIds,
             hasFullCourtBooking,
           },
-          batchNets,
+          reservedByPitch,
           // Pass the slot so coaches/specialists outside their weekly
           // schedule don't appear as "free" for this time window.
           slot: slotWindow,
@@ -545,6 +550,9 @@ export async function GET(req: NextRequest) {
           fullCourtAvailable:
             availability.fullCourtAvailable && !blockedCategories.has('FULL_COURT'),
           corporateBatchHolds: availability.corporateBatchNetsHeld,
+          // Per-pitch breakdown of the wickets held by recurring
+          // reservations (corporate batch + match simulation) at this slot.
+          reservedByPitch: availability.reservedByPitch,
           prices,
           machinePrices,
         // Blocks applied at this slot. The client uses these to grey
@@ -612,6 +620,7 @@ export async function GET(req: NextRequest) {
       pricingConfig,
       timeSlabConfig,
       corporateBatchConfig: batchConfig,
+      matchSimulationConfig: matchSimConfig,
       slots: result,
     });
   } catch (error) {

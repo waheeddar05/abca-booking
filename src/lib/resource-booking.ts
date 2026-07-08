@@ -64,12 +64,55 @@ export interface BookableSlotWindow {
   endTime: Date;    // exact slot end
 }
 
+/** The three pitch types a center can hold wickets for. Mirrors the
+ *  bookable pitch universe (the legacy `TURF` enum value is never held). */
+export type HeldPitch = 'ASTRO' | 'CEMENT' | 'NATURAL';
+export const HELD_PITCHES: HeldPitch[] = ['ASTRO', 'CEMENT', 'NATURAL'];
+
+/** How many wickets of each pitch type a reservation holds. Absent /
+ *  zero entries hold nothing for that pitch. */
+export type WicketsHeld = Partial<Record<HeldPitch, number>>;
+
 export interface CorporateBatchConfig {
   enabled: boolean;
   days: number[];          // IST day-of-week 0..6 (0 = Sunday)
   startTime: string;       // "HH:MM" IST
   endTime: string;         // "HH:MM" IST
-  netsConsumed: number;    // how many indoor nets the batch holds
+  netsConsumed: number;    // legacy: flat count of indoor (Astro) nets held
+  // Per-pitch wickets held during the window. When present it is the
+  // source of truth (fully dynamic across configured pitch types); when
+  // absent the legacy `netsConsumed` count is folded into the Astro pool.
+  wicketsHeld?: WicketsHeld;
+}
+
+/** Minimal per-slot reservation shape shared by the corporate batch and
+ *  each match-simulation session. */
+export interface PitchReservationWindow {
+  enabled: boolean;
+  days: number[];
+  startTime: string;
+  endTime: string;
+  wicketsHeld?: WicketsHeld;
+  netsConsumed?: number;
+}
+
+/**
+ * Normalise a reservation's wickets to an explicit per-pitch count.
+ * Prefers `wicketsHeld`; when that holds nothing, folds the legacy
+ * `netsConsumed` flat count into the Astro pool so old configs keep
+ * behaving exactly as before.
+ */
+export function resolveWicketsHeld(
+  window: { wicketsHeld?: WicketsHeld; netsConsumed?: number },
+): Record<HeldPitch, number> {
+  const w = window.wicketsHeld ?? {};
+  const astro = Math.max(0, Math.floor(w.ASTRO ?? 0));
+  const cement = Math.max(0, Math.floor(w.CEMENT ?? 0));
+  const natural = Math.max(0, Math.floor(w.NATURAL ?? 0));
+  if (astro + cement + natural > 0) {
+    return { ASTRO: astro, CEMENT: cement, NATURAL: natural };
+  }
+  return { ASTRO: Math.max(0, Math.floor(window.netsConsumed ?? 0)), CEMENT: 0, NATURAL: 0 };
 }
 
 // Off by default — a corporate-batch reservation is a center-specific
@@ -134,17 +177,81 @@ export async function getCorporateBatchNetsForSlot(
   slot: BookableSlotWindow,
 ): Promise<number> {
   const config = await getCorporateBatchConfig(centerId);
-  if (!config.enabled || config.netsConsumed <= 0) return 0;
+  if (!reservationAppliesToSlot(config, slot)) return 0;
+  return resolveWicketsHeld(config).ASTRO;
+}
 
+/** True when the slot falls on a configured day and overlaps the window's
+ *  [startTime, endTime) (IST). */
+function reservationAppliesToSlot(
+  window: { enabled: boolean; days: number[]; startTime: string; endTime: string },
+  slot: BookableSlotWindow,
+): boolean {
+  if (!window.enabled) return false;
   const dow = getISTDayOfWeek(slot.startTime);
-  if (config.days.length > 0 && !config.days.includes(dow)) return 0;
-
+  if (window.days.length > 0 && !window.days.includes(dow)) return false;
   const slotStart = getISTHHMM(slot.startTime);
   const slotEnd = getISTHHMM(slot.endTime);
   // Treat as overlapping if any minute of the slot is inside the window.
-  if (slotEnd <= config.startTime) return 0;
-  if (slotStart >= config.endTime) return 0;
-  return config.netsConsumed;
+  if (slotEnd <= window.startTime) return false;
+  if (slotStart >= window.endTime) return false;
+  return true;
+}
+
+/**
+ * Sum the per-pitch wickets held for a slot across the corporate batch
+ * window and every match-simulation session. Pure so it can be unit
+ * tested; the raw configs are passed in.
+ *
+ *  - `corporate`  — the CORPORATE_BATCH_CONFIG window (or null).
+ *  - `matchSimSessions` — MATCH_SIMULATION_CONFIG's session list; each
+ *    session carries its own days/window and `wicketsHeld`.
+ *
+ * Every configured pitch type is honoured dynamically — adding a new
+ * pitch type just needs its held count > 0 in the saved config.
+ */
+export function computeReservedByPitchForSlot(
+  corporate: PitchReservationWindow | null | undefined,
+  matchSimSessions: PitchReservationWindow[],
+  slot: BookableSlotWindow,
+): Record<HeldPitch, number> {
+  const total: Record<HeldPitch, number> = { ASTRO: 0, CEMENT: 0, NATURAL: 0 };
+  const add = (window: PitchReservationWindow) => {
+    if (!reservationAppliesToSlot(window, slot)) return;
+    const held = resolveWicketsHeld(window);
+    total.ASTRO += held.ASTRO;
+    total.CEMENT += held.CEMENT;
+    total.NATURAL += held.NATURAL;
+  };
+  if (corporate) add(corporate);
+  for (const session of matchSimSessions ?? []) add(session);
+  return total;
+}
+
+/**
+ * Per-pitch wickets held by every recurring reservation (corporate batch
+ * + match simulation sessions) for the given slot. Reads both center
+ * policies. The match-simulation config is a `{ sessions: [...] }` list;
+ * we read it raw here to avoid a circular import with match-practice.ts.
+ */
+export async function getReservedByPitchForSlot(
+  centerId: string,
+  slot: BookableSlotWindow,
+): Promise<Record<HeldPitch, number>> {
+  const [corporate, matchSimRaw] = await Promise.all([
+    getCorporateBatchConfig(centerId),
+    getCenterOnlyPolicyJson<{ enabled?: boolean; sessions?: PitchReservationWindow[] }>(
+      'MATCH_SIMULATION_CONFIG',
+      centerId,
+      { enabled: false, sessions: [] },
+    ),
+  ]);
+  // A disabled match-simulation config holds nothing regardless of its
+  // per-session flags.
+  const sessions = matchSimRaw?.enabled && Array.isArray(matchSimRaw.sessions)
+    ? matchSimRaw.sessions
+    : [];
+  return computeReservedByPitchForSlot(corporate, sessions, slot);
 }
 
 // ─── Resource & staff lookups ────────────────────────────────────────
@@ -506,10 +613,13 @@ export interface SlotAvailability {
   freeCoaches: CenterMembershipUserRow[];
   /** Sidearm staff free at this slot. */
   freeSidearmStaff: CenterMembershipUserRow[];
-  /** Whether a FULL_COURT booking is achievable (every indoor net free + corporate batch not active). */
+  /** Whether a FULL_COURT booking is achievable (every indoor net free + no reservation holding astro nets). */
   fullCourtAvailable: boolean;
-  /** How many indoor nets the corporate batch is holding right now. */
+  /** Total wickets held right now by recurring reservations (corporate
+   *  batch + match simulation), summed across every pitch type. */
   corporateBatchNetsHeld: number;
+  /** Wickets held per pitch type by recurring reservations at this slot. */
+  reservedByPitch: Record<HeldPitch, number>;
 }
 
 /**
@@ -544,15 +654,15 @@ export async function getSlotAvailability(
   centerId: string,
   slot: BookableSlotWindow,
 ): Promise<SlotAvailability> {
-  const [resources, coaches, staff, occupancy, batchNets] = await Promise.all([
+  const [resources, coaches, staff, occupancy, reservedByPitch] = await Promise.all([
     getCenterResources(centerId),
     getCenterCoaches(centerId),
     getCenterStaff(centerId),
     getOccupancyForSlot(centerId, slot),
-    getCorporateBatchNetsForSlot(centerId, slot),
+    getReservedByPitchForSlot(centerId, slot),
   ]);
 
-  return computeSlotAvailability({ resources, coaches, staff, occupancy, batchNets, slot });
+  return computeSlotAvailability({ resources, coaches, staff, occupancy, reservedByPitch, slot });
 }
 
 interface AvailabilityInputs {
@@ -560,7 +670,12 @@ interface AvailabilityInputs {
   coaches: CenterMembershipUserRow[];
   staff: CenterMembershipUserRow[];
   occupancy: OccupancySnapshot;
-  batchNets: number;
+  /** Legacy flat count of Astro/indoor nets held by the corporate batch.
+   *  Folded into `reservedByPitch.ASTRO`. Prefer `reservedByPitch`. */
+  batchNets?: number;
+  /** Wickets held per pitch type by recurring reservations (corporate
+   *  batch + match simulation) at this slot. */
+  reservedByPitch?: Partial<Record<HeldPitch, number>>;
   /** When provided, additionally filter coaches/staff by their weekly
    *  availability schedule. Omit (or pass `null`) to skip the filter —
    *  primarily for callers that don't have a slot context. */
@@ -568,7 +683,14 @@ interface AvailabilityInputs {
 }
 
 export function computeSlotAvailability(inputs: AvailabilityInputs): SlotAvailability {
-  const { resources, coaches, staff, occupancy, batchNets, slot } = inputs;
+  const { resources, coaches, staff, occupancy, slot } = inputs;
+  // Combine the legacy astro-only `batchNets` with the per-pitch
+  // `reservedByPitch` so callers can pass either (or both).
+  const reserved: Record<HeldPitch, number> = {
+    ASTRO: Math.max(0, (inputs.batchNets ?? 0) + (inputs.reservedByPitch?.ASTRO ?? 0)),
+    CEMENT: Math.max(0, inputs.reservedByPitch?.CEMENT ?? 0),
+    NATURAL: Math.max(0, inputs.reservedByPitch?.NATURAL ?? 0),
+  };
 
   // Re-derive `claimedResourceIds` honouring per-resource capacity.
   // Producers (getOccupancyForSlot, the slot-grid loop) intentionally
@@ -601,11 +723,34 @@ export function computeSlotAvailability(inputs: AvailabilityInputs): SlotAvailab
   const freeIndoor = indoorNets.filter((r) => !occupancy.claimedResourceIds.has(r.id));
   const freeOutdoor = outdoor.filter((r) => !occupancy.claimedResourceIds.has(r.id));
 
-  // Subtract corporate-batch reservation from the available indoor pool.
-  // We virtually claim the LAST indoor nets (highest displayOrder) so the
-  // user-facing list still presents nets 1, 2, … as preferred.
-  const heldByBatch = Math.min(batchNets, freeIndoor.length);
-  const freeIndoorAfterBatch = freeIndoor.slice(0, freeIndoor.length - heldByBatch);
+  // Subtract recurring reservations (corporate batch + match simulation)
+  // from each pitch's available pool. We virtually claim the LAST free
+  // resources so the user-facing list still presents 1, 2, … as preferred.
+  // Every configured pitch type is honoured dynamically — a center that
+  // adds a new pitch just needs its wickets-held count > 0.
+  const holdPool = (pool: ResourceLite[], count: number) => {
+    const held = Math.min(Math.max(0, count), pool.length);
+    return { held, free: pool.slice(0, pool.length - held) };
+  };
+  const astroHold = holdPool(freeIndoor, reserved.ASTRO);
+  const freeIndoorAfterBatch = astroHold.free;
+  const heldByBatch = astroHold.held;
+
+  const freeCementRaw = resources.filter(
+    (r) => resourceMatchesPitch(r, 'CEMENT') && !occupancy.claimedResourceIds.has(r.id),
+  );
+  const freeNaturalRaw = resources.filter(
+    (r) => resourceMatchesPitch(r, 'NATURAL') && !occupancy.claimedResourceIds.has(r.id),
+  );
+  const cementHold = holdPool(freeCementRaw, reserved.CEMENT);
+  const naturalHold = holdPool(freeNaturalRaw, reserved.NATURAL);
+
+  const reservedHeld: Record<HeldPitch, number> = {
+    ASTRO: astroHold.held,
+    CEMENT: cementHold.held,
+    NATURAL: naturalHold.held,
+  };
+  const totalHeld = reservedHeld.ASTRO + reservedHeld.CEMENT + reservedHeld.NATURAL;
 
   // Filter out coaches/staff whose schedule doesn't cover this slot, then
   // remove anyone already booked into another session at this time.
@@ -640,16 +785,13 @@ export function computeSlotAvailability(inputs: AvailabilityInputs): SlotAvailab
 
   // Per-pitch free pools. Each pitch keeps its own list so a booking
   // for NATURAL consumes outdoor turf capacity, not indoor net capacity.
-  // Astro uses the post-batch indoor pool so corporate-batch reservations
-  // also reduce astro capacity.
+  // Every pool uses its post-reservation free list so a recurring
+  // reservation (corporate batch / match simulation) reduces that pitch's
+  // capacity — dynamically, for whichever pitch types it holds wickets on.
   const freeByPitch = {
     ASTRO: freeIndoorAfterBatch.filter((r) => resourceMatchesPitch(r, 'ASTRO')),
-    CEMENT: resources.filter(
-      (r) => resourceMatchesPitch(r, 'CEMENT') && !occupancy.claimedResourceIds.has(r.id),
-    ),
-    NATURAL: resources.filter(
-      (r) => resourceMatchesPitch(r, 'NATURAL') && !occupancy.claimedResourceIds.has(r.id),
-    ),
+    CEMENT: cementHold.free,
+    NATURAL: naturalHold.free,
   };
 
   return {
@@ -659,7 +801,8 @@ export function computeSlotAvailability(inputs: AvailabilityInputs): SlotAvailab
     freeCoaches,
     freeSidearmStaff: freeStaff,
     fullCourtAvailable,
-    corporateBatchNetsHeld: heldByBatch,
+    corporateBatchNetsHeld: totalHeld,
+    reservedByPitch: reservedHeld,
   };
 }
 
@@ -1256,13 +1399,13 @@ export async function planBooking(
     startTime: plan.startTime,
     endTime: plan.endTime,
   };
-  const [resources, coaches, staff, groundStaff, occupancy, batchNets, blocks] = await Promise.all([
+  const [resources, coaches, staff, groundStaff, occupancy, reservedByPitch, blocks] = await Promise.all([
     getCenterResources(plan.centerId),
     getCenterCoaches(plan.centerId),
     getCenterStaff(plan.centerId),
     getCenterGroundStaff(plan.centerId),
     getOccupancyForSlot(plan.centerId, slot, context.tx),
-    getCorporateBatchNetsForSlot(plan.centerId, slot),
+    getReservedByPitchForSlot(plan.centerId, slot),
     getActiveBlocksForSlot(plan.centerId, slot),
   ]);
   // Default facility assignee — the top-priority active ground-staff
@@ -1275,7 +1418,7 @@ export async function planBooking(
   // before computing availability so this booking respects the reserved
   // units — pool emptiness in pickNetFor enforces the remaining capacity.
   applyPitchReservations(occupancy.resourceLoad, resources, blocks, audience);
-  const availability = computeSlotAvailability({ resources, coaches, staff, occupancy, batchNets, slot });
+  const availability = computeSlotAvailability({ resources, coaches, staff, occupancy, reservedByPitch, slot });
 
   // Pre-flight category-level block check. Refuses early when an
   // entire category is blocked at this slot — the resource-specific
@@ -1438,7 +1581,10 @@ export async function planBooking(
         };
       }
       const config = await getCorporateBatchConfig(plan.centerId);
-      const nets = Math.max(1, plan.corporateNets ?? config.netsConsumed);
+      // Auto-claim indoor (Astro) nets. `resolveWicketsHeld` normalises
+      // both the new per-pitch `wicketsHeld` and the legacy `netsConsumed`
+      // shape down to an Astro count for this indoor-net path.
+      const nets = Math.max(1, plan.corporateNets ?? resolveWicketsHeld(config).ASTRO);
       const indoorFree = availability.freeIndoorNets;
       if (indoorFree.length < nets) {
         throw new BookingResourceError(

@@ -36,7 +36,20 @@
 import { prisma } from '@/lib/prisma';
 import { getCenterOnlyPolicyJson } from '@/lib/policy';
 import { dateStringToUTC, getISTDateString } from '@/lib/time';
-import { BookingResourceError } from '@/lib/resource-booking';
+import { BookingResourceError, HELD_PITCHES, type WicketsHeld } from '@/lib/resource-booking';
+
+/** Parse a raw `wicketsHeld` value into a clean per-pitch map, keeping
+ *  only known pitch keys with positive integer counts. Returns undefined
+ *  when nothing is held so old configs stay untouched. */
+function parseWicketsHeld(raw: unknown): WicketsHeld | undefined {
+  if (!raw || typeof raw !== 'object') return undefined;
+  const out: WicketsHeld = {};
+  for (const p of HELD_PITCHES) {
+    const v = (raw as Record<string, unknown>)[p];
+    if (typeof v === 'number' && Number.isFinite(v) && v > 0) out[p] = Math.floor(v);
+  }
+  return Object.keys(out).length > 0 ? out : undefined;
+}
 
 // ─── Corporate Batch config ──────────────────────────────────────────
 
@@ -60,8 +73,14 @@ export interface CorporateBatchSettings {
   startTime: string; // "HH:MM" IST
   endTime: string;   // "HH:MM" IST
   /** Indoor nets the batch physically holds during its window — consumed
-   *  by the resource engine's virtual reservation, not by this module. */
+   *  by the resource engine's virtual reservation, not by this module.
+   *  Legacy flat count; superseded by `wicketsHeld` when that is set. */
   netsConsumed: number;
+  /** Per-pitch wickets held during the batch window (Astro / Natural /
+   *  Cement). Dynamic across the center's configured pitch types; the
+   *  resource engine blocks this many wickets of each pitch. Falls back to
+   *  `netsConsumed` (Astro) when absent. */
+  wicketsHeld?: WicketsHeld;
   coachName: string;
   monthlyFee: number;
   /** ₹ fee for a single Regular (per-session) booking. */
@@ -112,6 +131,7 @@ export function normalizeCorporateBatchSettings(
     startTime: typeof r.startTime === 'string' && r.startTime ? r.startTime : d.startTime,
     endTime: typeof r.endTime === 'string' && r.endTime ? r.endTime : d.endTime,
     netsConsumed: num(r.netsConsumed, d.netsConsumed),
+    wicketsHeld: parseWicketsHeld(r.wicketsHeld),
     coachName: typeof r.coachName === 'string' ? r.coachName : d.coachName,
     monthlyFee: num(r.monthlyFee, d.monthlyFee),
     // Accept the legacy `adhocFee` key so configs saved before the
@@ -148,6 +168,10 @@ export interface MatchSimulationSession {
   fee: number;
   coachName: string;
   enabled: boolean;
+  /** Per-pitch wickets held during this session's window. The resource
+   *  engine blocks this many wickets of each pitch from regular bookings
+   *  while the session runs. Dynamic across configured pitch types. */
+  wicketsHeld?: WicketsHeld;
 }
 
 export interface MatchSimulationSettings {
@@ -196,6 +220,7 @@ export function normalizeMatchSimulationSettings(raw: unknown): MatchSimulationS
           fee: typeof s.fee === 'number' && Number.isFinite(s.fee) && s.fee >= 0 ? s.fee : 200,
           coachName: typeof s.coachName === 'string' ? s.coachName : '',
           enabled: typeof s.enabled === 'boolean' ? s.enabled : true,
+          wicketsHeld: parseWicketsHeld(s.wicketsHeld),
         }))
     : d.sessions.map((s) => ({ ...s }));
   return {

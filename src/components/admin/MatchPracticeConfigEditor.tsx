@@ -3,6 +3,39 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Loader2, Plus, Save, Trash2 } from 'lucide-react';
 
+// A physical Resource type maps to a bookable pitch type. NET is the
+// indoor synthetic-turf pool → Astro; TURF_WICKET → Natural; CEMENT_WICKET
+// → Cement. Keep in sync with resource-booking.ts `resourceMatchesPitch`.
+type ResourceType = 'NET' | 'TURF_WICKET' | 'CEMENT_WICKET' | 'COURT';
+type PitchKey = 'ASTRO' | 'NATURAL' | 'CEMENT';
+type WicketsHeld = Partial<Record<PitchKey, number>>;
+
+const TYPE_TO_PITCH: Partial<Record<ResourceType, PitchKey>> = {
+  NET: 'ASTRO',
+  TURF_WICKET: 'NATURAL',
+  CEMENT_WICKET: 'CEMENT',
+};
+const PITCH_LABELS: Record<PitchKey, string> = {
+  ASTRO: 'Astro Turf',
+  NATURAL: 'Natural Turf',
+  CEMENT: 'Cement',
+};
+// Canonical render order regardless of the order resources come back in.
+const PITCH_ORDER: PitchKey[] = ['ASTRO', 'NATURAL', 'CEMENT'];
+
+type PitchOption = { pitch: PitchKey; label: string; available: number };
+
+/** Keep only known pitch keys with positive integer counts. */
+function cleanWickets(raw: unknown): WicketsHeld {
+  if (!raw || typeof raw !== 'object') return {};
+  const out: WicketsHeld = {};
+  for (const p of PITCH_ORDER) {
+    const v = (raw as Record<string, unknown>)[p];
+    if (typeof v === 'number' && Number.isFinite(v) && v > 0) out[p] = Math.floor(v);
+  }
+  return out;
+}
+
 /**
  * Admin editor for the Match Practice booking category:
  *
@@ -36,6 +69,7 @@ interface CorporateState {
   startTime: string;
   endTime: string;
   netsConsumed: number;
+  wicketsHeld: WicketsHeld;
   coachName: string;
   monthlyFee: number;
   regularFee: number;
@@ -53,6 +87,7 @@ interface SimSessionState {
   fee: number;
   coachName: string;
   enabled: boolean;
+  wicketsHeld: WicketsHeld;
 }
 
 interface SimState {
@@ -67,6 +102,7 @@ const DEFAULT_CORPORATE: CorporateState = {
   startTime: '07:00',
   endTime: '09:00',
   netsConsumed: 2,
+  wicketsHeld: {},
   coachName: 'Govind Lashkare',
   monthlyFee: 2000,
   regularFee: 200,
@@ -87,6 +123,7 @@ const DEFAULT_SIM: SimState = {
       fee: 200,
       coachName: '',
       enabled: true,
+      wicketsHeld: {},
     },
   ],
 };
@@ -123,11 +160,19 @@ function mergeCorporate(raw: unknown): CorporateState {
   const r = raw as Partial<CorporateState> & { halfMonth?: Partial<HalfMonthState>; adhocFee?: number };
   return {
     ...DEFAULT_CORPORATE,
-    ...Object.fromEntries(Object.entries(r).filter(([k, v]) => k !== 'halfMonth' && v !== undefined && v !== null)),
+    ...Object.fromEntries(Object.entries(r).filter(([k, v]) => k !== 'halfMonth' && k !== 'wicketsHeld' && v !== undefined && v !== null)),
     days: Array.isArray(r.days) ? r.days.filter((d) => typeof d === 'number' && d >= 0 && d <= 6) : DEFAULT_CORPORATE.days,
     // Legacy key: configs saved before the Ad-hoc → Regular rename
     // stored the per-session fee as `adhocFee`.
     regularFee: r.regularFee ?? r.adhocFee ?? DEFAULT_CORPORATE.regularFee,
+    // Per-pitch wickets held. Falls back to the legacy `netsConsumed`
+    // (Astro) count so old configs pre-fill the Astro field.
+    wicketsHeld: (() => {
+      const cleaned = cleanWickets(r.wicketsHeld);
+      if (Object.keys(cleaned).length > 0) return cleaned;
+      const legacy = typeof r.netsConsumed === 'number' && r.netsConsumed > 0 ? r.netsConsumed : 0;
+      return legacy > 0 ? { ASTRO: Math.floor(legacy) } : {};
+    })(),
     halfMonth: { ...DEFAULT_CORPORATE.halfMonth, ...(r.halfMonth ?? {}) },
   } as CorporateState;
 }
@@ -148,6 +193,7 @@ function mergeSim(raw: unknown): SimState {
         fee: typeof s?.fee === 'number' ? s.fee : 200,
         coachName: s?.coachName ?? '',
         enabled: s?.enabled !== false,
+        wicketsHeld: cleanWickets((s as { wicketsHeld?: unknown })?.wicketsHeld),
       }))
     : DEFAULT_SIM.sessions.map((s) => ({ ...s }));
   return { enabled: r.enabled === true, sessions };
@@ -295,19 +341,70 @@ function NumberInput({
   );
 }
 
+/**
+ * Dynamic "<Pitch> Wickets Held" inputs — one field per pitch type the
+ * center has configured (My Center → Pitch Types). Renders a hint when no
+ * pitch types exist so admins know where to add them.
+ */
+function PitchWicketsFields({
+  centerId,
+  options,
+  values,
+  onChange,
+}: {
+  centerId?: string;
+  options: PitchOption[];
+  values: WicketsHeld;
+  onChange: (pitch: PitchKey, value: number) => void;
+}) {
+  if (options.length === 0) {
+    return (
+      <p className="text-[10px] text-slate-500 leading-relaxed">
+        No pitch types configured yet. Add them under{' '}
+        {centerId ? (
+          <a href={`/admin/centers/${centerId}`} className="text-accent underline">My Center → Pitch Types</a>
+        ) : (
+          <span className="text-slate-400">My Center → Pitch Types</span>
+        )}{' '}
+        to reserve wickets here.
+      </p>
+    );
+  }
+  return (
+    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
+      {options.map((opt) => (
+        <Field key={opt.pitch} label={`${opt.label} Wickets Held`}>
+          <NumberInput
+            min={0}
+            max={opt.available}
+            value={values[opt.pitch] ?? 0}
+            title={`${opt.available} ${opt.label} configured`}
+            onChange={(v) => onChange(opt.pitch, v)}
+          />
+        </Field>
+      ))}
+    </div>
+  );
+}
+
 export function MatchPracticeConfigEditor({
   scope,
+  centerId,
   centerLabel,
   externalSaveTrigger,
   onSaveStatus,
 }: {
   scope: 'center' | 'global';
+  /** Current center — used to load the configured pitch types (Resource
+   *  rows) that drive the dynamic per-pitch "Wickets Held" fields. */
+  centerId?: string;
   centerLabel: string;
   externalSaveTrigger?: number;
   onSaveStatus?: (status: { saving: boolean; message: { text: string; ok: boolean } | null }) => void;
 }) {
   const [corp, setCorp] = useState<CorporateState>(DEFAULT_CORPORATE);
   const [sim, setSim] = useState<SimState>(DEFAULT_SIM);
+  const [pitchOptions, setPitchOptions] = useState<PitchOption[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<{ text: string; ok: boolean } | null>(null);
@@ -317,7 +414,33 @@ export function MatchPracticeConfigEditor({
     setLoading(true);
     (async () => {
       try {
-        const res = await fetch(`/api/admin/policies?scope=${scope}`);
+        // Load policies + (when we know the center) its configured pitch
+        // types in parallel. Pitch types drive which "Wickets Held" inputs
+        // render; missing centerId just yields no dynamic fields.
+        const [res, resourcesRes] = await Promise.all([
+          fetch(`/api/admin/policies?scope=${scope}`),
+          centerId
+            ? fetch(`/api/admin/centers/${centerId}/resources`).then((r) => (r.ok ? r.json() : []))
+            : Promise.resolve([]),
+        ]);
+        if (cancelled) return;
+
+        const counts: Partial<Record<PitchKey, number>> = {};
+        const resources: Array<{ type: ResourceType; isActive?: boolean }> = Array.isArray(resourcesRes) ? resourcesRes : [];
+        for (const r of resources) {
+          if (r.isActive === false) continue;
+          const pitch = TYPE_TO_PITCH[r.type];
+          if (!pitch) continue;
+          counts[pitch] = (counts[pitch] ?? 0) + 1;
+        }
+        setPitchOptions(
+          PITCH_ORDER.filter((p) => (counts[p] ?? 0) > 0).map((p) => ({
+            pitch: p,
+            label: PITCH_LABELS[p],
+            available: counts[p] ?? 0,
+          })),
+        );
+
         if (!res.ok) return;
         const rows: Array<{ key: string; value: string }> = await res.json();
         if (cancelled) return;
@@ -333,7 +456,7 @@ export function MatchPracticeConfigEditor({
       }
     })();
     return () => { cancelled = true; };
-  }, [scope]);
+  }, [scope, centerId]);
 
   const save = useCallback(async () => {
     setSaving(true);
@@ -345,9 +468,26 @@ export function MatchPracticeConfigEditor({
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ key, value: JSON.stringify(value) }),
         });
+      // Persist only wickets for pitch types the center actually has
+      // configured, and keep the legacy `netsConsumed` mirror in sync with
+      // the Astro count so older readers stay correct.
+      const validPitches = new Set(pitchOptions.map((o) => o.pitch));
+      const pruneWickets = (w: WicketsHeld): WicketsHeld => {
+        const out: WicketsHeld = {};
+        for (const p of PITCH_ORDER) {
+          if (validPitches.has(p) && (w[p] ?? 0) > 0) out[p] = w[p];
+        }
+        return out;
+      };
+      const corpWickets = pruneWickets(corp.wicketsHeld);
+      const corpPayload = { ...corp, wicketsHeld: corpWickets, netsConsumed: corpWickets.ASTRO ?? 0 };
+      const simPayload = {
+        ...sim,
+        sessions: sim.sessions.map((s) => ({ ...s, wicketsHeld: pruneWickets(s.wicketsHeld) })),
+      };
       const [r1, r2] = await Promise.all([
-        post('CORPORATE_BATCH_CONFIG', corp),
-        post('MATCH_SIMULATION_CONFIG', sim),
+        post('CORPORATE_BATCH_CONFIG', corpPayload),
+        post('MATCH_SIMULATION_CONFIG', simPayload),
       ]);
       if (!r1.ok || !r2.ok) {
         const bad = !r1.ok ? r1 : r2;
@@ -360,7 +500,7 @@ export function MatchPracticeConfigEditor({
     } finally {
       setSaving(false);
     }
-  }, [scope, corp, sim, centerLabel]);
+  }, [scope, corp, sim, pitchOptions, centerLabel]);
 
   useEffect(() => {
     if (externalSaveTrigger && externalSaveTrigger > 0) {
@@ -379,6 +519,26 @@ export function MatchPracticeConfigEditor({
     setSim((prev) => ({
       ...prev,
       sessions: prev.sessions.map((s) => (s.id === id ? { ...s, ...patch } : s)),
+    }));
+  };
+
+  const setCorpWicket = (pitch: PitchKey, value: number) => {
+    setCorp((p) => {
+      const w = { ...p.wicketsHeld };
+      if (value > 0) w[pitch] = value; else delete w[pitch];
+      return { ...p, wicketsHeld: w };
+    });
+  };
+
+  const setSessionWicket = (id: string, pitch: PitchKey, value: number) => {
+    setSim((prev) => ({
+      ...prev,
+      sessions: prev.sessions.map((s) => {
+        if (s.id !== id) return s;
+        const w = { ...s.wicketsHeld };
+        if (value > 0) w[pitch] = value; else delete w[pitch];
+        return { ...s, wicketsHeld: w };
+      }),
     }));
   };
 
@@ -432,15 +592,25 @@ export function MatchPracticeConfigEditor({
             <NumberInput min={1} value={corp.maxCapacity}
               onChange={(v) => setCorp((p) => ({ ...p, maxCapacity: v }))} />
           </Field>
-          <Field label="Indoor Nets Held">
-            <NumberInput min={0} value={corp.netsConsumed}
-              onChange={(v) => setCorp((p) => ({ ...p, netsConsumed: v }))} />
-          </Field>
+        </div>
+
+        {/* Per-pitch wickets held — dynamic from the center's pitch types. */}
+        <div className="pt-1">
+          <label className="block text-[11px] font-semibold text-slate-300 uppercase tracking-wide mb-1.5">
+            Wickets Held Per Pitch Type
+          </label>
+          <PitchWicketsFields
+            centerId={centerId}
+            options={pitchOptions}
+            values={corp.wicketsHeld}
+            onChange={setCorpWicket}
+          />
         </div>
         <p className="text-[10px] text-slate-500 leading-relaxed">
           Frequency ({corp.days.length} day{corp.days.length === 1 ? '' : 's'}/week) follows the
-          selected batch days. &lsquo;Indoor Nets Held&rsquo; is how many nets the batch reserves
-          from the regular slot grid during its window.
+          selected batch days. &lsquo;Wickets Held&rsquo; is how many wickets of each pitch type the
+          batch reserves from the regular slot grid during its window — configured per pitch type
+          from My Center.
         </p>
 
         {/* Half-month payment */}
@@ -552,6 +722,19 @@ export function MatchPracticeConfigEditor({
                   </div>
                 </Field>
               </div>
+              {/* Per-pitch wickets held for this session — dynamic from the
+                  center's configured pitch types. */}
+              <div className="pt-1.5 border-t border-white/[0.05]">
+                <label className="block text-[11px] font-semibold text-slate-300 uppercase tracking-wide mb-1.5">
+                  Wickets Held Per Pitch Type
+                </label>
+                <PitchWicketsFields
+                  centerId={centerId}
+                  options={pitchOptions}
+                  values={s.wicketsHeld}
+                  onChange={(pitch, value) => setSessionWicket(s.id, pitch, value)}
+                />
+              </div>
             </div>
           ))}
         </div>
@@ -573,6 +756,7 @@ export function MatchPracticeConfigEditor({
                   fee: 200,
                   coachName: '',
                   enabled: true,
+                  wicketsHeld: {},
                 },
               ],
             }))

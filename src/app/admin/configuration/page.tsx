@@ -1164,6 +1164,7 @@ export default function ConfigurationPage() {
         >
           <MatchPracticeConfigEditor
             scope={scope}
+            centerId={currentCenter.id}
             centerLabel={currentCenter.shortName ?? currentCenter.name}
             externalSaveTrigger={settingsSaveTrigger}
             onSaveStatus={setMatchPracticeSaveStatus}
