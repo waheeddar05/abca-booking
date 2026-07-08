@@ -91,10 +91,32 @@ const DEFAULT_SIM: SimState = {
   ],
 };
 
-const DAY_LETTERS = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
+// Full weekday labels + chip styling mirror the app-wide day picker on
+// the Offers page, so weekday selection looks and feels identical across
+// the whole application.
+const DAY_OPTIONS = [
+  { id: 0, label: 'Sun' },
+  { id: 1, label: 'Mon' },
+  { id: 2, label: 'Tue' },
+  { id: 3, label: 'Wed' },
+  { id: 4, label: 'Thu' },
+  { id: 5, label: 'Fri' },
+  { id: 6, label: 'Sat' },
+];
 
+const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+
+// Shared input styling matches the rest of the admin forms (e.g. Offers):
+// text-sm, px-3 py-2.5 — consistent font size, field height and spacing.
 const inputClass =
-  'w-full bg-white/[0.04] border border-white/[0.1] text-white placeholder:text-slate-500 rounded-lg px-2.5 py-2 text-xs outline-none focus:border-accent focus:ring-1 focus:ring-accent/20 transition-colors';
+  'w-full bg-white/[0.04] border border-white/[0.1] text-white placeholder:text-slate-500 rounded-lg px-3 py-2.5 text-sm outline-none focus:border-accent focus:ring-1 focus:ring-accent/20 transition-colors';
+
+const dayChipClass = (active: boolean) =>
+  `px-2.5 py-1 rounded-lg text-xs font-medium transition-all cursor-pointer ${
+    active
+      ? 'bg-accent/20 text-accent border border-accent/40'
+      : 'bg-white/[0.04] text-slate-400 border border-white/[0.08] hover:border-white/20'
+  }`;
 
 function mergeCorporate(raw: unknown): CorporateState {
   if (!raw || typeof raw !== 'object') return { ...DEFAULT_CORPORATE, halfMonth: { ...DEFAULT_CORPORATE.halfMonth } };
@@ -139,24 +161,20 @@ function DayChips({
   onChange: (days: number[]) => void;
 }) {
   return (
-    <div className="flex gap-1">
-      {DAY_LETTERS.map((letter, day) => {
-        const on = value.includes(day);
+    <div className="flex flex-wrap gap-1.5">
+      {DAY_OPTIONS.map(({ id, label }) => {
+        const on = value.includes(id);
         return (
           <button
-            key={day}
+            key={id}
             type="button"
-            title={['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'][day]}
+            title={DAY_NAMES[id]}
             onClick={() =>
-              onChange(on ? value.filter((d) => d !== day) : [...value, day].sort((a, b) => a - b))
+              onChange(on ? value.filter((d) => d !== id) : [...value, id].sort((a, b) => a - b))
             }
-            className={`w-7 h-7 rounded-md text-[10px] font-bold border transition-all cursor-pointer ${
-              on
-                ? 'bg-accent text-primary border-accent'
-                : 'bg-white/[0.04] text-slate-500 border-white/[0.08] hover:border-accent/30'
-            }`}
+            className={dayChipClass(on)}
           >
-            {letter}
+            {label}
           </button>
         );
       })}
@@ -205,9 +223,75 @@ function ToggleRow({
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div>
-      <label className="block text-[10px] font-medium text-slate-400 mb-1">{label}</label>
+      <label className="block text-[11px] font-medium text-slate-400 mb-1.5">{label}</label>
       {children}
     </div>
+  );
+}
+
+/**
+ * Amount / count input that can be fully cleared while editing.
+ *
+ * The naive `value={num}` + `Number(e.target.value) || 0` pattern snaps
+ * the field back to 0 the moment a user deletes the last digit, so an
+ * existing value can never be wiped before typing a replacement. This
+ * keeps a local string draft instead: the field may sit empty mid-edit,
+ * valid numbers propagate to the parent as they're typed, and on blur an
+ * empty or invalid value is normalized to the clamped minimum.
+ */
+function NumberInput({
+  value,
+  onChange,
+  min,
+  max,
+  title,
+  className,
+}: {
+  value: number;
+  onChange: (v: number) => void;
+  min?: number;
+  max?: number;
+  title?: string;
+  className?: string;
+}) {
+  // The draft initializes from the loaded value: the parent gates the
+  // whole form behind a `loading` spinner, so every NumberInput mounts
+  // only after the policy fetch resolves — no external value changes
+  // reach a mounted instance, so no sync effect is needed.
+  const [draft, setDraft] = useState(String(value));
+
+  const clamp = (n: number) => {
+    if (min !== undefined) n = Math.max(min, n);
+    if (max !== undefined) n = Math.min(max, n);
+    return n;
+  };
+
+  return (
+    <input
+      type="number"
+      inputMode="numeric"
+      value={draft}
+      min={min}
+      max={max}
+      title={title}
+      className={className ?? inputClass}
+      onChange={(e) => {
+        const raw = e.target.value;
+        setDraft(raw);
+        // Propagate only when the field holds a valid number; an empty
+        // field leaves the parent value untouched until blur.
+        if (raw.trim() !== '' && Number.isFinite(Number(raw))) {
+          onChange(clamp(Number(raw)));
+        }
+      }}
+      onBlur={(e) => {
+        const raw = e.target.value.trim();
+        const next =
+          raw === '' || !Number.isFinite(Number(raw)) ? (min ?? 0) : clamp(Number(raw));
+        setDraft(String(next));
+        onChange(next);
+      }}
+    />
   );
 }
 
@@ -337,20 +421,20 @@ export function MatchPracticeConfigEditor({
               onChange={(e) => setCorp((p) => ({ ...p, coachName: e.target.value }))} />
           </Field>
           <Field label="Monthly Fee (₹)">
-            <input type="number" min={0} value={corp.monthlyFee} className={inputClass}
-              onChange={(e) => setCorp((p) => ({ ...p, monthlyFee: Math.max(0, Number(e.target.value) || 0) }))} />
+            <NumberInput min={0} value={corp.monthlyFee}
+              onChange={(v) => setCorp((p) => ({ ...p, monthlyFee: v }))} />
           </Field>
           <Field label="Regular Fee (₹/session)">
-            <input type="number" min={0} value={corp.regularFee} className={inputClass}
-              onChange={(e) => setCorp((p) => ({ ...p, regularFee: Math.max(0, Number(e.target.value) || 0) }))} />
+            <NumberInput min={0} value={corp.regularFee}
+              onChange={(v) => setCorp((p) => ({ ...p, regularFee: v }))} />
           </Field>
           <Field label="Max Batch Capacity">
-            <input type="number" min={1} value={corp.maxCapacity} className={inputClass}
-              onChange={(e) => setCorp((p) => ({ ...p, maxCapacity: Math.max(1, Number(e.target.value) || 1) }))} />
+            <NumberInput min={1} value={corp.maxCapacity}
+              onChange={(v) => setCorp((p) => ({ ...p, maxCapacity: v }))} />
           </Field>
           <Field label="Indoor Nets Held">
-            <input type="number" min={0} value={corp.netsConsumed} className={inputClass}
-              onChange={(e) => setCorp((p) => ({ ...p, netsConsumed: Math.max(0, Number(e.target.value) || 0) }))} />
+            <NumberInput min={0} value={corp.netsConsumed}
+              onChange={(v) => setCorp((p) => ({ ...p, netsConsumed: v }))} />
           </Field>
         </div>
         <p className="text-[10px] text-slate-500 leading-relaxed">
@@ -370,12 +454,12 @@ export function MatchPracticeConfigEditor({
           {corp.halfMonth.enabled && (
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
               <Field label="Half-Month Fee (₹)">
-                <input type="number" min={0} value={corp.halfMonth.fee} className={inputClass}
-                  onChange={(e) => setCorp((p) => ({ ...p, halfMonth: { ...p.halfMonth, fee: Math.max(0, Number(e.target.value) || 0) } }))} />
+                <NumberInput min={0} value={corp.halfMonth.fee}
+                  onChange={(v) => setCorp((p) => ({ ...p, halfMonth: { ...p.halfMonth, fee: v } }))} />
               </Field>
               <Field label="First Half Ends On (day)">
-                <input type="number" min={1} max={27} value={corp.halfMonth.splitDay} className={inputClass}
-                  onChange={(e) => setCorp((p) => ({ ...p, halfMonth: { ...p.halfMonth, splitDay: Math.min(27, Math.max(1, Number(e.target.value) || 15)) } }))} />
+                <NumberInput min={1} max={27} value={corp.halfMonth.splitDay}
+                  onChange={(v) => setCorp((p) => ({ ...p, halfMonth: { ...p.halfMonth, splitDay: v } }))} />
               </Field>
               <Field label="First Half">
                 <ToggleRow
@@ -461,10 +545,10 @@ export function MatchPracticeConfigEditor({
                 </Field>
                 <Field label="Capacity / Fee (₹)">
                   <div className="grid grid-cols-2 gap-1.5">
-                    <input type="number" min={1} value={s.capacity} title="Max participants" className={inputClass}
-                      onChange={(e) => updateSession(s.id, { capacity: Math.max(1, Number(e.target.value) || 1) })} />
-                    <input type="number" min={0} value={s.fee} title="Session fee" className={inputClass}
-                      onChange={(e) => updateSession(s.id, { fee: Math.max(0, Number(e.target.value) || 0) })} />
+                    <NumberInput min={1} value={s.capacity} title="Max participants"
+                      onChange={(v) => updateSession(s.id, { capacity: v })} />
+                    <NumberInput min={0} value={s.fee} title="Session fee"
+                      onChange={(v) => updateSession(s.id, { fee: v })} />
                   </div>
                 </Field>
               </div>
