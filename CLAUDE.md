@@ -190,12 +190,12 @@ Centers with `bookingModel = RESOURCE_BASED` (e.g. Toplay) use a different booki
 ABCA's existing rows default to `MACHINE` and have no `BookingResourceAssignment` rows; nothing changes for them.
 
 **Key files**:
-- `src/lib/resource-booking.ts` — availability lookup (`getSlotAvailability`, `computeSlotAvailability`), booking-plan resolution (`planBooking`, `BookingResourceError`), and atomic resource-assignment persistence (`persistResourceAssignments`). The corporate-batch indoor-net hold is a virtual reservation overlay driven by the `CORPORATE_BATCH_CONFIG` policy.
+- `src/lib/resource-booking.ts` — availability lookup (`getSlotAvailability`, `computeSlotAvailability`), booking-plan resolution (`planBooking`, `BookingResourceError`), and atomic resource-assignment persistence (`persistResourceAssignments`). The Match Practice indoor-net hold is a virtual reservation overlay (`computeReservedByPitchForSlot`) driven by the `CORPORATE_BATCH_CONFIG` and `MATCH_SIMULATION_CONFIG` policies: each active session (a Corporate Batch window or a Match Simulation session) holds exactly one indoor net — `NETS_PER_MATCH_PRACTICE_SESSION` — while its window is live; overlapping sessions each hold their own net.
 - `src/lib/resource-pricing.ts` — per-category pricing (`RESOURCE_PRICING_CONFIG` policy) with optional Yantra/Leverage overrides via `MachineType.code`.
 - `/api/slots/resource-availability` — slot grid for RESOURCE_BASED centers (returns free nets, coaches, staff, full-court status, and per-category prices).
 - `/api/slots/book-resource` — booking creation for RESOURCE_BASED centers; serializable transaction with retry on serialization conflicts.
 
-**Default `CORPORATE_BATCH_CONFIG`**: Mon/Wed/Fri, 07:00–09:00 IST, 2 indoor nets held, disabled until the admin turns it on. Override via `CenterPolicy('CORPORATE_BATCH_CONFIG')` — the same key also carries the Match Practice enrollment knobs (coach, fees, capacity, half-month; see below).
+**Default `CORPORATE_BATCH_CONFIG`**: Mon/Wed/Fri, 07:00–09:00 IST, one indoor net held per session, disabled until the admin turns it on. Override via `CenterPolicy('CORPORATE_BATCH_CONFIG')` — the same key also carries the Match Practice enrollment knobs (coach, fees, capacity, half-month; see below). The net-hold count is fixed at one net per session (`NETS_PER_MATCH_PRACTICE_SESSION`); the legacy per-pitch `wicketsHeld` / `netsConsumed` fields are still parsed for back-compat but no longer size the hold.
 
 **User UI**: `/slots` page now routes via `SlotsRouter` based on `currentCenter.bookingModel`:
 - `MACHINE_PITCH` → existing `SlotsContent` (legacy ABCA flow, untouched).

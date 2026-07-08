@@ -76,14 +76,25 @@ describe('resolveWicketsHeld', () => {
 });
 
 describe('computeReservedByPitchForSlot', () => {
-  it('sums corporate batch + match-sim sessions that overlap the slot', () => {
-    const corporate = win({ wicketsHeld: { ASTRO: 1, NATURAL: 1 } });
-    const session = win({ wicketsHeld: { ASTRO: 1, CEMENT: 2 } });
+  it('holds one indoor net per session that overlaps the slot', () => {
+    // Each Match Practice session uses a single indoor net, regardless of
+    // any per-pitch wicketsHeld config: corporate batch (1) + one match-sim
+    // session (1) = 2 indoor nets, and nothing on other pitches.
+    const corporate = win({ wicketsHeld: { ASTRO: 5, NATURAL: 3 } });
+    const session = win({ wicketsHeld: { CEMENT: 2 } });
     expect(computeReservedByPitchForSlot(corporate, [session], slotInWindow)).toEqual({
       ASTRO: 2,
-      CEMENT: 2,
-      NATURAL: 1,
+      CEMENT: 0,
+      NATURAL: 0,
     });
+  });
+
+  it('each overlapping match-sim session holds its own net', () => {
+    const s1 = win({ wicketsHeld: {} });
+    const s2 = win({ wicketsHeld: {} });
+    const s3 = win({ wicketsHeld: {} });
+    expect(computeReservedByPitchForSlot(null, [s1, s2, s3], slotInWindow))
+      .toEqual({ ASTRO: 3, CEMENT: 0, NATURAL: 0 });
   });
 
   it('a disabled window holds nothing', () => {
@@ -102,18 +113,18 @@ describe('computeReservedByPitchForSlot', () => {
   });
 
   it('a match-sim session with its own day/window is honoured independently', () => {
-    // Corporate batch off; a Sunday-only match-sim session holds naturals.
+    // Corporate batch off; a Sunday-only match-sim session holds one net.
     const session = win({ days: [0], wicketsHeld: { NATURAL: 1 } });
     expect(computeReservedByPitchForSlot(null, [session], sundaySlotInTime))
-      .toEqual({ ASTRO: 0, CEMENT: 0, NATURAL: 1 });
+      .toEqual({ ASTRO: 1, CEMENT: 0, NATURAL: 0 });
     // Same session doesn't apply on Monday.
     expect(computeReservedByPitchForSlot(null, [session], slotInWindow))
       .toEqual({ ASTRO: 0, CEMENT: 0, NATURAL: 0 });
   });
 
-  it('supports legacy netsConsumed corporate configs (astro)', () => {
+  it('holds one net even for legacy netsConsumed corporate configs', () => {
     expect(computeReservedByPitchForSlot(win({ wicketsHeld: {}, netsConsumed: 2 }), [], slotInWindow))
-      .toEqual({ ASTRO: 2, CEMENT: 0, NATURAL: 0 });
+      .toEqual({ ASTRO: 1, CEMENT: 0, NATURAL: 0 });
   });
 });
 

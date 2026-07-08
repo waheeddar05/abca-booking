@@ -169,6 +169,18 @@ export async function getCorporateBatchConfig(centerId: string): Promise<Corpora
 }
 
 /**
+ * Fixed number of indoor nets a single Match Practice session claims.
+ *
+ * Every Match Practice session — a Corporate Batch window or a Match
+ * Simulation session — physically runs in ONE indoor net for the length
+ * of its window. So each active session removes exactly one net from the
+ * regular bookable pool; two overlapping sessions remove two, and so on.
+ * This is independent of any legacy per-pitch `wicketsHeld` / `netsConsumed`
+ * config, which is why enabling the feature always blocks a net now.
+ */
+export const NETS_PER_MATCH_PRACTICE_SESSION = 1;
+
+/**
  * How many indoor nets are claimed by the corporate batch during the
  * given slot window? Returns 0 outside the configured window.
  */
@@ -178,7 +190,7 @@ export async function getCorporateBatchNetsForSlot(
 ): Promise<number> {
   const config = await getCorporateBatchConfig(centerId);
   if (!reservationAppliesToSlot(config, slot)) return 0;
-  return resolveWicketsHeld(config).ASTRO;
+  return NETS_PER_MATCH_PRACTICE_SESSION;
 }
 
 /** True when the slot falls on a configured day and overlaps the window's
@@ -199,16 +211,20 @@ function reservationAppliesToSlot(
 }
 
 /**
- * Sum the per-pitch wickets held for a slot across the corporate batch
- * window and every match-simulation session. Pure so it can be unit
- * tested; the raw configs are passed in.
+ * Nets held for a slot by the corporate batch window plus every
+ * match-simulation session. Pure so it can be unit tested; the raw
+ * configs are passed in.
  *
  *  - `corporate`  — the CORPORATE_BATCH_CONFIG window (or null).
  *  - `matchSimSessions` — MATCH_SIMULATION_CONFIG's session list; each
- *    session carries its own days/window and `wicketsHeld`.
+ *    session carries its own days/window.
  *
- * Every configured pitch type is honoured dynamically — adding a new
- * pitch type just needs its held count > 0 in the saved config.
+ * Each session whose day + time overlap the slot holds exactly ONE indoor
+ * net (`NETS_PER_MATCH_PRACTICE_SESSION`) — a Match Practice session, be it
+ * Corporate Batch or Match Simulation, runs in a single net from the indoor
+ * facility. Overlapping sessions each hold their own net, so the counts add
+ * up. The legacy per-pitch `wicketsHeld` / `netsConsumed` config no longer
+ * drives the hold; it's always one indoor net per active session.
  */
 export function computeReservedByPitchForSlot(
   corporate: PitchReservationWindow | null | undefined,
@@ -218,10 +234,7 @@ export function computeReservedByPitchForSlot(
   const total: Record<HeldPitch, number> = { ASTRO: 0, CEMENT: 0, NATURAL: 0 };
   const add = (window: PitchReservationWindow) => {
     if (!reservationAppliesToSlot(window, slot)) return;
-    const held = resolveWicketsHeld(window);
-    total.ASTRO += held.ASTRO;
-    total.CEMENT += held.CEMENT;
-    total.NATURAL += held.NATURAL;
+    total.ASTRO += NETS_PER_MATCH_PRACTICE_SESSION;
   };
   if (corporate) add(corporate);
   for (const session of matchSimSessions ?? []) add(session);
@@ -1580,11 +1593,11 @@ export async function planBooking(
           groundStaffId: defaultGroundStaffId,
         };
       }
-      const config = await getCorporateBatchConfig(plan.centerId);
-      // Auto-claim indoor (Astro) nets. `resolveWicketsHeld` normalises
-      // both the new per-pitch `wicketsHeld` and the legacy `netsConsumed`
-      // shape down to an Astro count for this indoor-net path.
-      const nets = Math.max(1, plan.corporateNets ?? resolveWicketsHeld(config).ASTRO);
+      // Auto-claim indoor (Astro) nets. A Corporate Batch session occupies
+      // a single indoor net (NETS_PER_MATCH_PRACTICE_SESSION), matching the
+      // policy-driven virtual reservation; an admin override can still ask
+      // for more via `corporateNets`.
+      const nets = Math.max(1, plan.corporateNets ?? NETS_PER_MATCH_PRACTICE_SESSION);
       const indoorFree = availability.freeIndoorNets;
       if (indoorFree.length < nets) {
         throw new BookingResourceError(

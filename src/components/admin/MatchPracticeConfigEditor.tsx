@@ -341,52 +341,6 @@ function NumberInput({
   );
 }
 
-/**
- * Dynamic "<Pitch> Wickets Held" inputs — one field per pitch type the
- * center has configured (My Center → Pitch Types). Renders a hint when no
- * pitch types exist so admins know where to add them.
- */
-function PitchWicketsFields({
-  centerId,
-  options,
-  values,
-  onChange,
-}: {
-  centerId?: string;
-  options: PitchOption[];
-  values: WicketsHeld;
-  onChange: (pitch: PitchKey, value: number) => void;
-}) {
-  if (options.length === 0) {
-    return (
-      <p className="text-[10px] text-slate-500 leading-relaxed">
-        No pitch types configured yet. Add them under{' '}
-        {centerId ? (
-          <a href={`/admin/centers/${centerId}`} className="text-accent underline">My Center → Pitch Types</a>
-        ) : (
-          <span className="text-slate-400">My Center → Pitch Types</span>
-        )}{' '}
-        to reserve wickets here.
-      </p>
-    );
-  }
-  return (
-    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
-      {options.map((opt) => (
-        <Field key={opt.pitch} label={`${opt.label} Wickets Held`}>
-          <NumberInput
-            min={0}
-            max={opt.available}
-            value={values[opt.pitch] ?? 0}
-            title={`${opt.available} ${opt.label} configured`}
-            onChange={(v) => onChange(opt.pitch, v)}
-          />
-        </Field>
-      ))}
-    </div>
-  );
-}
-
 export function MatchPracticeConfigEditor({
   scope,
   centerId,
@@ -522,26 +476,6 @@ export function MatchPracticeConfigEditor({
     }));
   };
 
-  const setCorpWicket = (pitch: PitchKey, value: number) => {
-    setCorp((p) => {
-      const w = { ...p.wicketsHeld };
-      if (value > 0) w[pitch] = value; else delete w[pitch];
-      return { ...p, wicketsHeld: w };
-    });
-  };
-
-  const setSessionWicket = (id: string, pitch: PitchKey, value: number) => {
-    setSim((prev) => ({
-      ...prev,
-      sessions: prev.sessions.map((s) => {
-        if (s.id !== id) return s;
-        const w = { ...s.wicketsHeld };
-        if (value > 0) w[pitch] = value; else delete w[pitch];
-        return { ...s, wicketsHeld: w };
-      }),
-    }));
-  };
-
   if (loading) {
     return (
       <div className="flex items-center gap-2 text-slate-400 py-6 justify-center text-sm">
@@ -594,23 +528,10 @@ export function MatchPracticeConfigEditor({
           </Field>
         </div>
 
-        {/* Per-pitch wickets held — dynamic from the center's pitch types. */}
-        <div className="pt-1">
-          <label className="block text-[11px] font-semibold text-slate-300 uppercase tracking-wide mb-1.5">
-            Wickets Held Per Pitch Type
-          </label>
-          <PitchWicketsFields
-            centerId={centerId}
-            options={pitchOptions}
-            values={corp.wicketsHeld}
-            onChange={setCorpWicket}
-          />
-        </div>
         <p className="text-[10px] text-slate-500 leading-relaxed">
           Frequency ({corp.days.length} day{corp.days.length === 1 ? '' : 's'}/week) follows the
-          selected batch days. &lsquo;Wickets Held&rsquo; is how many wickets of each pitch type the
-          batch reserves from the regular slot grid during its window — configured per pitch type
-          from My Center.
+          selected batch days. Each batch session automatically reserves one indoor net from the
+          regular slot grid during its window.
         </p>
 
         {/* Half-month payment */}
@@ -722,19 +643,6 @@ export function MatchPracticeConfigEditor({
                   </div>
                 </Field>
               </div>
-              {/* Per-pitch wickets held for this session — dynamic from the
-                  center's configured pitch types. */}
-              <div className="pt-1.5 border-t border-white/[0.05]">
-                <label className="block text-[11px] font-semibold text-slate-300 uppercase tracking-wide mb-1.5">
-                  Wickets Held Per Pitch Type
-                </label>
-                <PitchWicketsFields
-                  centerId={centerId}
-                  options={pitchOptions}
-                  values={s.wicketsHeld}
-                  onChange={(pitch, value) => setSessionWicket(s.id, pitch, value)}
-                />
-              </div>
             </div>
           ))}
         </div>
@@ -767,7 +675,8 @@ export function MatchPracticeConfigEditor({
         </button>
         <p className="text-[10px] text-slate-500 leading-relaxed">
           Multiple sessions per day are supported — users see every enabled session that falls on
-          a given date. Capacity is tracked per session per date.
+          a given date. Capacity is tracked per session per date, and each session reserves one
+          indoor net from the regular slot grid during its window.
         </p>
       </div>
 
