@@ -800,7 +800,7 @@ interface SessionCardItem {
   seatNoun: 'seats' | 'slots';
 }
 
-/** Shared card grid for ad-hoc corporate sessions + match simulation
+/** Shared card grid for regular corporate sessions + match simulation
  *  sessions: date, day, time, occupancy ("12 of 25 seats booked"),
  *  remaining capacity, and fee — multi-selectable. */
 function SessionCardGrid({

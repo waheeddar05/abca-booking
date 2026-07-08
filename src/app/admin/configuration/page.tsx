@@ -1150,7 +1150,7 @@ export default function ConfigurationPage() {
         </AdminCard>
       )}
 
-      {/* Match Practice — Corporate Batch (monthly / ad-hoc enrollment)
+      {/* Match Practice — Corporate Batch (monthly / regular enrollment)
           + Match Simulation session CRUD. Both are seat-based booking
           flows surfaced under the user-side "Match Practice" category
           tab (enable/disable the tab itself under Booking Categories

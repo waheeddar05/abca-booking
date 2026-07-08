@@ -7,7 +7,7 @@ import { Loader2, Plus, Save, Trash2 } from 'lucide-react';
  * Admin editor for the Match Practice booking category:
  *
  *   - Corporate Batch (CORPORATE_BATCH_CONFIG policy): batch days,
- *     timings, coach, monthly fee, ad-hoc fee, max capacity, nets held,
+ *     timings, coach, monthly fee, regular fee, max capacity, nets held,
  *     and half-month payment (enabled / fee / applicable halves / split
  *     day). The same policy key also drives the resource engine's
  *     indoor-net hold, so existing values are preserved on save.
@@ -315,7 +315,7 @@ export function MatchPracticeConfigEditor({
         </h3>
         <ToggleRow
           label="Enable Corporate Batch"
-          sub="Monthly + ad-hoc enrollment"
+          sub="Monthly + regular enrollment"
           on={corp.enabled}
           onToggle={() => setCorp((p) => ({ ...p, enabled: !p.enabled }))}
         />
