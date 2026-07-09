@@ -76,13 +76,27 @@ describe('resolveWicketsHeld', () => {
 });
 
 describe('computeReservedByPitchForSlot', () => {
-  it('sums corporate batch + match-sim sessions that overlap the slot', () => {
+  it('shares the hold across corporate batch + match-sim (max per pitch, not sum)', () => {
     const corporate = win({ wicketsHeld: { ASTRO: 1, NATURAL: 1 } });
     const session = win({ wicketsHeld: { ASTRO: 1, CEMENT: 2 } });
+    // Per pitch: max(ASTRO 1,1)=1, max(CEMENT 0,2)=2, max(NATURAL 1,0)=1.
     expect(computeReservedByPitchForSlot(corporate, [session], slotInWindow)).toEqual({
-      ASTRO: 2,
+      ASTRO: 1,
       CEMENT: 2,
       NATURAL: 1,
+    });
+  });
+
+  it('both sessions enabled with default holds → one net total, not two', () => {
+    // Neither carries an explicit hold, so each defaults to one Astro net.
+    // Sharing means the slot holds ONE net, leaving the rest bookable —
+    // this is the over-blocking fix (1 + 1 must not become 2).
+    const corporate = win({ wicketsHeld: {} });
+    const session = win({ wicketsHeld: {} });
+    expect(computeReservedByPitchForSlot(corporate, [session], slotInWindow)).toEqual({
+      ASTRO: 1,
+      CEMENT: 0,
+      NATURAL: 0,
     });
   });
 

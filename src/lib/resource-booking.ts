@@ -201,13 +201,21 @@ function reservationAppliesToSlot(
 }
 
 /**
- * Sum the per-pitch wickets held for a slot across the corporate batch
- * window and every match-simulation session. Pure so it can be unit
- * tested; the raw configs are passed in.
+ * Per-pitch wickets held for a slot by the recurring match-practice
+ * reservations (corporate batch + every match-simulation session). Pure so
+ * it can be unit tested; the raw configs are passed in.
  *
  *  - `corporate`  — the CORPORATE_BATCH_CONFIG window (or null).
  *  - `matchSimSessions` — MATCH_SIMULATION_CONFIG's session list; each
  *    session carries its own days/window and `wicketsHeld`.
+ *
+ * Corporate Batch and Match Simulation are two flavours of the SAME
+ * "match practice" activity that share the indoor facility — a center
+ * doesn't run them on separate nets at the same time. So overlapping
+ * reservations SHARE the hold: the count held for each pitch is the
+ * MAXIMUM any single overlapping session needs, not the sum. Enabling both
+ * a Corporate Batch and a Match Simulation on the same day/time therefore
+ * holds one net (not two), leaving the rest of the pool bookable.
  *
  * Every configured pitch type is honoured dynamically — adding a new
  * pitch type just needs its held count > 0 in the saved config.
@@ -218,7 +226,7 @@ export function computeReservedByPitchForSlot(
   slot: BookableSlotWindow,
 ): Record<HeldPitch, number> {
   const total: Record<HeldPitch, number> = { ASTRO: 0, CEMENT: 0, NATURAL: 0 };
-  const add = (window: PitchReservationWindow) => {
+  const consider = (window: PitchReservationWindow) => {
     if (!reservationAppliesToSlot(window, slot)) return;
     const held = resolveWicketsHeld(window);
     // Every enabled match-practice session physically occupies one indoor
@@ -228,12 +236,15 @@ export function computeReservedByPitchForSlot(
     // Any explicit per-pitch configuration (even a single non-Astro wicket)
     // overrides this default.
     if (held.ASTRO + held.CEMENT + held.NATURAL === 0) held.ASTRO = 1;
-    total.ASTRO += held.ASTRO;
-    total.CEMENT += held.CEMENT;
-    total.NATURAL += held.NATURAL;
+    // Share, don't stack: take the largest single-session hold per pitch so
+    // Corporate Batch + Match Simulation together never claim more than one
+    // needs on its own.
+    total.ASTRO = Math.max(total.ASTRO, held.ASTRO);
+    total.CEMENT = Math.max(total.CEMENT, held.CEMENT);
+    total.NATURAL = Math.max(total.NATURAL, held.NATURAL);
   };
-  if (corporate) add(corporate);
-  for (const session of matchSimSessions ?? []) add(session);
+  if (corporate) consider(corporate);
+  for (const session of matchSimSessions ?? []) consider(session);
   return total;
 }
 
