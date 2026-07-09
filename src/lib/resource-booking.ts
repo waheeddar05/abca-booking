@@ -209,51 +209,39 @@ function reservationAppliesToSlot(
  *  - `matchSimSessions` — MATCH_SIMULATION_CONFIG's session list; each
  *    session carries its own days/window and `wicketsHeld`.
  *
- * Corporate Batch and Match Simulation are two flavours of the SAME
- * "match practice" activity that share the indoor facility — a center
- * doesn't run them on separate nets at the same time. So overlapping
- * reservations SHARE the hold: the count held for each pitch is the
- * MAXIMUM any single overlapping session needs, not the sum. Enabling both
- * a Corporate Batch and a Match Simulation on the same day/time therefore
- * holds one net (not two), leaving the rest of the pool bookable.
- *
- * Every configured pitch type is honoured dynamically — adding a new
- * pitch type just needs its held count > 0 in the saved config.
+ * The result is a per-pitch count of WICKETS (capacity units), summed
+ * across the corporate batch window and every match-simulation session
+ * that overlaps the slot. computeSlotAvailability consumes these as
+ * capacity units against each pitch's resources — so holding 1 wicket of a
+ * capacity-4 Astro net removes ONE unit and leaves 3 bookable, never the
+ * whole resource. Every configured pitch type is honoured dynamically —
+ * adding a new pitch type just needs its held count > 0 in the saved config.
  */
-/** Nets/wickets a SINGLE match-practice session physically occupies while
- *  it runs. A session is one group on one net, so it holds at most ONE
- *  wicket of each pitch it uses — never more. */
-const MAX_WICKETS_PER_SESSION = 1;
-
 export function computeReservedByPitchForSlot(
   corporate: PitchReservationWindow | null | undefined,
   matchSimSessions: PitchReservationWindow[],
   slot: BookableSlotWindow,
 ): Record<HeldPitch, number> {
   const total: Record<HeldPitch, number> = { ASTRO: 0, CEMENT: 0, NATURAL: 0 };
-  const consider = (window: PitchReservationWindow) => {
+  const add = (window: PitchReservationWindow) => {
     if (!reservationAppliesToSlot(window, slot)) return;
     const held = resolveWicketsHeld(window);
     // Every enabled match-practice session physically occupies one indoor
     // net. When the admin hasn't split a hold across pitch types, reserve a
     // single indoor (Astro) net by default so an active Corporate Batch /
     // Match Simulation session always blocks that net from regular bookings.
+    // Any explicit per-pitch configuration overrides this default.
     if (held.ASTRO + held.CEMENT + held.NATURAL === 0) held.ASTRO = 1;
-    // Cap each pitch at one wicket per session. A single group runs on a
-    // single net, so a session must never hold more than one wicket of a
-    // pitch — this is what stops a large or STALE stored count (e.g. an old
-    // `netsConsumed`, or a mis-entered "Wickets Held") from folding in and
-    // reserving the ENTIRE indoor pool, which read as "all nets blocked".
-    const cap = (n: number) => (n > 0 ? MAX_WICKETS_PER_SESSION : 0);
-    // Share, don't stack: take the largest single-session hold per pitch so
-    // an overlapping Corporate Batch + Match Simulation together still hold
-    // one net, not two — leaving the rest of the pool bookable.
-    total.ASTRO = Math.max(total.ASTRO, cap(held.ASTRO));
-    total.CEMENT = Math.max(total.CEMENT, cap(held.CEMENT));
-    total.NATURAL = Math.max(total.NATURAL, cap(held.NATURAL));
+    // Sum the per-pitch holds across overlapping windows. These counts are
+    // WICKET COUNTS, not resource rows — computeSlotAvailability consumes
+    // them as capacity units, so holding 1 wicket of a capacity-4 Astro net
+    // leaves 3 units bookable (it never drops the whole resource).
+    total.ASTRO += held.ASTRO;
+    total.CEMENT += held.CEMENT;
+    total.NATURAL += held.NATURAL;
   };
-  if (corporate) consider(corporate);
-  for (const session of matchSimSessions ?? []) consider(session);
+  if (corporate) add(corporate);
+  for (const session of matchSimSessions ?? []) add(session);
   return total;
 }
 
@@ -721,10 +709,39 @@ export function computeSlotAvailability(inputs: AvailabilityInputs): SlotAvailab
     NATURAL: Math.max(0, inputs.reservedByPitch?.NATURAL ?? 0),
   };
 
-  // Re-derive `claimedResourceIds` honouring per-resource capacity.
-  // Producers (getOccupancyForSlot, the slot-grid loop) intentionally
-  // populate `claimedResourceIds` with the capacity=1 default so the
-  // capacity rules live in one place — here.
+  // Consume the recurring reservation (corporate batch + match simulation)
+  // as CAPACITY UNITS on each pitch's resources — fill each matching
+  // resource up to its capacity, in display order — BEFORE deriving claims.
+  // This is the crucial fix: a reservation takes wickets (units), NOT whole
+  // resource rows. A single "Astro Turf" resource with capacity 4 that
+  // holds 1 wicket keeps 3 units bookable, instead of the whole resource
+  // vanishing and every slot reading "all nets taken". Mirrors how admin
+  // count-blocks apply (applyPitchReservations). Producers create a fresh
+  // resourceLoad per slot, so mutating it here is safe.
+  const reservedHeld: Record<HeldPitch, number> = { ASTRO: 0, CEMENT: 0, NATURAL: 0 };
+  (['ASTRO', 'CEMENT', 'NATURAL'] as const).forEach((pitch) => {
+    let remaining = reserved[pitch];
+    if (remaining <= 0) return;
+    for (const r of resources) {
+      if (remaining <= 0) break;
+      if (!resourceMatchesPitch(r, pitch)) continue;
+      const cap = r.capacity ?? 1;
+      const cur = occupancy.resourceLoad.get(r.id) ?? 0;
+      const take = Math.min(Math.max(0, cap - cur), remaining);
+      if (take > 0) {
+        occupancy.resourceLoad.set(r.id, cur + take);
+        remaining -= take;
+        reservedHeld[pitch] += take;
+      }
+    }
+  });
+  const totalHeld = reservedHeld.ASTRO + reservedHeld.CEMENT + reservedHeld.NATURAL;
+
+  // Re-derive `claimedResourceIds` honouring per-resource capacity — now
+  // that reservation load is folded in, a resource is claimed only when
+  // real bookings + reservations together reach its capacity. Producers
+  // seed `claimedResourceIds` with the capacity=1 default; the real rules
+  // live here.
   withCapacityDerivedClaims(occupancy, resources);
 
   const indoorNets = resources.filter(
@@ -745,41 +762,11 @@ export function computeSlotAvailability(inputs: AvailabilityInputs): SlotAvailab
     for (const n of indoorNets) occupancy.claimedResourceIds.add(n.id);
   }
 
-  // A resource with remaining capacity (load < capacity) is "free"
-  // — it can host another booking at this slot. With every Resource at
-  // capacity 1 this collapses back to the old "any booking = claimed"
-  // behaviour, so legacy data stays correct.
+  // A resource with remaining capacity (load < capacity) is still "free".
+  // Reservation wickets were consumed as load above, so these lists are the
+  // true post-reservation availability for each pitch.
   const freeIndoor = indoorNets.filter((r) => !occupancy.claimedResourceIds.has(r.id));
   const freeOutdoor = outdoor.filter((r) => !occupancy.claimedResourceIds.has(r.id));
-
-  // Subtract recurring reservations (corporate batch + match simulation)
-  // from each pitch's available pool. We virtually claim the LAST free
-  // resources so the user-facing list still presents 1, 2, … as preferred.
-  // Every configured pitch type is honoured dynamically — a center that
-  // adds a new pitch just needs its wickets-held count > 0.
-  const holdPool = (pool: ResourceLite[], count: number) => {
-    const held = Math.min(Math.max(0, count), pool.length);
-    return { held, free: pool.slice(0, pool.length - held) };
-  };
-  const astroHold = holdPool(freeIndoor, reserved.ASTRO);
-  const freeIndoorAfterBatch = astroHold.free;
-  const heldByBatch = astroHold.held;
-
-  const freeCementRaw = resources.filter(
-    (r) => resourceMatchesPitch(r, 'CEMENT') && !occupancy.claimedResourceIds.has(r.id),
-  );
-  const freeNaturalRaw = resources.filter(
-    (r) => resourceMatchesPitch(r, 'NATURAL') && !occupancy.claimedResourceIds.has(r.id),
-  );
-  const cementHold = holdPool(freeCementRaw, reserved.CEMENT);
-  const naturalHold = holdPool(freeNaturalRaw, reserved.NATURAL);
-
-  const reservedHeld: Record<HeldPitch, number> = {
-    ASTRO: astroHold.held,
-    CEMENT: cementHold.held,
-    NATURAL: naturalHold.held,
-  };
-  const totalHeld = reservedHeld.ASTRO + reservedHeld.CEMENT + reservedHeld.NATURAL;
 
   // Filter out coaches/staff whose schedule doesn't cover this slot, then
   // remove anyone already booked into another session at this time.
@@ -796,35 +783,35 @@ export function computeSlotAvailability(inputs: AvailabilityInputs): SlotAvailab
   const freeCoaches = scheduledCoaches.filter((c) => !occupancy.busyCoachIds.has(c.userId));
   const freeStaff = scheduledStaff.filter((s) => !occupancy.busyStaffIds.has(s.userId));
 
-  // Full court requires every active indoor net to be at zero load
-  // (no other booking using any capacity unit) AND the corporate
-  // batch to not be active. The capacity-aware "free" check above
-  // accepts a net with load < capacity as free, which is wrong for
-  // full-court — the whole net must be empty. Falling back to
-  // resourceLoad.get(id) ?? 0 catches the "no bookings at all on
-  // this net" case explicitly.
+  // Full court requires every active indoor net to be at zero load — no
+  // other booking AND no recurring reservation using any capacity unit.
+  // Reservation wickets were folded into resourceLoad above, so an active
+  // corporate batch / match simulation now makes this false automatically.
   const everyIndoorEmpty = indoorNets.every(
     (n) => (occupancy.resourceLoad.get(n.id) ?? 0) === 0,
   );
   const fullCourtAvailable =
     indoorNets.length > 0
     && everyIndoorEmpty
-    && !occupancy.hasFullCourtBooking
-    && heldByBatch === 0;
+    && !occupancy.hasFullCourtBooking;
 
-  // Per-pitch free pools. Each pitch keeps its own list so a booking
-  // for NATURAL consumes outdoor turf capacity, not indoor net capacity.
-  // Every pool uses its post-reservation free list so a recurring
-  // reservation (corporate batch / match simulation) reduces that pitch's
-  // capacity — dynamically, for whichever pitch types it holds wickets on.
+  // Per-pitch free pools. Each pitch keeps its own list so a booking for
+  // NATURAL consumes outdoor turf capacity, not indoor net capacity. Every
+  // pool reads the capacity-aware free list, which already reflects the
+  // reservation wickets consumed above — dynamically, for whichever pitch
+  // types the reservation holds.
   const freeByPitch = {
-    ASTRO: freeIndoorAfterBatch.filter((r) => resourceMatchesPitch(r, 'ASTRO')),
-    CEMENT: cementHold.free,
-    NATURAL: naturalHold.free,
+    ASTRO: freeIndoor.filter((r) => resourceMatchesPitch(r, 'ASTRO')),
+    CEMENT: resources.filter(
+      (r) => resourceMatchesPitch(r, 'CEMENT') && !occupancy.claimedResourceIds.has(r.id),
+    ),
+    NATURAL: resources.filter(
+      (r) => resourceMatchesPitch(r, 'NATURAL') && !occupancy.claimedResourceIds.has(r.id),
+    ),
   };
 
   return {
-    freeIndoorNets: freeIndoorAfterBatch,
+    freeIndoorNets: freeIndoor,
     freeOutdoorResources: freeOutdoor,
     freeByPitch,
     freeCoaches,

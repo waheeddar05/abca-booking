@@ -76,35 +76,23 @@ describe('resolveWicketsHeld', () => {
 });
 
 describe('computeReservedByPitchForSlot', () => {
-  it('holds at most one wicket per pitch, shared across corporate batch + match-sim', () => {
+  it('sums the per-pitch holds across corporate batch + match-sim', () => {
     const corporate = win({ wicketsHeld: { ASTRO: 1, NATURAL: 1 } });
     const session = win({ wicketsHeld: { ASTRO: 1, CEMENT: 2 } });
-    // Each pitch is capped at one wicket per session and shared (max), so
-    // even the session's CEMENT: 2 becomes 1 — a match-practice group runs
-    // on a single net and never claims more than one wicket of a pitch.
+    // These are wicket COUNTS (capacity units), summed per pitch —
+    // computeSlotAvailability consumes them against each pitch's capacity.
     expect(computeReservedByPitchForSlot(corporate, [session], slotInWindow)).toEqual({
-      ASTRO: 1,
-      CEMENT: 1,
+      ASTRO: 2,
+      CEMENT: 2,
       NATURAL: 1,
     });
   });
 
-  it('caps a large / stale stored count to one net (the "all nets blocked" fix)', () => {
-    // A center whose old CORPORATE_BATCH_CONFIG folds a big netsConsumed
-    // (or a mis-entered Wickets Held) into Astro must still hold ONE net,
-    // not the whole indoor pool.
-    expect(computeReservedByPitchForSlot(win({ wicketsHeld: { ASTRO: 8 } }), [], slotInWindow))
-      .toEqual({ ASTRO: 1, CEMENT: 0, NATURAL: 0 });
-  });
-
-  it('both sessions enabled with default holds → one net total, not two', () => {
-    // Neither carries an explicit hold, so each defaults to one Astro net.
-    // Sharing means the slot holds ONE net, leaving the rest bookable —
-    // this is the over-blocking fix (1 + 1 must not become 2).
+  it('each enabled session defaults to holding one astro wicket', () => {
     const corporate = win({ wicketsHeld: {} });
     const session = win({ wicketsHeld: {} });
     expect(computeReservedByPitchForSlot(corporate, [session], slotInWindow)).toEqual({
-      ASTRO: 1,
+      ASTRO: 2,
       CEMENT: 0,
       NATURAL: 0,
     });
@@ -135,9 +123,9 @@ describe('computeReservedByPitchForSlot', () => {
       .toEqual({ ASTRO: 0, CEMENT: 0, NATURAL: 0 });
   });
 
-  it('legacy netsConsumed corporate configs hold one astro net (capped)', () => {
+  it('supports legacy netsConsumed corporate configs (astro)', () => {
     expect(computeReservedByPitchForSlot(win({ wicketsHeld: {}, netsConsumed: 2 }), [], slotInWindow))
-      .toEqual({ ASTRO: 1, CEMENT: 0, NATURAL: 0 });
+      .toEqual({ ASTRO: 2, CEMENT: 0, NATURAL: 0 });
   });
 });
 
@@ -161,6 +149,41 @@ describe('computeSlotAvailability — per-pitch reservations', () => {
     });
     expect(avail.freeByPitch.NATURAL).toHaveLength(0);
     expect(avail.reservedByPitch.NATURAL).toBe(2); // capped at pool size
+  });
+
+  it('consumes ONE capacity unit of a single high-capacity net, not the whole row', () => {
+    // TopPlay: a single "Astro Turf" resource with capacity 4. Holding one
+    // match-practice wicket must leave the net bookable (3 units free) — it
+    // must NOT drop the whole resource and read "all nets taken".
+    const oneBigAstroNet = [
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      { id: 'astro', name: 'Astro Turf', type: 'NET', category: 'INDOOR', capacity: 4, isActive: true, displayOrder: 1 },
+    ] as unknown as typeof resources;
+
+    const avail = computeSlotAvailability({
+      resources: oneBigAstroNet, coaches: [], staff: [], occupancy: emptyOccupancy(),
+      reservedByPitch: { ASTRO: 1 },
+    });
+    // The resource still has 3 of 4 units free, so it stays bookable.
+    expect(avail.freeByPitch.ASTRO).toHaveLength(1);
+    expect(avail.freeIndoorNets).toHaveLength(1);
+    expect(avail.reservedByPitch.ASTRO).toBe(1);
+    // A reservation holding a unit means the court isn't wholly free.
+    expect(avail.fullCourtAvailable).toBe(false);
+  });
+
+  it('holds the whole high-capacity net only when the reservation fills it', () => {
+    const oneBigAstroNet = [
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      { id: 'astro', name: 'Astro Turf', type: 'NET', category: 'INDOOR', capacity: 4, isActive: true, displayOrder: 1 },
+    ] as unknown as typeof resources;
+
+    const avail = computeSlotAvailability({
+      resources: oneBigAstroNet, coaches: [], staff: [], occupancy: emptyOccupancy(),
+      reservedByPitch: { ASTRO: 4 },
+    });
+    expect(avail.freeByPitch.ASTRO).toHaveLength(0); // all 4 units held
+    expect(avail.reservedByPitch.ASTRO).toBe(4);
   });
 
   it('blocks full court when astro wickets are held, not for cement-only', () => {
