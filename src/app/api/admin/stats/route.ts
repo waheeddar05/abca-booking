@@ -78,6 +78,7 @@ export async function GET(req: NextRequest) {
       revenue,
       selfOperatedBookings,
       unassignedBookings,
+      matchPracticeSummary,
     ] = await Promise.all([
       // Staff sessions: total counts per operator/coach/specialist.
       prisma.booking.groupBy({
@@ -427,6 +428,35 @@ export async function GET(req: NextRequest) {
           ...(hasDateFilter ? { date: dateFilter } : {}),
         },
       }).catch(() => 0),
+      // Match Practice session stats — booking counts per subcategory,
+      // mirroring the operator/sidearm/coach summary cards. Corporate Batch
+      // MONTHLY + HALF_MONTH are grouped as "Monthly"; REGULAR is the
+      // per-session bucket. Respects the dashboard date range like the
+      // other summaries.
+      prisma.booking.groupBy({
+        by: ['category', 'corporateBatchMode'],
+        _count: { _all: true },
+        where: {
+          ...centerFilter,
+          status: { not: 'CANCELLED' },
+          category: { in: ['CORPORATE_BATCH', 'MATCH_SIMULATION'] },
+          ...(hasDateFilter ? { date: dateFilter } : {}),
+        },
+      }).then((rows) => {
+        let matchSimulation = 0;
+        let corporateMonthly = 0;
+        let corporateRegular = 0;
+        for (const r of rows) {
+          const n = r._count._all;
+          if (r.category === 'MATCH_SIMULATION') {
+            matchSimulation += n;
+          } else if (r.category === 'CORPORATE_BATCH') {
+            if (r.corporateBatchMode === 'REGULAR') corporateRegular += n;
+            else corporateMonthly += n; // MONTHLY + HALF_MONTH memberships
+          }
+        }
+        return { matchSimulation, corporateMonthly, corporateRegular };
+      }).catch(() => ({ matchSimulation: 0, corporateMonthly: 0, corporateRegular: 0 })),
     ]);
 
     return NextResponse.json({
@@ -448,6 +478,7 @@ export async function GET(req: NextRequest) {
       operatorSummary,
       sidearmSummary,
       coachSummary,
+      matchPracticeSummary,
       systemStatus: 'Healthy',
     }, {
       headers: {
