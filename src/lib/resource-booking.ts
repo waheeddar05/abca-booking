@@ -220,6 +220,11 @@ function reservationAppliesToSlot(
  * Every configured pitch type is honoured dynamically — adding a new
  * pitch type just needs its held count > 0 in the saved config.
  */
+/** Nets/wickets a SINGLE match-practice session physically occupies while
+ *  it runs. A session is one group on one net, so it holds at most ONE
+ *  wicket of each pitch it uses — never more. */
+const MAX_WICKETS_PER_SESSION = 1;
+
 export function computeReservedByPitchForSlot(
   corporate: PitchReservationWindow | null | undefined,
   matchSimSessions: PitchReservationWindow[],
@@ -233,15 +238,19 @@ export function computeReservedByPitchForSlot(
     // net. When the admin hasn't split a hold across pitch types, reserve a
     // single indoor (Astro) net by default so an active Corporate Batch /
     // Match Simulation session always blocks that net from regular bookings.
-    // Any explicit per-pitch configuration (even a single non-Astro wicket)
-    // overrides this default.
     if (held.ASTRO + held.CEMENT + held.NATURAL === 0) held.ASTRO = 1;
+    // Cap each pitch at one wicket per session. A single group runs on a
+    // single net, so a session must never hold more than one wicket of a
+    // pitch — this is what stops a large or STALE stored count (e.g. an old
+    // `netsConsumed`, or a mis-entered "Wickets Held") from folding in and
+    // reserving the ENTIRE indoor pool, which read as "all nets blocked".
+    const cap = (n: number) => (n > 0 ? MAX_WICKETS_PER_SESSION : 0);
     // Share, don't stack: take the largest single-session hold per pitch so
-    // Corporate Batch + Match Simulation together never claim more than one
-    // needs on its own.
-    total.ASTRO = Math.max(total.ASTRO, held.ASTRO);
-    total.CEMENT = Math.max(total.CEMENT, held.CEMENT);
-    total.NATURAL = Math.max(total.NATURAL, held.NATURAL);
+    // an overlapping Corporate Batch + Match Simulation together still hold
+    // one net, not two — leaving the rest of the pool bookable.
+    total.ASTRO = Math.max(total.ASTRO, cap(held.ASTRO));
+    total.CEMENT = Math.max(total.CEMENT, cap(held.CEMENT));
+    total.NATURAL = Math.max(total.NATURAL, cap(held.NATURAL));
   };
   if (corporate) consider(corporate);
   for (const session of matchSimSessions ?? []) consider(session);

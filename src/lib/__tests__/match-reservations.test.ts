@@ -76,15 +76,25 @@ describe('resolveWicketsHeld', () => {
 });
 
 describe('computeReservedByPitchForSlot', () => {
-  it('shares the hold across corporate batch + match-sim (max per pitch, not sum)', () => {
+  it('holds at most one wicket per pitch, shared across corporate batch + match-sim', () => {
     const corporate = win({ wicketsHeld: { ASTRO: 1, NATURAL: 1 } });
     const session = win({ wicketsHeld: { ASTRO: 1, CEMENT: 2 } });
-    // Per pitch: max(ASTRO 1,1)=1, max(CEMENT 0,2)=2, max(NATURAL 1,0)=1.
+    // Each pitch is capped at one wicket per session and shared (max), so
+    // even the session's CEMENT: 2 becomes 1 — a match-practice group runs
+    // on a single net and never claims more than one wicket of a pitch.
     expect(computeReservedByPitchForSlot(corporate, [session], slotInWindow)).toEqual({
       ASTRO: 1,
-      CEMENT: 2,
+      CEMENT: 1,
       NATURAL: 1,
     });
+  });
+
+  it('caps a large / stale stored count to one net (the "all nets blocked" fix)', () => {
+    // A center whose old CORPORATE_BATCH_CONFIG folds a big netsConsumed
+    // (or a mis-entered Wickets Held) into Astro must still hold ONE net,
+    // not the whole indoor pool.
+    expect(computeReservedByPitchForSlot(win({ wicketsHeld: { ASTRO: 8 } }), [], slotInWindow))
+      .toEqual({ ASTRO: 1, CEMENT: 0, NATURAL: 0 });
   });
 
   it('both sessions enabled with default holds → one net total, not two', () => {
@@ -125,9 +135,9 @@ describe('computeReservedByPitchForSlot', () => {
       .toEqual({ ASTRO: 0, CEMENT: 0, NATURAL: 0 });
   });
 
-  it('supports legacy netsConsumed corporate configs (astro)', () => {
+  it('legacy netsConsumed corporate configs hold one astro net (capped)', () => {
     expect(computeReservedByPitchForSlot(win({ wicketsHeld: {}, netsConsumed: 2 }), [], slotInWindow))
-      .toEqual({ ASTRO: 2, CEMENT: 0, NATURAL: 0 });
+      .toEqual({ ASTRO: 1, CEMENT: 0, NATURAL: 0 });
   });
 });
 
