@@ -2070,14 +2070,6 @@ export default function ResourceSlotsPage() {
                     </div>
                   )}
 
-                  {slot.corporateBatchHolds > 0 && !isUnavailable && category !== 'FULL_COURT' && (
-                    <div className={`mt-1 text-[8px] font-bold px-1.5 py-0.5 rounded-full text-center ${
-                      selected ? 'bg-primary/20 text-primary/80' : 'bg-amber-500/15 text-amber-400 border border-amber-500/20'
-                    }`}>
-                      Batch holds {slot.corporateBatchHolds} net{slot.corporateBatchHolds === 1 ? '' : 's'}
-                    </div>
-                  )}
-
                   {/* Recurring / promotional offer pill — shown when the
                       server-computed discount preview is non-zero for the
                       active category. Mirrors ABCA's SlotGrid which shows
