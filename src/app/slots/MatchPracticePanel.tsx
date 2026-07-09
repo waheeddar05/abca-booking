@@ -483,13 +483,18 @@ export default function MatchPracticePanel({
       {/* ─── Corporate Batch ──────────────────────────────────────── */}
       {sub === 'CORPORATE' && cb.enabled && (
         <div>
-          {/* Batch info strip — schedule, coach, frequency. */}
+          {/* Batch info strip — schedule/frequency on the first line, coach
+              always on its own line below. */}
           <div className="mb-4 p-3 rounded-xl bg-white/[0.03] border border-white/[0.06] text-[11px] text-slate-400 leading-relaxed">
-            <span className="text-slate-300 font-semibold">{formatDays(cb.days)}</span>
-            {' · '}{formatHHMM(cb.startTime)} – {formatHHMM(cb.endTime)}
-            {' · '}{cb.days.length} day{cb.days.length === 1 ? '' : 's'}/week
+            <div>
+              <span className="text-slate-300 font-semibold">{formatDays(cb.days)}</span>
+              {' · '}{formatHHMM(cb.startTime)} – {formatHHMM(cb.endTime)}
+              {' · '}{cb.days.length} day{cb.days.length === 1 ? '' : 's'}/week
+            </div>
             {cb.coachName && (
-              <> · Coach: <span className="text-slate-300 font-semibold">{cb.coachName}</span></>
+              <div className="mt-1">
+                Coach: <span className="text-slate-300 font-semibold">{cb.coachName}</span>
+              </div>
             )}
           </div>
 
@@ -500,15 +505,15 @@ export default function MatchPracticePanel({
             </label>
             <div className="grid grid-cols-2 gap-1.5">
               {([
-                { key: 'MONTHLY' as const, label: 'Monthly', sub2: `₹${cb.monthlyFee}/month` },
-                { key: 'REGULAR' as const, label: 'Regular', sub2: `₹${cb.regularFee}/session` },
+                { key: 'MONTHLY' as const, label: 'Monthly', sub2: `₹${(Number(cb.monthlyFee) || 0).toLocaleString()}/month` },
+                { key: 'REGULAR' as const, label: 'Regular', sub2: `₹${(Number(cb.regularFee) || 0).toLocaleString()}/session` },
               ]).map(({ key, label, sub2 }) => {
                 const active = corpMode === key;
                 return (
                   <button
                     key={key}
                     onClick={() => setCorpMode(key)}
-                    className={`px-3 py-2.5 rounded-lg text-left border transition-all cursor-pointer ${
+                    className={`px-2.5 py-2 sm:px-3 sm:py-2.5 rounded-lg text-left border transition-all cursor-pointer ${
                       active
                         ? 'bg-accent text-primary border-accent shadow-sm'
                         : 'bg-white/[0.04] text-slate-400 border-white/[0.08] hover:border-accent/20'
@@ -530,7 +535,7 @@ export default function MatchPracticePanel({
               {cb.months.length === 0 ? (
                 <EmptyState text="No months are open for enrollment right now." />
               ) : (
-                <div className="space-y-2">
+                <div className="grid grid-cols-2 gap-2">
                   {cb.months.map((m) => {
                     const hasHalves = (m.halves?.length ?? 0) > 0;
                     const activeMonth =
@@ -555,31 +560,27 @@ export default function MatchPracticePanel({
                               setSelectedPeriod(selectedPeriod === m.period ? null : m.period);
                             }
                           }}
-                          className={`w-full flex items-center justify-between gap-3 px-3.5 py-3 text-left ${
+                          className={`w-full px-3 py-2.5 text-left ${
                             m.isFull && !hasHalves ? 'cursor-not-allowed opacity-60' : 'cursor-pointer'
                           }`}
                         >
-                          <div className="min-w-0">
-                            <p className="text-sm font-bold text-white">{m.label.replace(/ · .*/, '')}</p>
-                            <p className="text-[11px] text-slate-400 mt-0.5">
-                              <Users className="w-3 h-3 inline mr-1 -mt-0.5" />
-                              {m.enrolled} of {m.capacity} members enrolled
-                              {m.isFull
-                                ? <span className="text-red-400 font-semibold ml-1">· Full</span>
-                                : <span className="text-green-400 ml-1">· Starts {format(parseISO(m.startsOn), 'd MMM')}</span>}
-                            </p>
-                          </div>
-                          <div className="text-right flex-shrink-0">
-                            <p className="text-sm font-bold text-accent">₹{m.fee}</p>
+                          <div className="flex items-center justify-between gap-2">
+                            <p className="text-sm font-bold text-white truncate">{m.label.replace(/ · .*/, '')}</p>
                             {selectedPeriod === m.period && (
-                              <Check className="w-4 h-4 text-accent ml-auto mt-0.5" />
+                              <Check className="w-4 h-4 text-accent flex-shrink-0" />
                             )}
                           </div>
+                          <p className="text-[10px] text-slate-400 mt-0.5">
+                            <Users className="w-3 h-3 inline mr-1 -mt-0.5" />
+                            {m.enrolled}/{m.capacity} enrolled
+                            {m.isFull && <span className="text-red-400 font-semibold ml-1">· Full</span>}
+                          </p>
+                          <p className="text-sm font-bold text-accent mt-1">₹{(Number(m.fee) || 0).toLocaleString()}</p>
                         </button>
 
                         {/* Half-month options — full / first half / second half */}
                         {hasHalves && expandedMonth === m.period && (
-                          <div className="px-3.5 pb-3 grid grid-cols-1 sm:grid-cols-3 gap-1.5">
+                          <div className="px-3 pb-2.5 grid grid-cols-1 gap-1.5">
                             {[{ ...m, label: 'Full Month' } as MonthOption]
                               .concat((m.halves ?? []).map((h) => ({
                                 ...h,
@@ -813,7 +814,7 @@ function SessionCardGrid({
   onToggle: (key: string) => void;
 }) {
   return (
-    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
       {items.map((item) => {
         const isSelected = selected.has(item.key);
         const remaining = Math.max(0, item.capacity - item.booked);
@@ -822,7 +823,7 @@ function SessionCardGrid({
             key={item.key}
             disabled={item.isFull}
             onClick={() => onToggle(item.key)}
-            className={`relative px-3.5 py-3 rounded-xl border text-left transition-all ${
+            className={`relative px-2.5 py-2 rounded-lg border text-left transition-all ${
               item.isFull
                 ? 'bg-white/[0.02] border-white/[0.05] cursor-not-allowed opacity-60'
                 : isSelected
@@ -831,40 +832,40 @@ function SessionCardGrid({
             }`}
           >
             {isSelected && (
-              <div className="absolute top-2 right-2">
-                <Check className="w-4 h-4" />
+              <div className="absolute top-1.5 right-1.5">
+                <Check className="w-3.5 h-3.5" />
               </div>
             )}
-            <p className={`text-sm font-bold ${item.isFull ? 'text-slate-500' : isSelected ? '' : 'text-white'}`}>
-              {item.dayLabel}, {format(parseISO(item.date), 'd MMM')}
-            </p>
-            {item.title && (
-              <p className={`text-[11px] font-semibold mt-0.5 ${isSelected ? 'text-primary/80' : 'text-accent'}`}>
-                {item.title}
+            <div className="flex items-center justify-between gap-1 pr-4">
+              <p className={`text-xs font-bold truncate ${item.isFull ? 'text-slate-500' : isSelected ? '' : 'text-white'}`}>
+                {item.dayLabel}, {format(parseISO(item.date), 'd MMM')}
               </p>
-            )}
-            <p className={`text-[11px] mt-0.5 ${isSelected ? 'text-primary/70' : 'text-slate-400'}`}>
-              {formatTimeIST(item.startTime)} – {formatTimeIST(item.endTime)}
-              {item.coach ? ` · Coach: ${item.coach}` : ''}
-            </p>
-            <div className="flex items-center justify-between mt-1.5">
-              <span className={`text-[10px] font-medium ${
-                item.isFull
-                  ? 'text-red-400'
-                  : isSelected
-                    ? 'text-primary/70'
-                    : remaining <= 3
-                      ? 'text-amber-400'
-                      : 'text-green-400'
-              }`}>
-                {item.isFull
-                  ? `Full · ${item.booked} of ${item.capacity} ${item.seatNoun} booked`
-                  : `${item.booked} of ${item.capacity} ${item.seatNoun} booked · ${remaining} left`}
-              </span>
-              <span className={`text-[11px] font-bold ${isSelected ? 'text-primary/80' : 'text-accent'}`}>
+              <span className={`text-[10px] font-bold flex-shrink-0 ${isSelected ? 'text-primary/80' : 'text-accent'}`}>
                 ₹{item.fee}
               </span>
             </div>
+            {item.title && (
+              <p className={`text-[10px] font-semibold mt-0.5 truncate ${isSelected ? 'text-primary/80' : 'text-accent'}`}>
+                {item.title}
+              </p>
+            )}
+            <p className={`text-[10px] mt-0.5 ${isSelected ? 'text-primary/70' : 'text-slate-400'}`}>
+              {formatTimeIST(item.startTime)} – {formatTimeIST(item.endTime)}
+              {item.coach ? ` · ${item.coach}` : ''}
+            </p>
+            <p className={`text-[10px] font-medium mt-0.5 ${
+              item.isFull
+                ? 'text-red-400'
+                : isSelected
+                  ? 'text-primary/70'
+                  : remaining <= 3
+                    ? 'text-amber-400'
+                    : 'text-green-400'
+            }`}>
+              {item.isFull
+                ? `Full · ${item.booked}/${item.capacity} ${item.seatNoun}`
+                : `${item.booked}/${item.capacity} ${item.seatNoun} · ${remaining} left`}
+            </p>
           </button>
         );
       })}

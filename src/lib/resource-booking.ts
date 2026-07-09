@@ -132,7 +132,9 @@ export const DEFAULT_CORPORATE_BATCH_CONFIG: CorporateBatchConfig = {
   days: [1, 3, 5], // Mon / Wed / Fri
   startTime: '07:00',
   endTime: '09:00',
-  netsConsumed: 2,
+  // One indoor net per session by default — a Corporate Batch session
+  // physically occupies a single net. Admins can hold more per pitch type.
+  netsConsumed: 1,
 };
 
 // ─── Time helpers (IST) ──────────────────────────────────────────────
@@ -219,6 +221,13 @@ export function computeReservedByPitchForSlot(
   const add = (window: PitchReservationWindow) => {
     if (!reservationAppliesToSlot(window, slot)) return;
     const held = resolveWicketsHeld(window);
+    // Every enabled match-practice session physically occupies one indoor
+    // net. When the admin hasn't split a hold across pitch types, reserve a
+    // single indoor (Astro) net by default so an active Corporate Batch /
+    // Match Simulation session always blocks that net from regular bookings.
+    // Any explicit per-pitch configuration (even a single non-Astro wicket)
+    // overrides this default.
+    if (held.ASTRO + held.CEMENT + held.NATURAL === 0) held.ASTRO = 1;
     total.ASTRO += held.ASTRO;
     total.CEMENT += held.CEMENT;
     total.NATURAL += held.NATURAL;

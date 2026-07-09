@@ -101,8 +101,8 @@ const DEFAULT_CORPORATE: CorporateState = {
   days: [1, 3, 5],
   startTime: '07:00',
   endTime: '09:00',
-  netsConsumed: 2,
-  wicketsHeld: {},
+  netsConsumed: 1,
+  wicketsHeld: { ASTRO: 1 },
   coachName: 'Govind Lashkare',
   monthlyFee: 2000,
   regularFee: 200,
@@ -123,7 +123,7 @@ const DEFAULT_SIM: SimState = {
       fee: 200,
       coachName: '',
       enabled: true,
-      wicketsHeld: {},
+      wicketsHeld: { ASTRO: 1 },
     },
   ],
 };
@@ -756,7 +756,7 @@ export function MatchPracticeConfigEditor({
                   fee: 200,
                   coachName: '',
                   enabled: true,
-                  wicketsHeld: {},
+                  wicketsHeld: { ASTRO: 1 },
                 },
               ],
             }))

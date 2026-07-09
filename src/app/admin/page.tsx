@@ -39,6 +39,11 @@ interface Stats {
   operatorSummary: StaffSessionItem[];
   sidearmSummary: StaffSessionItem[];
   coachSummary: StaffSessionItem[];
+  matchPracticeSummary?: {
+    matchSimulation: number;
+    corporateMonthly: number;
+    corporateRegular: number;
+  };
 }
 
 const CHART_COLORS = ['#38bdf8', '#818cf8', '#fb7185', '#34d399', '#fbbf24', '#a78bfa'];
@@ -536,6 +541,38 @@ export default function AdminDashboard() {
               </tbody>
             </table>
           </div>
+        </div>
+      </div>
+
+      {/* Match Practice Session Stats — booking totals per subcategory,
+          mirroring the operator/sidearm/coach summaries above. */}
+      <div>
+        <h3 className="text-[11px] font-bold text-slate-400 uppercase tracking-widest mb-3">
+          Match Practice Sessions
+        </h3>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
+          {[
+            { label: 'Match Simulation', value: stats?.matchPracticeSummary?.matchSimulation ?? 0 },
+            { label: 'Corporate Batch (Monthly)', value: stats?.matchPracticeSummary?.corporateMonthly ?? 0 },
+            { label: 'Corporate Batch (Regular)', value: stats?.matchPracticeSummary?.corporateRegular ?? 0 },
+          ].map((c) => (
+            <div
+              key={c.label}
+              className="bg-white/[0.03] backdrop-blur-sm rounded-xl border border-white/[0.07] px-4 py-4"
+            >
+              <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider leading-tight">
+                {c.label}
+              </p>
+              <p className="text-2xl font-bold text-white mt-1.5">
+                {loading ? (
+                  <span className="inline-block w-12 h-6 bg-white/[0.06] rounded animate-pulse" />
+                ) : (
+                  c.value.toLocaleString()
+                )}
+              </p>
+              <p className="text-[10px] text-slate-500 mt-0.5">Total bookings</p>
+            </div>
+          ))}
         </div>
       </div>
     </div>

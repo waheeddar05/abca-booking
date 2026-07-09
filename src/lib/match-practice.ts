@@ -98,7 +98,9 @@ export const DEFAULT_CORPORATE_BATCH_SETTINGS: CorporateBatchSettings = {
   days: [1, 3, 5], // Mon / Wed / Fri
   startTime: '07:00',
   endTime: '09:00',
-  netsConsumed: 2,
+  // One indoor net per session by default (each session occupies a single
+  // net); admins can raise the per-pitch hold in Settings → Match Practice.
+  netsConsumed: 1,
   coachName: 'Govind Lashkare',
   monthlyFee: 2000,
   regularFee: 200,
@@ -192,6 +194,8 @@ export const DEFAULT_MATCH_SIMULATION_SETTINGS: MatchSimulationSettings = {
       fee: 200,
       coachName: '',
       enabled: true,
+      // One indoor net per session by default; admins tune per pitch type.
+      wicketsHeld: { ASTRO: 1 },
     },
   ],
 };
