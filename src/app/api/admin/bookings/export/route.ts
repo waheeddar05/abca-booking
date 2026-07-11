@@ -4,7 +4,7 @@ import { requireAdmin } from '@/lib/adminAuth';
 import { getAuthenticatedUser } from '@/lib/auth';
 import { resolveCurrentCenter } from '@/lib/centers';
 import { getISTTodayUTC, getISTLastMonthRange, dateStringToUTC, formatIST } from '@/lib/time';
-import { getBookingWalletShares, bookingPaymentSplit, paymentMethodLabel } from '@/lib/booking-payment';
+import { getBookingPaymentSplits, splitAmountGross, paymentMethodLabel, EMPTY_SPLIT } from '@/lib/booking-payment';
 
 const SAFE_BOOKING_SELECT = {
   id: true,
@@ -185,14 +185,16 @@ export async function GET(req: NextRequest) {
     // Build CSV
     const isPackage = (b: any) => !!b.packageBooking;
 
-    // Wallet attributed per booking from the wallet ledger (DEBIT_BOOKING),
-    // split evenly across a multi-slot order's slots. This fixes partial-wallet
-    // payments that previously showed ₹0 (they relied on
-    // Payment.metadata.walletDeduction, which can be absent). The online portion
-    // is derived as (amount − wallet) per booking, so Wallet + Online always
-    // equals what was charged for that slot — no fragile pro-rating of a shared
-    // payment by mutable per-slot prices.
-    const walletShares = await getBookingWalletShares(bookings.map((b) => b.id));
+    // Wallet / online attributed per booking from the CAPTURED Payment record:
+    // the order's Razorpay amount and recorded wallet deduction, each split
+    // EVENLY across the order's slots (Payment.bookingIds). The payment is the
+    // authoritative record of collected money — Booking.price drifts from it
+    // (consecutive discounts / legacy re-pricing mutate price around the
+    // payment), which made the previous price-based columns disagree with the
+    // amounts customers actually paid.
+    const paymentSplits = await getBookingPaymentSplits(
+      bookings.map((b) => ({ id: b.id, price: b.price, paymentMethod: b.paymentMethod })),
+    );
 
     // Check if there are any package bookings to decide whether to show Extra Amount column
     const hasPackageBookings = bookings.some((b: any) => !!b.packageBooking);
@@ -274,8 +276,8 @@ export async function GET(req: NextRequest) {
       // Split of the booking amount across the two funding sources.
       // For a mixed payment (some wallet + some Razorpay), the wallet
       // portion comes from Payment.metadata.walletDeduction and the
-      // online portion is Payment.amount; both are pro-rated to this
-      // booking's share when the order covered multiple slots.
+      // online portion is Payment.amount; both are split evenly across
+      // the order's bookings when the payment covered multiple slots.
       // Pure WALLET bookings → full amount under Wallet, 0 Online.
       // CASH/PACKAGE bookings → 0 / 0.
       'Wallet Amount',
@@ -332,15 +334,12 @@ export async function GET(req: NextRequest) {
         || b.assignedMachine?.name
         || 'Not Applicable';
 
-      // Wallet / online actually collected for this booking. {0, 0} for cash
-      // rows and for package sessions with no upgrade paid. Online/wallet rows
-      // use the booking's own price (= what was charged for this slot) with the
-      // wallet portion taken from the ledger; gross of refunds (the Refund
-      // Amount column carries refunds separately).
-      const split = bookingPaymentSplit(
-        { price: b.price ?? 0, paymentMethod: b.paymentMethod },
-        walletShares.get(b.id) ?? 0,
-      );
+      // Wallet / online actually collected for this booking — the even
+      // per-slot share of its captured payment's online amount and wallet
+      // deduction. {0, 0} for cash rows and for package sessions with no
+      // upgrade paid. Gross of refunds (the Refund Amount column carries
+      // refunds separately).
+      const split = paymentSplits.get(b.id) ?? EMPTY_SPLIT;
       const machineRow = isMachineBooking(b);
       // Payment Method reflects the money actually split above (not the raw
       // enum): a mixed payment reads "Wallet + Online", an online-paid package
@@ -374,7 +373,7 @@ export async function GET(req: NextRequest) {
         // Booking Price (list/charged price; per-session extra + kit for packages)
         pkg ? ((b.packageBooking?.extraCharge || 0) + (b.kitRentalCharge || 0)).toString() : (b.price?.toString() || ''),
         // Amount = actually collected = Wallet + Online (reconciles by construction)
-        (split.wallet + split.online).toString(),
+        splitAmountGross(split).toString(),
         // Wallet / online amounts paired with the same row as the
         // total so a quick sum check is obvious in Excel.
         split.wallet.toString(),

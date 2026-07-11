@@ -11,7 +11,7 @@ import {
   adjustSiblingPricesForCancellation,
   processCancellationRefund,
 } from '@/lib/booking-cancellation';
-import { bookingAmountPaidNet } from '@/lib/booking-payment';
+import { getBookingPaymentSplits, splitAmountNet, EMPTY_SPLIT } from '@/lib/booking-payment';
 import { log } from '@/lib/logger';
 
 type MachineIdFilter = 'GRAVITY' | 'YANTRA' | 'LEVERAGE_INDOOR' | 'LEVERAGE_OUTDOOR';
@@ -362,14 +362,15 @@ export async function GET(req: NextRequest) {
 
     // Attach the funds actually collected (online + wallet) per row, net of
     // refunds, so the admin list shows "amount paid by the user" instead of the
-    // list price. Based on the booking's own price (cash/free/package-covered →
-    // 0); same definition the dashboard + CSV export use, so the three surfaces
-    // reconcile. A fully-refunded cancelled slot correctly shows ₹0.
+    // list price. Derived from the captured Payment record (even per-slot share
+    // of the order); cash/free/package-covered rows resolve to 0. Same
+    // definition the dashboard + CSV export use, so the three surfaces
+    // reconcile.
+    const paymentSplits = await getBookingPaymentSplits(
+      bookings.map((b) => ({ id: b.id, price: b.price, paymentMethod: b.paymentMethod })),
+    );
     for (const b of bookings) {
-      b.amountPaid = bookingAmountPaidNet(
-        { price: b.price, paymentMethod: b.paymentMethod },
-        b.refunds ?? [],
-      );
+      b.amountPaid = splitAmountNet(paymentSplits.get(b.id) ?? EMPTY_SPLIT, b.refunds ?? []);
     }
 
     // Summary counts use baseWhere (without status time constraints) + derived status logic
@@ -407,17 +408,16 @@ export async function GET(req: NextRequest) {
               ],
             },
             select: {
+              id: true,
               price: true,
               paymentMethod: true,
               refunds: { select: { amount: true, status: true } },
             },
           });
+          const revenueSplits = await getBookingPaymentSplits(revenueBookings);
           let revenue = 0;
           for (const b of revenueBookings) {
-            revenue += bookingAmountPaidNet(
-              { price: b.price, paymentMethod: b.paymentMethod },
-              b.refunds,
-            );
+            revenue += splitAmountNet(revenueSplits.get(b.id) ?? EMPTY_SPLIT, b.refunds);
           }
           return Math.round(revenue);
         } catch {

@@ -738,6 +738,9 @@ model WalletTransaction {
   wallet      Wallet                @relation(fields: [walletId], references: [id])
 
   @@index([walletId])
+  // The booking-payment wallet-ledger fallback filters DEBIT_BOOKING rows by
+  // referenceId (booking id).
+  @@index([referenceId])
 }
 
 // ─── Enums ──────────────────────────────────────────────────────────
@@ -923,6 +926,9 @@ model Payment {
   @@index([centerId, status])
   @@index([razorpayOrderId])
   @@index([status])
+  // Admin money columns look payments up by booking id (bookingIds && ARRAY[...]);
+  // only a GIN index can serve that array-overlap filter.
+  @@index([bookingIds], type: Gin)
 }
 
 model Refund {

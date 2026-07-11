@@ -4,7 +4,7 @@ import { requireAdmin } from '@/lib/adminAuth';
 import { getAuthenticatedUser } from '@/lib/auth';
 import { resolveCurrentCenter } from '@/lib/centers';
 import { getISTTodayUTC, getISTLastMonthRange, dateStringToUTC } from '@/lib/time';
-import { bookingAmountPaidNet } from '@/lib/booking-payment';
+import { getBookingPaymentSplits, splitAmountNet, EMPTY_SPLIT } from '@/lib/booking-payment';
 
 // Epoch millis for a nullable groupBy `_max.date`. Used to break ties when two
 // staff have the same session count so the most recent booking ranks higher.
@@ -317,15 +317,19 @@ export async function GET(req: NextRequest) {
             },
           });
 
+          // Funds actually collected per booking, derived from the captured
+          // Payment record (even per-slot share of the order's online amount +
+          // wallet deduction) — Booking.price drifts from the collected money,
+          // so it is only a fallback for rows with no payment. Same definition
+          // the CSV export and admin list use, so all three reconcile.
+          const paymentSplits = await getBookingPaymentSplits(bookings);
+
           let bookingRevenue = 0;
           for (const b of bookings) {
-            // Funds actually collected for this booking (online + wallet) net of
-            // non-failed refunds. Based on the booking's own price (= what was
-            // charged for the slot) — cash/free/package-covered rows resolve to
-            // 0. Same definition the CSV export and admin list use, so all three
-            // reconcile. Identical for regular and package-redemption rows.
-            const value = bookingAmountPaidNet(
-              { price: b.price, paymentMethod: b.paymentMethod },
+            // Net of non-failed refunds. Cash/free/package-covered rows resolve
+            // to 0. Identical for regular and package-redemption rows.
+            const value = splitAmountNet(
+              paymentSplits.get(b.id) ?? EMPTY_SPLIT,
               b.refunds,
             );
             bookingRevenue += value;
