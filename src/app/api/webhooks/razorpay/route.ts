@@ -7,6 +7,12 @@ import {
 import { getCenterRazorpayCredentials, verifyWebhookSignatureWithSecret } from '@/lib/razorpay';
 import { completePackagePurchase } from '@/lib/package-purchase';
 
+// Booking creation runs a serializable transaction with retries and, on a
+// failure path, polls Payment.bookingIds for up to 8s before refunding.
+// The platform's default function timeout can cut that short and kill the
+// webhook mid-booking, leaving a CAPTURED payment with no booking.
+export const maxDuration = 60;
+
 /**
  * POST /api/webhooks/razorpay
  *

@@ -65,6 +65,13 @@ export async function middleware(req: NextRequest) {
     pathname.startsWith("/loc/") ||
     pathname.startsWith("/api/auth") ||
     pathname.startsWith("/api/webhooks/") ||
+    // Vercel Cron requests carry no session cookie — only the
+    // `Authorization: Bearer <CRON_SECRET>` header, which each cron route
+    // verifies itself (fail-closed). Without this exemption the middleware
+    // redirected cron GETs to "/", so the payment-reconcile safety net
+    // never ran and paid-but-unconfirmed bookings sat until the customer
+    // happened to reopen the app.
+    pathname.startsWith("/api/cron/") ||
     pathname.startsWith("/api/maintenance") ||
     pathname.startsWith("/_next") ||
     pathname === "/favicon.ico" ||
@@ -191,6 +198,6 @@ export const config = {
      * - favicon.ico (favicon file)
      * - images (public images)
      */
-    "/((?!api/auth|api/webhooks|api/maintenance|login|otp|maintenance|_next/static|_next/image|favicon.ico|images|icons|sw\\.js|manifest\\.json|\\.well-known|privacy-policy).*)",
+    "/((?!api/auth|api/webhooks|api/cron|api/maintenance|login|otp|maintenance|_next/static|_next/image|favicon.ico|images|icons|sw\\.js|manifest\\.json|\\.well-known|privacy-policy).*)",
   ],
 };
