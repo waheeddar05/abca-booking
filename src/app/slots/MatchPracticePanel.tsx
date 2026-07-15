@@ -453,8 +453,8 @@ export default function MatchPracticePanel({
           </label>
           <div className="grid grid-cols-2 gap-1.5">
             {([
-              { key: 'CORPORATE' as Sub, label: 'Corporate Batch', icon: Users },
               { key: 'SIMULATION' as Sub, label: 'Match Simulation', icon: Trophy },
+              { key: 'CORPORATE' as Sub, label: 'Corporate Batch', icon: Users },
             ]).map(({ key, label, icon: Icon }) => {
               const active = sub === key;
               return (
@@ -541,12 +541,13 @@ export default function MatchPracticePanel({
                     const activeMonth =
                       selectedPeriod === m.period
                       || !!m.halves?.some((h) => h.period === selectedPeriod);
+                    const monthSelected = selectedPeriod === m.period;
                     return (
                       <div
                         key={m.period}
-                        className={`rounded-xl border transition-all ${
+                        className={`rounded-lg border transition-all overflow-hidden ${
                           activeMonth
-                            ? 'border-accent/60 bg-accent/5'
+                            ? 'border-accent'
                             : 'border-white/[0.08] bg-white/[0.03]'
                         }`}
                       >
@@ -560,22 +561,22 @@ export default function MatchPracticePanel({
                               setSelectedPeriod(selectedPeriod === m.period ? null : m.period);
                             }
                           }}
-                          className={`w-full px-3 py-2.5 text-left ${
+                          className={`w-full px-2.5 py-2 text-left ${
                             m.isFull && !hasHalves ? 'cursor-not-allowed opacity-60' : 'cursor-pointer'
-                          }`}
+                          } ${monthSelected ? 'bg-accent' : ''}`}
                         >
                           <div className="flex items-center justify-between gap-2">
-                            <p className="text-sm font-bold text-white truncate">{m.label.replace(/ · .*/, '')}</p>
-                            {selectedPeriod === m.period && (
-                              <Check className="w-4 h-4 text-accent flex-shrink-0" />
+                            <p className={`text-xs font-bold truncate ${monthSelected ? 'text-primary' : 'text-white'}`}>{m.label.replace(/ · .*/, '')}</p>
+                            {monthSelected && (
+                              <Check className="w-3.5 h-3.5 text-primary flex-shrink-0" />
                             )}
                           </div>
-                          <p className="text-[10px] text-slate-400 mt-0.5">
+                          <p className={`text-[10px] mt-0.5 ${monthSelected ? 'text-primary/70' : 'text-slate-400'}`}>
                             <Users className="w-3 h-3 inline mr-1 -mt-0.5" />
                             {m.enrolled}/{m.capacity} enrolled
-                            {m.isFull && <span className="text-red-400 font-semibold ml-1">· Full</span>}
+                            {m.isFull && <span className={`font-semibold ml-1 ${monthSelected ? 'text-primary' : 'text-red-400'}`}>· Full</span>}
                           </p>
-                          <p className="text-sm font-bold text-accent mt-1">₹{(Number(m.fee) || 0).toLocaleString()}</p>
+                          <p className={`text-xs font-bold mt-0.5 ${monthSelected ? 'text-primary' : 'text-accent'}`}>₹{(Number(m.fee) || 0).toLocaleString()}</p>
                         </button>
 
                         {/* Half-month options — full / first half / second half */}
@@ -838,7 +839,7 @@ function SessionCardGrid({
             )}
             <div className="flex items-center justify-between gap-1 pr-4">
               <p className={`text-xs font-bold truncate ${item.isFull ? 'text-slate-500' : isSelected ? '' : 'text-white'}`}>
-                {item.dayLabel}, {format(parseISO(item.date), 'd MMM')}
+                {format(parseISO(item.date), 'EEE').toUpperCase()}, {format(parseISO(item.date), 'd MMM')}
               </p>
               <span className={`text-[10px] font-bold flex-shrink-0 ${isSelected ? 'text-primary/80' : 'text-accent'}`}>
                 ₹{item.fee}

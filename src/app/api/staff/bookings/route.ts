@@ -55,13 +55,6 @@ function isValidRole(r: unknown): r is StaffRole {
   );
 }
 
-// Categories handled on the floor by the center's ground staff: every
-// booking that ISN'T a machine (operator), sidearm-specialist, or coaching
-// session. That leaves the facility bookings — Cricket Nets, Full Indoor
-// Court, and any future facility category — which is exactly what the
-// Ground Staff tab should surface.
-const GROUND_STAFF_NON_CATEGORIES = ['MACHINE', 'SIDEARM', 'COACHING'] as const;
-
 const ALL_LEGACY_MACHINES = ['GRAVITY', 'YANTRA', 'LEVERAGE_INDOOR', 'LEVERAGE_OUTDOOR'];
 
 export async function GET(req: NextRequest) {
@@ -141,23 +134,19 @@ export async function GET(req: NextRequest) {
     // per-staff predicate below so a specialist / coach sees only their
     // own assigned sessions.
     //
-    //   OPERATOR           → MACHINE  (bowling-machine sessions; legacy
-    //                        ABCA rows are MACHINE too — Booking.category
-    //                        is NOT NULL with a default of MACHINE)
+    //   OPERATOR           → EVERY booking category at the center, so an
+    //                        operator can coordinate the whole floor and
+    //                        see the ground staff / sidearm / coach on
+    //                        each session (not just machine sessions).
     //   COACH              → COACHING (personal-coaching sessions)
     //   SIDEARM_SPECIALIST → SIDEARM  (sidearm-specialist sessions)
-    //   GROUND_STAFF       → everything else (NET / FULL_COURT / any other
-    //                        facility booking) — the bookings whose
-    //                        on-ground handling falls to the center's
-    //                        ground staff rather than an operator / coach /
-    //                        sidearm specialist.
+    //   GROUND_STAFF       → EVERY booking category at the center, same
+    //                        full-floor visibility as operators.
     if (role === 'OPERATOR') {
-      bookingWhere.category = 'MACHINE';
-
-      // Optional machine dropdown narrows *within* machine bookings.
-      // Honour both axes — the UI sends either a legacy enum string or
-      // a Machine.id (cuid) depending on the center's booking model.
-      // The category filter above stays in force alongside it.
+      // No category predicate — operators see all bookings. The optional
+      // machine dropdown still narrows to a specific machine when the user
+      // picks one (which implicitly scopes to machine sessions). The UI
+      // sends either a legacy enum string or a Machine.id (cuid).
       if (filterMachineId) {
         if (ALL_LEGACY_MACHINES.includes(filterMachineId)) {
           bookingWhere.machineId = filterMachineId as never;
@@ -169,9 +158,8 @@ export async function GET(req: NextRequest) {
       bookingWhere.category = 'COACHING';
     } else if (role === 'SIDEARM_SPECIALIST') {
       bookingWhere.category = 'SIDEARM';
-    } else if (role === 'GROUND_STAFF') {
-      bookingWhere.category = { notIn: [...GROUND_STAFF_NON_CATEGORIES] };
     }
+    // GROUND_STAFF: no category predicate — full-floor visibility.
 
     // Assignment-based visibility for Sidearm & Coach.
     //
@@ -289,8 +277,8 @@ export async function GET(req: NextRequest) {
           assignedMachine: {
             select: { id: true, name: true, shortName: true, machineType: { select: { code: true, name: true } } },
           },
-          assignedCoach: { select: { id: true, name: true } },
-          assignedStaff: { select: { id: true, name: true } },
+          assignedCoach: { select: { id: true, name: true, mobileNumber: true } },
+          assignedStaff: { select: { id: true, name: true, mobileNumber: true } },
           assignedGroundStaff: { select: { id: true, name: true, mobileNumber: true } },
           packageBooking: {
             include: {
@@ -321,7 +309,9 @@ export async function GET(req: NextRequest) {
         ? b.assignedMachine.shortName ?? b.assignedMachine.name
         : null,
       assignedCoachName: b.assignedCoach?.name ?? null,
+      assignedCoachMobile: b.assignedCoach?.mobileNumber ?? null,
       assignedStaffName: b.assignedStaff?.name ?? null,
+      assignedStaffMobile: b.assignedStaff?.mobileNumber ?? null,
       assignedGroundStaff: b.assignedGroundStaff
         ? {
             id: b.assignedGroundStaff.id,

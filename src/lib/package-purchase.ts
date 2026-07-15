@@ -23,10 +23,9 @@ export interface CompletePackagePurchaseResult {
 }
 
 /**
- * Idempotent-ish: if the Payment row already has a userPackageId,
- * the caller should not re-invoke this — but if they do, the
- * "already active package with remaining sessions" guard inside
- * still keeps things sane.
+ * Idempotent-ish: the source of truth for "did we already complete this
+ * payment" is `Payment.userPackageId`, which the caller should check
+ * before invoking us. Users may own any number of the same package.
  */
 export async function completePackagePurchase(
   payment: { id: string; amount: number; metadata: unknown; centerId: string },
@@ -43,27 +42,8 @@ export async function completePackagePurchase(
   const pkg = await prisma.package.findUnique({ where: { id: packageId } });
   if (!pkg) throw new Error('Package not found');
 
-  // Reject if the user already has an active row with sessions left.
-  // Note: this is a soft check — the source of truth for "did we
-  // already complete this payment" is `Payment.userPackageId`, which
-  // the caller should check before invoking us. This guard is for
-  // double-purchase prevention, not double-fulfilment.
-  const activePackages = await prisma.userPackage.findMany({
-    where: {
-      userId,
-      packageId: pkg.id,
-      status: 'ACTIVE',
-      expiryDate: { gte: new Date() },
-    },
-  });
-  const packageWithSessions = activePackages.find(
-    (up) => up.usedSessions < up.totalSessions,
-  );
-  if (packageWithSessions) {
-    throw new Error(
-      `Already have an active "${pkg.name}" package with remaining sessions`,
-    );
-  }
+  // Repeat purchases of the same package are allowed — each becomes its
+  // own UserPackage row with independent validity and session balance.
 
   // Total paid = Razorpay amount + wallet deduction.
   const totalAmountPaid = payment.amount + walletDeduction;

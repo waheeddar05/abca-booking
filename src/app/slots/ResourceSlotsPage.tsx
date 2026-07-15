@@ -296,12 +296,12 @@ function describeResourceType(type: string | null | undefined): string {
 const CATEGORIES: Array<{ key: Category; label: string; icon: typeof Settings2; sub: string }> = [
   { key: 'MACHINE',         label: 'Bowling Machine',     icon: Settings2,  sub: 'Yantra / Leverage' },
   { key: 'NET',             label: 'Cricket Nets',         icon: LayoutGrid, sub: 'Bare net for self practice' },
+  { key: 'MATCH_PRACTICE',  label: 'Match Practice',      icon: Goal,       sub: 'Corporate batch & match sims' },
+  // CORPORATE_BATCH as a standalone tab stays hidden — corporate batch
+  // enrollments are booked through the Match Practice tab above.
+  { key: 'FULL_COURT',      label: 'Full Indoor Court',   icon: LayoutGrid, sub: 'All indoor nets' },
   { key: 'SIDEARM',         label: 'Sidearm',             icon: Users,      sub: 'Bowled by a specialist' },
   { key: 'COACHING',        label: 'Personal Coaching',   icon: UserCog,    sub: 'With a coach' },
-  // CORPORATE_BATCH as a standalone tab stays hidden — corporate batch
-  // enrollments are booked through the Match Practice tab below.
-  { key: 'FULL_COURT',      label: 'Full Indoor Court',   icon: LayoutGrid, sub: 'All indoor nets' },
-  { key: 'MATCH_PRACTICE',  label: 'Match Practice',      icon: Goal,       sub: 'Corporate batch & match sims' },
 ];
 
 export default function ResourceSlotsPage() {

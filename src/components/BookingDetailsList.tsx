@@ -178,10 +178,10 @@ export function BookingDetailsList({
   const operatorMobile = booking.operatorMobile || booking.operator?.mobileNumber || null;
 
   const staffName = booking.assignedStaffName || booking.assignedStaff?.name || null;
-  const staffMobile = booking.assignedStaff?.mobileNumber || null;
+  const staffMobile = booking.assignedStaffMobile || booking.assignedStaff?.mobileNumber || null;
 
   const coachName = booking.assignedCoachName || booking.assignedCoach?.name || null;
-  const coachMobile = booking.assignedCoach?.mobileNumber || null;
+  const coachMobile = booking.assignedCoachMobile || booking.assignedCoach?.mobileNumber || null;
 
   // Ground staff — prefer the person actually assigned to THIS booking
   // (Booking.assignedGroundStaff), falling back to the center's default

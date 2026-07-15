@@ -116,10 +116,10 @@ const CATEGORY_TABS = [
 ] as const;
 
 const ROLE_LABELS: Record<StaffRole, { label: string; sub: string; icon: typeof Wrench }> = {
-  OPERATOR: { label: 'Operator', sub: 'Bowling machine sessions', icon: Wrench },
+  OPERATOR: { label: 'Operator', sub: 'All bookings on the floor', icon: Wrench },
   COACH: { label: 'Coach', sub: 'Personal coaching sessions', icon: UserCog },
   SIDEARM_SPECIALIST: { label: 'Sidearm', sub: 'Sidearm specialist sessions', icon: Users },
-  GROUND_STAFF: { label: 'Ground Staff', sub: 'Cricket nets & full court', icon: HardHat },
+  GROUND_STAFF: { label: 'Ground Staff', sub: 'All bookings on the floor', icon: HardHat },
 };
 
 export default function StaffDashboard() {
@@ -545,13 +545,11 @@ export default function StaffDashboard() {
           </div>
           <p className="text-sm font-medium text-slate-300 mb-1">No bookings found</p>
           <p className="text-xs text-slate-400">
-            {role === 'OPERATOR'
-              ? 'No bowling machine bookings found.'
-              : role === 'COACH'
-                ? 'No coaching sessions found.'
-                : role === 'SIDEARM_SPECIALIST'
-                  ? 'No sidearm sessions found.'
-                  : 'No cricket net or full court bookings found.'}
+            {role === 'COACH'
+              ? 'No coaching sessions found.'
+              : role === 'SIDEARM_SPECIALIST'
+                ? 'No sidearm sessions found.'
+                : 'No bookings found.'}
           </p>
         </div>
       ) : (

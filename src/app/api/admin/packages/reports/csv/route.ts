@@ -165,8 +165,6 @@ export async function GET(req: NextRequest) {
     // /api/admin/bookings/export).
     const headers = [
       'User Name',
-      'Email',
-      'Mobile',
       'Package Name',
       'Booking Category',
       'Machine Type',
@@ -197,8 +195,6 @@ export async function GET(req: NextRequest) {
         : 'Not Applicable';
       return [
         up.user?.name || '',
-        up.user?.email || '',
-        up.user?.mobileNumber || '',
         up.package?.name || '',
         packageCategoryLabel(category),
         up.package?.machineType || '',

@@ -30,29 +30,9 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Package is not available' }, { status: 400 });
     }
 
-    // Check if user already has this package ACTIVE and with remaining sessions
+    // Users may buy the same package any number of times — each purchase is
+    // a separate UserPackage with its own validity and session balance.
     const now = new Date();
-    const activePackages = await prisma.userPackage.findMany({
-      where: {
-        userId: user.id,
-        packageId: pkg.id,
-        status: 'ACTIVE',
-        OR: [
-          { expiryDate: null },
-          { expiryDate: { gte: now } },
-        ],
-      },
-    });
-
-    const packageWithSessions = activePackages.find(up => up.usedSessions < up.totalSessions);
-
-    if (packageWithSessions) {
-      const remaining = packageWithSessions.totalSessions - packageWithSessions.usedSessions;
-      return NextResponse.json(
-        { error: `You already have an active "${pkg.name}" package with ${remaining} session(s) remaining. You can only purchase it again once all sessions are used.` },
-        { status: 400 }
-      );
-    }
 
     console.log(`Creating UserPackage for user ${user.id}, package ${pkg.id}`);
     const userPackage = await prisma.userPackage.create({
