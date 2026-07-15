@@ -1,12 +1,11 @@
-import { NextRequest, NextResponse, after } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import type { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 import { requireCenterAdmin } from '@/lib/adminAuth';
 import { getAuthenticatedUser } from '@/lib/auth';
 import { resolveCurrentCenter } from '@/lib/centers';
 import { getISTTodayUTC, getISTLastMonthRange, dateStringToUTC, formatIST } from '@/lib/time';
-import { notifyBookingCancelled, notifyAssignedStaffBookingCancelled, notifyAssignedStaffNewBooking, buildCancellationDetailLines } from '@/lib/notifications';
-import { autoAssignOperator } from '@/lib/operatorAssign';
+import { notifyBookingCancelled, notifyAssignedStaffBookingCancelled, buildCancellationDetailLines } from '@/lib/notifications';
 import {
   adjustSiblingPricesForCancellation,
   processCancellationRefund,
@@ -463,6 +462,23 @@ export async function PATCH(req: NextRequest) {
       return NextResponse.json({ error: 'Booking ID is required' }, { status: 400 });
     }
 
+    // Moderators are restricted admins: they may NOT cancel bookings or
+    // change staff assignments (operator / sidearm specialist / coach /
+    // ground staff). Everything else on this endpoint stays allowed.
+    if (session.isModerator) {
+      const isCancelling = status === 'CANCELLED';
+      const isReassigning =
+        operatorId !== undefined ||
+        assignedStaffId !== undefined ||
+        assignedGroundStaffId !== undefined;
+      if (isCancelling || isReassigning) {
+        return NextResponse.json(
+          { error: 'Moderators cannot cancel bookings or change staff assignments.' },
+          { status: 403 },
+        );
+      }
+    }
+
     const authUser = await getAuthenticatedUser(req);
     const adminName = authUser?.name || authUser?.id || 'Admin';
 
@@ -721,163 +737,6 @@ export async function PATCH(req: NextRequest) {
     return NextResponse.json({ id: booking.id, status: booking.status, price: booking.price });
   } catch (error: any) {
     log.error({ op: 'booking.cancel.admin' }, 'Admin booking update error', error);
-    return NextResponse.json({ error: error?.message || 'Internal server error' }, { status: 500 });
-  }
-}
-
-// POST: Copy booking to next consecutive slot
-export async function POST(req: NextRequest) {
-  try {
-    const session = await requireCenterAdmin(req);
-    if (!session) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 403 });
-    }
-
-    const { bookingId, action } = await req.json();
-
-    if (!bookingId || !action) {
-      return NextResponse.json({ error: 'Booking ID and action are required' }, { status: 400 });
-    }
-
-    if (action === 'copy_next_slot') {
-      const authUser = await getAuthenticatedUser(req);
-      const createdBy = authUser?.name || authUser?.id || 'Admin';
-
-      // Find the source booking
-      const sourceBooking = await prisma.booking.findUnique({
-        where: { id: bookingId },
-      });
-
-      if (!sourceBooking) {
-        return NextResponse.json({ error: 'Booking not found' }, { status: 404 });
-      }
-
-      // Copy Next is the ABCA legacy (MACHINE_PITCH) consecutive flow:
-      // it only knows how to clone machineId + pitchType + ballType.
-      // Resource-based bookings (Toplay) carry assignedMachineId,
-      // assignedCoachId, assignedStaffId, and a set of consumed Resources
-      // that this flow doesn't replicate — copying would create a row
-      // with the right time but no assignments, causing availability
-      // gaps and refund chaos. Block here with a clear message; the
-      // admin can re-book the next slot through the normal flow.
-      if (sourceBooking.category && sourceBooking.category !== 'MACHINE') {
-        return NextResponse.json(
-          { error: `Copy Next is only available for machine bookings. ${sourceBooking.category} bookings must be created from the slot grid so coach/staff/resources can be reassigned.` },
-          { status: 400 },
-        );
-      }
-      if (!sourceBooking.machineId && sourceBooking.assignedMachineId) {
-        return NextResponse.json(
-          { error: 'Copy Next is not supported for resource-based bookings yet. Use the slot grid to book the next slot.' },
-          { status: 400 },
-        );
-      }
-
-      // Calculate next slot time (30 min after current endTime)
-      const nextStartTime = new Date(sourceBooking.endTime);
-      const nextEndTime = new Date(nextStartTime.getTime() + 30 * 60 * 1000);
-
-      // Check if slot is already booked
-      const existing = await prisma.booking.findFirst({
-        where: {
-          date: sourceBooking.date,
-          startTime: nextStartTime,
-          machineId: sourceBooking.machineId,
-          pitchType: sourceBooking.pitchType,
-          status: 'BOOKED',
-        },
-      });
-
-      if (existing) {
-        return NextResponse.json({ error: 'Next slot is already booked' }, { status: 409 });
-      }
-
-      // Apply consecutive pricing if available
-      let newPrice = sourceBooking.price;
-      let updatedSourcePrice = sourceBooking.price;
-      try {
-        const { getPricingConfig, getTimeSlabConfig, calculateNewPricing } = await import('@/lib/pricing');
-        const [pricingConfig, timeSlabConfig] = await Promise.all([
-          getPricingConfig(sourceBooking.centerId),
-          getTimeSlabConfig(sourceBooking.centerId),
-        ]);
-
-        const isMachineA = ['LEATHER', 'MACHINE'].includes(sourceBooking.ballType);
-        const category: 'MACHINE' | 'TENNIS' = isMachineA ? 'MACHINE' : 'TENNIS';
-
-        // Calculate consecutive pricing for 2 slots
-        const pricing = calculateNewPricing(
-          [
-            { startTime: sourceBooking.startTime, endTime: sourceBooking.endTime },
-            { startTime: nextStartTime, endTime: nextEndTime },
-          ],
-          category,
-          sourceBooking.ballType as any,
-          sourceBooking.pitchType as any,
-          timeSlabConfig,
-          pricingConfig
-        );
-
-        if (pricing[1]) {
-          newPrice = pricing[1].price;
-          updatedSourcePrice = pricing[0].price;
-        }
-      } catch {
-        // fallback: keep same price
-      }
-
-      // Auto-assign operator if booking requires one
-      let assignedOperatorId: string | null = null;
-      if (sourceBooking.operationMode === 'WITH_OPERATOR') {
-        assignedOperatorId = await autoAssignOperator(
-          sourceBooking.date,
-          nextStartTime,
-          undefined,
-          sourceBooking.machineId,
-          undefined,
-          sourceBooking.centerId,
-        );
-      }
-
-      // Start transaction to create new booking and update source booking price.
-      // The new (consecutive) booking inherits the source booking's center.
-      const [newBooking] = await prisma.$transaction([
-        prisma.booking.create({
-          data: {
-            centerId: sourceBooking.centerId,
-            userId: sourceBooking.userId,
-            date: sourceBooking.date,
-            startTime: nextStartTime,
-            endTime: nextEndTime,
-            status: 'BOOKED',
-            ballType: sourceBooking.ballType,
-            pitchType: sourceBooking.pitchType,
-            machineId: sourceBooking.machineId,
-            playerName: sourceBooking.playerName,
-            operationMode: sourceBooking.operationMode,
-            createdBy: createdBy,
-            price: newPrice,
-            originalPrice: sourceBooking.originalPrice,
-            ...(assignedOperatorId ? { operatorId: assignedOperatorId } : {}),
-          },
-        }),
-        prisma.booking.update({
-          where: { id: sourceBooking.id },
-          data: { price: updatedSourcePrice }
-        })
-      ]);
-
-      // Notify assigned staff about the newly created (consecutive) booking.
-      // after() keeps the function alive so the WhatsApp send isn't aborted
-      // when the response is flushed (a bare `void` gets suspended on Vercel).
-      after(() => notifyAssignedStaffNewBooking([newBooking.id]));
-
-      return NextResponse.json(newBooking);
-    }
-
-    return NextResponse.json({ error: 'Unknown action' }, { status: 400 });
-  } catch (error: any) {
-    console.error('Admin booking action error:', error);
     return NextResponse.json({ error: error?.message || 'Internal server error' }, { status: 500 });
   }
 }

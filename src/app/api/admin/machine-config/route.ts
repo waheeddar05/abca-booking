@@ -134,6 +134,11 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 403 });
     }
 
+    // Machine config lives under Settings — off-limits to moderators.
+    if (session.isModerator) {
+      return NextResponse.json({ error: 'Moderators cannot change settings.' }, { status: 403 });
+    }
+
     const user = await getAuthenticatedUser(req);
     const scope = readScope(req);
     if (scope === 'global' && !user?.isSuperAdmin) {

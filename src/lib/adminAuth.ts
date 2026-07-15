@@ -2,7 +2,7 @@ import { NextRequest } from 'next/server';
 import { getToken } from 'next-auth/jwt';
 import { verifyToken } from '@/lib/jwt';
 import { prisma } from '@/lib/prisma';
-import { getAuthenticatedUser, hasMembershipRole } from '@/lib/auth';
+import { getAuthenticatedUser, hasMembershipRole, isCenterModerator } from '@/lib/auth';
 import { resolveCurrentCenter } from '@/lib/centers';
 
 const SUPER_ADMIN_EMAIL = process.env.SUPER_ADMIN_EMAIL || process.env.INITIAL_ADMIN_EMAIL || '';
@@ -43,7 +43,11 @@ export async function getAdminSession(req: NextRequest) {
 
 export async function requireAdmin(req: NextRequest) {
   const session = await getAdminSession(req);
-  if (session?.role !== 'ADMIN') return null;
+  // MODERATOR is a restricted admin. This coarse guard fronts read-only
+  // / export endpoints (stats, reports, export) that moderators ARE
+  // allowed to use, so they pass here. Endpoints that a moderator must
+  // NOT reach keep a stricter check of their own.
+  if (session?.role !== 'ADMIN' && session?.role !== 'MODERATOR') return null;
   return session;
 }
 
@@ -68,18 +72,23 @@ export async function requireAdmin(req: NextRequest) {
 export async function requireCenterAdmin(req: NextRequest) {
   const user = await getAuthenticatedUser(req);
   if (!user) return null;
-  // Global "ADMIN" is still required as a coarse gate; this catches
-  // OPERATOR / COACH / SIDEARM_SPECIALIST users early.
-  if (user.role !== 'ADMIN' && !user.isSuperAdmin) return null;
+  // Global "ADMIN"/"MODERATOR" is still required as a coarse gate; this
+  // catches OPERATOR / COACH / SIDEARM_SPECIALIST users early. MODERATOR
+  // is admitted here (it's a restricted admin) — routes that a moderator
+  // must not perform gate on the `isModerator` flag returned below.
+  if (user.role !== 'ADMIN' && user.role !== 'MODERATOR' && !user.isSuperAdmin) return null;
   const center = await resolveCurrentCenter(req, user);
   if (!center) return null;
   if (user.isSuperAdmin) {
-    return { user, center };
+    return { user, center, isModerator: false };
   }
-  if (!hasMembershipRole(user, center.id, 'ADMIN')) {
+  if (
+    !hasMembershipRole(user, center.id, 'ADMIN') &&
+    !hasMembershipRole(user, center.id, 'MODERATOR')
+  ) {
     return null;
   }
-  return { user, center };
+  return { user, center, isModerator: isCenterModerator(user, center.id) };
 }
 
 /**

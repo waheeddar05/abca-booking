@@ -138,6 +138,29 @@ export function hasMembershipRole(
 }
 
 /**
+ * True if the user's effective admin access at this center comes from a
+ * MODERATOR membership rather than a full ADMIN one. Moderators are
+ * restricted admins — they reach most of the panel but are blocked from
+ * a specific set of destructive/critical actions (see the MODERATOR note
+ * in schema.prisma).
+ *
+ * Super admins and full center admins are never moderators. A user who
+ * holds BOTH an ADMIN and a MODERATOR membership at the same center is
+ * treated as a full admin (ADMIN wins), so the restriction only bites
+ * true moderator-only users.
+ *
+ * Use this in every route that requireCenterAdmin lets through but that a
+ * moderator must NOT be able to perform (cancel/refund bookings, reassign
+ * staff, mutate packages, change settings).
+ */
+export function isCenterModerator(user: AuthenticatedUser, centerId: string): boolean {
+  if (user.isSuperAdmin) return false;
+  const memberships = user.centerMemberships.filter((m) => m.centerId === centerId);
+  if (memberships.some((m) => m.role === 'ADMIN')) return false;
+  return memberships.some((m) => m.role === 'MODERATOR');
+}
+
+/**
  * Center IDs the user can administer. Super admins return [] — callers
  * should treat that as "all centers" via a separate branch, since we
  * don't know the full list here without an extra query.

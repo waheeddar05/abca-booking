@@ -124,6 +124,12 @@ model CenterMembership {
 
 enum MembershipRole {
   ADMIN
+  // Restricted admin. Has access to most of the admin panel but cannot
+  // touch critical surfaces: Users, Settings, and the center config
+  // ("My Center") are hidden, and booking cancellation/refund/staff
+  // reassignment plus all package mutations are blocked. Enforced in
+  // both the API guards and the admin UI.
+  MODERATOR
   OPERATOR
   COACH
   // Renamed from SIDEARM_STAFF — same role, clearer label. The Postgres
@@ -748,6 +754,10 @@ model WalletTransaction {
 enum UserRole {
   USER
   ADMIN
+  // Restricted admin — see the MODERATOR note on MembershipRole. Mirrored
+  // here as a global platform role so middleware / session-based gating
+  // can recognise a moderator the same way it recognises an admin.
+  MODERATOR
   OPERATOR
   COACH
   SIDEARM_SPECIALIST

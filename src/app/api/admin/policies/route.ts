@@ -28,7 +28,9 @@ function readScope(req: NextRequest): Scope {
 export async function GET(req: NextRequest) {
   try {
     const user = await getAuthenticatedUser(req);
-    if (!user || (user.role !== 'ADMIN' && !user.isSuperAdmin)) {
+    // Read access includes MODERATOR — allowed admin pages (e.g. Operators)
+    // read per-center policy values. Writes below stay admin/super-admin.
+    if (!user || (user.role !== 'ADMIN' && user.role !== 'MODERATOR' && !user.isSuperAdmin)) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 403 });
     }
 

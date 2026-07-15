@@ -4,7 +4,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-PlayOrbit (`abca-booking`) is a cricket practice booking platform built with Next.js 16 (App Router). Users book sessions on bowling machines (Gravity, Yantra, Leverage Indoor/Outdoor) across pitch types (Astro, Cement, Natural), with online payment via Razorpay or cash. Roles: USER, ADMIN, OPERATOR, COACH, SIDEARM_STAFF. Deployed on Vercel as a PWA with Android TWA support.
+PlayOrbit (`abca-booking`) is a cricket practice booking platform built with Next.js 16 (App Router). Users book sessions on bowling machines (Gravity, Yantra, Leverage Indoor/Outdoor) across pitch types (Astro, Cement, Natural), with online payment via Razorpay or cash. Roles: USER, ADMIN, MODERATOR, OPERATOR, COACH, SIDEARM_STAFF. Deployed on Vercel as a PWA with Android TWA support.
+
+**MODERATOR** is a restricted admin (both a `UserRole` and a `MembershipRole`): same access as ADMIN except it cannot reach the Users, Settings, My Center, or staff-management (Sidearm/Coach/Ground Staff) surfaces, cannot cancel/refund bookings or reassign booking staff, and cannot mutate packages (create/edit/activate, user-package changes, or assign). Enforced in the middleware (`/admin` path blocklist), the API guards, and the admin UI. Detect it via `isCenterModerator(user, centerId)` (`src/lib/auth.ts`) on the backend or the `isModerator` flag from `requireCenterAdmin`; on the client use `useAdminRole()` (`src/lib/useAdminRole.ts`).
 
 **Multi-center**: The system is being evolved from single-center to multi-center. Most domain data is center-scoped via a `centerId` FK. ABCA's seeded center ID is `ctr_abca`; new centers (e.g. Toplay) are added via the super admin UI. Machines, payment config (per-center Razorpay), admins/operators, pricing, and policies are configurable per center. See "Multi-Center Architecture" section below.
 

@@ -39,6 +39,10 @@ export async function POST(req: NextRequest) {
     if (!session) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 403 });
     }
+    // Discount config lives under Settings — off-limits to moderators.
+    if (session.isModerator) {
+      return NextResponse.json({ error: 'Moderators cannot change settings.' }, { status: 403 });
+    }
 
     const { enabled, minSlots, discountType, discountValue, defaultSlotPrice } = await req.json();
 

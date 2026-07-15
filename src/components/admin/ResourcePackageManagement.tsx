@@ -20,6 +20,7 @@ import { Package, Plus, Pencil, Loader2, Trash2, ToggleLeft, ToggleRight, Sun, M
 import { useToast } from '@/components/ui/Toast';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { useCenter } from '@/lib/center-context';
+import { useAdminRole } from '@/lib/useAdminRole';
 import { PACKAGE_WICKET_LABEL, PACKAGE_CATEGORY_LABEL, ballOptionsFromEffective, coerceBallTypeFromEffective, coerceBallTypeForMachineType } from '@/lib/package-admin-labels';
 import { LABEL_MAP } from '@/lib/client-constants';
 
@@ -142,6 +143,9 @@ const emptyForm = {
 export function ResourcePackageManagement() {
   const { currentCenter } = useCenter();
   const toast = useToast();
+  // Moderators may view the package catalog but cannot create, edit,
+  // activate or deactivate packages — all mutation controls are hidden.
+  const { isModerator } = useAdminRole();
 
   const [packages, setPackages] = useState<PackageRow[]>([]);
   const [machines, setMachines] = useState<CenterMachineLite[]>([]);
@@ -403,6 +407,7 @@ export function ResourcePackageManagement() {
         <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider">
           {packages.length} {packages.length === 1 ? 'Package' : 'Packages'}
         </h3>
+        {!isModerator && (
         <button
           onClick={() => {
             if (showForm) reset();
@@ -419,6 +424,7 @@ export function ResourcePackageManagement() {
             </>
           )}
         </button>
+        )}
       </div>
 
       {/* Add / edit form */}
@@ -811,6 +817,7 @@ export function ResourcePackageManagement() {
                     </div>
                     <div className="flex flex-col items-end gap-2 flex-shrink-0">
                       <span className="text-sm font-bold text-accent">₹{p.price}</span>
+                      {!isModerator && (
                       <div className="flex gap-1">
                         <button
                           onClick={() => toggleActive(p)}
@@ -827,6 +834,7 @@ export function ResourcePackageManagement() {
                           <Pencil className="w-4 h-4" />
                         </button>
                       </div>
+                      )}
                     </div>
                   </div>
                 </div>

@@ -3,10 +3,9 @@
 import { useState, useEffect, useCallback, Suspense } from 'react';
 import { format } from 'date-fns';
 import { useSearchParams } from 'next/navigation';
-import { Search, Filter, XCircle, Calendar, Loader2, Download, ChevronLeft, ChevronRight, ChevronDown, ArrowUpDown, IndianRupee, Copy, X, CalendarPlus, UserPlus, Undo2 } from 'lucide-react';
+import { Search, Filter, XCircle, Calendar, Loader2, Download, ChevronLeft, ChevronRight, ChevronDown, ArrowUpDown, IndianRupee, X, CalendarPlus, UserPlus, Undo2 } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { AdminPageHeader } from '@/components/admin/AdminPageHeader';
 import { CancellationDialog } from '@/components/ui/CancellationDialog';
 import { TextInputDialog } from '@/components/ui/TextInputDialog';
@@ -14,6 +13,7 @@ import { RefundDialog } from '@/components/ui/RefundDialog';
 import { BookingDetailsList } from '@/components/BookingDetailsList';
 import { useToast } from '@/components/ui/Toast';
 import { getDisplayStatus } from '@/lib/booking-utils';
+import { useAdminRole } from '@/lib/useAdminRole';
 
 type Category = 'all' | 'today' | 'upcoming' | 'previous' | 'lastMonth';
 
@@ -86,10 +86,13 @@ function AdminBookingsContent() {
   const [groundStaff, setGroundStaff] = useState<Array<{ id: string; name: string }>>([]);
   const [changingGroundStaff, setChangingGroundStaff] = useState<string | null>(null);
   const toast = useToast();
+  // Moderators are restricted admins: no cancel, no refund, no staff
+  // reassignment. These controls are hidden for them (and the APIs reject
+  // the actions server-side as a second layer).
+  const { isModerator } = useAdminRole();
 
   // Dialog states
   const [cancelDialog, setCancelDialog] = useState<{ bookingId: string; playerName: string } | null>(null);
-  const [copyDialog, setCopyDialog] = useState<string | null>(null);
   const [customNameDialog, setCustomNameDialog] = useState(false);
   const [refundDialog, setRefundDialog] = useState<{
     id: string; date: string; startTime: string; endTime: string; playerName: string;
@@ -372,35 +375,6 @@ function AdminBookingsContent() {
       }
     } catch {
       toast.error('Failed to cancel booking');
-    } finally {
-      setActionLoading(null);
-    }
-  };
-
-  const handleCopyClick = (bookingId: string) => {
-    setCopyDialog(bookingId);
-  };
-
-  const handleCopyConfirm = async () => {
-    const bookingId = copyDialog;
-    if (!bookingId) return;
-    setCopyDialog(null);
-    setActionLoading(bookingId);
-    try {
-      const res = await fetch('/api/admin/bookings', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ bookingId, action: 'copy_next_slot' }),
-      });
-      if (res.ok) {
-        toast.success('Booking copied to next slot');
-        fetchBookings();
-      } else {
-        const data = await res.json();
-        toast.error(data.error || 'Copy failed');
-      }
-    } catch {
-      toast.error('Failed to copy booking');
     } finally {
       setActionLoading(null);
     }
@@ -918,7 +892,6 @@ function AdminBookingsContent() {
               {bookings.map((booking) => {
                 const displayStatus = getDisplayStatus(booking);
                 const status = statusConfig[displayStatus] || statusConfig.BOOKED;
-                const isActionLoading = actionLoading === booking.id;
                 return (
                   <div key={booking.id} className="bg-white/[0.03] backdrop-blur-sm rounded-xl border border-white/[0.07] p-3 hover:border-white/[0.12] transition-colors">
                     {/* Row 1: Name + Status */}
@@ -988,31 +961,23 @@ function AdminBookingsContent() {
                         above — it is intentionally NOT repeated here. */}
                     <BookingDetailsList
                       booking={booking}
-                      renderOperatorAssignment={renderOperatorAssignment}
-                      renderStaffAssignment={renderStaffAssignment}
-                      renderGroundStaffAssignment={renderGroundStaffAssignment}
+                      renderOperatorAssignment={isModerator ? undefined : renderOperatorAssignment}
+                      renderStaffAssignment={isModerator ? undefined : renderStaffAssignment}
+                      renderGroundStaffAssignment={isModerator ? undefined : renderGroundStaffAssignment}
                     />
 
-                    {/* Row 4: Actions */}
+                    {/* Row 4: Actions. Moderators cannot cancel or refund,
+                        so the whole action row is hidden for them. */}
+                    {!isModerator && (
                     <div className="flex gap-1.5 pt-2 border-t border-white/[0.04]">
                       {booking.status === 'BOOKED' && (
-                        <>
-                          <button
-                            onClick={() => handleCopyClick(booking.id)}
-                            disabled={isActionLoading}
-                            className="flex-1 flex items-center justify-center gap-1.5 py-1.5 text-[11px] font-medium text-accent bg-accent/10 rounded-lg hover:bg-accent/20 transition-colors cursor-pointer disabled:opacity-50"
-                          >
-                            <Copy className="w-3 h-3" />
-                            Copy Next
-                          </button>
-                          <button
-                            onClick={() => handleCancelClick(booking.id, booking.playerName)}
-                            className="flex-1 flex items-center justify-center gap-1.5 py-1.5 text-[11px] font-medium text-red-400 bg-red-500/10 rounded-lg hover:bg-red-500/20 transition-colors cursor-pointer"
-                          >
-                            <XCircle className="w-3 h-3" />
-                            Cancel
-                          </button>
-                        </>
+                        <button
+                          onClick={() => handleCancelClick(booking.id, booking.playerName)}
+                          className="flex-1 flex items-center justify-center gap-1.5 py-1.5 text-[11px] font-medium text-red-400 bg-red-500/10 rounded-lg hover:bg-red-500/20 transition-colors cursor-pointer"
+                        >
+                          <XCircle className="w-3 h-3" />
+                          Cancel
+                        </button>
                       )}
                       {canRefund(booking) && (
                         <button
@@ -1024,6 +989,7 @@ function AdminBookingsContent() {
                         </button>
                       )}
                     </div>
+                    )}
                   </div>
                 );
               })}
@@ -1047,7 +1013,6 @@ function AdminBookingsContent() {
                   {bookings.map((booking) => {
                     const displayStatus = getDisplayStatus(booking);
                     const status = statusConfig[displayStatus] || statusConfig.BOOKED;
-                    const isActionLoading = actionLoading === booking.id;
                     return (
                       <tr key={booking.id} className="hover:bg-white/[0.04] transition-colors [&>td]:align-top">
                         <td className="px-5 py-3.5">
@@ -1087,9 +1052,9 @@ function AdminBookingsContent() {
                               staff name for Cricket Net bookings. */}
                           <BookingDetailsList
                             booking={booking}
-                            renderOperatorAssignment={renderOperatorAssignment}
-                            renderStaffAssignment={renderStaffAssignment}
-                            renderGroundStaffAssignment={renderGroundStaffAssignment}
+                            renderOperatorAssignment={isModerator ? undefined : renderOperatorAssignment}
+                            renderStaffAssignment={isModerator ? undefined : renderStaffAssignment}
+                            renderGroundStaffAssignment={isModerator ? undefined : renderGroundStaffAssignment}
                           />
                         </td>
                         <td className="px-5 py-3.5">
@@ -1134,26 +1099,16 @@ function AdminBookingsContent() {
                         </td>
                         <td className="px-5 py-3.5 text-right">
                           <div className="flex flex-wrap gap-1 justify-end">
-                            {booking.status === 'BOOKED' && (
-                              <>
-                                <button
-                                  onClick={() => handleCopyClick(booking.id)}
-                                  disabled={isActionLoading}
-                                  className="px-2.5 py-1.5 text-xs font-medium text-accent hover:bg-accent/10 rounded-lg transition-colors cursor-pointer disabled:opacity-50"
-                                  title="Copy to next consecutive slot"
-                                >
-                                  <Copy className="w-3.5 h-3.5 inline mr-1" />
-                                  Copy Next
-                                </button>
-                                <button
-                                  onClick={() => handleCancelClick(booking.id, booking.playerName)}
-                                  className="px-2.5 py-1.5 text-xs font-medium text-red-400 hover:bg-red-500/10 rounded-lg transition-colors cursor-pointer"
-                                >
-                                  Cancel
-                                </button>
-                              </>
+                            {/* Moderators cannot cancel or refund. */}
+                            {!isModerator && booking.status === 'BOOKED' && (
+                              <button
+                                onClick={() => handleCancelClick(booking.id, booking.playerName)}
+                                className="px-2.5 py-1.5 text-xs font-medium text-red-400 hover:bg-red-500/10 rounded-lg transition-colors cursor-pointer"
+                              >
+                                Cancel
+                              </button>
                             )}
-                            {canRefund(booking) && (
+                            {!isModerator && canRefund(booking) && (
                               <button
                                 onClick={() => handleRefundClick(booking)}
                                 className="px-2.5 py-1.5 text-xs font-medium text-purple-400 hover:bg-purple-500/10 rounded-lg transition-colors cursor-pointer"
@@ -1161,6 +1116,9 @@ function AdminBookingsContent() {
                                 <Undo2 className="w-3.5 h-3.5 inline mr-1" />
                                 Refund
                               </button>
+                            )}
+                            {isModerator && (
+                              <span className="text-[11px] text-slate-500 italic">View only</span>
                             )}
                           </div>
                         </td>
@@ -1211,17 +1169,6 @@ function AdminBookingsContent() {
         loading={!!actionLoading}
         onConfirm={handleCancelConfirm}
         onCancel={() => setCancelDialog(null)}
-      />
-
-      {/* Copy Next Slot Confirm */}
-      <ConfirmDialog
-        open={!!copyDialog}
-        title="Copy to Next Slot"
-        message="Copy this booking to the next consecutive 30-minute slot?"
-        confirmLabel="Copy"
-        cancelLabel="Cancel"
-        onConfirm={handleCopyConfirm}
-        onCancel={() => setCopyDialog(null)}
       />
 
       {/* Custom Name for Book on Behalf */}

@@ -14,7 +14,7 @@ import { z } from 'zod';
  *                          who has never logged in).
  */
 
-const RoleEnum = z.enum(['ADMIN', 'OPERATOR', 'COACH', 'SIDEARM_SPECIALIST', 'GROUND_STAFF']);
+const RoleEnum = z.enum(['ADMIN', 'MODERATOR', 'OPERATOR', 'COACH', 'SIDEARM_SPECIALIST', 'GROUND_STAFF']);
 
 // Backwards-compatible: the legacy `role` (single) keeps working; the
 // new `roles` (array) is preferred for the multi-role assign UI. At
@@ -22,10 +22,10 @@ const RoleEnum = z.enum(['ADMIN', 'OPERATOR', 'COACH', 'SIDEARM_SPECIALIST', 'GR
 // a deduped array of roles to create.
 const MembershipCreateSchema = z.object({
   role: RoleEnum.optional(),
-  // Bumped from 4 to 5 to allow the new GROUND_STAFF role alongside
-  // ADMIN / OPERATOR / COACH / SIDEARM_SPECIALIST when an admin
-  // assigns multiple roles to the same user in one go.
-  roles: z.array(RoleEnum).max(5).optional(),
+  // Bumped to 6 to allow MODERATOR alongside ADMIN / OPERATOR / COACH /
+  // SIDEARM_SPECIALIST / GROUND_STAFF when an admin assigns multiple
+  // roles to the same user in one go.
+  roles: z.array(RoleEnum).max(6).optional(),
   // One of these must be provided to identify or create the user:
   userId: z.string().optional(),
   email: z.string().email().optional(),
@@ -140,11 +140,11 @@ export async function POST(req: NextRequest, ctx: { params: Promise<Params> }) {
         { status: 404 },
       );
     }
-    // ADMIN / OPERATOR require an existing account (auth flow exercised
-    // at least once). COACH / SIDEARM_SPECIALIST / GROUND_STAFF may be
-    // created here — admins typically onboard these center-side staff
-    // before they ever sign in themselves.
-    const requiresExisting = rolesToAssign.some((r) => r === 'ADMIN' || r === 'OPERATOR');
+    // ADMIN / MODERATOR / OPERATOR require an existing account (auth flow
+    // exercised at least once). COACH / SIDEARM_SPECIALIST / GROUND_STAFF
+    // may be created here — admins typically onboard these center-side
+    // staff before they ever sign in themselves.
+    const requiresExisting = rolesToAssign.some((r) => r === 'ADMIN' || r === 'MODERATOR' || r === 'OPERATOR');
     if (requiresExisting) {
       return NextResponse.json(
         { error: 'User not found. ADMIN/OPERATOR must sign in once before being assigned.' },
@@ -176,7 +176,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<Params> }) {
     // rows below stay as the source of truth for per-role authorisation.
     // GROUND_STAFF is a center-side facility role with no UserRole
     // equivalent — skip it entirely in the rank promotion.
-    const order = ['USER', 'COACH', 'SIDEARM_SPECIALIST', 'OPERATOR', 'ADMIN'] as const;
+    const order = ['USER', 'COACH', 'SIDEARM_SPECIALIST', 'OPERATOR', 'MODERATOR', 'ADMIN'] as const;
     type OrderRole = (typeof order)[number];
     const currentRank = order.indexOf(user.role as OrderRole);
     let highestRank = currentRank;

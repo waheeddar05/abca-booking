@@ -24,11 +24,17 @@ export function AdminMobileNav() {
     const isSuperAdmin =
       sessionUser?.isSuperAdmin === true || sessionUser?.email === SUPER_ADMIN_EMAIL;
     const isAdmin = sessionUser?.role === 'ADMIN';
+    // Moderators are restricted admins — Users / Settings / My Center are
+    // hidden below; `isAdminLevel` gates everything they ARE allowed to see.
+    const isModerator = sessionUser?.role === 'MODERATOR';
+    const isAdminLevel = isAdmin || isModerator;
     const isCenterAdmin =
       !isSuperAdmin && isAdmin && !!currentCenter;
 
     // We also allow Sidearm Specialists to access the /admin/sidearm page
     // so they can manage their own availability.
+    // Staff-management tabs are admin-only (see the note in the desktop
+    // layout) — their center-config members API blocks moderators.
     const hasSidearmMembership = currentCenter && sessionUser?.role === 'SIDEARM_SPECIALIST';
     const canAccessSidearmTab = isAdmin || hasSidearmMembership;
     // Personal Coaches get the same self-service access to /admin/coach.
@@ -39,11 +45,12 @@ export function AdminMobileNav() {
     // hide on RESOURCE_BASED centers until their resource-aware versions
     // ship in this branch.
     const tabs: Array<{ href: string; label: string; icon: typeof LayoutDashboard; models?: BookingModel[]; hidden?: boolean }> = [
-        { href: '/admin', label: 'Home', icon: LayoutDashboard, hidden: !isAdmin },
-        { href: '/admin/bookings', label: 'Bookings', icon: CalendarCheck, hidden: !isAdmin },
-        { href: '/admin/slots', label: 'Slots', icon: Clock, hidden: !isAdmin },
+        { href: '/admin', label: 'Home', icon: LayoutDashboard, hidden: !isAdminLevel },
+        { href: '/admin/bookings', label: 'Bookings', icon: CalendarCheck, hidden: !isAdminLevel },
+        { href: '/admin/slots', label: 'Slots', icon: Clock, hidden: !isAdminLevel },
+        // Users — full admins only. Restricted for moderators.
         { href: '/admin/users', label: 'Users', icon: Users, hidden: !isAdmin },
-        { href: '/admin/operators', label: 'Operators', icon: UserCog, hidden: !isAdmin },
+        { href: '/admin/operators', label: 'Operators', icon: UserCog, hidden: !isAdminLevel },
         { href: '/admin/sidearm', label: 'Sidearm', icon: Users, models: ['RESOURCE_BASED'], hidden: !canAccessSidearmTab },
         // Short "Coach" label keeps the bottom-nav cell tidy on phones;
         // the page itself is titled "Personal Coach".
@@ -52,8 +59,9 @@ export function AdminMobileNav() {
         // the Sidearm / Coach tabs. Short "Ground" label keeps the
         // bottom-nav cell tidy on phones; the page is titled "Ground Staff".
         { href: '/admin/ground-staff', label: 'Ground', icon: HardHat, models: ['RESOURCE_BASED'], hidden: !isAdmin },
-        { href: '/admin/packages', label: 'Packages', icon: Package, hidden: !isAdmin },
-        { href: '/admin/offers', label: 'Offers', icon: Tag, hidden: !isAdmin },
+        { href: '/admin/packages', label: 'Packages', icon: Package, hidden: !isAdminLevel },
+        { href: '/admin/offers', label: 'Offers', icon: Tag, hidden: !isAdminLevel },
+        // Settings — full admins only. Restricted for moderators.
         { href: '/admin/configuration', label: 'Settings', icon: SlidersHorizontal, hidden: !isAdmin },
         // Super admin → cross-center management. Center admin → deep
         // link to their own center's edit page (members / machines /

@@ -73,6 +73,9 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   const adminUser = await requireCenterAdmin(req);
   if (!adminUser) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  // Moderators may view user packages but cannot modify them (add/remove
+  // sessions, extend/reduce validity, or cancel).
+  if (adminUser.isModerator) return NextResponse.json({ error: 'Moderators cannot modify user packages.' }, { status: 403 });
 
   // Get admin user id for audit log
   const authUser = await getAuthenticatedUser(req);

@@ -53,6 +53,8 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   const admin = await requireCenterAdmin(req);
   if (!admin) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  // Moderators may view packages but not create/modify them.
+  if (admin.isModerator) return NextResponse.json({ error: 'Moderators cannot modify packages.' }, { status: 403 });
 
   try {
     const body = await req.json();
@@ -153,6 +155,8 @@ export async function POST(req: NextRequest) {
 export async function PUT(req: NextRequest) {
   const admin = await requireCenterAdmin(req);
   if (!admin) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  // Moderators may view packages but not update/activate/deactivate them.
+  if (admin.isModerator) return NextResponse.json({ error: 'Moderators cannot modify packages.' }, { status: 403 });
 
   try {
     const body = await req.json();

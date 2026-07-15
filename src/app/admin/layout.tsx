@@ -34,11 +34,20 @@ export default function AdminLayout({
   // either as a super admin OR as a center-admin with a CenterMembership
   // somewhere.
   const isAdmin = sessionUser?.role === 'ADMIN';
+  // Moderators are restricted admins: they get most of the panel but the
+  // Users, Settings, User-Management and My-Center links are hidden below.
+  // `isAdminLevel` is the gate for everything a moderator IS allowed to see.
+  const isModerator = sessionUser?.role === 'MODERATOR';
+  const isAdminLevel = isAdmin || isModerator;
   const isCenterAdmin = !isSuperAdmin && isAdmin && !!currentCenter;
 
   // We also allow Sidearm Specialists to access the /admin/sidearm page
   // so they can manage their own availability. The middleware is updated
   // to allow them into /admin, and we gate the links here.
+  // Staff-management tabs (Sidearm / Coach / Ground Staff) manage
+  // CenterMemberships through the center-config members API, which is
+  // locked to full admins (requireCenterAdminForCenter). Keep them
+  // admin-only so a moderator never lands on a page that can't load.
   const hasSidearmMembership = currentCenter && sessionUser?.role === 'SIDEARM_SPECIALIST';
   const canAccessSidearmTab = isAdmin || hasSidearmMembership;
   // Personal Coaches get the same self-service access to /admin/coach,
@@ -56,11 +65,12 @@ export default function AdminLayout({
   // ships in this branch.
   const currentModel: BookingModel | null = currentCenter?.bookingModel ?? null;
   const links: Array<{ href: string; label: string; icon: typeof LayoutDashboard; models?: BookingModel[]; hidden?: boolean }> = [
-    { href: '/admin', label: 'Dashboard', icon: LayoutDashboard, hidden: !isAdmin },
-    { href: '/admin/bookings', label: 'Bookings', icon: CalendarCheck, hidden: !isAdmin },
-    { href: '/admin/slots', label: 'Slots', icon: Clock, hidden: !isAdmin },
+    { href: '/admin', label: 'Dashboard', icon: LayoutDashboard, hidden: !isAdminLevel },
+    { href: '/admin/bookings', label: 'Bookings', icon: CalendarCheck, hidden: !isAdminLevel },
+    { href: '/admin/slots', label: 'Slots', icon: Clock, hidden: !isAdminLevel },
+    // Users — full admins only. Restricted for moderators.
     { href: '/admin/users', label: 'Users', icon: Users, hidden: !isAdmin },
-    { href: '/admin/operators', label: 'Operators', icon: UserCog, hidden: !isAdmin },
+    { href: '/admin/operators', label: 'Operators', icon: UserCog, hidden: !isAdminLevel },
     // Sidearm tab — manages SIDEARM_SPECIALIST memberships and their
     // availability (recurring + date-range) plus priority order for
     // auto-assignment. Resource-based centers only; ABCA never had a
@@ -76,8 +86,9 @@ export default function AdminLayout({
     // only. Admin-only: GROUND_STAFF has no UserRole equivalent, so there
     // is no self-service variant the way Sidearm/Coach have.
     { href: '/admin/ground-staff', label: 'Ground Staff', icon: HardHat, models: ['RESOURCE_BASED'], hidden: !isAdmin },
-    { href: '/admin/offers', label: 'Offers', icon: Tag, hidden: !isAdmin },
-    { href: '/admin/packages', label: 'Packages', icon: Package, hidden: !isAdmin },
+    { href: '/admin/offers', label: 'Offers', icon: Tag, hidden: !isAdminLevel },
+    { href: '/admin/packages', label: 'Packages', icon: Package, hidden: !isAdminLevel },
+    // Settings — full admins only. Restricted for moderators.
     { href: '/admin/configuration', label: 'Settings', icon: SlidersHorizontal, hidden: !isAdmin },
     // /admin/policies removed — its raw key/value editor was confusing
     // and overlapped the structured forms here on Settings. Per-center

@@ -39,6 +39,7 @@ import { ResourcePackageManagement } from '@/components/admin/ResourcePackageMan
 import { NumberInputDialog } from '@/components/ui/NumberInputDialog';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { useCenter } from '@/lib/center-context';
+import { useAdminRole } from '@/lib/useAdminRole';
 
 type TabId = 'packages' | 'users' | 'assign' | 'reports';
 
@@ -112,6 +113,10 @@ interface ReportData {
 export function ResourcePackagesPage() {
   const { currentCenter } = useCenter();
   const toast = useToast();
+  // Moderators may VIEW packages and user packages and access Reports,
+  // but cannot assign packages or modify user packages. Restricted
+  // controls are hidden below and the APIs reject the writes server-side.
+  const { isModerator } = useAdminRole();
 
   const [tab, setTab] = useState<TabId>('packages');
 
@@ -347,10 +352,11 @@ export function ResourcePackagesPage() {
     () => [
       { id: 'packages', label: 'Packages',      icon: Package },
       { id: 'users',    label: 'User Packages', icon: Users },
-      { id: 'assign',   label: 'Assign',        icon: UserPlus },
+      // Assign is a mutation surface — hidden from moderators.
+      ...(isModerator ? [] : [{ id: 'assign' as TabId, label: 'Assign', icon: UserPlus }]),
       { id: 'reports',  label: 'Reports',       icon: BarChart3 },
     ],
-    [],
+    [isModerator],
   );
 
   return (
@@ -503,7 +509,7 @@ export function ResourcePackagesPage() {
                       Cancel refunds any unused sessions. Same set and
                       behaviour as the legacy ABCA page; destructive
                       actions all confirm before running. */}
-                  {up.status !== 'CANCELLED' && (
+                  {!isModerator && up.status !== 'CANCELLED' && (
                     <div className="flex flex-wrap gap-1.5 mt-3 pt-3 border-t border-white/[0.05]">
                       {up.status === 'EXPIRED' && (
                         <span className="w-full text-[10px] text-amber-300/80 mb-0.5">

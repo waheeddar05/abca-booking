@@ -102,7 +102,7 @@ export async function middleware(req: NextRequest) {
         }
         // Check if mobile is verified — redirect to verify-mobile if not
         const mobileVerified = token?.mobileVerified as boolean | undefined;
-        if (token && !mobileVerified && role !== 'ADMIN' && role !== 'OPERATOR') {
+        if (token && !mobileVerified && role !== 'ADMIN' && role !== 'MODERATOR' && role !== 'OPERATOR') {
           return NextResponse.redirect(new URL("/verify-mobile", req.url));
         }
         return NextResponse.redirect(new URL("/slots", req.url));
@@ -135,6 +135,7 @@ export async function middleware(req: NextRequest) {
     !pathname.startsWith("/api/") &&
     !pathname.startsWith("/staff") &&
     userRole !== "ADMIN" &&
+    userRole !== "MODERATOR" &&
     userRole !== "OPERATOR"
   ) {
     const mobileVerified = token.mobileVerified as boolean | undefined;
@@ -155,10 +156,37 @@ export async function middleware(req: NextRequest) {
   if (pathname.startsWith("/admin")) {
     if (
       userRole !== "ADMIN" &&
+      userRole !== "MODERATOR" &&
       userRole !== "SIDEARM_SPECIALIST" &&
       userRole !== "COACH"
     ) {
       return NextResponse.redirect(new URL("/", req.url));
+    }
+
+    // Moderators are restricted admins. They reach most of the panel but
+    // are blocked outright from Users, Settings, and center configuration
+    // ("My Center"/Centers) — plus the super-admin-only tools. Enforce it
+    // at the edge so a direct URL can't bypass the hidden nav links. The
+    // matching API routes carry their own guards as a second layer.
+    if (userRole === "MODERATOR") {
+      const moderatorBlockedPrefixes = [
+        "/admin/users",
+        "/admin/user-management",
+        "/admin/configuration",
+        "/admin/policies",
+        "/admin/centers",
+        "/admin/maintenance",
+        "/admin/db-cleanup",
+        "/admin/payments",
+        // Staff-management surfaces manage CenterMemberships via the
+        // center-config members API, which is locked to full admins.
+        "/admin/sidearm",
+        "/admin/coach",
+        "/admin/ground-staff",
+      ];
+      if (moderatorBlockedPrefixes.some((p) => pathname === p || pathname.startsWith(p + "/"))) {
+        return NextResponse.redirect(new URL("/admin", req.url));
+      }
     }
   }
 

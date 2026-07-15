@@ -8,6 +8,8 @@ import { resolveCurrentCenter } from '@/lib/centers';
 export async function POST(req: NextRequest) {
   const admin = await requireCenterAdmin(req);
   if (!admin) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  // Moderators cannot assign packages to users.
+  if (admin.isModerator) return NextResponse.json({ error: 'Moderators cannot assign packages.' }, { status: 403 });
 
   const authUser = await getAuthenticatedUser(req);
   const adminId = authUser?.id || 'admin';

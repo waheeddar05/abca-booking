@@ -6,7 +6,7 @@ import { Plus, Loader2, Trash2, X, UserPlus, Mail, Phone, CalendarClock, Save, P
 import { Field, TextInput, SelectInput, PrimaryButton, SecondaryButton, Banner } from './centerForms';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 
-type MembershipRole = 'ADMIN' | 'OPERATOR' | 'COACH' | 'SIDEARM_SPECIALIST' | 'GROUND_STAFF';
+type MembershipRole = 'ADMIN' | 'MODERATOR' | 'OPERATOR' | 'COACH' | 'SIDEARM_SPECIALIST' | 'GROUND_STAFF';
 
 type MembershipRow = {
   id: string;
@@ -24,6 +24,7 @@ type MembershipRow = {
 
 const ROLE_LABEL: Record<MembershipRole, string> = {
   ADMIN: 'Admin',
+  MODERATOR: 'Moderator',
   OPERATOR: 'Operator',
   COACH: 'Coach',
   SIDEARM_SPECIALIST: 'Sidearm Specialist',
@@ -32,6 +33,7 @@ const ROLE_LABEL: Record<MembershipRole, string> = {
 
 const ROLE_COLOR: Record<MembershipRole, string> = {
   ADMIN: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20',
+  MODERATOR: 'bg-indigo-500/10 text-indigo-400 border-indigo-500/20',
   OPERATOR: 'bg-sky-500/10 text-sky-400 border-sky-500/20',
   COACH: 'bg-purple-500/10 text-purple-400 border-purple-500/20',
   SIDEARM_SPECIALIST: 'bg-amber-500/10 text-amber-400 border-amber-500/20',
@@ -169,6 +171,7 @@ export function CenterMembersTab({ centerId }: { centerId: string }) {
           >
             <option value="ALL">All roles</option>
             <option value="ADMIN">Admins</option>
+            <option value="MODERATOR">Moderators</option>
             <option value="OPERATOR">Operators</option>
             <option value="COACH">Coaches</option>
             <option value="SIDEARM_SPECIALIST">Sidearm Specialist</option>
@@ -247,10 +250,11 @@ function groupByUser(members: MembershipRow[]): Array<{
 }> {
   const ROLE_ORDER: Record<MembershipRole, number> = {
     ADMIN: 0,
-    OPERATOR: 1,
-    COACH: 2,
-    SIDEARM_SPECIALIST: 3,
-    GROUND_STAFF: 4,
+    MODERATOR: 1,
+    OPERATOR: 2,
+    COACH: 3,
+    SIDEARM_SPECIALIST: 4,
+    GROUND_STAFF: 5,
   };
   const map = new Map<string, { userId: string; user: MembershipRow['user']; memberships: MembershipRow[] }>();
   for (const m of members) {
@@ -397,9 +401,11 @@ function NewMembershipForm({
   };
 
   // Center admins can grant every staff role EXCEPT ADMIN — the API
-  // mirrors this restriction.
+  // mirrors this restriction. MODERATOR (a restricted admin) IS grantable
+  // by center admins.
   const ROLES_AVAILABLE: Array<{ id: MembershipRole; label: string }> = [
     ...(isSuperAdmin ? [{ id: 'ADMIN' as const, label: 'Admin' }] : []),
+    { id: 'MODERATOR',          label: 'Moderator' },
     { id: 'OPERATOR',           label: 'Operator' },
     { id: 'COACH',              label: 'Coach' },
     { id: 'SIDEARM_SPECIALIST', label: 'Sidearm Specialist' },
@@ -599,7 +605,7 @@ const DAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
 
 // All assignable roles, in a stable display order, with their labels.
-const ALL_ROLES: MembershipRole[] = ['ADMIN', 'OPERATOR', 'COACH', 'SIDEARM_SPECIALIST', 'GROUND_STAFF'];
+const ALL_ROLES: MembershipRole[] = ['ADMIN', 'MODERATOR', 'OPERATOR', 'COACH', 'SIDEARM_SPECIALIST', 'GROUND_STAFF'];
 
 /**
  * One card per user. Row 1 shows the member's name + contact + edit/remove
