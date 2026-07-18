@@ -96,6 +96,21 @@ interface SimSessionInfo {
   isFull: boolean;
 }
 
+/** A match-simulation session that offers a Monthly (and optionally
+ *  half-month) pass, with its enrollable months. */
+interface SimMonthlySession {
+  sessionId: string;
+  label: string;
+  coachName: string | null;
+  days: number[];
+  startTime: string; // "HH:MM" IST
+  endTime: string;   // "HH:MM" IST
+  monthlyFee: number;
+  capacity: number;
+  halfMonth: HalfMonthInfo;
+  months: MonthOption[];
+}
+
 interface MatchPracticeAvailability {
   centerId: string;
   corporateBatch: {
@@ -114,6 +129,10 @@ interface MatchPracticeAvailability {
   matchSimulation: {
     enabled: boolean;
     sessions: SimSessionInfo[];
+    monthly: {
+      enabled: boolean;
+      sessions: SimMonthlySession[];
+    };
   };
 }
 
@@ -177,6 +196,14 @@ export default function MatchPracticePanel({
   const [expandedMonth, setExpandedMonth] = useState<string | null>(null);
   const [selectedRegular, setSelectedRegular] = useState<Set<string>>(new Set());
   const [selectedSim, setSelectedSim] = useState<Set<string>>(new Set());
+  // ── Match Simulation Monthly / Regular ──────────────────────────────
+  const [simMode, setSimMode] = useState<'MONTHLY' | 'REGULAR'>('MONTHLY');
+  /** Which monthly-enabled sim session the user is enrolling in. */
+  const [selectedSimSessionId, setSelectedSimSessionId] = useState<string | null>(null);
+  /** Selected sim enrollment period (month or half). */
+  const [selectedSimPeriod, setSelectedSimPeriod] = useState<string | null>(null);
+  /** Which sim month card is expanded (half-month splits). */
+  const [expandedSimMonth, setExpandedSimMonth] = useState<string | null>(null);
 
   const [paymentMethod, setPaymentMethod] = useState<'ONLINE' | 'CASH'>('ONLINE');
   const [useWallet, setUseWallet] = useState(false);
@@ -198,6 +225,8 @@ export default function MatchPracticePanel({
         setData(res);
         // Land on the first enabled subcategory.
         setSub(res.corporateBatch.enabled ? 'CORPORATE' : res.matchSimulation.enabled ? 'SIMULATION' : null);
+        // Default the monthly enrollment to the first session that offers it.
+        setSelectedSimSessionId(res.matchSimulation.monthly?.sessions[0]?.sessionId ?? null);
       })
       .catch((err: unknown) =>
         setError(err instanceof Error ? err.message : 'Failed to load match practice sessions'))
@@ -210,7 +239,16 @@ export default function MatchPracticePanel({
     setExpandedMonth(null);
     setSelectedRegular(new Set());
     setSelectedSim(new Set());
-  }, [sub, corpMode]);
+    setSelectedSimPeriod(null);
+    setExpandedSimMonth(null);
+  }, [sub, corpMode, simMode]);
+
+  // Reset the picked month when the user switches which sim session they're
+  // enrolling in.
+  useEffect(() => {
+    setSelectedSimPeriod(null);
+    setExpandedSimMonth(null);
+  }, [selectedSimSessionId]);
 
   // Snap back to ONLINE when the center disables cash mid-session.
   useEffect(() => {
@@ -240,6 +278,28 @@ export default function MatchPracticePanel({
     () => (data?.matchSimulation.sessions ?? []).filter((s) => selectedSim.has(sessionKey(s.date, s.startTime))),
     [data, selectedSim],
   );
+
+  const simMonthlySessions = useMemo(
+    () => data?.matchSimulation.monthly?.sessions ?? [],
+    [data],
+  );
+  const simMonthlyEnabled = !!data?.matchSimulation.monthly?.enabled;
+  /** Match Simulation is in monthly mode only when it's actually offered. */
+  const effectiveSimMode: 'MONTHLY' | 'REGULAR' = simMonthlyEnabled ? simMode : 'REGULAR';
+
+  const selectedSimSession = useMemo(
+    () => data?.matchSimulation.monthly?.sessions.find((s) => s.sessionId === selectedSimSessionId) ?? null,
+    [data, selectedSimSessionId],
+  );
+  const selectedSimMonthOption = useMemo((): MonthOption | null => {
+    if (!selectedSimSession || !selectedSimPeriod) return null;
+    for (const m of selectedSimSession.months) {
+      if (m.period === selectedSimPeriod) return m;
+      const half = m.halves?.find((h) => h.period === selectedSimPeriod);
+      if (half) return half;
+    }
+    return null;
+  }, [selectedSimSession, selectedSimPeriod]);
 
   const selection = useMemo((): {
     count: number;
@@ -281,6 +341,24 @@ export default function MatchPracticePanel({
         },
       };
     }
+    if (sub === 'SIMULATION' && effectiveSimMode === 'MONTHLY') {
+      if (!selectedSimSession || !selectedSimMonthOption) return { count: 0, total: 0, summary: '', body: null, slots: [] };
+      const slots = [selectedSimMonthOption.slot];
+      return {
+        count: 1,
+        total: selectedSimMonthOption.fee,
+        summary: `Match Simulation · ${selectedSimSession.label ? `${selectedSimSession.label} · ` : ''}${selectedSimMonthOption.label}`,
+        slots,
+        body: {
+          slots,
+          category: 'MATCH_SIMULATION',
+          playerName,
+          corporateMode: selectedSimMonthOption.period.includes('-H') ? 'HALF_MONTH' : 'MONTHLY',
+          enrollmentPeriod: selectedSimMonthOption.period,
+          matchSimSessionId: selectedSimSession.sessionId,
+        },
+      };
+    }
     if (sub === 'SIMULATION') {
       if (selectedSimSessions.length === 0) return { count: 0, total: 0, summary: '', body: null, slots: [] };
       const slots = selectedSimSessions.map((s) => ({ date: s.date, startTime: s.startTime, endTime: s.endTime }));
@@ -297,7 +375,7 @@ export default function MatchPracticePanel({
       };
     }
     return { count: 0, total: 0, summary: '', body: null, slots: [] };
-  }, [sub, corpMode, selectedMonthOption, selectedRegularSessions, selectedSimSessions, playerName]);
+  }, [sub, corpMode, effectiveSimMode, selectedMonthOption, selectedRegularSessions, selectedSimSessions, selectedSimSession, selectedSimMonthOption, playerName]);
 
   // ─── Submit (mirrors ResourceSlotsPage.submit payment routing) ─────
 
@@ -535,128 +613,13 @@ export default function MatchPracticePanel({
               {cb.months.length === 0 ? (
                 <EmptyState text="No months are open for enrollment right now." />
               ) : (
-                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-                  {cb.months.map((m) => {
-                    const hasHalves = (m.halves?.length ?? 0) > 0;
-                    const activeMonth =
-                      selectedPeriod === m.period
-                      || !!m.halves?.some((h) => h.period === selectedPeriod);
-                    const monthSelected = selectedPeriod === m.period;
-                    const shortLabel = m.label.replace(/ · .*/, '');
-
-                    // Common case (no half-month split): the whole card is a
-                    // single button that fills solid accent when selected —
-                    // same size, typography and fill as every other selection
-                    // box in the app (see SessionCardGrid below).
-                    if (!hasHalves) {
-                      return (
-                        <button
-                          key={m.period}
-                          disabled={m.isFull}
-                          onClick={() => setSelectedPeriod(monthSelected ? null : m.period)}
-                          className={`relative px-2.5 py-2 rounded-lg border text-left transition-all ${
-                            m.isFull
-                              ? 'bg-white/[0.02] border-white/[0.05] cursor-not-allowed opacity-60'
-                              : monthSelected
-                                ? 'bg-accent text-primary border-accent shadow-md shadow-accent/20 cursor-pointer'
-                                : 'bg-white/[0.04] border-white/[0.08] hover:border-accent/40 active:scale-[0.98] cursor-pointer'
-                          }`}
-                        >
-                          {monthSelected && (
-                            <div className="absolute top-1.5 right-1.5">
-                              <Check className="w-3.5 h-3.5" />
-                            </div>
-                          )}
-                          <div className="flex items-center justify-between gap-1 pr-4">
-                            <p className={`text-xs font-bold truncate ${m.isFull ? 'text-slate-500' : monthSelected ? '' : 'text-white'}`}>
-                              {shortLabel}
-                            </p>
-                            <span className={`text-[10px] font-bold flex-shrink-0 ${monthSelected ? 'text-primary/80' : 'text-accent'}`}>
-                              ₹{(Number(m.fee) || 0).toLocaleString()}
-                            </span>
-                          </div>
-                          <p className={`text-[10px] mt-0.5 ${monthSelected ? 'text-primary/70' : 'text-slate-400'}`}>
-                            <Users className="w-3 h-3 inline mr-1 -mt-0.5" />
-                            {m.enrolled}/{m.capacity} enrolled
-                            {m.isFull && <span className="font-semibold ml-1 text-red-400">· Full</span>}
-                          </p>
-                        </button>
-                      );
-                    }
-
-                    // Half-month split available: expandable card. The header
-                    // fills accent when the full month is picked; each split
-                    // option fills when selected.
-                    return (
-                      <div
-                        key={m.period}
-                        className={`rounded-lg border transition-all overflow-hidden ${
-                          activeMonth ? 'border-accent' : 'border-white/[0.08] bg-white/[0.04]'
-                        }`}
-                      >
-                        <button
-                          onClick={() => {
-                            setExpandedMonth(expandedMonth === m.period ? null : m.period);
-                            if (!m.isFull) setSelectedPeriod(m.period);
-                          }}
-                          className={`relative w-full px-2.5 py-2 text-left cursor-pointer ${monthSelected ? 'bg-accent' : ''}`}
-                        >
-                          {monthSelected && (
-                            <div className="absolute top-1.5 right-1.5">
-                              <Check className="w-3.5 h-3.5 text-primary" />
-                            </div>
-                          )}
-                          <div className="flex items-center justify-between gap-1 pr-4">
-                            <p className={`text-xs font-bold truncate ${monthSelected ? 'text-primary' : 'text-white'}`}>
-                              {shortLabel}
-                            </p>
-                            <span className={`text-[10px] font-bold flex-shrink-0 ${monthSelected ? 'text-primary/80' : 'text-accent'}`}>
-                              ₹{(Number(m.fee) || 0).toLocaleString()}
-                            </span>
-                          </div>
-                          <p className={`text-[10px] mt-0.5 ${monthSelected ? 'text-primary/70' : 'text-slate-400'}`}>
-                            <Users className="w-3 h-3 inline mr-1 -mt-0.5" />
-                            {m.enrolled}/{m.capacity} enrolled
-                            {m.isFull && <span className={`font-semibold ml-1 ${monthSelected ? 'text-primary' : 'text-red-400'}`}>· Full</span>}
-                          </p>
-                        </button>
-
-                        {/* Half-month options — full / first half / second half */}
-                        {expandedMonth === m.period && (
-                          <div className="px-2 pb-2 grid grid-cols-1 gap-1.5">
-                            {[{ ...m, label: 'Full Month' } as MonthOption]
-                              .concat((m.halves ?? []).map((h) => ({
-                                ...h,
-                                label: h.period.endsWith('H1') ? 'First Half' : 'Second Half',
-                              })))
-                              .map((opt) => {
-                                const active = selectedPeriod === opt.period;
-                                return (
-                                  <button
-                                    key={opt.period}
-                                    disabled={opt.isFull}
-                                    onClick={() => setSelectedPeriod(active ? null : opt.period)}
-                                    className={`px-2.5 py-1.5 rounded-lg border text-left transition-all ${
-                                      opt.isFull
-                                        ? 'opacity-50 cursor-not-allowed border-white/[0.06] bg-white/[0.02]'
-                                        : active
-                                          ? 'bg-accent text-primary border-accent cursor-pointer'
-                                          : 'bg-white/[0.04] text-slate-300 border-white/[0.08] hover:border-accent/30 cursor-pointer'
-                                    }`}
-                                  >
-                                    <span className="block text-[11px] font-semibold">{opt.label}</span>
-                                    <span className={`block text-[10px] ${active ? 'text-primary/70' : 'text-slate-500'}`}>
-                                      ₹{opt.fee}{opt.isFull ? ' · Full' : ''}
-                                    </span>
-                                  </button>
-                                );
-                              })}
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
+                <MonthCardGrid
+                  months={cb.months}
+                  selectedPeriod={selectedPeriod}
+                  expandedMonth={expandedMonth}
+                  onSelectPeriod={setSelectedPeriod}
+                  onExpandMonth={setExpandedMonth}
+                />
               )}
             </div>
           )}
@@ -701,37 +664,141 @@ export default function MatchPracticePanel({
 
       {/* ─── Match Simulation ─────────────────────────────────────── */}
       {sub === 'SIMULATION' && ms.enabled && (
-        <div className="mb-5">
-          <label className="block text-[10px] font-medium text-accent mb-2 uppercase tracking-wider">
-            Upcoming Sessions
-          </label>
-          {ms.sessions.length === 0 ? (
-            <EmptyState text="No upcoming match simulation sessions." />
+        <div>
+          {/* Monthly / Regular toggle — shown only when at least one
+              session offers a monthly pass. Otherwise the flow is the
+              original per-session (regular) picker, untouched. */}
+          {simMonthlyEnabled && (
+            <div className="mb-4">
+              <label className="block text-[10px] font-medium text-accent mb-1 uppercase tracking-wider">
+                Booking Option
+              </label>
+              <div className="grid grid-cols-2 gap-1.5">
+                {([
+                  { key: 'MONTHLY' as const, label: 'Monthly', sub2: 'Full-month pass' },
+                  { key: 'REGULAR' as const, label: 'Regular', sub2: 'Pay per session' },
+                ]).map(({ key, label, sub2 }) => {
+                  const active = effectiveSimMode === key;
+                  return (
+                    <button
+                      key={key}
+                      onClick={() => setSimMode(key)}
+                      className={`px-2.5 py-2 sm:px-3 sm:py-2.5 rounded-lg text-left border transition-all cursor-pointer ${
+                        active
+                          ? 'bg-accent text-primary border-accent shadow-sm'
+                          : 'bg-white/[0.04] text-slate-400 border-white/[0.08] hover:border-accent/20'
+                      }`}
+                    >
+                      <span className="block text-[11px] sm:text-xs font-semibold">{label}</span>
+                      <span className={`block text-[10px] ${active ? 'text-primary/70' : 'text-slate-500'}`}>{sub2}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {effectiveSimMode === 'MONTHLY' ? (
+            <div className="mb-5 space-y-4">
+              {/* Session picker — shown when more than one session offers a
+                  monthly pass. Each monthly pass is tied to one session. */}
+              {simMonthlySessions.length > 1 && (
+                <div>
+                  <label className="block text-[10px] font-medium text-accent mb-2 uppercase tracking-wider">
+                    Select Session
+                  </label>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+                    {simMonthlySessions.map((s) => {
+                      const active = selectedSimSessionId === s.sessionId;
+                      return (
+                        <button
+                          key={s.sessionId}
+                          onClick={() => setSelectedSimSessionId(s.sessionId)}
+                          className={`px-2.5 py-2 rounded-lg text-left border transition-all cursor-pointer ${
+                            active
+                              ? 'bg-accent text-primary border-accent shadow-sm'
+                              : 'bg-white/[0.04] text-slate-400 border-white/[0.08] hover:border-accent/20'
+                          }`}
+                        >
+                          <span className="block text-[11px] sm:text-xs font-semibold truncate">
+                            {s.label || 'Match Simulation'}
+                          </span>
+                          <span className={`block text-[10px] ${active ? 'text-primary/70' : 'text-slate-500'}`}>
+                            {formatDays(s.days)} · {formatHHMM(s.startTime)}–{formatHHMM(s.endTime)}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {selectedSimSession && (
+                <div>
+                  {/* Session info strip — mirrors the corporate batch strip. */}
+                  <div className="mb-4 p-3 rounded-xl bg-white/[0.03] border border-white/[0.06] text-[11px] text-slate-400 leading-relaxed">
+                    <div>
+                      <span className="text-slate-300 font-semibold">{formatDays(selectedSimSession.days)}</span>
+                      {' · '}{formatHHMM(selectedSimSession.startTime)} – {formatHHMM(selectedSimSession.endTime)}
+                      {' · '}₹{(Number(selectedSimSession.monthlyFee) || 0).toLocaleString()}/month
+                    </div>
+                    {selectedSimSession.coachName && (
+                      <div className="mt-1">
+                        Coach: <span className="text-slate-300 font-semibold">{selectedSimSession.coachName}</span>
+                      </div>
+                    )}
+                  </div>
+                  <label className="block text-[10px] font-medium text-accent mb-2 uppercase tracking-wider">
+                    Select Month
+                  </label>
+                  {selectedSimSession.months.length === 0 ? (
+                    <EmptyState text="No months are open for enrollment right now." />
+                  ) : (
+                    <MonthCardGrid
+                      months={selectedSimSession.months}
+                      selectedPeriod={selectedSimPeriod}
+                      expandedMonth={expandedSimMonth}
+                      onSelectPeriod={setSelectedSimPeriod}
+                      onExpandMonth={setExpandedSimMonth}
+                    />
+                  )}
+                </div>
+              )}
+            </div>
           ) : (
-            <SessionCardGrid
-              items={ms.sessions.map((s) => ({
-                key: sessionKey(s.date, s.startTime),
-                date: s.date,
-                dayLabel: s.dayLabel,
-                startTime: s.startTime,
-                endTime: s.endTime,
-                title: s.label || null,
-                coach: s.coachName,
-                fee: s.fee,
-                booked: s.booked,
-                capacity: s.capacity,
-                isFull: s.isFull,
-                seatNoun: 'slots',
-              }))}
-              selected={selectedSim}
-              onToggle={(key) => {
-                setSelectedSim((prev) => {
-                  const next = new Set(prev);
-                  if (next.has(key)) next.delete(key); else next.add(key);
-                  return next;
-                });
-              }}
-            />
+            <div className="mb-5">
+              <label className="block text-[10px] font-medium text-accent mb-2 uppercase tracking-wider">
+                Upcoming Sessions
+              </label>
+              {ms.sessions.length === 0 ? (
+                <EmptyState text="No upcoming match simulation sessions." />
+              ) : (
+                <SessionCardGrid
+                  items={ms.sessions.map((s) => ({
+                    key: sessionKey(s.date, s.startTime),
+                    date: s.date,
+                    dayLabel: s.dayLabel,
+                    startTime: s.startTime,
+                    endTime: s.endTime,
+                    title: s.label || null,
+                    coach: s.coachName,
+                    fee: s.fee,
+                    booked: s.booked,
+                    capacity: s.capacity,
+                    isFull: s.isFull,
+                    seatNoun: 'slots',
+                  }))}
+                  selected={selectedSim}
+                  onToggle={(key) => {
+                    setSelectedSim((prev) => {
+                      const next = new Set(prev);
+                      if (next.has(key)) next.delete(key); else next.add(key);
+                      return next;
+                    });
+                  }}
+                />
+              )}
+            </div>
           )}
         </div>
       )}
@@ -824,6 +891,150 @@ function EmptyState({ text }: { text: string }) {
     <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-6 text-center">
       <Calendar className="w-6 h-6 text-slate-600 mx-auto mb-2" />
       <p className="text-xs text-slate-400">{text}</p>
+    </div>
+  );
+}
+
+/**
+ * Month enrollment cards — one solid-fill card per enrollable month. A
+ * month with no `halves` is a single toggle button; a month that carries
+ * half-month splits expands into Full Month / First Half / Second Half
+ * options. Single source of truth for both the Corporate Batch and Match
+ * Simulation monthly flows so they stay pixel-identical.
+ */
+function MonthCardGrid({
+  months,
+  selectedPeriod,
+  expandedMonth,
+  onSelectPeriod,
+  onExpandMonth,
+}: {
+  months: MonthOption[];
+  selectedPeriod: string | null;
+  expandedMonth: string | null;
+  onSelectPeriod: (period: string | null) => void;
+  onExpandMonth: (period: string | null) => void;
+}) {
+  return (
+    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+      {months.map((m) => {
+        const hasHalves = (m.halves?.length ?? 0) > 0;
+        const activeMonth =
+          selectedPeriod === m.period
+          || !!m.halves?.some((h) => h.period === selectedPeriod);
+        const monthSelected = selectedPeriod === m.period;
+        const shortLabel = m.label.replace(/ · .*/, '');
+
+        // Common case (no half-month split): the whole card is a single
+        // button that fills solid accent when selected.
+        if (!hasHalves) {
+          return (
+            <button
+              key={m.period}
+              disabled={m.isFull}
+              onClick={() => onSelectPeriod(monthSelected ? null : m.period)}
+              className={`relative px-2.5 py-2 rounded-lg border text-left transition-all ${
+                m.isFull
+                  ? 'bg-white/[0.02] border-white/[0.05] cursor-not-allowed opacity-60'
+                  : monthSelected
+                    ? 'bg-accent text-primary border-accent shadow-md shadow-accent/20 cursor-pointer'
+                    : 'bg-white/[0.04] border-white/[0.08] hover:border-accent/40 active:scale-[0.98] cursor-pointer'
+              }`}
+            >
+              {monthSelected && (
+                <div className="absolute top-1.5 right-1.5">
+                  <Check className="w-3.5 h-3.5" />
+                </div>
+              )}
+              <div className="flex items-center justify-between gap-1 pr-4">
+                <p className={`text-xs font-bold truncate ${m.isFull ? 'text-slate-500' : monthSelected ? '' : 'text-white'}`}>
+                  {shortLabel}
+                </p>
+                <span className={`text-[10px] font-bold flex-shrink-0 ${monthSelected ? 'text-primary/80' : 'text-accent'}`}>
+                  ₹{(Number(m.fee) || 0).toLocaleString()}
+                </span>
+              </div>
+              <p className={`text-[10px] mt-0.5 ${monthSelected ? 'text-primary/70' : 'text-slate-400'}`}>
+                <Users className="w-3 h-3 inline mr-1 -mt-0.5" />
+                {m.enrolled}/{m.capacity} enrolled
+                {m.isFull && <span className="font-semibold ml-1 text-red-400">· Full</span>}
+              </p>
+            </button>
+          );
+        }
+
+        // Half-month split available: expandable card. The header fills
+        // accent when the full month is picked; each split option fills
+        // when selected.
+        return (
+          <div
+            key={m.period}
+            className={`rounded-lg border transition-all overflow-hidden ${
+              activeMonth ? 'border-accent' : 'border-white/[0.08] bg-white/[0.04]'
+            }`}
+          >
+            <button
+              onClick={() => {
+                onExpandMonth(expandedMonth === m.period ? null : m.period);
+                if (!m.isFull) onSelectPeriod(m.period);
+              }}
+              className={`relative w-full px-2.5 py-2 text-left cursor-pointer ${monthSelected ? 'bg-accent' : ''}`}
+            >
+              {monthSelected && (
+                <div className="absolute top-1.5 right-1.5">
+                  <Check className="w-3.5 h-3.5 text-primary" />
+                </div>
+              )}
+              <div className="flex items-center justify-between gap-1 pr-4">
+                <p className={`text-xs font-bold truncate ${monthSelected ? 'text-primary' : 'text-white'}`}>
+                  {shortLabel}
+                </p>
+                <span className={`text-[10px] font-bold flex-shrink-0 ${monthSelected ? 'text-primary/80' : 'text-accent'}`}>
+                  ₹{(Number(m.fee) || 0).toLocaleString()}
+                </span>
+              </div>
+              <p className={`text-[10px] mt-0.5 ${monthSelected ? 'text-primary/70' : 'text-slate-400'}`}>
+                <Users className="w-3 h-3 inline mr-1 -mt-0.5" />
+                {m.enrolled}/{m.capacity} enrolled
+                {m.isFull && <span className={`font-semibold ml-1 ${monthSelected ? 'text-primary' : 'text-red-400'}`}>· Full</span>}
+              </p>
+            </button>
+
+            {/* Half-month options — full / first half / second half */}
+            {expandedMonth === m.period && (
+              <div className="px-2 pb-2 grid grid-cols-1 gap-1.5">
+                {[{ ...m, label: 'Full Month' } as MonthOption]
+                  .concat((m.halves ?? []).map((h) => ({
+                    ...h,
+                    label: h.period.endsWith('H1') ? 'First Half' : 'Second Half',
+                  })))
+                  .map((opt) => {
+                    const active = selectedPeriod === opt.period;
+                    return (
+                      <button
+                        key={opt.period}
+                        disabled={opt.isFull}
+                        onClick={() => onSelectPeriod(active ? null : opt.period)}
+                        className={`px-2.5 py-1.5 rounded-lg border text-left transition-all ${
+                          opt.isFull
+                            ? 'opacity-50 cursor-not-allowed border-white/[0.06] bg-white/[0.02]'
+                            : active
+                              ? 'bg-accent text-primary border-accent cursor-pointer'
+                              : 'bg-white/[0.04] text-slate-300 border-white/[0.08] hover:border-accent/30 cursor-pointer'
+                        }`}
+                      >
+                        <span className="block text-[11px] font-semibold">{opt.label}</span>
+                        <span className={`block text-[10px] ${active ? 'text-primary/70' : 'text-slate-500'}`}>
+                          ₹{opt.fee}{opt.isFull ? ' · Full' : ''}
+                        </span>
+                      </button>
+                    );
+                  })}
+              </div>
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }

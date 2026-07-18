@@ -96,6 +96,10 @@ export const ResourceBookingBodySchema = z.object({
    *  derives the actual session window from this + the center config —
    *  client-sent slot times are ignored for those modes. */
   enrollmentPeriod: z.string().regex(/^\d{4}-\d{2}(-H[12])?$/).optional().nullable(),
+  /** Which MATCH_SIMULATION session a MONTHLY / HALF_MONTH enrollment is
+   *  for. Required for match-simulation monthly passes; ignored otherwise.
+   *  The server re-validates it against MATCH_SIMULATION_CONFIG. */
+  matchSimSessionId: z.string().optional().nullable(),
   resourceIds: z.array(z.string()).optional(),
   machineId: z.string().optional().nullable(),
   coachId: z.string().optional().nullable(),
@@ -812,6 +816,7 @@ async function executeResourceBookingCore(
       // rename carry corporateMode=ADHOC in their stored payload.
       corporateMode: body.corporateMode === 'ADHOC' ? 'REGULAR' : (body.corporateMode ?? null),
       enrollmentPeriod: body.enrollmentPeriod ?? null,
+      matchSimSessionId: body.matchSimSessionId ?? null,
       slots: body.slots,
     });
     // Fail-fast block check — an admin block targeting the category (or
@@ -971,6 +976,7 @@ async function executeResourceBookingCore(
                     category: mp.category,
                     corporateBatchMode: mp.mode,
                     enrollmentPeriod: mp.enrollmentPeriod,
+                    matchSimSessionId: mp.matchSimSessionId,
                     assignedGroundStaffId: groundStaffId,
                     isSuperAdminBooking: !!user.isSuperAdmin,
                     createdBy: user.name || user.id,

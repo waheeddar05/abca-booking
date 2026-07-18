@@ -226,6 +226,7 @@ export async function GET(req: NextRequest) {
             select: {
               category: true,
               corporateBatchMode: true,
+              enrollmentPeriod: true,
               date: true,
               startTime: true,
             },
@@ -238,11 +239,52 @@ export async function GET(req: NextRequest) {
     for (const row of seatRows) {
       const key = seatKey(row.date.toISOString().slice(0, 10), row.startTime.toISOString());
       if (row.category === 'MATCH_SIMULATION') {
-        simSeatCounts.set(key, (simSeatCounts.get(key) ?? 0) + 1);
+        // Monthly / half-month members carry an enrollmentPeriod; they're
+        // counted per session below via `simMonthlyCounts`, so skip them
+        // here to avoid double-counting on their "starts on" date. Only
+        // regular (per-session) seats land in simSeatCounts.
+        if (!row.enrollmentPeriod) {
+          simSeatCounts.set(key, (simSeatCounts.get(key) ?? 0) + 1);
+        }
       } else if (row.corporateBatchMode === 'REGULAR') {
         corporateRegularCounts.set(key, (corporateRegularCounts.get(key) ?? 0) + 1);
       }
     }
+
+    // ─── Match simulation: monthly / half-month membership counts ─────
+    // Grouped by (session, period) so per-session capacity is independent.
+    const simMonthlyRows = matchSim.enabled
+      ? await prisma.booking.groupBy({
+          by: ['matchSimSessionId', 'enrollmentPeriod'],
+          where: {
+            centerId: center.id,
+            category: 'MATCH_SIMULATION',
+            status: { not: 'CANCELLED' },
+            enrollmentPeriod: { not: null },
+            matchSimSessionId: { not: null },
+          },
+          _count: { _all: true },
+        })
+      : [];
+    // key: `${sessionId}|${period}` → member count
+    const simMonthlyCounts = new Map<string, number>();
+    for (const row of simMonthlyRows) {
+      if (row.matchSimSessionId && row.enrollmentPeriod) {
+        simMonthlyCounts.set(`${row.matchSimSessionId}|${row.enrollmentPeriod}`, row._count._all);
+      }
+    }
+    // Members of a session enrolled for periods overlapping `period`.
+    const simEnrolledFor = (sessionId: string, period: string): number =>
+      overlappingPeriods(period).reduce(
+        (sum, p) => sum + (simMonthlyCounts.get(`${sessionId}|${p}`) ?? 0),
+        0,
+      );
+    // Members of a session whose period covers a specific date.
+    const simMembersCoveringDate = (sessionId: string, dateStr: string, splitDay: number): number =>
+      periodsCoveringDate(dateStr, splitDay).reduce(
+        (sum, p) => sum + (simMonthlyCounts.get(`${sessionId}|${p}`) ?? 0),
+        0,
+      );
 
     // Members covering a given date = monthly + matching-half enrollments.
     const membersCoveringDate = (dateStr: string): number =>
@@ -267,7 +309,11 @@ export async function GET(req: NextRequest) {
     });
 
     const simSessions = simOccurrences.map((occ) => {
-      const booked = simSeatCounts.get(seatKey(occ.date, occ.startTime.toISOString())) ?? 0;
+      const regular = simSeatCounts.get(seatKey(occ.date, occ.startTime.toISOString())) ?? 0;
+      // Monthly / half-month members hold a seat in every occurrence of
+      // their session, so they count toward this date's occupancy too.
+      const members = simMembersCoveringDate(occ.session.id, occ.date, occ.session.halfMonth.splitDay);
+      const booked = regular + members;
       return {
         sessionId: occ.session.id,
         label: occ.session.label,
@@ -283,6 +329,59 @@ export async function GET(req: NextRequest) {
         isFull: booked >= occ.session.capacity,
       };
     });
+
+    // ─── Match simulation: monthly / half-month enrollment options ────
+    // One block per session that offers a Monthly pass, each with its own
+    // enrollable months (+ half-month splits) and live member counts.
+    const simMonthlySessions = (matchSim.enabled ? matchSim.sessions : [])
+      .filter((s) => s.enabled && s.monthlyEnabled)
+      .map((s) => {
+        const simMonthOption = (period: string) => {
+          const first = firstUpcomingSessionInPeriod(s, period, now);
+          if (!first) return null;
+          const enrolled = simEnrolledFor(s.id, period);
+          return {
+            period,
+            label: formatPeriodLabel(period),
+            fee: period.includes('-H') ? s.halfMonth.fee : s.monthlyFee,
+            enrolled,
+            capacity: s.capacity,
+            isFull: enrolled >= s.capacity,
+            startsOn: first.date,
+            slot: {
+              date: first.date,
+              startTime: first.startTime.toISOString(),
+              endTime: first.endTime.toISOString(),
+            },
+          };
+        };
+        const months = (matchSim.enabled ? listMonthKeys(MONTH_OPTIONS, todayIST) : [])
+          .map((mk) => simMonthOption(mk))
+          .filter((m): m is NonNullable<typeof m> => m !== null)
+          .map((m) => ({
+            ...m,
+            halves: s.halfMonth.enabled
+              ? (['H1', 'H2'] as const)
+                  .filter((h) => (h === 'H1' ? s.halfMonth.firstHalf : s.halfMonth.secondHalf))
+                  .map((h) => simMonthOption(`${m.period}-${h}`))
+                  .filter((h): h is NonNullable<typeof h> => h !== null)
+              : [],
+          }));
+        return {
+          sessionId: s.id,
+          label: s.label,
+          coachName: s.coachName || null,
+          days: s.days,
+          startTime: s.startTime,
+          endTime: s.endTime,
+          monthlyFee: s.monthlyFee,
+          capacity: s.capacity,
+          halfMonth: s.halfMonth,
+          months,
+        };
+      })
+      // A session with no enrollable months (all in the past) is dropped.
+      .filter((s) => s.months.length > 0);
 
     return NextResponse.json({
       centerId: center.id,
@@ -302,6 +401,10 @@ export async function GET(req: NextRequest) {
       matchSimulation: {
         enabled: matchSim.enabled,
         sessions: simSessions,
+        monthly: {
+          enabled: simMonthlySessions.length > 0,
+          sessions: simMonthlySessions,
+        },
       },
     });
   } catch (error) {

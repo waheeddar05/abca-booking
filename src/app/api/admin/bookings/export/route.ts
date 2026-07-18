@@ -231,7 +231,13 @@ export async function GET(req: NextRequest) {
       enrollmentPeriod?: string | null;
     }): string => {
       const base = categoryLabel(b.category);
-      if (b.category === 'CORPORATE_BATCH' && b.corporateBatchMode) {
+      // Both Corporate Batch and Match Simulation carry a purchase mode on
+      // monthly / half-month rows so revenue splits cleanly in the sheet:
+      // "Match Simulation (Monthly · 2026-07)".
+      if (
+        (b.category === 'CORPORATE_BATCH' || b.category === 'MATCH_SIMULATION')
+        && b.corporateBatchMode
+      ) {
         const mode = CORPORATE_MODE_LABELS[b.corporateBatchMode] || b.corporateBatchMode;
         return b.enrollmentPeriod ? `${base} (${mode} · ${b.enrollmentPeriod})` : `${base} (${mode})`;
       }

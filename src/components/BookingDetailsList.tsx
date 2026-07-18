@@ -209,11 +209,12 @@ export function BookingDetailsList({
     || category === 'CORPORATE_BATCH'
     || category === 'MATCH_SIMULATION';
 
-  // Corporate-batch enrollment context. For a MONTHLY / HALF_MONTH
+  // Match Practice enrollment context. For a MONTHLY / HALF_MONTH
   // enrollment the row's date is just "membership starts here", so the
-  // period label is what actually tells the user what they bought.
+  // period label is what actually tells the user what they bought. Both
+  // Corporate Batch and Match Simulation carry the mode + period.
   const corporateModeLabel =
-    category === 'CORPORATE_BATCH' && booking.corporateBatchMode
+    (category === 'CORPORATE_BATCH' || category === 'MATCH_SIMULATION') && booking.corporateBatchMode
       ? CORPORATE_MODE_LABELS[booking.corporateBatchMode] || booking.corporateBatchMode
       : null;
   const enrollmentLabel =

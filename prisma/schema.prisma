@@ -480,6 +480,13 @@ model Booking {
   corporateBatchMode CorporateBatchMode?
   enrollmentPeriod   String?
 
+  // Which MATCH_SIMULATION session (MATCH_SIMULATION_CONFIG session id)
+  // this seat belongs to. Set for MATCH_SIMULATION bookings so per-session
+  // monthly memberships can be counted independently even when two
+  // sessions share the same start time. Null for every other category and
+  // for legacy match-simulation rows (which are counted by (date, startTime)).
+  matchSimSessionId  String?
+
   center              Center                      @relation(fields: [centerId], references: [id])
   user                User?                       @relation(fields: [userId], references: [id])
   operator            User?                       @relation("OperatorBookings", fields: [operatorId], references: [id])
@@ -503,6 +510,8 @@ model Booking {
   @@index([centerId, category, date])
   // Monthly / half-month corporate-batch capacity counting.
   @@index([centerId, category, enrollmentPeriod])
+  // Per-session match-simulation monthly membership counting.
+  @@index([centerId, category, matchSimSessionId, enrollmentPeriod], map: "Booking_centerId_category_matchSimSessionId_enrollmentPeri_idx")
   @@index([operatorId])
   @@index([assignedMachineId])
   @@index([assignedCoachId])

@@ -84,6 +84,51 @@ describe('normalizeMatchSimulationSettings', () => {
     expect(s.sessions[0].fee).toBe(350);
     expect(s.sessions[0].enabled).toBe(true);
   });
+
+  it('defaults monthly enrollment to off for sessions saved before the feature', () => {
+    // A pre-feature session row carries no monthly / halfMonth keys — they
+    // must fall back to "regular only" so nothing changes for existing data.
+    const s = normalizeMatchSimulationSettings({
+      enabled: true,
+      sessions: [{ days: [2], startTime: '07:00', endTime: '09:00' }],
+    });
+    expect(s.sessions[0].monthlyEnabled).toBe(false);
+    expect(s.sessions[0].monthlyFee).toBe(1500);
+    expect(s.sessions[0].halfMonth).toEqual({
+      enabled: false, fee: 800, firstHalf: true, secondHalf: true, splitDay: 15,
+    });
+  });
+
+  it('parses per-session monthly + half-month config and clamps the split day', () => {
+    const s = normalizeMatchSimulationSettings({
+      enabled: true,
+      sessions: [{
+        days: [2], startTime: '07:00', endTime: '09:00',
+        monthlyEnabled: true, monthlyFee: 1800,
+        halfMonth: { enabled: true, fee: 1000, firstHalf: false, secondHalf: true, splitDay: 40 },
+      }],
+    });
+    expect(s.sessions[0].monthlyEnabled).toBe(true);
+    expect(s.sessions[0].monthlyFee).toBe(1800);
+    expect(s.sessions[0].halfMonth.enabled).toBe(true);
+    expect(s.sessions[0].halfMonth.fee).toBe(1000);
+    expect(s.sessions[0].halfMonth.firstHalf).toBe(false);
+    expect(s.sessions[0].halfMonth.secondHalf).toBe(true);
+    expect(s.sessions[0].halfMonth.splitDay).toBe(27); // clamped to <= 27
+  });
+
+  it('reuses firstUpcomingSessionInPeriod for a match-sim session shape', () => {
+    // A match-sim session satisfies the days/startTime/endTime/halfMonth
+    // shape the corporate enrollment helper reads, so a monthly pass can
+    // derive its "starts on" date the same way.
+    const session = normalizeMatchSimulationSettings({
+      enabled: true,
+      sessions: [{ days: [1, 3, 5], startTime: '07:00', endTime: '09:00', monthlyEnabled: true }],
+    }).sessions[0];
+    const now = new Date('2026-08-01T00:00:00.000Z');
+    const first = firstUpcomingSessionInPeriod(session, '2026-08', now);
+    expect(first?.date).toBe('2026-08-03'); // first Monday of August 2026
+  });
 });
 
 describe('enrollment periods', () => {
@@ -166,14 +211,14 @@ describe('listCorporateSessionDates', () => {
 
 describe('listMatchSimOccurrences', () => {
   it('supports multiple sessions per day and skips disabled ones', () => {
-    const settings = {
+    const settings = normalizeMatchSimulationSettings({
       enabled: true,
       sessions: [
         { id: 'a', label: 'Morning', days: [2], startTime: '07:00', endTime: '09:00', capacity: 10, fee: 200, coachName: '', enabled: true },
         { id: 'b', label: 'Night', days: [2], startTime: '20:00', endTime: '22:00', capacity: 8, fee: 300, coachName: '', enabled: true },
         { id: 'c', label: 'Off', days: [2], startTime: '10:00', endTime: '12:00', capacity: 8, fee: 300, coachName: '', enabled: false },
       ],
-    };
+    });
     const now = new Date('2026-07-05T12:00:00.000Z');
     const out = listMatchSimOccurrences(settings, { fromDate: '2026-07-06', horizonDays: 3, now });
     // 7 July 2026 is a Tuesday → two enabled occurrences, sorted by time.
@@ -181,13 +226,13 @@ describe('listMatchSimOccurrences', () => {
   });
 
   it("keeps today's sessions listed even after their start time", () => {
-    const settings = {
+    const settings = normalizeMatchSimulationSettings({
       enabled: true,
       sessions: [
         { id: 'a', label: 'Morning', days: [2], startTime: '07:00', endTime: '09:00', capacity: 10, fee: 200, coachName: '', enabled: true },
         { id: 'b', label: 'Night', days: [2], startTime: '20:00', endTime: '22:00', capacity: 8, fee: 300, coachName: '', enabled: true },
       ],
-    };
+    });
     // 11:30 IST on Tue 7 July — the 7 AM session is over, but both of
     // today's sessions must stay bookable for the rest of the day.
     const now = new Date('2026-07-07T06:00:00.000Z');

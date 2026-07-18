@@ -88,6 +88,10 @@ interface SimSessionState {
   coachName: string;
   enabled: boolean;
   wicketsHeld: WicketsHeld;
+  // Monthly / half-month enrollment (mirrors Corporate Batch, per session).
+  monthlyEnabled: boolean;
+  monthlyFee: number;
+  halfMonth: HalfMonthState;
 }
 
 interface SimState {
@@ -124,6 +128,9 @@ const DEFAULT_SIM: SimState = {
       coachName: '',
       enabled: true,
       wicketsHeld: { ASTRO: 1 },
+      monthlyEnabled: false,
+      monthlyFee: 1500,
+      halfMonth: { enabled: false, fee: 800, firstHalf: true, secondHalf: true, splitDay: 15 },
     },
   ],
 };
@@ -190,20 +197,29 @@ function mergeSim(raw: unknown): SimState {
     return { enabled: DEFAULT_SIM.enabled, sessions: DEFAULT_SIM.sessions.map((s) => ({ ...s })) };
   }
   const r = raw as Partial<SimState>;
+  const dHalf = DEFAULT_SIM.sessions[0].halfMonth;
   const sessions = Array.isArray(r.sessions) && r.sessions.length > 0
-    ? r.sessions.map((s, i) => ({
-        id: s?.id || `ms-${Date.now()}-${i}`,
-        label: s?.label ?? '',
-        days: Array.isArray(s?.days) ? s.days.filter((d) => typeof d === 'number' && d >= 0 && d <= 6) : [],
-        startTime: s?.startTime || '07:00',
-        endTime: s?.endTime || '09:00',
-        capacity: typeof s?.capacity === 'number' ? s.capacity : 10,
-        fee: typeof s?.fee === 'number' ? s.fee : 200,
-        coachName: s?.coachName ?? '',
-        enabled: s?.enabled !== false,
-        wicketsHeld: cleanWickets((s as { wicketsHeld?: unknown })?.wicketsHeld),
-      }))
-    : DEFAULT_SIM.sessions.map((s) => ({ ...s }));
+    ? r.sessions.map((s, i) => {
+        const half = (s as { halfMonth?: Partial<HalfMonthState> })?.halfMonth;
+        return {
+          id: s?.id || `ms-${Date.now()}-${i}`,
+          label: s?.label ?? '',
+          days: Array.isArray(s?.days) ? s.days.filter((d) => typeof d === 'number' && d >= 0 && d <= 6) : [],
+          startTime: s?.startTime || '07:00',
+          endTime: s?.endTime || '09:00',
+          capacity: typeof s?.capacity === 'number' ? s.capacity : 10,
+          fee: typeof s?.fee === 'number' ? s.fee : 200,
+          coachName: s?.coachName ?? '',
+          enabled: s?.enabled !== false,
+          wicketsHeld: cleanWickets((s as { wicketsHeld?: unknown })?.wicketsHeld),
+          monthlyEnabled: (s as { monthlyEnabled?: unknown })?.monthlyEnabled === true,
+          monthlyFee: typeof (s as { monthlyFee?: unknown })?.monthlyFee === 'number'
+            ? (s as { monthlyFee: number }).monthlyFee
+            : 1500,
+          halfMonth: { ...dHalf, ...(half ?? {}) },
+        };
+      })
+    : DEFAULT_SIM.sessions.map((s) => ({ ...s, halfMonth: { ...s.halfMonth } }));
   return { enabled: r.enabled === true, sessions };
 }
 
@@ -824,6 +840,71 @@ export function MatchPracticeConfigEditor({
                     />
                   </div>
                 )}
+
+                {/* Monthly pass — optional per-session enrollment product.
+                    When on, users can buy a flat monthly (and, if the split
+                    below is enabled, half-month) pass for this session in
+                    addition to the regular per-session fee. */}
+                <div className="rounded-lg border border-white/[0.06] bg-black/10 overflow-hidden">
+                  <div className="flex items-center justify-between gap-2 px-2.5 py-2">
+                    <div className="min-w-0">
+                      <p className="text-[11px] font-semibold text-slate-300">Monthly Pass</p>
+                      <p className="text-[9px] text-slate-500 uppercase tracking-wide">Full-month enrollment for this session</p>
+                    </div>
+                    <Switch
+                      on={s.monthlyEnabled}
+                      onToggle={() => updateSession(s.id, { monthlyEnabled: !s.monthlyEnabled })}
+                      label="Enable monthly pass"
+                    />
+                  </div>
+                  {s.monthlyEnabled && (
+                    <div className="px-2.5 pb-2.5 pt-2 space-y-2 border-t border-white/[0.05]">
+                      <Field label="Monthly Fee (₹)">
+                        <NumberInput min={0} value={s.monthlyFee}
+                          onChange={(v) => updateSession(s.id, { monthlyFee: v })} />
+                      </Field>
+
+                      {/* Half-month split — same shape as Corporate Batch. */}
+                      <div className="rounded-lg border border-white/[0.06] bg-black/20 overflow-hidden">
+                        <div className="flex items-center justify-between gap-2 px-2.5 py-2">
+                          <div className="min-w-0">
+                            <p className="text-[11px] font-semibold text-slate-300">Half-Month Payment</p>
+                            <p className="text-[9px] text-slate-500 uppercase tracking-wide">Optional split enrollment</p>
+                          </div>
+                          <Switch
+                            on={s.halfMonth.enabled}
+                            onToggle={() => updateSession(s.id, { halfMonth: { ...s.halfMonth, enabled: !s.halfMonth.enabled } })}
+                            label="Enable half-month payment"
+                          />
+                        </div>
+                        {s.halfMonth.enabled && (
+                          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 px-2.5 pb-2.5 pt-2 border-t border-white/[0.05]">
+                            <Field label="Half Fee (₹)">
+                              <NumberInput min={0} value={s.halfMonth.fee}
+                                onChange={(v) => updateSession(s.id, { halfMonth: { ...s.halfMonth, fee: v } })} />
+                            </Field>
+                            <Field label="Split Day">
+                              <NumberInput min={1} max={27} value={s.halfMonth.splitDay}
+                                onChange={(v) => updateSession(s.id, { halfMonth: { ...s.halfMonth, splitDay: v } })} />
+                            </Field>
+                            <Field label="First Half">
+                              <SwitchField
+                                on={s.halfMonth.firstHalf}
+                                onToggle={() => updateSession(s.id, { halfMonth: { ...s.halfMonth, firstHalf: !s.halfMonth.firstHalf } })}
+                              />
+                            </Field>
+                            <Field label="Second Half">
+                              <SwitchField
+                                on={s.halfMonth.secondHalf}
+                                onToggle={() => updateSession(s.id, { halfMonth: { ...s.halfMonth, secondHalf: !s.halfMonth.secondHalf } })}
+                              />
+                            </Field>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
               </div>
             ))}
 
@@ -845,6 +926,9 @@ export function MatchPracticeConfigEditor({
                       coachName: '',
                       enabled: true,
                       wicketsHeld: { ASTRO: 1 },
+                      monthlyEnabled: false,
+                      monthlyFee: 1500,
+                      halfMonth: { enabled: false, fee: 800, firstHalf: true, secondHalf: true, splitDay: 15 },
                     },
                   ],
                 }))
