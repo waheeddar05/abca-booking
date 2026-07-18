@@ -56,9 +56,21 @@ export function CenterSelector({ compact = false }: { compact?: boolean }) {
         }`}
         aria-haspopup="listbox"
         aria-expanded={open}
+        aria-label={`Current location: ${label}. ${centers.length} locations available — switch center`}
       >
         <Building2 className={compact ? 'w-3 h-3 text-accent' : 'w-3.5 h-3.5 text-accent'} />
         <span className="truncate max-w-[7rem]">{label}</span>
+        {/* Count chip — the always-visible cue that PlayOrbit is multi-location.
+            Survives dismissal of the MultiCenterBanner so "there are N centers"
+            is never fully hidden while 2+ exist. */}
+        <span
+          className={`flex items-center justify-center rounded-full bg-accent/20 text-accent font-bold leading-none ${
+            compact ? 'text-[9px] min-w-[14px] h-[14px] px-1' : 'text-[10px] min-w-[16px] h-4 px-1'
+          }`}
+          aria-hidden="true"
+        >
+          {centers.length}
+        </span>
         <ChevronDown className={`w-3 h-3 transition-transform ${open ? 'rotate-180' : ''}`} />
       </button>
 
