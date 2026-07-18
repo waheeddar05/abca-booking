@@ -60,6 +60,8 @@ interface CenterContextValue {
   isSuperAdmin: boolean;
   /** Centers where the user holds an ADMIN membership. */
   adminCenterIds: string[];
+  /** Centers where the user holds a MODERATOR (restricted admin) membership. */
+  moderatorCenterIds: string[];
   /** Centers where the user holds any staff (OPERATOR / COACH / SIDEARM) membership. */
   staffCenterIds: string[];
   /** Centers where the user holds a SIDEARM_SPECIALIST membership. */
@@ -68,6 +70,13 @@ interface CenterContextValue {
   coachCenterIds: string[];
   /** True if super admin, or ADMIN membership at the currently-selected center. */
   isAdminAtCurrentCenter: boolean;
+  /** True if the user is a MODERATOR at the currently-selected center. Kept
+   *  separate from isAdminAtCurrentCenter so moderators don't inherit full
+   *  admin privileges — it only drives the "Admin" entry button. */
+  isModeratorAtCurrentCenter: boolean;
+  /** True if the user can open the admin panel at the current center —
+   *  super admin, full admin, OR moderator. */
+  canAccessAdminPanelAtCurrentCenter: boolean;
   /** True if super admin, ADMIN, or any staff membership at the currently-selected center. */
   isStaffAtCurrentCenter: boolean;
   /** True if the user is a SIDEARM_SPECIALIST at the currently-selected center.
@@ -93,6 +102,7 @@ export function CenterProvider({ children }: { children: ReactNode }) {
   const [currentCenterId, setCurrentCenterId] = useState<string | null>(null);
   const [isSuperAdmin, setIsSuperAdmin] = useState(false);
   const [adminCenterIds, setAdminCenterIds] = useState<string[]>([]);
+  const [moderatorCenterIds, setModeratorCenterIds] = useState<string[]>([]);
   const [staffCenterIds, setStaffCenterIds] = useState<string[]>([]);
   const [sidearmCenterIds, setSidearmCenterIds] = useState<string[]>([]);
   const [coachCenterIds, setCoachCenterIds] = useState<string[]>([]);
@@ -107,6 +117,7 @@ export function CenterProvider({ children }: { children: ReactNode }) {
       setCurrentCenterId(data.currentCenterId ?? null);
       setIsSuperAdmin(Boolean(data.user?.isSuperAdmin));
       setAdminCenterIds((data.user?.adminCenterIds ?? []) as string[]);
+      setModeratorCenterIds((data.user?.moderatorCenterIds ?? []) as string[]);
       setStaffCenterIds((data.user?.staffCenterIds ?? []) as string[]);
       setSidearmCenterIds((data.user?.sidearmCenterIds ?? []) as string[]);
       setCoachCenterIds((data.user?.coachCenterIds ?? []) as string[]);
@@ -144,6 +155,12 @@ export function CenterProvider({ children }: { children: ReactNode }) {
 
   const isAdminAtCurrentCenter =
     isSuperAdmin || (currentCenterId != null && adminCenterIds.includes(currentCenterId));
+  // Membership-specific (like sidearm/coach) — super admins are already
+  // covered by isAdminAtCurrentCenter, so they don't need this flag.
+  const isModeratorAtCurrentCenter =
+    currentCenterId != null && moderatorCenterIds.includes(currentCenterId);
+  const canAccessAdminPanelAtCurrentCenter =
+    isAdminAtCurrentCenter || isModeratorAtCurrentCenter;
   const isStaffAtCurrentCenter =
     isAdminAtCurrentCenter ||
     (currentCenterId != null && staffCenterIds.includes(currentCenterId));
@@ -163,10 +180,13 @@ export function CenterProvider({ children }: { children: ReactNode }) {
       currentCenter,
       isSuperAdmin,
       adminCenterIds,
+      moderatorCenterIds,
       staffCenterIds,
       sidearmCenterIds,
       coachCenterIds,
       isAdminAtCurrentCenter,
+      isModeratorAtCurrentCenter,
+      canAccessAdminPanelAtCurrentCenter,
       isStaffAtCurrentCenter,
       isSidearmSpecialistAtCurrentCenter,
       isCoachAtCurrentCenter,
@@ -180,10 +200,13 @@ export function CenterProvider({ children }: { children: ReactNode }) {
       currentCenter,
       isSuperAdmin,
       adminCenterIds,
+      moderatorCenterIds,
       staffCenterIds,
       sidearmCenterIds,
       coachCenterIds,
       isAdminAtCurrentCenter,
+      isModeratorAtCurrentCenter,
+      canAccessAdminPanelAtCurrentCenter,
       isStaffAtCurrentCenter,
       isSidearmSpecialistAtCurrentCenter,
       isCoachAtCurrentCenter,
@@ -207,10 +230,13 @@ export function useCenter(): CenterContextValue {
       currentCenter: null,
       isSuperAdmin: false,
       adminCenterIds: [],
+      moderatorCenterIds: [],
       staffCenterIds: [],
       sidearmCenterIds: [],
       coachCenterIds: [],
       isAdminAtCurrentCenter: false,
+      isModeratorAtCurrentCenter: false,
+      canAccessAdminPanelAtCurrentCenter: false,
       isStaffAtCurrentCenter: false,
       isSidearmSpecialistAtCurrentCenter: false,
       isCoachAtCurrentCenter: false,

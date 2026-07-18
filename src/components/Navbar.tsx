@@ -13,7 +13,7 @@ export default function Navbar() {
   const { data: session, status } = useSession();
   const pathname = usePathname();
   const router = useRouter();
-  const { isAdminAtCurrentCenter, isStaffAtCurrentCenter, loading: centerLoading } = useCenter();
+  const { canAccessAdminPanelAtCurrentCenter, isStaffAtCurrentCenter, loading: centerLoading } = useCenter();
   const [scrolled, setScrolled] = useState(false);
   // For OTP-logged-in users who don't have a NextAuth session
   const [otpUserRole, setOtpUserRole] = useState<string | null>(null);
@@ -42,7 +42,9 @@ export default function Navbar() {
   // see the Admin button on Toplay and not on ABCA. Super admin bypass is folded
   // into these flags by the provider. While memberships are still loading we hide
   // the buttons to avoid a flash for users without admin rights.
-  const showAdmin = isLoggedIn && !centerLoading && isAdminAtCurrentCenter;
+  // Moderators (restricted admins) reach the admin panel through this same
+  // button — the panel itself hides the surfaces they can't use.
+  const showAdmin = isLoggedIn && !centerLoading && canAccessAdminPanelAtCurrentCenter;
   const showStaff = isLoggedIn && !centerLoading && isStaffAtCurrentCenter;
   const isInAdminMode = pathname.startsWith('/admin');
   // /operator is a legacy redirect to /staff; treat both as "staff mode"
@@ -134,8 +136,8 @@ export default function Navbar() {
                   </Link>
                 )}
 
-                {/* User mode: Admin button — only visible when the user is an
-                    ADMIN at the currently-selected center (or a super admin). */}
+                {/* User mode: Admin button — visible when the user is an ADMIN,
+                    a MODERATOR, or a super admin at the currently-selected center. */}
                 {!isInAdminMode && showAdmin && (
                   <Link
                     href="/admin"

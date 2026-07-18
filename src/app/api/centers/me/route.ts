@@ -32,6 +32,12 @@ export async function GET(req: NextRequest) {
     const adminCenterIds = user
       ? user.centerMemberships.filter((m) => m.role === 'ADMIN').map((m) => m.centerId)
       : [];
+    // Centers where the user is a MODERATOR (restricted admin). Drives the
+    // user-side "Admin" entry button — moderators reach the admin panel the
+    // same way admins do, they just see a reduced set of surfaces there.
+    const moderatorCenterIds = user
+      ? user.centerMemberships.filter((m) => m.role === 'MODERATOR').map((m) => m.centerId)
+      : [];
     const staffCenterIds = user
       ? user.centerMemberships
           .filter((m) => m.role === 'OPERATOR' || m.role === 'COACH' || m.role === 'SIDEARM_SPECIALIST')
@@ -60,6 +66,7 @@ export async function GET(req: NextRequest) {
             role: user.role,
             isSuperAdmin: user.isSuperAdmin,
             adminCenterIds,
+            moderatorCenterIds,
             staffCenterIds,
             sidearmCenterIds,
             coachCenterIds,
