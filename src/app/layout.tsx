@@ -3,6 +3,7 @@ import { GeistSans } from "geist/font/sans";
 import { GeistMono } from "geist/font/mono";
 import Navbar from "@/components/Navbar";
 import BottomNav from "@/components/BottomNav";
+import { MultiCenterBanner } from "@/components/MultiCenterBanner";
 import { Providers } from "@/components/Providers";
 import { ErrorBoundary } from "@/components/ui/ErrorBoundary";
 import { ToastProvider } from "@/components/ui/Toast";
@@ -62,6 +63,7 @@ export default function RootLayout({
           <ToastProvider>
             <ErrorBoundary>
               <Navbar />
+              <MultiCenterBanner />
               <main className="pb-20 md:pb-0">{children}</main>
               <BottomNav />
             </ErrorBoundary>

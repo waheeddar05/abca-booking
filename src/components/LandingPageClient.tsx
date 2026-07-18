@@ -61,12 +61,26 @@ export default function LandingPageClient() {
               sizes="(max-width: 768px) 60px, 120px"
             />
           </div>
-          <button
-            onClick={openLogin}
-            className="text-xs md:text-sm font-bold bg-white/5 hover:bg-white/10 text-white px-4 md:px-5 py-2 md:py-2 rounded-full border border-white/10 transition-all active:scale-95 flex-shrink-0 cursor-pointer"
-          >
-            Login
-          </button>
+          <div className="flex items-center gap-2 md:gap-3 flex-shrink-0">
+            {/* Persistent multi-location cue in the top nav — shows the real
+                center count and links to the full picker. Only appears when
+                2+ centers exist, so single-center installs look unchanged. */}
+            {hasMultipleCenters && (
+              <Link
+                href="/centers"
+                className="hidden sm:flex items-center gap-1.5 text-xs md:text-sm font-bold text-accent bg-accent/10 hover:bg-accent/20 px-3 md:px-4 py-2 rounded-full border border-accent/25 transition-all active:scale-95 cursor-pointer"
+              >
+                <MapPin className="w-3.5 h-3.5" />
+                {centers.length} Locations
+              </Link>
+            )}
+            <button
+              onClick={openLogin}
+              className="text-xs md:text-sm font-bold bg-white/5 hover:bg-white/10 text-white px-4 md:px-5 py-2 md:py-2 rounded-full border border-white/10 transition-all active:scale-95 cursor-pointer"
+            >
+              Login
+            </button>
+          </div>
         </div>
       </nav>
 
@@ -125,9 +139,12 @@ export default function LandingPageClient() {
           </div>
 
           {hasMultipleCenters && (
+            // Mobile-only hero pill: on sm+ the persistent top-nav "N Locations"
+            // pill carries this cue, so it's hidden here to avoid two near-
+            // identical location pills in the same desktop viewport.
             <Link
               href="/centers"
-              className="mt-4 md:mt-5 inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-accent/10 hover:bg-accent/20 border border-accent/20 hover:border-accent/40 text-accent text-[11px] md:text-xs font-semibold transition-all animate-fade-in delay-500"
+              className="mt-4 md:mt-5 inline-flex sm:hidden items-center gap-2 px-3 py-1.5 rounded-full bg-accent/10 hover:bg-accent/20 border border-accent/20 hover:border-accent/40 text-accent text-[11px] md:text-xs font-semibold transition-all animate-fade-in delay-500"
             >
               <Building2 className="w-3 h-3 md:w-3.5 md:h-3.5" />
               {centers.length} locations available
@@ -347,7 +364,7 @@ export default function LandingPageClient() {
               { title: 'Pro Machines', desc: 'Leather & tennis ball options', icon: Zap, color: 'text-accent' },
               { title: 'Triple Pitch', desc: 'Astro, Cement & Natural', icon: Target, color: 'text-purple-400' },
               { title: '1-Click Book', desc: 'Zero friction booking flow', icon: Calendar, color: 'text-emerald-400' },
-              { title: 'Multi-Center', desc: 'Book across our locations', icon: Building2, color: 'text-sky-400' },
+              { title: 'Multi-Center', desc: hasMultipleCenters ? `Book across ${centers.length} locations` : 'Book across our locations', icon: Building2, color: 'text-sky-400' },
               { title: 'Wallet & Packages', desc: 'Prepaid credits & bundles', icon: Wallet, color: 'text-amber-400' },
               { title: 'Coaching & Sidearm', desc: 'Pro coaches & throwdowns', icon: GraduationCap, color: 'text-cyan-400' },
             ].map((feature, i) => {
