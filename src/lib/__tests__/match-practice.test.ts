@@ -139,9 +139,18 @@ describe('listCorporateSessionDates', () => {
     expect(out.every((o) => [1, 3, 5].includes(o.dayOfWeek))).toBe(true);
   });
 
-  it('drops sessions that already started', () => {
-    // 06:00 UTC on 6 July = 11:30 IST — Monday's 7 AM session is over.
+  it("keeps today's session even after its start time", () => {
+    // 06:00 UTC on 6 July = 11:30 IST — Monday's 7 AM session is over, but
+    // today must stay listed and bookable for the rest of the day.
     const now = new Date('2026-07-06T06:00:00.000Z');
+    const out = listCorporateSessionDates(settings, { fromDate: '2026-07-06', horizonDays: 7, now });
+    expect(out.map((o) => o.date)).toEqual(['2026-07-06', '2026-07-08', '2026-07-10']);
+  });
+
+  it('drops dates strictly before today (IST) but keeps today onward', () => {
+    // 11:30 IST on Wed 8 July — Mon 6 July is a past date (dropped); Wed 8
+    // (today, 7 AM already over) and Fri 10 stay.
+    const now = new Date('2026-07-08T06:00:00.000Z');
     const out = listCorporateSessionDates(settings, { fromDate: '2026-07-06', horizonDays: 7, now });
     expect(out.map((o) => o.date)).toEqual(['2026-07-08', '2026-07-10']);
   });
@@ -170,6 +179,21 @@ describe('listMatchSimOccurrences', () => {
     // 7 July 2026 is a Tuesday → two enabled occurrences, sorted by time.
     expect(out.map((o) => `${o.date} ${o.session.id}`)).toEqual(['2026-07-07 a', '2026-07-07 b']);
   });
+
+  it("keeps today's sessions listed even after their start time", () => {
+    const settings = {
+      enabled: true,
+      sessions: [
+        { id: 'a', label: 'Morning', days: [2], startTime: '07:00', endTime: '09:00', capacity: 10, fee: 200, coachName: '', enabled: true },
+        { id: 'b', label: 'Night', days: [2], startTime: '20:00', endTime: '22:00', capacity: 8, fee: 300, coachName: '', enabled: true },
+      ],
+    };
+    // 11:30 IST on Tue 7 July — the 7 AM session is over, but both of
+    // today's sessions must stay bookable for the rest of the day.
+    const now = new Date('2026-07-07T06:00:00.000Z');
+    const out = listMatchSimOccurrences(settings, { fromDate: '2026-07-07', horizonDays: 1, now });
+    expect(out.map((o) => `${o.date} ${o.session.id}`)).toEqual(['2026-07-07 a', '2026-07-07 b']);
+  });
 });
 
 describe('firstUpcomingSessionInPeriod', () => {
@@ -187,11 +211,12 @@ describe('firstUpcomingSessionInPeriod', () => {
     expect(first?.date).toBe('2026-08-03');
   });
 
-  it('skips already-passed sessions in the current month', () => {
-    // 8 July 2026 10:00 IST — Mon 6th and Wed 8th (7 AM) already started.
+  it("keeps today's session as the first even after its start time", () => {
+    // 8 July 2026 10:00 IST — Mon 6th is past (skipped), but Wed 8th (7 AM
+    // already over) is today and must remain the enrollment's start date.
     const now = new Date('2026-07-08T04:30:00.000Z');
     const first = firstUpcomingSessionInPeriod(settings, '2026-07', now);
-    expect(first?.date).toBe('2026-07-10');
+    expect(first?.date).toBe('2026-07-08');
   });
 
   it('respects half boundaries', () => {
@@ -204,7 +229,8 @@ describe('firstUpcomingSessionInPeriod', () => {
   });
 
   it('returns null when the period has no remaining sessions', () => {
-    const now = new Date('2026-07-31T18:00:00.000Z');
+    // 1 Aug 2026 (IST) — every July session date is now in the past.
+    const now = new Date('2026-08-01T06:00:00.000Z');
     expect(firstUpcomingSessionInPeriod(settings, '2026-07', now)).toBeNull();
   });
 });

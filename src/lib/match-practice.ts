@@ -323,8 +323,9 @@ export interface SessionOccurrence {
 
 /**
  * Upcoming corporate-batch session dates from `fromDate` (inclusive, IST
- * "YYYY-MM-DD") for `horizonDays` days, filtered to occurrences that
- * haven't started yet relative to `now`.
+ * "YYYY-MM-DD") for `horizonDays` days. Today's sessions (IST) stay listed
+ * all day — a session no longer disappears once its start/end time passes
+ * on the current date. Only dates strictly before today (IST) are dropped.
  */
 export function listCorporateSessionDates(
   settings: Pick<CorporateBatchSettings, 'days' | 'startTime' | 'endTime'>,
@@ -333,17 +334,17 @@ export function listCorporateSessionDates(
   if (settings.days.length === 0) return [];
   const out: SessionOccurrence[] = [];
   const start = dateStringToUTC(opts.fromDate);
+  const todayIST = getISTDateString(opts.now);
   for (let i = 0; i < opts.horizonDays; i++) {
     const d = new Date(start.getTime() + i * 86_400_000);
     const dateStr = d.toISOString().slice(0, 10);
     const dow = d.getUTCDay();
     if (!settings.days.includes(dow)) continue;
-    const startTime = istDateTimeToUTC(dateStr, settings.startTime);
-    if (startTime <= opts.now) continue;
+    if (dateStr < todayIST) continue;
     out.push({
       date: dateStr,
       dayOfWeek: dow,
-      startTime,
+      startTime: istDateTimeToUTC(dateStr, settings.startTime),
       endTime: istDateTimeToUTC(dateStr, settings.endTime),
     });
   }
@@ -351,11 +352,14 @@ export function listCorporateSessionDates(
 }
 
 /**
- * First not-yet-started session occurrence inside an enrollment period.
+ * First still-bookable session occurrence inside an enrollment period.
  * Used as the Booking row's (date, startTime, endTime) for MONTHLY /
  * HALF_MONTH enrollments — "your membership starts from this session".
- * Returns null when the period has no remaining sessions (fully in the
- * past, or the configured days never occur in the half).
+ * Today (IST) still counts even after its start time, so an enrollment
+ * made later in the day still starts from today's session rather than
+ * skipping to the next one. Returns null when the period has no remaining
+ * sessions (every configured day is before today, or none occur in the
+ * half).
  */
 export function firstUpcomingSessionInPeriod(
   settings: Pick<CorporateBatchSettings, 'days' | 'startTime' | 'endTime' | 'halfMonth'>,
@@ -368,15 +372,15 @@ export function firstUpcomingSessionInPeriod(
   const split = settings.halfMonth?.splitDay ?? 15;
   const fromDay = p.half === 'H2' ? split + 1 : 1;
   const toDay = p.half === 'H1' ? split : total;
+  const todayIST = getISTDateString(now);
   for (let day = fromDay; day <= toDay; day++) {
     const dateStr = `${p.year}-${pad2(p.month)}-${pad2(day)}`;
     if (!settings.days.includes(dayOfWeekOf(dateStr))) continue;
-    const startTime = istDateTimeToUTC(dateStr, settings.startTime);
-    if (startTime <= now) continue;
+    if (dateStr < todayIST) continue;
     return {
       date: dateStr,
       dayOfWeek: dayOfWeekOf(dateStr),
-      startTime,
+      startTime: istDateTimeToUTC(dateStr, settings.startTime),
       endTime: istDateTimeToUTC(dateStr, settings.endTime),
     };
   }
@@ -402,7 +406,8 @@ export interface MatchSimOccurrence extends SessionOccurrence {
 
 /** Upcoming match-simulation occurrences across every enabled session,
  *  sorted by start time. Multiple sessions on the same day each yield
- *  their own occurrence. */
+ *  their own occurrence. Today's sessions (IST) stay listed all day —
+ *  only dates strictly before today are dropped. */
 export function listMatchSimOccurrences(
   settings: MatchSimulationSettings,
   opts: { fromDate: string; horizonDays: number; now: Date },
@@ -410,18 +415,18 @@ export function listMatchSimOccurrences(
   const out: MatchSimOccurrence[] = [];
   const start = dateStringToUTC(opts.fromDate);
   const enabledSessions = settings.sessions.filter((s) => s.enabled && s.days.length > 0);
+  const todayIST = getISTDateString(opts.now);
   for (let i = 0; i < opts.horizonDays; i++) {
     const d = new Date(start.getTime() + i * 86_400_000);
     const dateStr = d.toISOString().slice(0, 10);
+    if (dateStr < todayIST) continue;
     const dow = d.getUTCDay();
     for (const session of enabledSessions) {
       if (!session.days.includes(dow)) continue;
-      const startTime = istDateTimeToUTC(dateStr, session.startTime);
-      if (startTime <= opts.now) continue;
       out.push({
         date: dateStr,
         dayOfWeek: dow,
-        startTime,
+        startTime: istDateTimeToUTC(dateStr, session.startTime),
         endTime: istDateTimeToUTC(dateStr, session.endTime),
         session,
       });
@@ -554,7 +559,7 @@ export async function resolveMatchPracticePlans(
   nowOverride?: Date,
 ): Promise<MatchPracticePlan[]> {
   const now = nowOverride ?? new Date();
-  const todayIST = getISTDateString();
+  const todayIST = getISTDateString(now);
 
   if (body.category === 'CORPORATE_BATCH') {
     const settings = await getCorporateBatchSettings(centerId);
@@ -626,12 +631,15 @@ export async function resolveMatchPracticePlans(
           400,
         );
       }
+      // Today stays bookable all day — only genuinely past dates are
+      // rejected. Sessions no longer become unbookable once their start
+      // time passes on the current date.
+      if (s.date < todayIST) {
+        throw new BookingResourceError('This session date has already passed', 400);
+      }
       // The window always comes from config — client times are ignored.
       const startTime = istDateTimeToUTC(s.date, settings.startTime);
       const endTime = istDateTimeToUTC(s.date, settings.endTime);
-      if (startTime <= now) {
-        throw new BookingResourceError('This session has already started', 400);
-      }
       return {
         category: 'CORPORATE_BATCH' as const,
         mode: 'REGULAR' as const,
@@ -678,10 +686,12 @@ export async function resolveMatchPracticePlans(
         400,
       );
     }
-    const startTime = istDateTimeToUTC(slot.date, session.startTime);
-    if (startTime <= now) {
-      throw new BookingResourceError('This session has already started', 400);
+    // Today stays bookable all day — only genuinely past dates are
+    // rejected, matching the corporate-batch and availability behaviour.
+    if (slot.date < todayIST) {
+      throw new BookingResourceError('This session date has already passed', 400);
     }
+    const startTime = istDateTimeToUTC(slot.date, session.startTime);
     return {
       category: 'MATCH_SIMULATION' as const,
       mode: null,

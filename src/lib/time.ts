@@ -10,10 +10,12 @@ export const DEFAULT_END_HOUR = 22;
 export const DEFAULT_SLOT_DURATION = 30;
 
 /**
- * Get the current IST date as a string (yyyy-MM-dd).
+ * Get an IST date as a string (yyyy-MM-dd). Defaults to now; pass an
+ * instant to get the IST calendar date that instant falls on (used to
+ * compare a session's IST date against "today" from an arbitrary `now`).
  */
-export function getISTDateString(): string {
-  return formatInTimeZone(new Date(), TIMEZONE, 'yyyy-MM-dd');
+export function getISTDateString(date: Date = new Date()): string {
+  return formatInTimeZone(date, TIMEZONE, 'yyyy-MM-dd');
 }
 
 /**
