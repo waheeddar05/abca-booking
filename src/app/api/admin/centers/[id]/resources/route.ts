@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { requireCenterAdminForCenter } from '@/lib/adminAuth';
+import { getAuthenticatedUser, hasMembershipRole } from '@/lib/auth';
 import { z } from 'zod';
 
 /**
@@ -25,8 +26,17 @@ type Params = { id: string };
 
 export async function GET(req: NextRequest, ctx: { params: Promise<Params> }) {
   const { id: centerId } = await ctx.params;
-  const ctxAuth = await requireCenterAdminForCenter(req, centerId);
-  if (!ctxAuth) return NextResponse.json({ error: 'Admin required' }, { status: 403 });
+  // Read access: super admins, center admins, AND moderators. The Slots
+  // block editor (ResourceBlockManagement) needs the resource list on
+  // resource-based centers, and moderators have full Slots access. Resource
+  // mutations (POST/PATCH/DELETE) stay admin-only via requireCenterAdminForCenter.
+  const user = await getAuthenticatedUser(req);
+  const canRead =
+    !!user &&
+    (user.isSuperAdmin ||
+      hasMembershipRole(user, centerId, 'ADMIN') ||
+      hasMembershipRole(user, centerId, 'MODERATOR'));
+  if (!canRead) return NextResponse.json({ error: 'Admin required' }, { status: 403 });
   const resources = await prisma.resource.findMany({
     where: { centerId },
     orderBy: [{ displayOrder: 'asc' }, { name: 'asc' }],

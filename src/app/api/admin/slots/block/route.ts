@@ -30,7 +30,7 @@ async function pitchPoolCapacity(centerId: string, pitchType: unknown): Promise<
 export async function GET(req: NextRequest) {
   try {
     const admin = await getAuthenticatedUser(req);
-    if (!admin || admin.role !== 'ADMIN') {
+    if (!admin || (admin.role !== 'ADMIN' && admin.role !== 'MODERATOR')) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
     // Per-center gate: a global ADMIN at center A must not be able
@@ -39,7 +39,12 @@ export async function GET(req: NextRequest) {
     // here. Super admin bypasses.
     {
       const cur = await resolveCurrentCenter(req, admin);
-      if (cur && !admin.isSuperAdmin && !hasMembershipRole(admin, cur.id, 'ADMIN')) {
+      if (
+        cur &&
+        !admin.isSuperAdmin &&
+        !hasMembershipRole(admin, cur.id, 'ADMIN') &&
+        !hasMembershipRole(admin, cur.id, 'MODERATOR')
+      ) {
         return NextResponse.json({ error: "You're not an admin at this center" }, { status: 403 });
       }
     }
@@ -99,7 +104,7 @@ export async function POST(req: NextRequest) {
   try {
     const admin = await getAuthenticatedUser(req);
 
-    if (!admin || admin.role !== 'ADMIN') {
+    if (!admin || (admin.role !== 'ADMIN' && admin.role !== 'MODERATOR')) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
@@ -535,7 +540,7 @@ export async function POST(req: NextRequest) {
 export async function PUT(req: NextRequest) {
   try {
     const admin = await getAuthenticatedUser(req);
-    if (!admin || admin.role !== 'ADMIN') {
+    if (!admin || (admin.role !== 'ADMIN' && admin.role !== 'MODERATOR')) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
     // Per-center gate: a global ADMIN at center A must not be able
@@ -544,7 +549,12 @@ export async function PUT(req: NextRequest) {
     // here. Super admin bypasses.
     {
       const cur = await resolveCurrentCenter(req, admin);
-      if (cur && !admin.isSuperAdmin && !hasMembershipRole(admin, cur.id, 'ADMIN')) {
+      if (
+        cur &&
+        !admin.isSuperAdmin &&
+        !hasMembershipRole(admin, cur.id, 'ADMIN') &&
+        !hasMembershipRole(admin, cur.id, 'MODERATOR')
+      ) {
         return NextResponse.json({ error: "You're not an admin at this center" }, { status: 403 });
       }
     }
@@ -694,7 +704,7 @@ export async function PUT(req: NextRequest) {
 export async function DELETE(req: NextRequest) {
   try {
     const admin = await getAuthenticatedUser(req);
-    if (!admin || admin.role !== 'ADMIN') {
+    if (!admin || (admin.role !== 'ADMIN' && admin.role !== 'MODERATOR')) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
     // Per-center gate: a global ADMIN at center A must not be able
@@ -703,7 +713,12 @@ export async function DELETE(req: NextRequest) {
     // here. Super admin bypasses.
     {
       const cur = await resolveCurrentCenter(req, admin);
-      if (cur && !admin.isSuperAdmin && !hasMembershipRole(admin, cur.id, 'ADMIN')) {
+      if (
+        cur &&
+        !admin.isSuperAdmin &&
+        !hasMembershipRole(admin, cur.id, 'ADMIN') &&
+        !hasMembershipRole(admin, cur.id, 'MODERATOR')
+      ) {
         return NextResponse.json({ error: "You're not an admin at this center" }, { status: 403 });
       }
     }
