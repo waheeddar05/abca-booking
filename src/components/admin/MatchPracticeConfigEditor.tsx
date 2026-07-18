@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { Loader2, Plus, Save, Trash2 } from 'lucide-react';
+import { ChevronDown, Loader2, Plus, Save, Trash2 } from 'lucide-react';
 
 // A physical Resource type maps to a bookable pitch type. NET is the
 // indoor synthetic-turf pool → Astro; TURF_WICKET → Natural; CEMENT_WICKET
@@ -143,6 +143,14 @@ const DAY_OPTIONS = [
 
 const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
+/** "Mon, Wed, Fri" for a collapsed section's summary line. */
+const daysSummary = (days: number[]): string =>
+  [...days]
+    .sort((a, b) => a - b)
+    .map((d) => DAY_OPTIONS.find((o) => o.id === d)?.label)
+    .filter(Boolean)
+    .join(', ') || 'No days';
+
 // Shared input styling matches the rest of the admin forms (e.g. Offers):
 // text-sm, px-3 py-2.5 — consistent font size, field height and spacing.
 const inputClass =
@@ -228,41 +236,122 @@ function DayChips({
   );
 }
 
-function ToggleRow({
-  label,
-  sub,
+/**
+ * Compact iOS-style on/off switch — used for section enable toggles, the
+ * half-month payment toggle, and per-session enable. Stops propagation so
+ * it can sit inside a clickable collapsible header without also toggling
+ * the collapse.
+ */
+function Switch({
   on,
   onToggle,
+  label,
 }: {
-  label: string;
-  sub?: string;
   on: boolean;
   onToggle: () => void;
+  label?: string;
 }) {
   return (
     <button
       type="button"
-      onClick={onToggle}
-      className={`w-full flex items-center justify-between gap-3 px-3 py-2 rounded-xl text-left border transition-all cursor-pointer ${
-        on
-          ? 'bg-accent/10 text-accent border-accent/20'
-          : 'bg-black/20 text-slate-500 border-white/[0.05] hover:border-white/[0.1]'
+      role="switch"
+      aria-checked={on}
+      aria-label={label}
+      title={label}
+      onClick={(e) => {
+        e.stopPropagation();
+        onToggle();
+      }}
+      className={`relative inline-flex h-5 w-9 flex-shrink-0 items-center rounded-full border transition-colors cursor-pointer ${
+        on ? 'bg-accent border-accent' : 'bg-white/[0.06] border-white/[0.12] hover:border-white/20'
       }`}
     >
-      <div className="min-w-0">
-        <span className={`text-xs font-semibold ${on ? 'text-white' : 'text-slate-400'}`}>{label}</span>
-        {sub && <span className="ml-2 text-[9px] text-slate-500 uppercase tracking-tight">{sub}</span>}
-      </div>
-      <div className={`w-4 h-4 flex-shrink-0 rounded-full border flex items-center justify-center ${
-        on ? 'bg-accent border-accent text-primary' : 'border-white/10 bg-white/5'
-      }`}>
-        {on && (
-          <svg className="w-2 h-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={4} d="M5 13l4 4L19 7" />
-          </svg>
-        )}
-      </div>
+      <span
+        className={`inline-block h-3.5 w-3.5 rounded-full transition-transform ${
+          on ? 'translate-x-[18px] bg-primary' : 'translate-x-0.5 bg-slate-400'
+        }`}
+      />
     </button>
+  );
+}
+
+/**
+ * Switch rendered at input height with an Allowed / Hidden caption — used
+ * for the half-month "First Half / Second Half" visibility toggles so they
+ * line up with the number inputs beside them.
+ */
+function SwitchField({ on, onToggle }: { on: boolean; onToggle: () => void }) {
+  return (
+    <div className="flex items-center gap-2 h-[42px] px-2.5 rounded-lg bg-white/[0.04] border border-white/[0.1]">
+      <Switch on={on} onToggle={onToggle} label={on ? 'Allowed' : 'Hidden'} />
+      <span className={`text-[11px] font-medium ${on ? 'text-slate-300' : 'text-slate-500'}`}>
+        {on ? 'Allowed' : 'Hidden'}
+      </span>
+    </div>
+  );
+}
+
+/** Small uppercase group divider — separates field clusters
+ *  ("Schedule", "Pricing & Capacity", "Wickets Held") inside a section. */
+function GroupLabel({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="flex items-center gap-2">
+      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider whitespace-nowrap">
+        {children}
+      </span>
+      <div className="h-px flex-1 bg-white/[0.06]" />
+    </div>
+  );
+}
+
+/**
+ * Collapsible section header: chevron + title (with a one-line summary when
+ * collapsed) on the left, an On/Off caption + enable Switch on the right.
+ * Tapping the title area toggles the collapse; the Switch toggles enable.
+ */
+function SectionHeader({
+  title,
+  open,
+  onToggleOpen,
+  enabled,
+  onToggleEnabled,
+  summary,
+}: {
+  title: string;
+  open: boolean;
+  onToggleOpen: () => void;
+  enabled: boolean;
+  onToggleEnabled: () => void;
+  summary: string;
+}) {
+  return (
+    <div className="flex items-center gap-2 px-3 py-2.5">
+      <button
+        type="button"
+        onClick={onToggleOpen}
+        className="flex items-center gap-2 flex-1 min-w-0 text-left cursor-pointer group"
+      >
+        <ChevronDown
+          className={`w-4 h-4 text-slate-500 group-hover:text-slate-300 transition-transform flex-shrink-0 ${
+            open ? '' : '-rotate-90'
+          }`}
+        />
+        <span className="min-w-0">
+          <span className="block text-xs font-bold text-slate-200 uppercase tracking-wider truncate">
+            {title}
+          </span>
+          {!open && summary && (
+            <span className="block text-[10px] text-slate-500 truncate mt-0.5 normal-case">{summary}</span>
+          )}
+        </span>
+      </button>
+      <div className="flex items-center gap-2 flex-shrink-0">
+        <span className={`text-[9px] font-semibold uppercase tracking-wide ${enabled ? 'text-accent' : 'text-slate-500'}`}>
+          {enabled ? 'On' : 'Off'}
+        </span>
+        <Switch on={enabled} onToggle={onToggleEnabled} label={`Enable ${title}`} />
+      </div>
+    </div>
   );
 }
 
@@ -408,6 +497,8 @@ export function MatchPracticeConfigEditor({
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<{ text: string; ok: boolean } | null>(null);
+  const [corpOpen, setCorpOpen] = useState(true);
+  const [simOpen, setSimOpen] = useState(true);
 
   useEffect(() => {
     let cancelled = false;
@@ -551,224 +642,219 @@ export function MatchPracticeConfigEditor({
   }
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-3">
       {/* ─── Corporate Batch ─────────────────────────────────────── */}
-      <div className="bg-white/[0.02] rounded-xl border border-white/[0.05] p-3 space-y-3">
-        <h3 className="text-xs font-bold text-slate-300 uppercase tracking-wider">
-          Corporate Batch
-        </h3>
-        <ToggleRow
-          label="Enable Corporate Batch"
-          sub="Monthly + regular enrollment"
-          on={corp.enabled}
-          onToggle={() => setCorp((p) => ({ ...p, enabled: !p.enabled }))}
+      <div className="bg-white/[0.02] rounded-xl border border-white/[0.05] overflow-hidden">
+        <SectionHeader
+          title="Corporate Batch"
+          open={corpOpen}
+          onToggleOpen={() => setCorpOpen((o) => !o)}
+          enabled={corp.enabled}
+          onToggleEnabled={() => setCorp((p) => ({ ...p, enabled: !p.enabled }))}
+          summary={`${daysSummary(corp.days)} · ${corp.startTime}–${corp.endTime} · ₹${(Number(corp.monthlyFee) || 0).toLocaleString()}/mo`}
         />
-
-        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
-          <Field label="Batch Days">
-            <DayChips value={corp.days} onChange={(days) => setCorp((p) => ({ ...p, days }))} />
-          </Field>
-          <Field label="Start Time">
-            <input type="time" value={corp.startTime} className={inputClass}
-              onChange={(e) => setCorp((p) => ({ ...p, startTime: e.target.value }))} />
-          </Field>
-          <Field label="End Time">
-            <input type="time" value={corp.endTime} className={inputClass}
-              onChange={(e) => setCorp((p) => ({ ...p, endTime: e.target.value }))} />
-          </Field>
-          <Field label="Coach">
-            <input type="text" value={corp.coachName} placeholder="Coach name" className={inputClass}
-              onChange={(e) => setCorp((p) => ({ ...p, coachName: e.target.value }))} />
-          </Field>
-          <Field label="Monthly Fee (₹)">
-            <NumberInput min={0} value={corp.monthlyFee}
-              onChange={(v) => setCorp((p) => ({ ...p, monthlyFee: v }))} />
-          </Field>
-          <Field label="Regular Fee (₹/session)">
-            <NumberInput min={0} value={corp.regularFee}
-              onChange={(v) => setCorp((p) => ({ ...p, regularFee: v }))} />
-          </Field>
-          <Field label="Max Batch Capacity">
-            <NumberInput min={1} value={corp.maxCapacity}
-              onChange={(v) => setCorp((p) => ({ ...p, maxCapacity: v }))} />
-          </Field>
-        </div>
-
-        {/* Per-pitch wickets held — dynamic from the center's pitch types. */}
-        <div className="pt-1">
-          <label className="block text-[11px] font-semibold text-slate-300 uppercase tracking-wide mb-1.5">
-            Wickets Held Per Pitch Type
-          </label>
-          <PitchWicketsFields
-            centerId={centerId}
-            options={pitchOptions}
-            values={corp.wicketsHeld}
-            onChange={setCorpWicket}
-          />
-        </div>
-        <p className="text-[10px] text-slate-500 leading-relaxed">
-          Frequency ({corp.days.length} day{corp.days.length === 1 ? '' : 's'}/week) follows the
-          selected batch days. &lsquo;Wickets Held&rsquo; is how many wickets of each pitch type the
-          batch reserves from the regular slot grid during its window — configured per pitch type
-          from My Center.
-        </p>
-
-        {/* Half-month payment */}
-        <div className="pt-2 border-t border-white/[0.06] space-y-2.5">
-          <ToggleRow
-            label="Half-Month Payment"
-            sub="Optional split enrollment"
-            on={corp.halfMonth.enabled}
-            onToggle={() => setCorp((p) => ({ ...p, halfMonth: { ...p.halfMonth, enabled: !p.halfMonth.enabled } }))}
-          />
-          {corp.halfMonth.enabled && (
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
-              <Field label="Half-Month Fee (₹)">
-                <NumberInput min={0} value={corp.halfMonth.fee}
-                  onChange={(v) => setCorp((p) => ({ ...p, halfMonth: { ...p.halfMonth, fee: v } }))} />
+        {corpOpen && (
+          <div className="px-3 pb-3 pt-3 space-y-3 border-t border-white/[0.05]">
+            {/* Schedule */}
+            <div className="space-y-2">
+              <GroupLabel>Schedule</GroupLabel>
+              <Field label="Batch Days">
+                <DayChips value={corp.days} onChange={(days) => setCorp((p) => ({ ...p, days }))} />
               </Field>
-              <Field label="First Half Ends On (day)">
-                <NumberInput min={1} max={27} value={corp.halfMonth.splitDay}
-                  onChange={(v) => setCorp((p) => ({ ...p, halfMonth: { ...p.halfMonth, splitDay: v } }))} />
-              </Field>
-              <Field label="First Half">
-                <ToggleRow
-                  label={corp.halfMonth.firstHalf ? 'Allowed' : 'Hidden'}
-                  on={corp.halfMonth.firstHalf}
-                  onToggle={() => setCorp((p) => ({ ...p, halfMonth: { ...p.halfMonth, firstHalf: !p.halfMonth.firstHalf } }))}
-                />
-              </Field>
-              <Field label="Second Half">
-                <ToggleRow
-                  label={corp.halfMonth.secondHalf ? 'Allowed' : 'Hidden'}
-                  on={corp.halfMonth.secondHalf}
-                  onToggle={() => setCorp((p) => ({ ...p, halfMonth: { ...p.halfMonth, secondHalf: !p.halfMonth.secondHalf } }))}
-                />
+              <div className="grid grid-cols-2 gap-2">
+                <Field label="Start Time">
+                  <input type="time" value={corp.startTime} className={inputClass}
+                    onChange={(e) => setCorp((p) => ({ ...p, startTime: e.target.value }))} />
+                </Field>
+                <Field label="End Time">
+                  <input type="time" value={corp.endTime} className={inputClass}
+                    onChange={(e) => setCorp((p) => ({ ...p, endTime: e.target.value }))} />
+                </Field>
+              </div>
+            </div>
+
+            {/* Pricing & capacity */}
+            <div className="space-y-2">
+              <GroupLabel>Pricing &amp; Capacity</GroupLabel>
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                <Field label="Monthly (₹)">
+                  <NumberInput min={0} value={corp.monthlyFee}
+                    onChange={(v) => setCorp((p) => ({ ...p, monthlyFee: v }))} />
+                </Field>
+                <Field label="Regular (₹/sess)">
+                  <NumberInput min={0} value={corp.regularFee}
+                    onChange={(v) => setCorp((p) => ({ ...p, regularFee: v }))} />
+                </Field>
+                <Field label="Max Capacity">
+                  <NumberInput min={1} value={corp.maxCapacity}
+                    onChange={(v) => setCorp((p) => ({ ...p, maxCapacity: v }))} />
+                </Field>
+              </div>
+              <Field label="Coach">
+                <input type="text" value={corp.coachName} placeholder="Coach name" className={inputClass}
+                  onChange={(e) => setCorp((p) => ({ ...p, coachName: e.target.value }))} />
               </Field>
             </div>
-          )}
-        </div>
+
+            {/* Per-pitch wickets held — dynamic from the center's pitch types. */}
+            <div className="space-y-2">
+              <GroupLabel>Wickets Held</GroupLabel>
+              <PitchWicketsFields
+                centerId={centerId}
+                options={pitchOptions}
+                values={corp.wicketsHeld}
+                onChange={setCorpWicket}
+              />
+            </div>
+
+            {/* Half-month payment — compact; fields reveal when enabled. */}
+            <div className="rounded-lg border border-white/[0.06] bg-black/10 overflow-hidden">
+              <div className="flex items-center justify-between gap-2 px-2.5 py-2">
+                <div className="min-w-0">
+                  <p className="text-[11px] font-semibold text-slate-300">Half-Month Payment</p>
+                  <p className="text-[9px] text-slate-500 uppercase tracking-wide">Optional split enrollment</p>
+                </div>
+                <Switch
+                  on={corp.halfMonth.enabled}
+                  onToggle={() => setCorp((p) => ({ ...p, halfMonth: { ...p.halfMonth, enabled: !p.halfMonth.enabled } }))}
+                  label="Enable half-month payment"
+                />
+              </div>
+              {corp.halfMonth.enabled && (
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 px-2.5 pb-2.5 pt-2 border-t border-white/[0.05]">
+                  <Field label="Half Fee (₹)">
+                    <NumberInput min={0} value={corp.halfMonth.fee}
+                      onChange={(v) => setCorp((p) => ({ ...p, halfMonth: { ...p.halfMonth, fee: v } }))} />
+                  </Field>
+                  <Field label="Split Day">
+                    <NumberInput min={1} max={27} value={corp.halfMonth.splitDay}
+                      onChange={(v) => setCorp((p) => ({ ...p, halfMonth: { ...p.halfMonth, splitDay: v } }))} />
+                  </Field>
+                  <Field label="First Half">
+                    <SwitchField
+                      on={corp.halfMonth.firstHalf}
+                      onToggle={() => setCorp((p) => ({ ...p, halfMonth: { ...p.halfMonth, firstHalf: !p.halfMonth.firstHalf } }))}
+                    />
+                  </Field>
+                  <Field label="Second Half">
+                    <SwitchField
+                      on={corp.halfMonth.secondHalf}
+                      onToggle={() => setCorp((p) => ({ ...p, halfMonth: { ...p.halfMonth, secondHalf: !p.halfMonth.secondHalf } }))}
+                    />
+                  </Field>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
       </div>
 
       {/* ─── Match Simulation ────────────────────────────────────── */}
-      <div className="bg-white/[0.02] rounded-xl border border-white/[0.05] p-3 space-y-3">
-        <h3 className="text-xs font-bold text-slate-300 uppercase tracking-wider">
-          Match Simulation
-        </h3>
-        <ToggleRow
-          label="Enable Match Simulation"
-          sub="Seat-based group sessions"
-          on={sim.enabled}
-          onToggle={() => setSim((p) => ({ ...p, enabled: !p.enabled }))}
+      <div className="bg-white/[0.02] rounded-xl border border-white/[0.05] overflow-hidden">
+        <SectionHeader
+          title="Match Simulation"
+          open={simOpen}
+          onToggleOpen={() => setSimOpen((o) => !o)}
+          enabled={sim.enabled}
+          onToggleEnabled={() => setSim((p) => ({ ...p, enabled: !p.enabled }))}
+          summary={`${sim.sessions.length} session${sim.sessions.length === 1 ? '' : 's'} · ${sim.sessions.filter((s) => s.enabled).length} enabled`}
         />
-
-        <div className="space-y-2.5">
-          {sim.sessions.map((s, idx) => (
-            <div key={s.id} className={`rounded-xl border p-2.5 space-y-2.5 ${
-              s.enabled ? 'border-white/[0.08] bg-white/[0.02]' : 'border-white/[0.05] bg-black/20 opacity-70'
-            }`}>
-              <div className="flex items-center justify-between gap-2">
-                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
-                  Session {idx + 1}
-                </span>
-                <div className="flex items-center gap-1.5">
-                  <button
-                    type="button"
-                    onClick={() => updateSession(s.id, { enabled: !s.enabled })}
-                    className={`px-2 py-1 rounded-md text-[10px] font-semibold border cursor-pointer transition-all ${
-                      s.enabled
-                        ? 'bg-green-500/10 text-green-400 border-green-500/20'
-                        : 'bg-white/[0.04] text-slate-500 border-white/[0.08]'
-                    }`}
-                  >
-                    {s.enabled ? 'Enabled' : 'Disabled'}
-                  </button>
-                  <button
-                    type="button"
-                    title="Delete session"
-                    onClick={() => setSim((p) => ({ ...p, sessions: p.sessions.filter((x) => x.id !== s.id) }))}
-                    className="p-1.5 rounded-md text-red-400/70 hover:text-red-400 hover:bg-red-500/10 cursor-pointer transition-all"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </button>
+        {simOpen && (
+          <div className="px-3 pb-3 pt-3 space-y-2 border-t border-white/[0.05]">
+            {sim.sessions.map((s, idx) => (
+              <div key={s.id} className={`rounded-lg border p-2.5 space-y-2 ${
+                s.enabled ? 'border-white/[0.08] bg-white/[0.02]' : 'border-white/[0.05] bg-black/20 opacity-70'
+              }`}>
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider truncate min-w-0">
+                    Session {idx + 1}
+                    {s.label && <span className="text-slate-500 normal-case font-medium"> · {s.label}</span>}
+                  </span>
+                  <div className="flex items-center gap-2 flex-shrink-0">
+                    <Switch on={s.enabled} onToggle={() => updateSession(s.id, { enabled: !s.enabled })} label="Enable session" />
+                    <button
+                      type="button"
+                      title="Delete session"
+                      onClick={() => setSim((p) => ({ ...p, sessions: p.sessions.filter((x) => x.id !== s.id) }))}
+                      className="p-1 rounded-md text-red-400/70 hover:text-red-400 hover:bg-red-500/10 cursor-pointer transition-all"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
                 </div>
-              </div>
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
-                <Field label="Label">
-                  <input type="text" value={s.label} placeholder="e.g. Morning Batch" className={inputClass}
-                    onChange={(e) => updateSession(s.id, { label: e.target.value })} />
-                </Field>
+                <div className="grid grid-cols-2 gap-2">
+                  <Field label="Label">
+                    <input type="text" value={s.label} placeholder="e.g. Morning Batch" className={inputClass}
+                      onChange={(e) => updateSession(s.id, { label: e.target.value })} />
+                  </Field>
+                  <Field label="Coach (optional)">
+                    <input type="text" value={s.coachName} placeholder="Coach name" className={inputClass}
+                      onChange={(e) => updateSession(s.id, { coachName: e.target.value })} />
+                  </Field>
+                </div>
                 <Field label="Active Days">
                   <DayChips value={s.days} onChange={(days) => updateSession(s.id, { days })} />
                 </Field>
-                <Field label="Coach (optional)">
-                  <input type="text" value={s.coachName} placeholder="Coach name" className={inputClass}
-                    onChange={(e) => updateSession(s.id, { coachName: e.target.value })} />
-                </Field>
-                <Field label="Start Time">
-                  <input type="time" value={s.startTime} className={inputClass}
-                    onChange={(e) => updateSession(s.id, { startTime: e.target.value })} />
-                </Field>
-                <Field label="End Time">
-                  <input type="time" value={s.endTime} className={inputClass}
-                    onChange={(e) => updateSession(s.id, { endTime: e.target.value })} />
-                </Field>
-                <Field label="Capacity / Fee (₹)">
-                  <div className="grid grid-cols-2 gap-1.5">
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                  <Field label="Start">
+                    <input type="time" value={s.startTime} className={inputClass}
+                      onChange={(e) => updateSession(s.id, { startTime: e.target.value })} />
+                  </Field>
+                  <Field label="End">
+                    <input type="time" value={s.endTime} className={inputClass}
+                      onChange={(e) => updateSession(s.id, { endTime: e.target.value })} />
+                  </Field>
+                  <Field label="Capacity">
                     <NumberInput min={1} value={s.capacity} title="Max participants"
                       onChange={(v) => updateSession(s.id, { capacity: v })} />
+                  </Field>
+                  <Field label="Fee (₹)">
                     <NumberInput min={0} value={s.fee} title="Session fee"
                       onChange={(v) => updateSession(s.id, { fee: v })} />
+                  </Field>
+                </div>
+                {pitchOptions.length > 0 && (
+                  <div className="space-y-1.5">
+                    <GroupLabel>Wickets Held</GroupLabel>
+                    <PitchWicketsFields
+                      centerId={centerId}
+                      options={pitchOptions}
+                      values={s.wicketsHeld}
+                      onChange={(pitch, value) => setSessionWicket(s.id, pitch, value)}
+                    />
                   </div>
-                </Field>
+                )}
               </div>
-              {/* Per-pitch wickets held for this session — dynamic from the
-                  center's configured pitch types. */}
-              <div className="pt-1.5 border-t border-white/[0.05]">
-                <label className="block text-[11px] font-semibold text-slate-300 uppercase tracking-wide mb-1.5">
-                  Wickets Held Per Pitch Type
-                </label>
-                <PitchWicketsFields
-                  centerId={centerId}
-                  options={pitchOptions}
-                  values={s.wicketsHeld}
-                  onChange={(pitch, value) => setSessionWicket(s.id, pitch, value)}
-                />
-              </div>
-            </div>
-          ))}
-        </div>
+            ))}
 
-        <button
-          type="button"
-          onClick={() =>
-            setSim((p) => ({
-              ...p,
-              sessions: [
-                ...p.sessions,
-                {
-                  id: `ms-${Date.now()}`,
-                  label: '',
-                  days: [],
-                  startTime: '19:00',
-                  endTime: '21:00',
-                  capacity: 10,
-                  fee: 200,
-                  coachName: '',
-                  enabled: true,
-                  wicketsHeld: { ASTRO: 1 },
-                },
-              ],
-            }))
-          }
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/[0.04] border border-white/[0.08] text-xs font-semibold text-slate-300 hover:border-accent/30 cursor-pointer transition-all"
-        >
-          <Plus className="w-3.5 h-3.5" /> Add Session
-        </button>
-        <p className="text-[10px] text-slate-500 leading-relaxed">
-          Multiple sessions per day are supported — users see every enabled session that falls on
-          a given date. Capacity is tracked per session per date.
-        </p>
+            <button
+              type="button"
+              onClick={() =>
+                setSim((p) => ({
+                  ...p,
+                  sessions: [
+                    ...p.sessions,
+                    {
+                      id: `ms-${Date.now()}`,
+                      label: '',
+                      days: [],
+                      startTime: '19:00',
+                      endTime: '21:00',
+                      capacity: 10,
+                      fee: 200,
+                      coachName: '',
+                      enabled: true,
+                      wicketsHeld: { ASTRO: 1 },
+                    },
+                  ],
+                }))
+              }
+              className="w-full flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg bg-white/[0.03] border border-dashed border-white/[0.12] text-xs font-semibold text-slate-300 hover:border-accent/40 hover:text-accent cursor-pointer transition-all"
+            >
+              <Plus className="w-3.5 h-3.5" /> Add Session
+            </button>
+          </div>
+        )}
       </div>
 
       {externalSaveTrigger === undefined && (

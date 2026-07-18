@@ -535,53 +535,95 @@ export default function MatchPracticePanel({
               {cb.months.length === 0 ? (
                 <EmptyState text="No months are open for enrollment right now." />
               ) : (
-                <div className="grid grid-cols-2 gap-2">
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                   {cb.months.map((m) => {
                     const hasHalves = (m.halves?.length ?? 0) > 0;
                     const activeMonth =
                       selectedPeriod === m.period
                       || !!m.halves?.some((h) => h.period === selectedPeriod);
                     const monthSelected = selectedPeriod === m.period;
+                    const shortLabel = m.label.replace(/ · .*/, '');
+
+                    // Common case (no half-month split): the whole card is a
+                    // single button that fills solid accent when selected —
+                    // same size, typography and fill as every other selection
+                    // box in the app (see SessionCardGrid below).
+                    if (!hasHalves) {
+                      return (
+                        <button
+                          key={m.period}
+                          disabled={m.isFull}
+                          onClick={() => setSelectedPeriod(monthSelected ? null : m.period)}
+                          className={`relative px-2.5 py-2 rounded-lg border text-left transition-all ${
+                            m.isFull
+                              ? 'bg-white/[0.02] border-white/[0.05] cursor-not-allowed opacity-60'
+                              : monthSelected
+                                ? 'bg-accent text-primary border-accent shadow-md shadow-accent/20 cursor-pointer'
+                                : 'bg-white/[0.04] border-white/[0.08] hover:border-accent/40 active:scale-[0.98] cursor-pointer'
+                          }`}
+                        >
+                          {monthSelected && (
+                            <div className="absolute top-1.5 right-1.5">
+                              <Check className="w-3.5 h-3.5" />
+                            </div>
+                          )}
+                          <div className="flex items-center justify-between gap-1 pr-4">
+                            <p className={`text-xs font-bold truncate ${m.isFull ? 'text-slate-500' : monthSelected ? '' : 'text-white'}`}>
+                              {shortLabel}
+                            </p>
+                            <span className={`text-[10px] font-bold flex-shrink-0 ${monthSelected ? 'text-primary/80' : 'text-accent'}`}>
+                              ₹{(Number(m.fee) || 0).toLocaleString()}
+                            </span>
+                          </div>
+                          <p className={`text-[10px] mt-0.5 ${monthSelected ? 'text-primary/70' : 'text-slate-400'}`}>
+                            <Users className="w-3 h-3 inline mr-1 -mt-0.5" />
+                            {m.enrolled}/{m.capacity} enrolled
+                            {m.isFull && <span className="font-semibold ml-1 text-red-400">· Full</span>}
+                          </p>
+                        </button>
+                      );
+                    }
+
+                    // Half-month split available: expandable card. The header
+                    // fills accent when the full month is picked; each split
+                    // option fills when selected.
                     return (
                       <div
                         key={m.period}
                         className={`rounded-lg border transition-all overflow-hidden ${
-                          activeMonth
-                            ? 'border-accent'
-                            : 'border-white/[0.08] bg-white/[0.03]'
+                          activeMonth ? 'border-accent' : 'border-white/[0.08] bg-white/[0.04]'
                         }`}
                       >
                         <button
-                          disabled={m.isFull && !hasHalves}
                           onClick={() => {
-                            if (hasHalves) {
-                              setExpandedMonth(expandedMonth === m.period ? null : m.period);
-                              if (!m.isFull) setSelectedPeriod(m.period);
-                            } else if (!m.isFull) {
-                              setSelectedPeriod(selectedPeriod === m.period ? null : m.period);
-                            }
+                            setExpandedMonth(expandedMonth === m.period ? null : m.period);
+                            if (!m.isFull) setSelectedPeriod(m.period);
                           }}
-                          className={`w-full px-2.5 py-2 text-left ${
-                            m.isFull && !hasHalves ? 'cursor-not-allowed opacity-60' : 'cursor-pointer'
-                          } ${monthSelected ? 'bg-accent' : ''}`}
+                          className={`relative w-full px-2.5 py-2 text-left cursor-pointer ${monthSelected ? 'bg-accent' : ''}`}
                         >
-                          <div className="flex items-center justify-between gap-2">
-                            <p className={`text-xs font-bold truncate ${monthSelected ? 'text-primary' : 'text-white'}`}>{m.label.replace(/ · .*/, '')}</p>
-                            {monthSelected && (
-                              <Check className="w-3.5 h-3.5 text-primary flex-shrink-0" />
-                            )}
+                          {monthSelected && (
+                            <div className="absolute top-1.5 right-1.5">
+                              <Check className="w-3.5 h-3.5 text-primary" />
+                            </div>
+                          )}
+                          <div className="flex items-center justify-between gap-1 pr-4">
+                            <p className={`text-xs font-bold truncate ${monthSelected ? 'text-primary' : 'text-white'}`}>
+                              {shortLabel}
+                            </p>
+                            <span className={`text-[10px] font-bold flex-shrink-0 ${monthSelected ? 'text-primary/80' : 'text-accent'}`}>
+                              ₹{(Number(m.fee) || 0).toLocaleString()}
+                            </span>
                           </div>
                           <p className={`text-[10px] mt-0.5 ${monthSelected ? 'text-primary/70' : 'text-slate-400'}`}>
                             <Users className="w-3 h-3 inline mr-1 -mt-0.5" />
                             {m.enrolled}/{m.capacity} enrolled
                             {m.isFull && <span className={`font-semibold ml-1 ${monthSelected ? 'text-primary' : 'text-red-400'}`}>· Full</span>}
                           </p>
-                          <p className={`text-xs font-bold mt-0.5 ${monthSelected ? 'text-primary' : 'text-accent'}`}>₹{(Number(m.fee) || 0).toLocaleString()}</p>
                         </button>
 
                         {/* Half-month options — full / first half / second half */}
-                        {hasHalves && expandedMonth === m.period && (
-                          <div className="px-3 pb-2.5 grid grid-cols-1 gap-1.5">
+                        {expandedMonth === m.period && (
+                          <div className="px-2 pb-2 grid grid-cols-1 gap-1.5">
                             {[{ ...m, label: 'Full Month' } as MonthOption]
                               .concat((m.halves ?? []).map((h) => ({
                                 ...h,
@@ -594,7 +636,7 @@ export default function MatchPracticePanel({
                                     key={opt.period}
                                     disabled={opt.isFull}
                                     onClick={() => setSelectedPeriod(active ? null : opt.period)}
-                                    className={`px-2.5 py-2 rounded-lg border text-left transition-all ${
+                                    className={`px-2.5 py-1.5 rounded-lg border text-left transition-all ${
                                       opt.isFull
                                         ? 'opacity-50 cursor-not-allowed border-white/[0.06] bg-white/[0.02]'
                                         : active
