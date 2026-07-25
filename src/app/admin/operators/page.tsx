@@ -168,6 +168,13 @@ export default function AdminOperators() {
   // ─── Schedule tab state ────────────
   const [operatorSchedule, setOperatorSchedule] = useState<Record<string, number>>({});
   const [operatorScheduleDefault, setOperatorScheduleDefault] = useState(1);
+  // False until an OPERATOR_SCHEDULE_CONFIG row is found for this center.
+  // While unconfigured the backend treats the whole roster as on duty, so
+  // the form seeds its default from the roster size too — otherwise an
+  // admin who just opens this page and hits Save silently caps the center
+  // at one operator per slot and every extra booking in a slot comes out
+  // unassigned.
+  const [scheduleConfigured, setScheduleConfigured] = useState(false);
   const [savingSchedule, setSavingSchedule] = useState(false);
 
   // ─── Priority tab state ────────────
@@ -215,6 +222,14 @@ export default function AdminOperators() {
     fetchDateOverrides();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // No saved schedule yet → mirror the server's "whole roster is on
+  // duty" fallback in the form, so the number the admin sees matches
+  // what the booking engine is already doing.
+  useEffect(() => {
+    if (scheduleConfigured || operators.length === 0) return;
+    setOperatorScheduleDefault(operators.length);
+  }, [scheduleConfigured, operators.length]);
 
   // Refetch machines whenever the active center changes — operator
   // assignments are scoped to the center, and the column list of
@@ -266,7 +281,7 @@ export default function AdminOperators() {
         const configPolicy = policyArray.find(p => p.key === 'OPERATOR_SCHEDULE_CONFIG');
         if (configPolicy) {
           const parsed = JSON.parse(configPolicy.value);
-          setOperatorScheduleDefault(parsed.default || 1);
+          setOperatorScheduleDefault(typeof parsed.default === 'number' ? parsed.default : 1);
           const scheduleMap: Record<string, number> = {};
           for (const entry of (parsed.schedule || [])) {
             for (const day of entry.days) {
@@ -274,6 +289,7 @@ export default function AdminOperators() {
             }
           }
           setOperatorSchedule(scheduleMap);
+          setScheduleConfigured(true);
         }
       }
     } catch (error) {
@@ -501,6 +517,7 @@ export default function AdminOperators() {
         body: JSON.stringify({ key: 'OPERATOR_SCHEDULE_CONFIG', value: JSON.stringify(scheduleConfig) }),
       });
       if (res.ok) {
+        setScheduleConfigured(true);
         toast.success('Operator schedule saved');
       } else {
         toast.error('Failed to save schedule');

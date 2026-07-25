@@ -5,6 +5,7 @@ import {
   MODERATOR_MANAGEABLE_MEMBERSHIP_ROLES,
 } from '@/lib/adminAuth';
 import { z } from 'zod';
+import { invalidateOperatorRoster } from '@/lib/operatorAssign';
 
 /**
  * Center memberships (admin / operator / coach / sidearm staff).
@@ -252,6 +253,11 @@ export async function POST(req: NextRequest, ctx: { params: Promise<Params> }) {
         });
     memberships.push(m);
   }
+
+  // The per-slot operator capacity falls back to the roster size when a
+  // center has no explicit schedule, so a freshly-added operator has to
+  // take effect right away rather than after the cache TTL.
+  if (rolesToAssign.includes('OPERATOR')) invalidateOperatorRoster(centerId);
 
   // Legacy single-role callers expected a single object; multi-role
   // callers expect an array. Detect by what they sent.

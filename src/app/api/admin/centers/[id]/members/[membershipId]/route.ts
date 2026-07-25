@@ -6,6 +6,7 @@ import {
   MODERATOR_MANAGEABLE_MEMBERSHIP_ROLES,
 } from '@/lib/adminAuth';
 import { z } from 'zod';
+import { invalidateOperatorRoster } from '@/lib/operatorAssign';
 
 const SUPER_ADMIN_EMAIL = process.env.SUPER_ADMIN_EMAIL || 'waheeddar8@gmail.com';
 
@@ -139,6 +140,11 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<Params> }) 
       });
     });
 
+    // Activating/deactivating an operator changes the roster size, which
+    // is the per-slot operator capacity for centers without an explicit
+    // schedule. Drop the cached count so it applies immediately.
+    if (m.role === 'OPERATOR') invalidateOperatorRoster(centerId);
+
     return NextResponse.json(result);
   } catch (error: unknown) {
     // Catch the obvious uniqueness collisions on email / mobile so the
@@ -186,5 +192,6 @@ export async function DELETE(req: NextRequest, ctx: { params: Promise<Params> })
     where: { id: membershipId },
     data: { isActive: false },
   });
+  if (m.role === 'OPERATOR') invalidateOperatorRoster(centerId);
   return NextResponse.json({ id: updated.id, isActive: updated.isActive });
 }

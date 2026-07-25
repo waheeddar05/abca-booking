@@ -178,6 +178,7 @@ export async function GET(req: NextRequest) {
           assignedStaffId: true,
           operatorId: true,
           category: true,
+          status: true,
           resourceAssignments: { select: { resourceId: true } },
         },
       }),
@@ -296,9 +297,20 @@ export async function GET(req: NextRequest) {
           timeSlabConfig,
           center.id,
         );
-        const busyOperators = bookings.filter(
-          (b) => b.startTime.getTime() === slot.startTime.getTime() && b.operatorId,
-        ).length;
+        // DISTINCT operators on BOOKED rows — same predicate the booking
+        // engine uses in /api/slots/book-resource. Counting rows (or
+        // including non-BOOKED ones) made the grid claim a slot was
+        // operator-full while the engine still had free operators.
+        const busyOperators = new Set(
+          bookings
+            .filter(
+              (b) =>
+                b.startTime.getTime() === slot.startTime.getTime()
+                && b.status === 'BOOKED'
+                && b.operatorId,
+            )
+            .map((b) => b.operatorId),
+        ).size;
         const selfOperate = operatorCount === 0;
         const operatorAvailable = selfOperate || busyOperators < operatorCount;
 

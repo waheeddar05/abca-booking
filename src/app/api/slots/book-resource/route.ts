@@ -1031,7 +1031,12 @@ async function executeResourceBookingCore(
                   if (opCount === 0) {
                     planOperatorAvailable = false;
                   } else {
-                    const busyCount = await tx.booking.count({
+                    // Count DISTINCT operators, not bookings. Two rows
+                    // can name the same operator (the last-resort
+                    // fallback in autoAssignOperator double-books the
+                    // top-priority one), and counting rows would then
+                    // retire a seat that nobody is actually occupying.
+                    const busyOperators = await tx.booking.findMany({
                       where: {
                         centerId: center.id,
                         date: plan.date,
@@ -1039,8 +1044,10 @@ async function executeResourceBookingCore(
                         status: 'BOOKED',
                         operatorId: { not: null },
                       },
+                      select: { operatorId: true },
+                      distinct: ['operatorId'],
                     });
-                    planOperatorAvailable = busyCount < opCount;
+                    planOperatorAvailable = busyOperators.length < opCount;
                   }
                 }
               }
@@ -1318,6 +1325,11 @@ async function executeResourceBookingCore(
                   }
                   operationMode = 'SELF_OPERATE';
                 } else {
+                  // DISTINCT operators — see the note on the pre-check
+                  // above. Counting booking rows retired an operator
+                  // seat per booking even when the same person covered
+                  // two of them, which is what left later bookings in
+                  // a busy slot with `operatorId = null`.
                   const operatorBookings = await tx.booking.findMany({
                     where: {
                       centerId: center.id,
@@ -1326,7 +1338,8 @@ async function executeResourceBookingCore(
                       status: 'BOOKED',
                       operatorId: { not: null },
                     },
-                    select: { id: true },
+                    select: { operatorId: true },
+                    distinct: ['operatorId'],
                   });
                   if (operatorBookings.length >= operatorCount) {
                     // All operators busy. Tennis machine: graceful self-
@@ -1349,6 +1362,10 @@ async function executeResourceBookingCore(
                       null, // resource-based bookings don't use the legacy enum machineId
                       slab,
                       center.id,
+                      // …they identify the machine by row id instead, so
+                      // the admin's per-machine operator assignments
+                      // (and their weekday `days` filter) actually apply.
+                      assignment.machineId,
                     );
                     // autoAssignOperator falls back to highest-priority
                     // operator even when all are busy. If that fallback

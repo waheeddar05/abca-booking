@@ -111,10 +111,60 @@ function findOverrideCount(
   return undefined;
 }
 
+// ─── Rostered-operator count (unconfigured fallback) ──────
+// `getOperatorCount` doubles as the per-slot operator *capacity*: the
+// booking engine refuses to assign more operators to a slot than this
+// number. Falling back to a hard-coded 1 meant that a center which had
+// never opened Admin → Operators → Schedule could only ever put an
+// operator on the FIRST booking of each time slot — every other net
+// booked at 07:00 came out with `operatorId = null`. Default to the
+// number of operators actually on the roster instead, so an
+// unconfigured center behaves like "everyone is on duty".
+const rosterCache = new Map<string, { count: number; expiresAt: number }>();
+const ROSTER_TTL_MS = 30_000;
+
+function rosterKey(centerId: string | null): string {
+  return centerId ?? '__legacy_global__';
+}
+
 /**
- * Get the number of operators needed for a given date + time slot.
- * Priority: 1. Date-specific overrides, 2. Day-of-week schedule, 3. Legacy NUMBER_OF_OPERATORS, 4. Default 1.
- * Returns 0 when explicitly configured (allows "no operator" mode).
+ * How many operators are on this center's roster — the exact same pool
+ * `loadCenterOperators` picks from, so the capacity gate and the picker
+ * can never disagree. Cached briefly: the availability grid asks once
+ * per slot in the day.
+ */
+export async function getRosteredOperatorCount(
+  centerId: string | null,
+  db: PrismaTransaction | typeof defaultPrisma = defaultPrisma,
+): Promise<number> {
+  const key = rosterKey(centerId);
+  const now = Date.now();
+  const hit = rosterCache.get(key);
+  if (hit && hit.expiresAt > now) return hit.count;
+
+  const count = centerId
+    ? await db.centerMembership.count({ where: { centerId, role: 'OPERATOR', isActive: true } })
+    : await db.user.count({ where: { role: 'OPERATOR' } });
+
+  rosterCache.set(key, { count, expiresAt: now + ROSTER_TTL_MS });
+  return count;
+}
+
+/** Drop the cached roster size — call after adding/removing operators. */
+export function invalidateOperatorRoster(centerId?: string | null): void {
+  if (centerId === undefined) {
+    rosterCache.clear();
+    return;
+  }
+  rosterCache.delete(rosterKey(centerId));
+}
+
+/**
+ * Get the number of operators on duty for a given date + time slot.
+ * Priority: 1. Date-specific overrides, 2. Day-of-week schedule,
+ * 3. Legacy NUMBER_OF_OPERATORS, 4. The center's operator roster size.
+ * Returns 0 when explicitly configured (allows "no operator" mode) or
+ * when the center has no operators at all.
  *
  * `centerId` is optional. When supplied, every policy lookup cascades
  * CenterPolicy → Policy → fallback so each center can override scheduling
@@ -126,6 +176,7 @@ export async function getOperatorCount(
   startTime: Date,
   timeSlabs: TimeSlabConfig,
   centerId: string | null = null,
+  db: PrismaTransaction | typeof defaultPrisma = defaultPrisma,
 ): Promise<number> {
   const slab = getTimeSlab(startTime, timeSlabs);
   const slotMinutes = getMinutesIST(startTime);
@@ -143,14 +194,19 @@ export async function getOperatorCount(
     console.warn('[OperatorAssign] Error parsing OPERATOR_DATE_OVERRIDES:', e);
   }
 
-  // 2. Check day-of-week schedule config
+  // 2. Check day-of-week schedule config. A config that carries neither
+  //    a matching day+slab entry nor a numeric `default` is treated as
+  //    "unset" and falls through to the roster size below — an empty
+  //    `{ schedule: [] }` must not silently cap the center at one
+  //    operator per slot.
   try {
     const configStr = await getPolicyValue('OPERATOR_SCHEDULE_CONFIG', centerId);
     if (configStr) {
       const config: OperatorScheduleConfig = JSON.parse(configStr);
       const day = getDayOfWeekIST(date);
-      const match = config.schedule.find(e => e.days.includes(day) && e.slab === slab);
-      return Math.max(0, match?.count ?? config.default ?? 1);
+      const match = config.schedule?.find(e => e.days.includes(day) && e.slab === slab);
+      if (typeof match?.count === 'number') return Math.max(0, match.count);
+      if (typeof config.default === 'number') return Math.max(0, config.default);
     }
   } catch (e) {
     console.warn('[OperatorAssign] Error parsing OPERATOR_SCHEDULE_CONFIG:', e);
@@ -159,10 +215,19 @@ export async function getOperatorCount(
   // 3. Legacy fallback
   try {
     const val = await getPolicyValue('NUMBER_OF_OPERATORS', centerId);
-    if (val) return Math.max(1, parseInt(val, 10));
+    if (val) {
+      const parsed = parseInt(val, 10);
+      if (Number.isFinite(parsed)) return Math.max(1, parsed);
+    }
   } catch { /* ignore */ }
 
-  return 1;
+  // 4. Nothing configured → everyone on the roster counts as on duty.
+  try {
+    return await getRosteredOperatorCount(centerId, db);
+  } catch (e) {
+    console.warn('[OperatorAssign] Error counting rostered operators:', e);
+    return 1;
+  }
 }
 
 // ─── Operator Auto-Assignment ─────────────────────────
@@ -225,7 +290,7 @@ async function loadCenterOperators(
     return rows.map(op => ({ ...op, operatorDayPriorities: op.operatorDayPriorities as DayPriorities | null }));
   }
   const memberships = await db.centerMembership.findMany({
-    where: { centerId, role: 'OPERATOR' },
+    where: { centerId, role: 'OPERATOR', isActive: true },
     include: { user: { select: OPERATOR_SELECT } },
   });
   return memberships.map(m => ({
@@ -238,10 +303,79 @@ async function loadCenterOperators(
 }
 
 /**
+ * Load the operators an admin explicitly assigned to a machine, honouring
+ * the per-assignment weekday filter (`days`; empty = every day).
+ *
+ * Two machine axes exist:
+ *   - `machineId`    — the legacy `MachineId` enum (MACHINE_PITCH centers).
+ *   - `machineRowId` — a `Machine` row id (RESOURCE_BASED centers).
+ * Callers pass whichever one their booking model uses; passing neither
+ * returns an empty pool so the caller falls back to the full roster.
+ */
+async function loadAssignedOperators(
+  db: PrismaTransaction | typeof defaultPrisma,
+  centerId: string | null,
+  dayOfWeek: number,
+  machineId?: MachineId | null,
+  machineRowId?: string | null,
+): Promise<OperatorInfo[]> {
+  if (!machineId && !machineRowId) return [];
+
+  const machineWhere = machineRowId ? { machineRowId } : { machineId: machineId! };
+  const assignments = await db.operatorAssignment.findMany({
+    where: centerId ? { ...machineWhere, centerId } : machineWhere,
+    include: {
+      user: {
+        select: {
+          ...OPERATOR_SELECT,
+          role: true,
+          // Source of truth for "is this user an OPERATOR at this
+          // center" is CenterMembership, not User.role — same
+          // reasoning as `/api/admin/operators`. Pull the per-center
+          // membership rows so we can filter on them instead.
+          centerMemberships: centerId
+            ? { where: { centerId, role: 'OPERATOR' as const, isActive: true }, select: { id: true } }
+            : { where: { role: 'OPERATOR' as const, isActive: true }, select: { id: true } },
+        },
+      },
+    },
+  });
+
+  return assignments
+    .filter(a => {
+      // Check if days is empty (all days) or includes current day
+      const daysFilter = a.days;
+      return daysFilter.length === 0 || daysFilter.includes(dayOfWeek);
+    })
+    .filter(a =>
+      // Either:
+      //   - legacy: User.role === 'OPERATOR' (works for ABCA where
+      //     the bumping ladder always set User.role correctly), OR
+      //   - new: any active OPERATOR CenterMembership at this center
+      //     (catches users whose User.role was outranked by an ADMIN
+      //     membership elsewhere, or who were added via the Members
+      //     tab on a RESOURCE_BASED center).
+      a.user.role === 'OPERATOR' || (a.user.centerMemberships?.length ?? 0) > 0,
+    )
+    .map(a => ({ id: a.user.id, operatorPriority: a.user.operatorPriority, operatorMorningPriority: a.user.operatorMorningPriority, operatorEveningPriority: a.user.operatorEveningPriority, operatorDayPriorities: a.user.operatorDayPriorities as DayPriorities | null }));
+}
+
+/**
  * Auto-assign an operator to a booking based on priority and availability.
  * Picks the highest-priority operator not already booked at the same time.
  * Falls back to highest-priority operator if all are busy.
  * Respects weekday preferences from OperatorAssignment.days.
+ *
+ * Candidate resolution:
+ *   1. Operators explicitly assigned to this machine (either machine
+ *      axis) and rostered for this weekday — preferred, and among them
+ *      the highest-priority one who is free.
+ *   2. Any other operator at the center who is free at this time. This
+ *      widening matters because a machine-specific pool that is entirely
+ *      busy used to double-book its top operator while free colleagues
+ *      sat idle.
+ *   3. Highest-priority candidate overall when literally everyone is
+ *      busy (ABCA's long-standing last-resort behaviour).
  *
  * `centerId` scopes the candidate pool to a center's memberships. ABCA
  * callers can pass `null` to keep the legacy global `role: 'OPERATOR'`
@@ -254,60 +388,25 @@ export async function autoAssignOperator(
   machineId?: MachineId | null,
   timeSlab?: 'morning' | 'evening',
   centerId: string | null = null,
+  machineRowId?: string | null,
 ): Promise<string | null> {
   const db = tx || defaultPrisma;
   const slab = timeSlab || 'morning';
   const dayOfWeek = getDayOfWeekIST(date);
 
-  // Get candidate operators — machine-specific first, fallback to all center operators.
-  let operators: OperatorInfo[] = [];
-  if (machineId) {
-    const assignments = await db.operatorAssignment.findMany({
-      where: centerId ? { machineId, centerId } : { machineId },
-      include: {
-        user: {
-          select: {
-            ...OPERATOR_SELECT,
-            role: true,
-            // Source of truth for "is this user an OPERATOR at this
-            // center" is CenterMembership, not User.role — same
-            // reasoning as `/api/admin/operators`. Pull the per-center
-            // membership rows so we can filter on them instead.
-            centerMemberships: centerId
-              ? { where: { centerId, role: 'OPERATOR' as const, isActive: true }, select: { id: true } }
-              : { where: { role: 'OPERATOR' as const, isActive: true }, select: { id: true } },
-          },
-        },
-      },
-    });
-    operators = assignments
-      .filter(a => {
-        // Check if days is empty (all days) or includes current day
-        const daysFilter = a.days;
-        return daysFilter.length === 0 || daysFilter.includes(dayOfWeek);
-      })
-      .filter(a =>
-        // Either:
-        //   - legacy: User.role === 'OPERATOR' (works for ABCA where
-        //     the bumping ladder always set User.role correctly), OR
-        //   - new: any active OPERATOR CenterMembership at this center
-        //     (catches users whose User.role was outranked by an ADMIN
-        //     membership elsewhere, or who were added via the Members
-        //     tab on a RESOURCE_BASED center).
-        a.user.role === 'OPERATOR' || (a.user.centerMemberships?.length ?? 0) > 0,
-      )
-      .map(a => ({ id: a.user.id, operatorPriority: a.user.operatorPriority, operatorMorningPriority: a.user.operatorMorningPriority, operatorEveningPriority: a.user.operatorEveningPriority, operatorDayPriorities: a.user.operatorDayPriorities as DayPriorities | null }));
-  }
+  // Machine-specific pool first, then everyone else at the center.
+  const assigned = await loadAssignedOperators(db, centerId, dayOfWeek, machineId, machineRowId);
+  const roster = await loadCenterOperators(db, centerId);
 
-  // Fallback: no machine-specific assignments → use all operators at this center.
-  if (operators.length === 0) {
-    operators = await loadCenterOperators(db, centerId);
-  }
+  const assignedIds = new Set(assigned.map(o => o.id));
+  // Preference order: machine-assigned operators, then the rest of the
+  // roster. Each group is priority-sorted independently so an explicit
+  // machine assignment always outranks a generic one.
+  const preferred = sortByPriority(assigned, slab, dayOfWeek);
+  const others = sortByPriority(roster.filter(o => !assignedIds.has(o.id)), slab, dayOfWeek);
+  const sorted = [...preferred, ...others];
 
-  if (operators.length === 0) return null;
-  if (operators.length === 1) return operators[0].id;
-
-  const sorted = sortByPriority(operators, slab, dayOfWeek);
+  if (sorted.length === 0) return null;
 
   // Find which operators are already booked at this time (scoped to center
   // when supplied so cross-center bookings don't mask availability).
