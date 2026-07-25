@@ -433,9 +433,10 @@ export async function GET(req: NextRequest) {
         },
       }).catch(() => 0),
       // Match Practice session stats — booking counts per subcategory,
-      // mirroring the operator/sidearm/coach summary cards. Corporate Batch
-      // MONTHLY + HALF_MONTH are grouped as "Monthly"; REGULAR is the
-      // per-session bucket. Respects the dashboard date range like the
+      // mirroring the operator/sidearm/coach summary cards. Each category
+      // splits into "Monthly" (MONTHLY + HALF_MONTH passes) and "Regular"
+      // (per-session seats — mode REGULAR for Corporate Batch, null for
+      // Match Simulation). Respects the dashboard date range like the
       // other summaries.
       prisma.booking.groupBy({
         by: ['category', 'corporateBatchMode'],
@@ -447,20 +448,23 @@ export async function GET(req: NextRequest) {
           ...(hasDateFilter ? { date: dateFilter } : {}),
         },
       }).then((rows) => {
-        let matchSimulation = 0;
+        let matchSimMonthly = 0;
+        let matchSimRegular = 0;
         let corporateMonthly = 0;
         let corporateRegular = 0;
         for (const r of rows) {
           const n = r._count._all;
+          const isMonthlyPass = r.corporateBatchMode === 'MONTHLY' || r.corporateBatchMode === 'HALF_MONTH';
           if (r.category === 'MATCH_SIMULATION') {
-            matchSimulation += n;
+            if (isMonthlyPass) matchSimMonthly += n;
+            else matchSimRegular += n; // per-session seats carry a null mode
           } else if (r.category === 'CORPORATE_BATCH') {
-            if (r.corporateBatchMode === 'REGULAR') corporateRegular += n;
-            else corporateMonthly += n; // MONTHLY + HALF_MONTH memberships
+            if (isMonthlyPass) corporateMonthly += n;
+            else corporateRegular += n; // REGULAR (per-session) rows
           }
         }
-        return { matchSimulation, corporateMonthly, corporateRegular };
-      }).catch(() => ({ matchSimulation: 0, corporateMonthly: 0, corporateRegular: 0 })),
+        return { matchSimMonthly, matchSimRegular, corporateMonthly, corporateRegular };
+      }).catch(() => ({ matchSimMonthly: 0, matchSimRegular: 0, corporateMonthly: 0, corporateRegular: 0 })),
     ]);
 
     return NextResponse.json({

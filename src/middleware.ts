@@ -178,11 +178,10 @@ export async function middleware(req: NextRequest) {
         "/admin/maintenance",
         "/admin/db-cleanup",
         "/admin/payments",
-        // Staff-management surfaces manage CenterMemberships via the
-        // center-config members API, which is locked to full admins.
-        "/admin/sidearm",
-        "/admin/coach",
-        "/admin/ground-staff",
+        // The staff-management tabs (/admin/sidearm, /admin/coach,
+        // /admin/ground-staff) are NOT blocked: moderators have full
+        // admin parity there. Their members API admits moderators but
+        // keeps them scoped to coach/sidearm/ground-staff roles.
       ];
       if (moderatorBlockedPrefixes.some((p) => pathname === p || pathname.startsWith(p + "/"))) {
         return NextResponse.redirect(new URL("/admin", req.url));

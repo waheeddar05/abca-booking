@@ -127,8 +127,10 @@ enum MembershipRole {
   // Restricted admin. Has access to most of the admin panel but cannot
   // touch critical surfaces: Users, Settings, and the center config
   // ("My Center") are hidden, and booking cancellation/refund/staff
-  // reassignment plus all package mutations are blocked. Enforced in
-  // both the API guards and the admin UI.
+  // reassignment plus all package mutations are blocked. The
+  // staff-management tabs (Sidearm / Personal Coach / Ground Staff) are
+  // fully open — same permissions as ADMIN there, scoped to those staff
+  // roles. Enforced in both the API guards and the admin UI.
   MODERATOR
   OPERATOR
   COACH

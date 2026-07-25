@@ -18,9 +18,11 @@ import { autoCancelImpactedBookings, getImpactedBookings } from '@/lib/availabil
  * transaction. Empty array clears the schedule (which means "unavailable by
  * default" per the engine's default).
  *
- * Auth: must be admin at this center, or super admin. Membership's
- * role must be COACH, SIDEARM_SPECIALIST, or GROUND_STAFF — availability
- * for ADMIN / OPERATOR is not modeled.
+ * Auth: must be admin OR moderator at this center, or super admin —
+ * moderators have full admin parity on the staff-management tabs this
+ * route serves. Membership's role must be COACH, SIDEARM_SPECIALIST, or
+ * GROUND_STAFF — availability for ADMIN / OPERATOR is not modeled, which
+ * also keeps moderators inside the staff surface.
  */
 
 type Params = { id: string; membershipId: string };
@@ -60,14 +62,27 @@ async function loadMembership(centerId: string, membershipId: string) {
   }).then((m) => (m && m.centerId === centerId ? m : null));
 }
 
+/** Admin or moderator at this center (or super admin) — see file header. */
+function canManageStaffAvailability(
+  user: NonNullable<Awaited<ReturnType<typeof getAuthenticatedUser>>>,
+  centerId: string,
+): boolean {
+  if (user.isSuperAdmin) return true;
+  if (user.role !== 'ADMIN' && user.role !== 'MODERATOR') return false;
+  return (
+    hasMembershipRole(user, centerId, 'ADMIN') ||
+    hasMembershipRole(user, centerId, 'MODERATOR')
+  );
+}
+
 export async function GET(req: NextRequest, ctx: { params: Promise<Params> }) {
   try {
     const user = await getAuthenticatedUser(req);
-    if (!user || (user.role !== 'ADMIN' && !user.isSuperAdmin)) {
+    if (!user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 403 });
     }
     const { id: centerId, membershipId } = await ctx.params;
-    if (!user.isSuperAdmin && !hasMembershipRole(user, centerId, 'ADMIN')) {
+    if (!canManageStaffAvailability(user, centerId)) {
       return NextResponse.json({ error: 'You are not an admin at this center' }, { status: 403 });
     }
 
@@ -107,11 +122,11 @@ export async function GET(req: NextRequest, ctx: { params: Promise<Params> }) {
 export async function PUT(req: NextRequest, ctx: { params: Promise<Params> }) {
   try {
     const user = await getAuthenticatedUser(req);
-    if (!user || (user.role !== 'ADMIN' && !user.isSuperAdmin)) {
+    if (!user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 403 });
     }
     const { id: centerId, membershipId } = await ctx.params;
-    if (!user.isSuperAdmin && !hasMembershipRole(user, centerId, 'ADMIN')) {
+    if (!canManageStaffAvailability(user, centerId)) {
       return NextResponse.json({ error: 'You are not an admin at this center' }, { status: 403 });
     }
 

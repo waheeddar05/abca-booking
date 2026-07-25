@@ -33,13 +33,13 @@ export function AdminMobileNav() {
 
     // We also allow Sidearm Specialists to access the /admin/sidearm page
     // so they can manage their own availability.
-    // Staff-management tabs are admin-only (see the note in the desktop
-    // layout) — their center-config members API blocks moderators.
+    // Staff-management tabs are open to moderators with full admin
+    // parity (see the note in the desktop layout).
     const hasSidearmMembership = currentCenter && sessionUser?.role === 'SIDEARM_SPECIALIST';
-    const canAccessSidearmTab = isAdmin || hasSidearmMembership;
+    const canAccessSidearmTab = isAdminLevel || hasSidearmMembership;
     // Personal Coaches get the same self-service access to /admin/coach.
     const hasCoachMembership = currentCenter && sessionUser?.role === 'COACH';
-    const canAccessCoachTab = isAdmin || hasCoachMembership;
+    const canAccessCoachTab = isAdminLevel || hasCoachMembership;
 
     // Same parity gating as the desktop sidebar: legacy ABCA-only forms
     // hide on RESOURCE_BASED centers until their resource-aware versions
@@ -55,10 +55,10 @@ export function AdminMobileNav() {
         // Short "Coach" label keeps the bottom-nav cell tidy on phones;
         // the page itself is titled "Personal Coach".
         { href: '/admin/coach', label: 'Coach', icon: UserCog, models: ['RESOURCE_BASED'], hidden: !canAccessCoachTab },
-        // Ground Staff — admin-only, resource-based centers only. Mirrors
-        // the Sidearm / Coach tabs. Short "Ground" label keeps the
+        // Ground Staff — admins + moderators, resource-based centers only.
+        // Mirrors the Sidearm / Coach tabs. Short "Ground" label keeps the
         // bottom-nav cell tidy on phones; the page is titled "Ground Staff".
-        { href: '/admin/ground-staff', label: 'Ground', icon: HardHat, models: ['RESOURCE_BASED'], hidden: !isAdmin },
+        { href: '/admin/ground-staff', label: 'Ground', icon: HardHat, models: ['RESOURCE_BASED'], hidden: !isAdminLevel },
         { href: '/admin/packages', label: 'Packages', icon: Package, hidden: !isAdminLevel },
         { href: '/admin/offers', label: 'Offers', icon: Tag, hidden: !isAdminLevel },
         // Settings — full admins only. Restricted for moderators.

@@ -44,16 +44,15 @@ export default function AdminLayout({
   // We also allow Sidearm Specialists to access the /admin/sidearm page
   // so they can manage their own availability. The middleware is updated
   // to allow them into /admin, and we gate the links here.
-  // Staff-management tabs (Sidearm / Coach / Ground Staff) manage
-  // CenterMemberships through the center-config members API, which is
-  // locked to full admins (requireCenterAdminForCenter). Keep them
-  // admin-only so a moderator never lands on a page that can't load.
+  // Staff-management tabs (Sidearm / Coach / Ground Staff) are open to
+  // moderators with full admin parity — the members API admits them,
+  // scoped to the coach/sidearm/ground-staff roles.
   const hasSidearmMembership = currentCenter && sessionUser?.role === 'SIDEARM_SPECIALIST';
-  const canAccessSidearmTab = isAdmin || hasSidearmMembership;
+  const canAccessSidearmTab = isAdminLevel || hasSidearmMembership;
   // Personal Coaches get the same self-service access to /admin/coach,
   // mirroring the Sidearm tab exactly.
   const hasCoachMembership = currentCenter && sessionUser?.role === 'COACH';
-  const canAccessCoachTab = isAdmin || hasCoachMembership;
+  const canAccessCoachTab = isAdminLevel || hasCoachMembership;
 
   // Until we rebuild Slots/Operators/Offers/Packages for RESOURCE_BASED
   // centers (Toplay-style), the legacy forms hardcode the ABCA machine
@@ -83,9 +82,9 @@ export default function AdminLayout({
     // Ground Staff tab — manages GROUND_STAFF memberships and their
     // availability (recurring + date-range) plus priority order, exactly
     // like the Sidearm and Personal Coach tabs. Resource-based centers
-    // only. Admin-only: GROUND_STAFF has no UserRole equivalent, so there
-    // is no self-service variant the way Sidearm/Coach have.
-    { href: '/admin/ground-staff', label: 'Ground Staff', icon: HardHat, models: ['RESOURCE_BASED'], hidden: !isAdmin },
+    // only. Admins + moderators: GROUND_STAFF has no UserRole equivalent,
+    // so there is no self-service variant the way Sidearm/Coach have.
+    { href: '/admin/ground-staff', label: 'Ground Staff', icon: HardHat, models: ['RESOURCE_BASED'], hidden: !isAdminLevel },
     { href: '/admin/offers', label: 'Offers', icon: Tag, hidden: !isAdminLevel },
     { href: '/admin/packages', label: 'Packages', icon: Package, hidden: !isAdminLevel },
     // Settings — full admins only. Restricted for moderators.

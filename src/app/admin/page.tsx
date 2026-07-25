@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import Link from 'next/link';
 import { CalendarCheck, LayoutDashboard, X, IndianRupee, AlertCircle } from 'lucide-react';
 import { AdminPageHeader } from '@/components/admin/AdminPageHeader';
 import { AdminStatCard } from '@/components/admin/AdminStatCard';
@@ -40,7 +41,8 @@ interface Stats {
   sidearmSummary: StaffSessionItem[];
   coachSummary: StaffSessionItem[];
   matchPracticeSummary?: {
-    matchSimulation: number;
+    matchSimMonthly: number;
+    matchSimRegular: number;
     corporateMonthly: number;
     corporateRegular: number;
   };
@@ -318,8 +320,29 @@ export default function AdminDashboard() {
                   return (
                     <tr key={cat} className="hover:bg-white/[0.02] transition-colors">
                       <td className="px-4 py-3.5 font-medium text-slate-200 border-r border-white/[0.07]">{CATEGORY_LABELS[cat] || cat}</td>
-                      <td className="px-4 py-3.5 text-center text-slate-300 border-r border-white/[0.07]">{item.today}</td>
-                      <td className="px-4 py-3.5 text-center text-slate-300">{item.upcoming}</td>
+                      {/* Counts deep-link into the Bookings page pre-filtered to
+                          the same rows the number was computed from. Today counts
+                          exclude cancelled bookings, so the link carries
+                          status=ACTIVE; the Upcoming tab already means
+                          date > today + status BOOKED, matching exactly. */}
+                      <td className="px-4 py-2 text-center border-r border-white/[0.07]">
+                        <Link
+                          href={`/admin/bookings?category=today&categoryFilter=${cat}&status=ACTIVE`}
+                          title={`View today's ${CATEGORY_LABELS[cat] || cat} bookings`}
+                          className="inline-flex min-w-[2.5rem] items-center justify-center rounded-lg px-2 py-1.5 font-semibold text-accent underline decoration-dotted decoration-accent/40 underline-offset-4 hover:bg-accent/10 hover:decoration-accent transition-colors"
+                        >
+                          {item.today}
+                        </Link>
+                      </td>
+                      <td className="px-4 py-2 text-center">
+                        <Link
+                          href={`/admin/bookings?category=upcoming&categoryFilter=${cat}`}
+                          title={`View upcoming ${CATEGORY_LABELS[cat] || cat} bookings`}
+                          className="inline-flex min-w-[2.5rem] items-center justify-center rounded-lg px-2 py-1.5 font-semibold text-accent underline decoration-dotted decoration-accent/40 underline-offset-4 hover:bg-accent/10 hover:decoration-accent transition-colors"
+                        >
+                          {item.upcoming}
+                        </Link>
+                      </td>
                     </tr>
                   );
                 })
@@ -333,51 +356,61 @@ export default function AdminDashboard() {
         </div>
       </div>
 
-      {/* Revenue by Category Chart */}
-      <div className="bg-white/[0.03] backdrop-blur-sm rounded-xl border border-white/[0.07] p-5">
-        <h2 className="text-sm font-bold text-white uppercase tracking-wider mb-6">Revenue by Category</h2>
-        <div className="h-72 w-full">
-          {loading ? (
-            <div className="h-full w-full bg-white/[0.03] rounded-lg animate-pulse flex items-center justify-center">
-              <div className="w-8 h-8 border-2 border-accent/20 border-t-accent rounded-full animate-spin" />
+      {/* Revenue by Category Chart. The plot is slightly wider than the
+          other cards (slimmer padding, tighter chart margins, narrower Y
+          axis) and every category is guaranteed a fixed slice of width —
+          on screens too narrow to honor that the chart scrolls
+          horizontally instead of overlapping or truncating the labels. */}
+      <div className="bg-white/[0.03] backdrop-blur-sm rounded-xl border border-white/[0.07] p-3 sm:p-4">
+        <h2 className="text-sm font-bold text-white uppercase tracking-wider mb-6 px-2 pt-1">Revenue by Category</h2>
+        {loading ? (
+          <div className="h-72 w-full bg-white/[0.03] rounded-lg animate-pulse flex items-center justify-center">
+            <div className="w-8 h-8 border-2 border-accent/20 border-t-accent rounded-full animate-spin" />
+          </div>
+        ) : revenueByCategoryData.length > 0 ? (
+          <div className="overflow-x-auto overflow-y-hidden">
+            <div
+              className="h-72"
+              style={{ minWidth: `${Math.max(revenueByCategoryData.length * 96 + 48, 320)}px` }}
+            >
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={revenueByCategoryData} margin={{ top: 10, right: 8, left: 0, bottom: 34 }}>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="rgba(255,255,255,0.05)" />
+                  <XAxis
+                    dataKey="name"
+                    axisLine={false}
+                    tickLine={false}
+                    tick={<WrappedAxisTick />}
+                    interval={0}
+                  />
+                  <YAxis
+                    axisLine={false}
+                    tickLine={false}
+                    width={44}
+                    tick={{ fill: '#64748b', fontSize: 10 }}
+                    tickFormatter={(v) => `₹${v >= 1000 ? (v/1000).toFixed(0) + 'k' : v}`}
+                  />
+                  <Tooltip
+                    cursor={{ fill: 'rgba(255,255,255,0.05)' }}
+                    contentStyle={{ backgroundColor: '#0f172a', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px' }}
+                    itemStyle={{ color: '#fff', fontSize: '12px' }}
+                    labelStyle={{ color: '#94a3b8', fontSize: '11px', marginBottom: '4px' }}
+                    formatter={(value: any) => [`₹${value.toLocaleString()}`, 'Revenue']}
+                  />
+                  <Bar dataKey="revenue" radius={[4, 4, 0, 0]} barSize={40} name="Revenue">
+                    {revenueByCategoryData.map((_, index) => (
+                      <Cell key={`cell-${index}`} fill={CHART_COLORS[index % CHART_COLORS.length]} />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
             </div>
-          ) : revenueByCategoryData.length > 0 ? (
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={revenueByCategoryData} margin={{ top: 10, right: 10, left: 10, bottom: 28 }}>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="rgba(255,255,255,0.05)" />
-                <XAxis
-                  dataKey="name"
-                  axisLine={false}
-                  tickLine={false}
-                  tick={<WrappedAxisTick />}
-                  interval={0}
-                />
-                <YAxis 
-                  axisLine={false} 
-                  tickLine={false} 
-                  tick={{ fill: '#64748b', fontSize: 10 }}
-                  tickFormatter={(v) => `₹${v >= 1000 ? (v/1000).toFixed(0) + 'k' : v}`}
-                />
-                <Tooltip 
-                  cursor={{ fill: 'rgba(255,255,255,0.05)' }}
-                  contentStyle={{ backgroundColor: '#0f172a', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px' }}
-                  itemStyle={{ color: '#fff', fontSize: '12px' }}
-                  labelStyle={{ color: '#94a3b8', fontSize: '11px', marginBottom: '4px' }}
-                  formatter={(value: any) => [`₹${value.toLocaleString()}`, 'Revenue']}
-                />
-                <Bar dataKey="revenue" radius={[4, 4, 0, 0]} barSize={40} name="Revenue">
-                  {revenueByCategoryData.map((_, index) => (
-                    <Cell key={`cell-${index}`} fill={CHART_COLORS[index % CHART_COLORS.length]} />
-                  ))}
-                </Bar>
-              </BarChart>
-            </ResponsiveContainer>
-          ) : (
-            <div className="h-full flex flex-col items-center justify-center text-slate-500 italic">
-              No data available for the selected date range.
-            </div>
-          )}
-        </div>
+          </div>
+        ) : (
+          <div className="h-72 flex flex-col items-center justify-center text-slate-500 italic">
+            No data available for the selected date range.
+          </div>
+        )}
       </div>
 
       {/* Revenue by Bowling Machine Type Chart */}
@@ -544,33 +577,39 @@ export default function AdminDashboard() {
         </div>
       </div>
 
-      {/* Match Practice Session Stats — booking totals per subcategory,
-          mirroring the operator/sidearm/coach summaries above. */}
-      <div>
-        <h3 className="text-[11px] font-bold text-slate-400 uppercase tracking-widest mb-3">
-          Match Practice Sessions
-        </h3>
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
+      {/* Match Practice distribution — one compact section with all four
+          subcategory totals: each of Match Simulation and Corporate Batch
+          split into Monthly (monthly + half-month passes) and Regular
+          (ad-hoc per-session seats). */}
+      <div className="bg-white/[0.03] backdrop-blur-sm rounded-xl border border-white/[0.07] overflow-hidden">
+        <div className="px-4 py-2.5 border-b border-white/[0.07]">
+          <h3 className="text-[11px] font-bold text-slate-400 uppercase tracking-widest">Match Practice</h3>
+        </div>
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 p-3">
           {[
-            { label: 'Match Simulation', value: stats?.matchPracticeSummary?.matchSimulation ?? 0 },
-            { label: 'Corporate Batch (Monthly)', value: stats?.matchPracticeSummary?.corporateMonthly ?? 0 },
-            { label: 'Corporate Batch (Regular)', value: stats?.matchPracticeSummary?.corporateRegular ?? 0 },
+            { group: 'Match Simulation', mode: 'Monthly', value: stats?.matchPracticeSummary?.matchSimMonthly ?? 0 },
+            { group: 'Match Simulation', mode: 'Regular (Ad Hoc)', value: stats?.matchPracticeSummary?.matchSimRegular ?? 0 },
+            { group: 'Corporate', mode: 'Monthly', value: stats?.matchPracticeSummary?.corporateMonthly ?? 0 },
+            { group: 'Corporate', mode: 'Regular (Ad Hoc)', value: stats?.matchPracticeSummary?.corporateRegular ?? 0 },
           ].map((c) => (
             <div
-              key={c.label}
-              className="bg-white/[0.03] backdrop-blur-sm rounded-xl border border-white/[0.07] px-4 py-4"
+              key={`${c.group}-${c.mode}`}
+              className="rounded-lg bg-white/[0.02] border border-white/[0.05] px-3 py-2.5"
             >
-              <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider leading-tight">
-                {c.label}
+              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider leading-tight">
+                {c.group}
               </p>
-              <p className="text-2xl font-bold text-white mt-1.5">
+              <p className="text-[9px] font-semibold text-slate-500 uppercase tracking-wider mt-0.5">
+                {c.mode}
+              </p>
+              <p className="text-lg font-bold text-white mt-1 leading-none">
                 {loading ? (
-                  <span className="inline-block w-12 h-6 bg-white/[0.06] rounded animate-pulse" />
+                  <span className="inline-block w-10 h-5 bg-white/[0.06] rounded animate-pulse" />
                 ) : (
                   c.value.toLocaleString()
                 )}
               </p>
-              <p className="text-[10px] text-slate-500 mt-0.5">Total bookings</p>
+              <p className="text-[9px] text-slate-500 mt-1">Total bookings</p>
             </div>
           ))}
         </div>

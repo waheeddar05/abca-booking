@@ -17,6 +17,20 @@ import { useAdminRole } from '@/lib/useAdminRole';
 
 type Category = 'all' | 'today' | 'upcoming' | 'previous' | 'lastMonth';
 
+// Filter values accepted from the URL. ACTIVE is a derived "everything
+// except cancelled" status the API understands (used by the dashboard's
+// Booking Distribution click-through).
+const URL_STATUS_VALUES = new Set(['ACTIVE', 'BOOKED', 'IN_PROGRESS', 'DONE', 'CANCELLED']);
+const URL_CATEGORY_FILTER_VALUES = new Set(['MACHINE', 'SIDEARM', 'COACHING', 'NET', 'FULL_COURT', 'CORPORATE_BATCH', 'MATCH_SIMULATION']);
+
+function sanitizeStatusParam(value: string | null): string {
+  return value && URL_STATUS_VALUES.has(value) ? value : '';
+}
+
+function sanitizeCategoryFilterParam(value: string | null): string {
+  return value && URL_CATEGORY_FILTER_VALUES.has(value) ? value : '';
+}
+
 interface Pagination {
   page: number;
   limit: number;
@@ -46,7 +60,11 @@ function AdminBookingsContent() {
   const [sortBy, setSortBy] = useState('date');
   const [sortOrder, setSortOrder] = useState('desc');
   const [filters, setFilters] = useState({
-    status: '',
+    // Status and booking-category filters can arrive via the URL — the
+    // dashboard's Booking Distribution counts deep-link here pre-filtered
+    // (e.g. ?category=today&categoryFilter=NET&status=ACTIVE). Unknown
+    // values are dropped so a mangled URL can't break the list query.
+    status: sanitizeStatusParam(searchParams.get('status')),
     // `customer` holds the text shown in the Customer field. When the
     // admin picks a specific person from the autocomplete, `customerId`
     // is set and the list filters by that exact user id (so ONLY that
@@ -63,7 +81,7 @@ function AdminBookingsContent() {
     // Nets / Full Indoor Court / Personal Coaching). Replaces the
     // legacy 'Machine' dropdown — options are sourced from the
     // center's ENABLED_BOOKING_CATEGORIES policy below.
-    categoryFilter: '',
+    categoryFilter: sanitizeCategoryFilterParam(searchParams.get('categoryFilter')),
   });
   // Customer autocomplete state (Filters → Customer). Reuses the
   // /api/admin/users search the "Book on Behalf" modal uses.
@@ -210,6 +228,19 @@ function AdminBookingsContent() {
     const cat = searchParams.get('category');
     if (cat && cat !== category) {
       setCategory(cat as Category);
+    }
+    // Keep the status / booking-category filters in sync with the URL the
+    // same way — a dashboard deep-link while this page is already mounted
+    // must re-apply its filters, not be ignored.
+    const statusParam = sanitizeStatusParam(searchParams.get('status'));
+    const catFilterParam = sanitizeCategoryFilterParam(searchParams.get('categoryFilter'));
+    if ((searchParams.get('status') && statusParam) || (searchParams.get('categoryFilter') && catFilterParam)) {
+      setFilters(prev => (
+        prev.status === statusParam && prev.categoryFilter === catFilterParam
+          ? prev
+          : { ...prev, status: statusParam, categoryFilter: catFilterParam }
+      ));
+      setPagination(prev => (prev.page === 1 ? prev : { ...prev, page: 1 }));
     }
   }, [searchParams]);
 
@@ -704,6 +735,7 @@ function AdminBookingsContent() {
               className="w-full bg-white/[0.06] border border-white/[0.15] text-white rounded-lg px-3 py-2.5 text-sm outline-none focus:border-accent focus:ring-1 focus:ring-accent/20 cursor-pointer"
             >
               <option value="">All</option>
+              <option value="ACTIVE">Active (Not Cancelled)</option>
               <option value="BOOKED">Upcoming</option>
               <option value="IN_PROGRESS">In Progress</option>
               <option value="DONE">Completed</option>
@@ -728,8 +760,17 @@ function AdminBookingsContent() {
               className="w-full bg-white/[0.06] border border-white/[0.15] text-white rounded-lg px-3 py-2.5 text-sm outline-none focus:border-accent focus:ring-1 focus:ring-accent/20 cursor-pointer"
             >
               <option value="">All categories</option>
-              {bookableCategories
-                .flatMap((c) => (c === 'MATCH_PRACTICE' ? ['CORPORATE_BATCH', 'MATCH_SIMULATION'] : [c]))
+              {(() => {
+                const opts = bookableCategories
+                  .flatMap((c) => (c === 'MATCH_PRACTICE' ? ['CORPORATE_BATCH', 'MATCH_SIMULATION'] : [c]));
+                // An active filter (e.g. from a dashboard deep-link) must
+                // always be visible as the selected option, even when the
+                // center's enabled-categories policy doesn't list it.
+                if (filters.categoryFilter && !opts.includes(filters.categoryFilter)) {
+                  opts.push(filters.categoryFilter);
+                }
+                return opts;
+              })()
                 .map((c) => (
                   <option key={c} value={c}>
                     {c === 'MACHINE' ? 'Bowling Machine'

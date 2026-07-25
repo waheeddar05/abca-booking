@@ -247,6 +247,11 @@ export async function GET(req: NextRequest) {
           ],
         },
       ];
+    } else if (status === 'ACTIVE') {
+      // Everything except cancelled. The dashboard's Booking Distribution
+      // "Today" counts exclude cancelled rows, so its click-through links
+      // pass this to make the list reconcile with the count exactly.
+      where.status = { not: 'CANCELLED' };
     } else if (status) {
       where.status = status;
     }

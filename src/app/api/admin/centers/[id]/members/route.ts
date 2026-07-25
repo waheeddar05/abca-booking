@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { requireCenterAdminForCenter } from '@/lib/adminAuth';
+import {
+  requireCenterStaffManagerForCenter,
+  MODERATOR_MANAGEABLE_MEMBERSHIP_ROLES,
+} from '@/lib/adminAuth';
 import { z } from 'zod';
 
 /**
@@ -12,6 +15,10 @@ import { z } from 'zod';
  *                          user by `userId` OR `email` / `mobileNumber`,
  *                          OR creates one (super admin can mint a coach
  *                          who has never logged in).
+ *
+ * Moderators are admitted with admin-equivalent access, but ONLY over the
+ * staff roles behind the Sidearm / Personal Coach / Ground Staff tabs —
+ * they can never list or assign ADMIN / MODERATOR / OPERATOR memberships.
  */
 
 const RoleEnum = z.enum(['ADMIN', 'MODERATOR', 'OPERATOR', 'COACH', 'SIDEARM_SPECIALIST', 'GROUND_STAFF']);
@@ -45,11 +52,20 @@ type Params = { id: string };
 
 export async function GET(req: NextRequest, ctx: { params: Promise<Params> }) {
   const { id: centerId } = await ctx.params;
-  const ctxAuth = await requireCenterAdminForCenter(req, centerId);
+  const ctxAuth = await requireCenterStaffManagerForCenter(req, centerId);
   if (!ctxAuth) return NextResponse.json({ error: 'Admin required' }, { status: 403 });
   const { searchParams } = new URL(req.url);
   const role = searchParams.get('role');
   const q = searchParams.get('q');
+
+  // Moderators only see the staff-tab roles; the wider Members view
+  // (admins / operators / moderators) stays full-admin.
+  if (ctxAuth.isModerator && (!role || !MODERATOR_MANAGEABLE_MEMBERSHIP_ROLES.has(role))) {
+    return NextResponse.json(
+      { error: 'Moderators can only view coach, sidearm and ground staff members.' },
+      { status: 403 },
+    );
+  }
 
   const where: Record<string, unknown> = { centerId, isActive: true };
   if (role) where.role = role;
@@ -92,7 +108,7 @@ export async function GET(req: NextRequest, ctx: { params: Promise<Params> }) {
 
 export async function POST(req: NextRequest, ctx: { params: Promise<Params> }) {
   const { id: centerId } = await ctx.params;
-  const ctxAuth = await requireCenterAdminForCenter(req, centerId);
+  const ctxAuth = await requireCenterStaffManagerForCenter(req, centerId);
   if (!ctxAuth) return NextResponse.json({ error: 'Admin required' }, { status: 403 });
 
   const center = await prisma.center.findUnique({ where: { id: centerId } });
@@ -118,6 +134,18 @@ export async function POST(req: NextRequest, ctx: { params: Promise<Params> }) {
   if (!ctxAuth.isSuperAdmin && rolesToAssign.includes('ADMIN')) {
     return NextResponse.json(
       { error: 'Only super admin can grant the ADMIN role.' },
+      { status: 403 },
+    );
+  }
+
+  // Moderators can only assign the staff-tab roles — never ADMIN /
+  // MODERATOR / OPERATOR (that would let them mint peers or escalate).
+  if (
+    ctxAuth.isModerator &&
+    rolesToAssign.some((r) => !MODERATOR_MANAGEABLE_MEMBERSHIP_ROLES.has(r))
+  ) {
+    return NextResponse.json(
+      { error: 'Moderators can only assign coach, sidearm and ground staff roles.' },
       { status: 403 },
     );
   }
