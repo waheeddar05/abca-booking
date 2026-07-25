@@ -203,6 +203,18 @@ ABCA's existing rows default to `MACHINE` and have no `BookingResourceAssignment
 - `MACHINE_PITCH` → existing `SlotsContent` (legacy ABCA flow, untouched).
 - `RESOURCE_BASED` → `src/app/slots/ResourceSlotsPage.tsx` — date picker, category tabs (Machine / Sidearm / Coaching / Full Court / Match Practice), per-category secondary picker (machine / coach / staff), slot grid with per-slot bookability + price, multi-slot selection, sticky booking bar, confirm dialog, submits to `/api/slots/book-resource`.
 
+### Operator availability & capacity
+
+Operators are staffed exactly like Ground Staff / Coaches / Sidearm Specialists — there is no operator-specific configuration model any more. Each `CenterMembership(role='OPERATOR')` carries weekly `MembershipAvailability` windows (with an optional effective date range) plus a `priority` (1 = first pick), both edited on **Admin → Operators** (`src/app/admin/operators/page.tsx`), which is a 1:1 mirror of Admin → Ground Staff and reuses `SpecialistAvailabilityCard` / the `…/members/[membershipId]/availability` endpoint.
+
+Rules, all in `src/lib/operatorAssign.ts`:
+- **On duty** = the operator's weekly schedule covers the slot. **No schedule configured = always on duty** (same rule as `pickGroundStaffForSlot`), so a center that hasn't filled anything in keeps working and its capacity is its roster size.
+- **One operator, one booking.** The number of operator-assisted MACHINE bookings a slot can hold equals the number of operators available for that slot. `getOperatorSlotCapacity` returns `{ onDuty, busy, free, freeOperatorIds }`; `autoAssignOperator` takes the highest-priority free one, or null when the slot is at capacity.
+- `onDuty === 0` → nobody available: LEATHER machines are unbookable, TENNIS falls back to `SELF_OPERATE`. Same fallback when `free === 0`.
+- Changing an operator's availability does **not** cancel or refund existing bookings (`bookingAssignmentFilter` returns null for OPERATOR, as for GROUND_STAFF) — operators are fungible and never user-picked, so an admin reassigns from Admin → Bookings instead.
+
+**Removed, do not reintroduce**: the `OPERATOR_SCHEDULE_CONFIG` and `OPERATOR_DATE_OVERRIDES` policies, the `NUMBER_OF_OPERATORS` fallback for staffing, the day+slab priority matrix on `User.operator*Priority`, and the per-machine `OperatorAssignment` table. The columns/table survive in the schema marked DEPRECATED so existing rows aren't destroyed, but nothing reads them. `/api/admin/operators` is now GET-only (the Admin → Bookings reassignment dropdown); `/api/admin/override-cancellations` is gone.
+
 ### Match Practice (Corporate Batch + Match Simulation)
 
 Seat-based booking category for RESOURCE_BASED centers — no machine, ball type, pitch type, or operator anywhere in the flow. The user-facing "Match Practice" tab (`MATCH_PRACTICE` in `ENABLED_BOOKING_CATEGORIES`, a UI umbrella, NOT a `BookingCategory` value) renders `src/app/slots/MatchPracticePanel.tsx` with two subcategories:

@@ -27,7 +27,7 @@ import {
 import { getResourcePricingConfig, getResourceSlotPrice } from '@/lib/resource-pricing';
 import { getSidearmPitchTypes, getNetPitchTypes, getCoachingPitchTypes, getEnabledBookingCategories } from '@/lib/pitch-config';
 import { sanitizeApiError } from '@/lib/api-errors';
-import { getOperatorCount } from '@/lib/operatorAssign';
+import { loadOperatorRoster, operatorsAvailableForSlot } from '@/lib/operatorAssign';
 import {
   getCenterRecurringDiscountRules,
   recurringRuleMatches,
@@ -145,6 +145,7 @@ export async function GET(req: NextRequest) {
       netPitchTypes,
       coachingPitchTypes,
       enabledCategories,
+      operatorRoster,
       bookings,
       batchConfig,
       matchSimConfig,
@@ -167,6 +168,7 @@ export async function GET(req: NextRequest) {
       getNetPitchTypes(center.id),
       getCoachingPitchTypes(center.id),
       getEnabledBookingCategories(center.id),
+      loadOperatorRoster(center.id),
       prisma.booking.findMany({
         where: { centerId: center.id, date: dateUTC, status: { not: 'CANCELLED' } },
         select: {
@@ -219,9 +221,14 @@ export async function GET(req: NextRequest) {
         const busyCoachIds = new Set<string>();
         const busyStaffIds = new Set<string>();
         const busyMachineIds = new Set<string>();
+        // Operators already committed to a booking overlapping this slot.
+        // An operator is an exclusive resource — one booking each — so
+        // this directly reduces the slot's operator-assisted capacity.
+        const busyOperatorIds = new Set<string>();
         let hasFullCourtBooking = false;
         for (const b of bookings) {
           if (slot.startTime >= b.endTime || b.startTime >= slot.endTime) continue;
+          if (b.operatorId && b.status === 'BOOKED') busyOperatorIds.add(b.operatorId);
           for (const ra of b.resourceAssignments) {
             resourceLoad.set(ra.resourceId, (resourceLoad.get(ra.resourceId) ?? 0) + 1);
           }
@@ -286,38 +293,23 @@ export async function GET(req: NextRequest) {
         const timeSlab = getTimeSlab(slot.startTime, timeSlabConfig);
 
         // Operator availability for this slot (MACHINE category only).
-        // Mirrors ABCA's /api/slots/available `operatorAvailable` flag.
-        //   - operatorCount=0 → self-operate (no operator needed).
-        //   - busyOperators >= operatorCount → MACHINE is full.
+        // Resolved purely from each operator's weekly availability — the
+        // same model the Ground Staff / Coach / Sidearm tabs use. There
+        // is no schedule policy and no date override any more.
+        //   - operatorCount=0 → nobody available: self-operate (tennis)
+        //     or unbookable (leather).
+        //   - busyOperators >= operatorCount → MACHINE is at capacity.
         // SIDEARM / COACHING / FULL_COURT don't consume operators, so
         // this gating only affects the MACHINE category in the UI.
-        const operatorCount = await getOperatorCount(
-          dateUTC,
-          slot.startTime,
-          timeSlabConfig,
-          center.id,
-        );
-        // `operatorCount` is a staffing level, not a per-slot capacity —
-        // same rule the booking engine applies in /api/slots/book-resource.
-        // A slot is operator-served whenever anyone is on duty; the grid
-        // must not grey out (or silently downgrade to self-operate) the
-        // second booking of an hour just because one operator is already
-        // on another net.
+        const operatorsOnDuty = operatorsAvailableForSlot(operatorRoster, slotWindow);
+        const operatorCount = operatorsOnDuty.length;
+        const busyOperators = operatorsOnDuty.filter((o) => busyOperatorIds.has(o.userId)).length;
+        // An operator serves one booking at a time, so the number of
+        // operator-assisted machine bookings a slot can hold is exactly
+        // the number of operators available for it — same rule the
+        // booking engine applies in /api/slots/book-resource.
         const selfOperate = operatorCount === 0;
-        const operatorAvailable = !selfOperate;
-        // Informational only (surfaced as `operatorsBusy`) — distinct
-        // operators already committed in this slot. Deliberately NOT
-        // used to gate bookability any more.
-        const busyOperators = new Set(
-          bookings
-            .filter(
-              (b) =>
-                b.startTime.getTime() === slot.startTime.getTime()
-                && b.status === 'BOOKED'
-                && b.operatorId,
-            )
-            .map((b) => b.operatorId),
-        ).size;
+        const operatorAvailable = operatorCount - busyOperators > 0;
 
         // Pre-compute per-category prices. MACHINE is the base — when the
         // user picks a specific machine the UI swaps in the entry from

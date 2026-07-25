@@ -880,20 +880,20 @@ export default function ResourceSlotsPage() {
       // 'LEVERAGE'.
       //
       // Two operator-unavailability paths to cover:
-      //   1. Admin marked operators unavailable for this window
-      //      (date override or schedule sets count to 0).
-      //      → s.selfOperate === true, s.operatorAvailable === true.
+      //   1. No operator's weekly availability covers this window.
+      //      → s.selfOperate === true, s.operatorAvailable === false.
       //      Tennis machines fall back to self-operate; leather
       //      machines need an operator who isn't there — Not Available.
-      //   2. Operators scheduled but every one is already booked.
-      //      → s.operatorAvailable === false.
+      //   2. Operators are available but every one is already booked —
+      //      one operator serves one booking, so the slot is at
+      //      capacity. → s.operatorAvailable === false.
       //      Same rule: tennis self-operates, leather greys out.
       const selectedMachine = machineId ? filteredMachines.find((m) => m.id === machineId) : null;
       const isTennisMachine = selectedMachine?.machineType?.ballType === 'TENNIS';
       if (!isTennisMachine) {
-        // Leather machines always need an operator. A center configured
-        // for self-operate (operatorCount = 0) leaves leather machines
-        // unbookable for the window — the machine can't run itself.
+        // Leather machines always need an operator. A window with no
+        // operator available leaves leather machines unbookable — the
+        // machine can't run itself.
         if (s.selfOperate === true) {
           return { ok: false, reason: 'Operator unavailable — this machine requires an operator' };
         }
@@ -1972,9 +1972,9 @@ export default function ResourceSlotsPage() {
 
               // Self-operate state — drives the amber warning theme below
               // (matches ABCA SlotGrid). True when no operator will be
-              // assigned to this booking: either operatorCount=0 at the
-              // slot, or operators exist but are all busy AND the user
-              // picked a tennis machine (LEVERAGE ballType). Leather
+              // assigned to this booking: either nobody is available for
+              // the slot, or operators are available but all busy AND the
+              // user picked a tennis machine (LEVERAGE ballType). Leather
               // machines are never self-operate — they need an operator
               // who, when absent, makes the slot unavailable (gated
               // above in slotIsBookable).

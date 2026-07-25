@@ -27,8 +27,15 @@ function bookingAssignmentFilter(membership: { userId: string; role: string }) {
     // the facility bookings they're listed on. Returning null means the
     // availability editor reports "0 impacted bookings" and the save
     // proceeds without touching any booking, which is the intended
-    // behaviour for ground staff (and ADMIN / OPERATOR).
+    // behaviour for ground staff (and ADMIN).
     case 'GROUND_STAFF':
+    // OPERATOR is availability-managed too (Admin → Operators uses the
+    // same editor), but operators are fungible: the user never picks
+    // one, so narrowing one operator's hours is not a reason to cancel
+    // and refund a customer's session — an admin can reassign it from
+    // Admin → Bookings. Same "0 impacted bookings" outcome as ground
+    // staff.
+    case 'OPERATOR':
     default:
       return null;
   }

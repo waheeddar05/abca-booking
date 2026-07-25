@@ -1,115 +1,13 @@
-import { PrismaClient, MachineId } from '@prisma/client';
+import { PrismaClient } from '@prisma/client';
 import { prisma as defaultPrisma } from './prisma';
-import { getPolicyValue } from './policy';
-import type { TimeSlabConfig } from './pricing';
-import { getTimeSlab, timeToMinutes } from './pricing';
+import {
+  slotMatchesMembershipAvailability,
+  type AvailabilityWindow,
+  type BookableSlotWindow,
+} from './resource-booking';
 
 type PrismaTransaction = Omit<PrismaClient, '$connect' | '$disconnect' | '$on' | '$transaction' | '$use' | '$extends'>;
-
-// ─── Operator Schedule Config ───────────────────────────
-
-export interface OperatorScheduleEntry {
-  days: number[];          // 0=Sun..6=Sat
-  slab: 'morning' | 'evening';
-  count: number;
-}
-
-export interface OperatorScheduleConfig {
-  default: number;
-  schedule: OperatorScheduleEntry[];
-}
-
-/** Get day-of-week in IST (0=Sun..6=Sat), locale-independent. */
-function getDayOfWeekIST(date: Date): number {
-  const istMs = date.getTime() + (5 * 60 + 30) * 60 * 1000;
-  return new Date(istMs).getUTCDay();
-}
-
-/** Get date string in YYYY-MM-DD format in IST. */
-function getDateStringIST(date: Date): string {
-  const istMs = date.getTime() + (5 * 60 + 30) * 60 * 1000;
-  const istDate = new Date(istMs);
-  return `${istDate.getUTCFullYear()}-${String(istDate.getUTCMonth() + 1).padStart(2, '0')}-${String(istDate.getUTCDate()).padStart(2, '0')}`;
-}
-
-// ─── Operator Date Override Config ────────────────────────
-// New range format: [{ from: "2026-04-10", to: "2026-04-15", morning: 0, evening: 2 }, ...]
-//
-// A range is either:
-//   - slab-based  → morning/evening operator counts (legacy behaviour), or
-//   - time-window → startTime/endTime ("HH:MM", IST) + a single `count`
-//     applied only to slots whose start falls within [startTime, endTime).
-// Time-window ranges take precedence over slab ranges for matching slots.
-export interface OperatorDateOverrideRange {
-  from: string;
-  to: string;
-  morning?: number;
-  evening?: number;
-  recurringDays?: number[]; // 0=Sun..6=Sat; empty/undefined = every day in range
-  startTime?: string;       // "HH:MM" IST — time-window override start (inclusive)
-  endTime?: string;         // "HH:MM" IST — time-window override end (exclusive)
-  count?: number;           // operator count for the time window
-}
-
-// Legacy format (individual dates): { "2026-04-10": { morning: 0, evening: 2 } }
-type LegacyOverrides = Record<string, { morning: number; evening: number }>;
-
-/** Day-of-week (0=Sun..6=Sat) for a YYYY-MM-DD date string */
-function dayOfWeekFromDateKey(dateKey: string): number {
-  const [y, m, d] = dateKey.split('-').map(Number);
-  return new Date(Date.UTC(y, (m || 1) - 1, d || 1)).getUTCDay();
-}
-
-/** Minutes-since-midnight (IST) for a slot's start time. */
-function getMinutesIST(date: Date): number {
-  const istStr = date.toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour12: false, hour: '2-digit', minute: '2-digit' });
-  return timeToMinutes(istStr);
-}
-
-/** True when a range carries a usable time-window definition. */
-function isTimeWindow(range: OperatorDateOverrideRange): range is OperatorDateOverrideRange & { startTime: string; endTime: string; count: number } {
-  return !!range.startTime && !!range.endTime && typeof range.count === 'number';
-}
-
-/**
- * Resolve the operator count for a date + slab + slot start time from the
- * override config. Time-window overrides win over slab overrides; within each
- * pass the first matching range wins. Returns undefined when nothing matches.
- */
-function findOverrideCount(
-  overrides: OperatorDateOverrideRange[] | LegacyOverrides,
-  dateKey: string,
-  slab: 'morning' | 'evening',
-  slotMinutes: number,
-): number | undefined {
-  // Support new range format (array)
-  if (Array.isArray(overrides)) {
-    const dow = dayOfWeekFromDateKey(dateKey);
-    const inRange = (range: OperatorDateOverrideRange) =>
-      dateKey >= range.from && dateKey <= range.to &&
-      !(range.recurringDays && range.recurringDays.length > 0 && !range.recurringDays.includes(dow));
-
-    // Pass 1: time-window overrides take precedence
-    for (const range of overrides) {
-      if (!isTimeWindow(range) || !inRange(range)) continue;
-      const start = timeToMinutes(range.startTime);
-      const end = timeToMinutes(range.endTime);
-      if (slotMinutes >= start && slotMinutes < end) return Math.max(0, range.count);
-    }
-
-    // Pass 2: slab-based overrides
-    for (const range of overrides) {
-      if (isTimeWindow(range) || !inRange(range)) continue;
-      const count = slab === 'morning' ? range.morning : range.evening;
-      if (typeof count === 'number') return Math.max(0, count);
-    }
-    return undefined;
-  }
-  // Legacy format (object with date keys)
-  const match = overrides[dateKey];
-  if (match) return Math.max(0, slab === 'morning' ? match.morning : match.evening);
-  return undefined;
-}
+type Db = PrismaTransaction | typeof defaultPrisma;
 
 // ─── "Operator at this center" — the single definition ────
 //
@@ -152,7 +50,7 @@ export function centerOperatorUserWhere(centerId: string | null) {
 export async function canOperateAtCenter(
   userId: string,
   centerId: string,
-  db: PrismaTransaction | typeof defaultPrisma = defaultPrisma,
+  db: Db = defaultPrisma,
 ): Promise<boolean> {
   const user = await db.user.findUnique({
     where: { id: userId },
@@ -169,353 +67,218 @@ export async function canOperateAtCenter(
   return user.role === 'OPERATOR' || user.role === 'ADMIN';
 }
 
-// ─── Rostered-operator count ──────────────────────────────
-// Used as the "how many operators are on duty" default when a center has
-// no explicit schedule. Cached briefly because the availability grid
-// asks once per slot in the day. Zero is deliberately NOT cached: a
-// brand-new center that gets its first operator must not stay stuck at
-// "no operators" for the TTL (module scope is per-serverless-instance,
-// so an explicit invalidation can't reach the other warm instances).
-const rosterCache = new Map<string, { count: number; expiresAt: number }>();
-const ROSTER_TTL_MS = 30_000;
+// ─── Operator availability ───────────────────────────────
+//
+// Operators are staffed exactly like Ground Staff / Coaches / Sidearm
+// Specialists: each OPERATOR `CenterMembership` carries a weekly
+// availability schedule (`MembershipAvailability` rows, with an optional
+// effective date range) plus a `priority` for ordering. There is no
+// separate operator schedule policy, no date-override policy, and no
+// per-machine assignment table any more — "who can operate at 07:00 on
+// Tuesday" has exactly one answer, and it is the same question the
+// staff-management tabs already answer for every other role.
+//
+// Consequences, all intentional:
+//   - The number of operator-assisted machine bookings a slot can carry
+//     equals the number of operators available for that slot. An
+//     operator is an exclusive resource: one booking each.
+//   - An operator with NO availability configured is treated as always
+//     available. This mirrors `pickGroundStaffForSlot` and keeps every
+//     existing center working the moment this ships — before an admin
+//     has entered a single window, the roster is the capacity, which is
+//     what the old policy fallback did too.
+//   - Ordering is the membership `priority` (1 = first pick), managed
+//     with the same up/down arrows as the Ground Staff tab.
 
-function rosterKey(centerId: string | null): string {
-  return centerId ?? '__legacy_global__';
+/** One operator on a center's roster, with their weekly schedule. */
+export interface OperatorRosterEntry {
+  userId: string;
+  /** Membership priority — lower is picked first. */
+  priority: number;
+  /** Weekly windows. Empty = no schedule configured = always available. */
+  availability: AvailabilityWindow[];
 }
 
 /**
- * How many operators are on this center's roster — the exact same pool
- * `loadCenterOperators` picks from, so the on-duty default and the
- * picker can never disagree.
+ * Every active OPERATOR membership at the center, priority-ordered, with
+ * their weekly availability windows resolved.
+ *
+ * `centerId` null is the cross-center fallback used by tooling only.
  */
-export async function getRosteredOperatorCount(
+export async function loadOperatorRoster(
   centerId: string | null,
-  db: PrismaTransaction | typeof defaultPrisma = defaultPrisma,
-): Promise<number> {
-  const key = rosterKey(centerId);
-  const now = Date.now();
-  const hit = rosterCache.get(key);
-  if (hit && hit.expiresAt > now) return hit.count;
-
-  const count = centerId
-    ? await db.centerMembership.count({ where: { centerId, role: 'OPERATOR', isActive: true } })
-    : await db.centerMembership.count({ where: { role: 'OPERATOR', isActive: true } });
-
-  // Never cache "no operators" — see the note above.
-  if (count > 0) rosterCache.set(key, { count, expiresAt: now + ROSTER_TTL_MS });
-  else rosterCache.delete(key);
-  return count;
-}
-
-/** Drop the cached roster size — call after adding/removing operators. */
-export function invalidateOperatorRoster(centerId?: string | null): void {
-  if (centerId === undefined) {
-    rosterCache.clear();
-    return;
-  }
-  rosterCache.delete(rosterKey(centerId));
-}
-
-/**
- * Get the number of operators **on duty** for a given date + time slot.
- * Priority: 1. Date-specific overrides, 2. Day-of-week schedule,
- * 3. Legacy NUMBER_OF_OPERATORS, 4. The center's operator roster size.
- *
- * IMPORTANT — this is a staffing level, NOT a per-slot booking capacity.
- * It answers "is anyone on duty, and how many", and the only value the
- * booking engine treats specially is 0 ("nobody on duty" → self-operate
- * for tennis, refuse for leather). It must never be used to stop
- * assigning an operator to the Nth booking of a slot: one operator
- * walks between nets and covers several bookings in the same hour,
- * which is exactly what admins do by hand today.
- *
- * `centerId` is optional. When supplied, every policy lookup cascades
- * CenterPolicy → Policy → fallback so each center can override scheduling
- * independently. Passing `null` preserves the pre-multi-center behaviour
- * of reading only the global `Policy` table.
- */
-export async function getOperatorCount(
-  date: Date,
-  startTime: Date,
-  timeSlabs: TimeSlabConfig,
-  centerId: string | null = null,
-  db: PrismaTransaction | typeof defaultPrisma = defaultPrisma,
-): Promise<number> {
-  const slab = getTimeSlab(startTime, timeSlabs);
-  const slotMinutes = getMinutesIST(startTime);
-
-  // 1. Check date-specific overrides first (highest priority)
-  try {
-    const overridesStr = await getPolicyValue('OPERATOR_DATE_OVERRIDES', centerId);
-    if (overridesStr) {
-      const overrides = JSON.parse(overridesStr);
-      const dateKey = getDateStringIST(date);
-      const count = findOverrideCount(overrides, dateKey, slab, slotMinutes);
-      if (count !== undefined) return count;
-    }
-  } catch (e) {
-    console.warn('[OperatorAssign] Error parsing OPERATOR_DATE_OVERRIDES:', e);
-  }
-
-  // 2. Check day-of-week schedule config. A config that carries neither
-  //    a matching day+slab entry nor a numeric `default` is treated as
-  //    "unset" and falls through to the roster size below — an empty
-  //    `{ schedule: [] }` must not silently cap the center at one
-  //    operator per slot.
-  try {
-    const configStr = await getPolicyValue('OPERATOR_SCHEDULE_CONFIG', centerId);
-    if (configStr) {
-      const config: OperatorScheduleConfig = JSON.parse(configStr);
-      const day = getDayOfWeekIST(date);
-      const match = config.schedule?.find(e => e.days.includes(day) && e.slab === slab);
-      if (typeof match?.count === 'number') return Math.max(0, match.count);
-      if (typeof config.default === 'number') return Math.max(0, config.default);
-    }
-  } catch (e) {
-    console.warn('[OperatorAssign] Error parsing OPERATOR_SCHEDULE_CONFIG:', e);
-  }
-
-  // 3. Legacy fallback
-  try {
-    const val = await getPolicyValue('NUMBER_OF_OPERATORS', centerId);
-    if (val) {
-      const parsed = parseInt(val, 10);
-      if (Number.isFinite(parsed)) return Math.max(1, parsed);
-    }
-  } catch { /* ignore */ }
-
-  // 4. Nothing configured → everyone on the roster counts as on duty.
-  try {
-    return await getRosteredOperatorCount(centerId, db);
-  } catch (e) {
-    console.warn('[OperatorAssign] Error counting rostered operators:', e);
-    return 1;
-  }
-}
-
-// ─── Operator Auto-Assignment ─────────────────────────
-
-type DayPriorities = Record<string, { morning: number; evening: number }>;
-type OperatorInfo = { id: string; operatorPriority: number; operatorMorningPriority: number; operatorEveningPriority: number; operatorDayPriorities?: DayPriorities | null };
-const OPERATOR_SELECT = { id: true, operatorPriority: true, operatorMorningPriority: true, operatorEveningPriority: true, operatorDayPriorities: true } as const;
-
-/**
- * Sort operators by priority for a given slab and day of week.
- * Priority resolution order:
- * 1. Day-specific slab priority (operatorDayPriorities[dayOfWeek][slab]) — most specific
- * 2. General slab priority (operatorMorningPriority / operatorEveningPriority)
- * 3. Overall priority (operatorPriority) — tiebreaker
- * Lower number = higher priority. 0 means unset, pushed to end.
- */
-function sortByPriority(operators: OperatorInfo[], slab: 'morning' | 'evening', dayOfWeek?: number): OperatorInfo[] {
-  return [...operators].sort((a, b) => {
-    const getEffective = (op: OperatorInfo): number => {
-      // Check day-specific priority first
-      if (dayOfWeek !== undefined && op.operatorDayPriorities) {
-        const dayPri = (op.operatorDayPriorities as DayPriorities)?.[String(dayOfWeek)];
-        if (dayPri) {
-          const val = slab === 'morning' ? dayPri.morning : dayPri.evening;
-          if (val && val > 0) return val;
-        }
-      }
-      // Fall back to general slab priority
-      const slabPri = slab === 'morning' ? op.operatorMorningPriority : op.operatorEveningPriority;
-      return slabPri === 0 ? Infinity : slabPri;
-    };
-
-    const aEff = getEffective(a);
-    const bEff = getEffective(b);
-    if (aEff !== bEff) return aEff - bEff;
-    const aOverall = a.operatorPriority === 0 ? Infinity : a.operatorPriority;
-    const bOverall = b.operatorPriority === 0 ? Infinity : b.operatorPriority;
-    return aOverall - bOverall;
-  });
-}
-
-/**
- * Resolve the candidate operator pool for a center.
- *
- * - `centerId` null  → legacy ABCA path: `role: 'OPERATOR'` on User.
- * - `centerId` set   → users with a CenterMembership(centerId, role: OPERATOR).
- *
- * The new path matches how RESOURCE_BASED centers are administered (Toplay's
- * operators live as memberships, not as User.role).
- */
-async function loadCenterOperators(
-  db: PrismaTransaction | typeof defaultPrisma,
-  centerId: string | null,
-): Promise<OperatorInfo[]> {
+  db: Db = defaultPrisma,
+): Promise<OperatorRosterEntry[]> {
   const memberships = await db.centerMembership.findMany({
     where: centerId
       ? { centerId, role: 'OPERATOR', isActive: true }
       : { role: 'OPERATOR', isActive: true },
-    include: { user: { select: OPERATOR_SELECT } },
+    select: {
+      userId: true,
+      priority: true,
+      availability: {
+        where: { isActive: true },
+        select: {
+          dayOfWeek: true,
+          startTime: true,
+          endTime: true,
+          effectiveFrom: true,
+          effectiveTo: true,
+        },
+      },
+    },
+    orderBy: [{ priority: 'asc' }, { createdAt: 'asc' }],
   });
-  return memberships.map(m => ({
-    id: m.user.id,
-    operatorPriority: m.user.operatorPriority,
-    operatorMorningPriority: m.user.operatorMorningPriority,
-    operatorEveningPriority: m.user.operatorEveningPriority,
-    operatorDayPriorities: m.user.operatorDayPriorities as DayPriorities | null,
+  return memberships.map((m) => ({
+    userId: m.userId,
+    priority: m.priority,
+    availability: m.availability as AvailabilityWindow[],
   }));
 }
 
 /**
- * Load the operators an admin explicitly assigned to a machine, honouring
- * the per-assignment weekday filter (`days`; empty = every day).
+ * Is this operator on duty for `slot`?
  *
- * Two machine axes exist:
- *   - `machineId`    — the legacy `MachineId` enum (MACHINE_PITCH centers).
- *   - `machineRowId` — a `Machine` row id (RESOURCE_BASED centers).
- * Callers pass whichever one their booking model uses; passing neither
- * returns an empty pool so the caller falls back to the full roster.
+ * No configured schedule ⇒ always on duty (see the module note above).
+ * Otherwise the slot must fall entirely inside one of their weekly
+ * windows, honouring that window's effective date range.
  */
-async function loadAssignedOperators(
-  db: PrismaTransaction | typeof defaultPrisma,
+export function operatorIsAvailableForSlot(
+  entry: Pick<OperatorRosterEntry, 'availability'>,
+  slot: BookableSlotWindow,
+): boolean {
+  if (entry.availability.length === 0) return true;
+  return slotMatchesMembershipAvailability(slot, entry.availability);
+}
+
+/** The subset of `roster` on duty for `slot`, still priority-ordered. */
+export function operatorsAvailableForSlot<T extends Pick<OperatorRosterEntry, 'availability'>>(
+  roster: T[],
+  slot: BookableSlotWindow,
+): T[] {
+  return roster.filter((entry) => operatorIsAvailableForSlot(entry, slot));
+}
+
+/**
+ * Operator ids already committed to a booking that overlaps `slot`.
+ *
+ * Overlap, not exact-equality: a 07:00–09:00 session keeps its operator
+ * busy at 07:30 and 08:00 too.
+ */
+export async function getBusyOperatorIds(
   centerId: string | null,
-  dayOfWeek: number,
-  machineId?: MachineId | null,
-  machineRowId?: string | null,
-): Promise<OperatorInfo[]> {
-  if (!machineId && !machineRowId) return [];
-
-  const machineWhere = machineRowId ? { machineRowId } : { machineId: machineId! };
-  const assignments = await db.operatorAssignment.findMany({
-    where: centerId ? { ...machineWhere, centerId } : machineWhere,
-    include: {
-      user: {
-        select: {
-          ...OPERATOR_SELECT,
-          role: true,
-          // Source of truth for "is this user an OPERATOR at this
-          // center" is CenterMembership, not User.role — same
-          // reasoning as `/api/admin/operators`. Pull the per-center
-          // membership rows so we can filter on them instead.
-          centerMemberships: centerId
-            ? { where: { centerId, role: 'OPERATOR' as const, isActive: true }, select: { id: true } }
-            : { where: { role: 'OPERATOR' as const, isActive: true }, select: { id: true } },
-        },
-      },
+  slot: BookableSlotWindow,
+  db: Db = defaultPrisma,
+): Promise<Set<string>> {
+  const rows = await db.booking.findMany({
+    where: {
+      date: slot.date,
+      startTime: { lt: slot.endTime },
+      endTime: { gt: slot.startTime },
+      status: 'BOOKED',
+      operatorId: { not: null },
+      ...(centerId ? { centerId } : {}),
     },
+    select: { operatorId: true },
   });
+  const busy = new Set<string>();
+  for (const r of rows) if (r.operatorId) busy.add(r.operatorId);
+  return busy;
+}
 
-  return assignments
-    .filter(a => {
-      // Check if days is empty (all days) or includes current day
-      const daysFilter = a.days;
-      return daysFilter.length === 0 || daysFilter.includes(dayOfWeek);
-    })
-    .filter(a =>
-      // Active OPERATOR membership at this center — the one definition
-      // (see the header note). This used to also admit a bare
-      // `User.role === 'OPERATOR'`, which let the auto-assigner pick
-      // someone the membership-scoped admin dropdown cannot render, so
-      // the booking displayed as "Unassigned" despite having an
-      // operator. A stale machine assignment must not outrank the
-      // roster.
-      (a.user.centerMemberships?.length ?? 0) > 0,
-    )
-    .map(a => ({ id: a.user.id, operatorPriority: a.user.operatorPriority, operatorMorningPriority: a.user.operatorMorningPriority, operatorEveningPriority: a.user.operatorEveningPriority, operatorDayPriorities: a.user.operatorDayPriorities as DayPriorities | null }));
+/** How many operator-assisted bookings this slot can still take. */
+export interface OperatorSlotCapacity {
+  /** Operators whose availability covers the slot. */
+  onDuty: number;
+  /** Of those, how many already carry an overlapping booking. */
+  busy: number;
+  /** Remaining capacity — `onDuty - busy`. */
+  free: number;
+  /** The free operators' user ids, best pick first. */
+  freeOperatorIds: string[];
+}
+
+/**
+ * Resolve operator capacity for a slot from availability alone.
+ *
+ * `onDuty === 0` means nobody is scheduled: leather machines can't be
+ * booked, tennis machines self-operate. `free === 0` with `onDuty > 0`
+ * means every scheduled operator is already on another booking — the
+ * slot is at capacity.
+ */
+export async function getOperatorSlotCapacity({
+  centerId,
+  slot,
+  tx,
+  roster,
+}: {
+  centerId: string | null;
+  slot: BookableSlotWindow;
+  tx?: PrismaTransaction;
+  /** Pre-loaded roster (avoids a query when the caller already has it). */
+  roster?: OperatorRosterEntry[];
+}): Promise<OperatorSlotCapacity> {
+  const db = tx || defaultPrisma;
+  const full = roster ?? (await loadOperatorRoster(centerId, db));
+  const onDuty = operatorsAvailableForSlot(full, slot);
+  if (onDuty.length === 0) {
+    return { onDuty: 0, busy: 0, free: 0, freeOperatorIds: [] };
+  }
+  const busy = await getBusyOperatorIds(centerId, slot, db);
+  const freeOperatorIds = onDuty.filter((o) => !busy.has(o.userId)).map((o) => o.userId);
+  return {
+    onDuty: onDuty.length,
+    busy: onDuty.length - freeOperatorIds.length,
+    free: freeOperatorIds.length,
+    freeOperatorIds,
+  };
+}
+
+/**
+ * How many operators are on duty for `slot` — the staffing level, before
+ * any booking is taken into account. Zero is the "nobody is working this
+ * window" signal the booking engine treats specially.
+ */
+export async function getAvailableOperatorCount(
+  centerId: string | null,
+  slot: BookableSlotWindow,
+  db: Db = defaultPrisma,
+): Promise<number> {
+  const roster = await loadOperatorRoster(centerId, db);
+  return operatorsAvailableForSlot(roster, slot).length;
+}
+
+// ─── Operator Auto-Assignment ─────────────────────────
+
+export interface AutoAssignOperatorArgs {
+  date: Date;
+  startTime: Date;
+  endTime: Date;
+  /** Transaction client — pass it so the read joins the tx's read set. */
+  tx?: PrismaTransaction;
+  centerId?: string | null;
 }
 
 /**
  * Auto-assign an operator to a booking.
  *
- * Returns null ONLY when the center has no operators at all. As long as
- * somebody is on the roster this always names one — a slot with more
- * bookings than operators gives the busiest-but-highest-priority person
- * a second booking rather than leaving the row unassigned. That matches
- * how the centers actually run (one operator walks between nets) and is
- * exactly the manual assignment admins were doing to paper over the old
- * behaviour.
- *
- * Candidate resolution:
- *   1. Operators explicitly assigned to this machine (either machine
- *      axis) and rostered for this weekday — preferred.
- *   2. Any other operator at the center.
- * Within that order, the operator carrying the fewest bookings in this
- * slot wins, ties broken by priority (day+slab, then overall).
- *
- * `centerId` scopes the candidate pool to a center's memberships. Pass
- * null only for cross-center tooling.
+ * Picks the highest-priority operator who is (a) available for the slot
+ * per their weekly schedule and (b) not already assigned to an
+ * overlapping booking. Returns null when nobody qualifies — which now
+ * genuinely means "this slot is at operator capacity", because every
+ * operator-assisted booking consumes one operator.
  */
-export interface AutoAssignOperatorArgs {
-  date: Date;
-  startTime: Date;
-  /** Slot end. Used for overlap-aware load counting; defaults to a zero-length window. */
-  endTime?: Date | null;
-  /** Transaction client — pass it so the read joins the tx's read set. */
-  tx?: PrismaTransaction;
-  /** Legacy `MachineId` enum (MACHINE_PITCH centers). */
-  machineId?: MachineId | null;
-  /** `Machine` row id (RESOURCE_BASED centers). */
-  machineRowId?: string | null;
-  timeSlab?: 'morning' | 'evening';
-  centerId?: string | null;
-}
-
 export async function autoAssignOperator({
   date,
   startTime,
-  endTime = null,
+  endTime,
   tx,
-  machineId = null,
-  machineRowId = null,
-  timeSlab,
   centerId = null,
 }: AutoAssignOperatorArgs): Promise<string | null> {
-  const db = tx || defaultPrisma;
-  const slab = timeSlab || 'morning';
-  const dayOfWeek = getDayOfWeekIST(date);
-
-  // Machine-specific pool first, then everyone else at the center.
-  const assigned = await loadAssignedOperators(db, centerId, dayOfWeek, machineId, machineRowId);
-  const roster = await loadCenterOperators(db, centerId);
-
-  const assignedIds = new Set(assigned.map(o => o.id));
-  // Preference order: machine-assigned operators, then the rest of the
-  // roster. Each group is priority-sorted independently so an explicit
-  // machine assignment always outranks a generic one.
-  const preferred = sortByPriority(assigned, slab, dayOfWeek);
-  const others = sortByPriority(roster.filter(o => !assignedIds.has(o.id)), slab, dayOfWeek);
-  const sorted = [...preferred, ...others];
-
-  if (sorted.length === 0) return null;
-
-  // How many bookings each candidate already carries in this slot
-  // (scoped to center when supplied so cross-center bookings don't mask
-  // availability). Overlap, not exact-equality: a 07:00–09:00 session
-  // keeps its operator busy at 07:30 and 08:00 too, which exact
-  // startTime matching missed.
-  const busyBookings = await db.booking.findMany({
-    where: {
-      date,
-      ...(endTime
-        ? { startTime: { lt: endTime }, endTime: { gt: startTime } }
-        : { startTime }),
-      status: 'BOOKED',
-      operatorId: { in: sorted.map(o => o.id) },
-      ...(centerId ? { centerId } : {}),
-    },
-    select: { operatorId: true },
+  const capacity = await getOperatorSlotCapacity({
+    centerId,
+    slot: { date, startTime, endTime },
+    tx,
   });
-  const load = new Map<string, number>();
-  for (const b of busyBookings) {
-    if (!b.operatorId) continue;
-    load.set(b.operatorId, (load.get(b.operatorId) ?? 0) + 1);
-  }
-
-  // `sorted` is already in preference order, so a stable min-by-load
-  // scan keeps machine-assignment and priority as the tie-breakers.
-  let best = sorted[0];
-  let bestLoad = load.get(best.id) ?? 0;
-  for (const op of sorted) {
-    const opLoad = load.get(op.id) ?? 0;
-    if (opLoad < bestLoad) {
-      best = op;
-      bestLoad = opLoad;
-    }
-    if (bestLoad === 0) break;
-  }
-  return best.id;
+  return capacity.freeOperatorIds[0] ?? null;
 }

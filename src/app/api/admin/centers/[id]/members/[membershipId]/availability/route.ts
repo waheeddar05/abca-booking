@@ -7,7 +7,7 @@ import { autoCancelImpactedBookings, getImpactedBookings } from '@/lib/availabil
 
 /**
  * Weekly recurring availability schedule for a coach, sidearm
- * specialist, or ground-staff membership.
+ * specialist, ground-staff, or operator membership.
  *
  *   GET  /api/admin/centers/[id]/members/[membershipId]/availability
  *   PUT  /api/admin/centers/[id]/members/[membershipId]/availability
@@ -20,12 +20,39 @@ import { autoCancelImpactedBookings, getImpactedBookings } from '@/lib/availabil
  *
  * Auth: must be admin OR moderator at this center, or super admin —
  * moderators have full admin parity on the staff-management tabs this
- * route serves. Membership's role must be COACH, SIDEARM_SPECIALIST, or
- * GROUND_STAFF — availability for ADMIN / OPERATOR is not modeled, which
- * also keeps moderators inside the staff surface.
+ * route serves. Availability for ADMIN memberships is not modeled.
+ *
+ * OPERATOR is the one role here that moderators may NOT touch: it sits
+ * outside `MODERATOR_MANAGEABLE_MEMBERSHIP_ROLES`, matching the members
+ * listing which already refuses to show operators to a moderator.
  */
 
 type Params = { id: string; membershipId: string };
+
+/** Membership roles whose availability this route manages. */
+const AVAILABILITY_ROLES = ['COACH', 'SIDEARM_SPECIALIST', 'GROUND_STAFF', 'OPERATOR'] as const;
+type AvailabilityRole = (typeof AVAILABILITY_ROLES)[number];
+
+/**
+ * Gate a membership by role + caller. Returns an error response when the
+ * role has no availability model, or when a moderator reaches for the
+ * operator roster; null when the caller may proceed.
+ */
+function checkRole(role: string, isModerator: boolean): NextResponse | null {
+  if (!AVAILABILITY_ROLES.includes(role as AvailabilityRole)) {
+    return NextResponse.json(
+      { error: 'Availability is only modeled for coaches, sidearm specialists, ground staff, and operators' },
+      { status: 400 },
+    );
+  }
+  if (role === 'OPERATOR' && isModerator) {
+    return NextResponse.json(
+      { error: 'Moderators cannot manage operator availability.' },
+      { status: 403 },
+    );
+  }
+  return null;
+}
 
 const TIME_HHMM = /^([01]\d|2[0-3]):[0-5]\d$/;
 const DATE_ISO = /^\d{4}-\d{2}-\d{2}$/;
@@ -62,17 +89,21 @@ async function loadMembership(centerId: string, membershipId: string) {
   }).then((m) => (m && m.centerId === centerId ? m : null));
 }
 
-/** Admin or moderator at this center (or super admin) — see file header. */
+/**
+ * Admin or moderator at this center (or super admin) — see file header.
+ * Returns null when the caller has no business here at all, otherwise
+ * reports whether they are acting as a moderator (which narrows which
+ * roles they may edit — see `checkRole`).
+ */
 function canManageStaffAvailability(
   user: NonNullable<Awaited<ReturnType<typeof getAuthenticatedUser>>>,
   centerId: string,
-): boolean {
-  if (user.isSuperAdmin) return true;
-  if (user.role !== 'ADMIN' && user.role !== 'MODERATOR') return false;
-  return (
-    hasMembershipRole(user, centerId, 'ADMIN') ||
-    hasMembershipRole(user, centerId, 'MODERATOR')
-  );
+): { isModerator: boolean } | null {
+  if (user.isSuperAdmin) return { isModerator: false };
+  if (user.role !== 'ADMIN' && user.role !== 'MODERATOR') return null;
+  if (hasMembershipRole(user, centerId, 'ADMIN')) return { isModerator: false };
+  if (hasMembershipRole(user, centerId, 'MODERATOR')) return { isModerator: true };
+  return null;
 }
 
 export async function GET(req: NextRequest, ctx: { params: Promise<Params> }) {
@@ -82,18 +113,15 @@ export async function GET(req: NextRequest, ctx: { params: Promise<Params> }) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 403 });
     }
     const { id: centerId, membershipId } = await ctx.params;
-    if (!canManageStaffAvailability(user, centerId)) {
+    const access = canManageStaffAvailability(user, centerId);
+    if (!access) {
       return NextResponse.json({ error: 'You are not an admin at this center' }, { status: 403 });
     }
 
     const m = await loadMembership(centerId, membershipId);
     if (!m) return NextResponse.json({ error: 'Membership not found' }, { status: 404 });
-    if (m.role !== 'COACH' && m.role !== 'SIDEARM_SPECIALIST' && m.role !== 'GROUND_STAFF') {
-      return NextResponse.json(
-        { error: 'Availability is only modeled for coaches, sidearm specialists, and ground staff' },
-        { status: 400 },
-      );
-    }
+    const roleError = checkRole(m.role, access.isModerator);
+    if (roleError) return roleError;
 
     const rows = await prisma.membershipAvailability.findMany({
       where: { membershipId, isActive: true },
@@ -126,18 +154,15 @@ export async function PUT(req: NextRequest, ctx: { params: Promise<Params> }) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 403 });
     }
     const { id: centerId, membershipId } = await ctx.params;
-    if (!canManageStaffAvailability(user, centerId)) {
+    const access = canManageStaffAvailability(user, centerId);
+    if (!access) {
       return NextResponse.json({ error: 'You are not an admin at this center' }, { status: 403 });
     }
 
     const m = await loadMembership(centerId, membershipId);
     if (!m) return NextResponse.json({ error: 'Membership not found' }, { status: 404 });
-    if (m.role !== 'COACH' && m.role !== 'SIDEARM_SPECIALIST' && m.role !== 'GROUND_STAFF') {
-      return NextResponse.json(
-        { error: 'Availability is only modeled for coaches, sidearm specialists, and ground staff' },
-        { status: 400 },
-      );
-    }
+    const roleError = checkRole(m.role, access.isModerator);
+    if (roleError) return roleError;
 
     let body: unknown;
     try { body = await req.json(); } catch {

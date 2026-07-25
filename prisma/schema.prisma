@@ -362,6 +362,11 @@ model User {
   otps                    Otp[]
   userPackages            UserPackage[]
   payments                Payment[]
+  // DEPRECATED — no longer read or written by any code path. Operator
+  // ordering now lives on `CenterMembership.priority` (1 = first pick),
+  // managed from Admin -> Operators exactly like ground staff / coaches
+  // / sidearm specialists. Kept only so the existing rows survive; safe
+  // to drop in a later migration once nothing references them.
   operatorPriority        Int                  @default(0)
   operatorMorningPriority Int                  @default(0)
   operatorEveningPriority Int                  @default(0)
@@ -977,6 +982,16 @@ model Refund {
   @@index([paymentId])
 }
 
+// DEPRECATED — nothing reads or writes this table any more.
+//
+// Operator allocation is resolved from availability alone: each OPERATOR
+// `CenterMembership` carries weekly `MembershipAvailability` windows and
+// a `priority`, and the engine assigns the highest-priority operator who
+// is available for the slot and not already on an overlapping booking
+// (see `src/lib/operatorAssign.ts`). Per-machine pinning, and the
+// weekday filter below, no longer influence anything. The table is kept
+// so existing rows aren't destroyed; safe to drop in a later migration.
+//
 // An OPERATOR user (someone who runs a bowling machine) assigned to a
 // specific machine at a specific center, optionally restricted to a
 // set of weekdays.

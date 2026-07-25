@@ -35,7 +35,7 @@ import { dateStringToUTC } from '@/lib/time';
 import { isSlotPaymentRequired } from '@/lib/razorpay';
 import { creditWallet, debitWallet, getWalletBalance, isWalletEnabled } from '@/lib/wallet';
 import { log } from '@/lib/logger';
-import { autoAssignOperator, getOperatorCount } from '@/lib/operatorAssign';
+import { getOperatorSlotCapacity } from '@/lib/operatorAssign';
 import { getTimeSlab, getTimeSlabConfig } from '@/lib/pricing';
 import { getPolicyValue } from '@/lib/policy';
 import {
@@ -1006,9 +1006,9 @@ async function executeResourceBookingCore(
               const isConsecutive = planIsConsecutive[i];
               // Operator-availability pre-check for MACHINE bookings.
               // Leather (and any future operator-mandatory) machines
-              // can't be booked when the admin marked operators
-              // unavailable for the window (operatorCount === 0) or
-              // every scheduled operator is already booked. Tennis
+              // can't be booked when no operator's weekly availability
+              // covers the window, or when every available operator is
+              // already assigned to an overlapping booking. Tennis
               // machines self-operate, so they're not gated here.
               // Passed into planBooking so the engine has a single
               // place to reject the booking — the operator-assignment
@@ -1026,18 +1026,15 @@ async function executeResourceBookingCore(
                 // the machine needs one.
                 planOperatorRequired = machineTypeBallType === 'LEATHER';
                 if (planOperatorRequired) {
-                  // On-duty staffing level, NOT a per-slot capacity. The
-                  // booking is refused only when literally nobody is on
-                  // duty; one operator covering several nets in the same
-                  // hour is normal and must not block the Nth booking.
-                  const opCount = await getOperatorCount(
-                    plan.date,
-                    plan.startTime,
-                    timeSlabConfig,
-                    center.id,
+                  // Capacity, not just staffing: each operator-assisted
+                  // booking consumes one operator, so the slot can carry
+                  // exactly as many as are available for it.
+                  const capacity = await getOperatorSlotCapacity({
+                    centerId: center.id,
+                    slot: { date: plan.date, startTime: plan.startTime, endTime: plan.endTime },
                     tx,
-                  );
-                  planOperatorAvailable = opCount > 0;
+                  });
+                  planOperatorAvailable = capacity.free > 0;
                 }
               }
 
@@ -1288,44 +1285,37 @@ async function executeResourceBookingCore(
                   // explicit pick.)
                 } else {
 
-                const operatorsOnDuty = await getOperatorCount(
-                  plan.date,
-                  plan.startTime,
-                  timeSlabConfig,
-                  center.id,
+                // Availability is the only input. `onDuty` counts the
+                // operators whose weekly schedule covers this window;
+                // `freeOperatorIds` removes the ones already assigned to
+                // an overlapping booking. Each operator-assisted booking
+                // takes one operator, so the number of such bookings a
+                // slot can carry is exactly the number available for it.
+                const capacity = await getOperatorSlotCapacity({
+                  centerId: center.id,
+                  slot: { date: plan.date, startTime: plan.startTime, endTime: plan.endTime },
                   tx,
-                );
-                if (operatorsOnDuty === 0) {
-                  // Nobody on duty: leather can't be booked at all,
+                });
+                if (capacity.onDuty === 0) {
+                  // Nobody available: leather can't be booked at all,
                   // tennis falls back to self-operate.
                   if (operatorMandatory) {
                     throw new BookingResourceError(
-                      `No operator scheduled for this slot, and ${machineTypeCode ?? 'this'} machine requires one.`,
+                      `No operator is available for this slot, and ${machineTypeCode ?? 'this'} machine requires one.`,
                       409,
                     );
                   }
                   operationMode = 'SELF_OPERATE';
                 } else {
-                  const slab = getTimeSlab(plan.startTime, timeSlabConfig);
-                  assignedOperatorId = await autoAssignOperator({
-                    date: plan.date,
-                    startTime: plan.startTime,
-                    endTime: plan.endTime,
-                    tx,
-                    // Resource-based bookings identify the machine by row
-                    // id, so the admin's per-machine operator assignments
-                    // (and their weekday `days` filter) actually apply.
-                    machineRowId: assignment.machineId,
-                    timeSlab: slab,
-                    centerId: center.id,
-                  });
-                  // Only null when the center's roster is empty — the
-                  // on-duty count came from a schedule policy that
-                  // disagrees with the actual roster.
+                  // Highest-priority available operator who isn't already
+                  // on another booking in this window.
+                  assignedOperatorId = capacity.freeOperatorIds[0] ?? null;
                   if (!assignedOperatorId) {
+                    // Operators are scheduled but every one of them is
+                    // already committed — the slot is at capacity.
                     if (operatorMandatory) {
                       throw new BookingResourceError(
-                        'No operator could be assigned for this slot.',
+                        'All operators are already booked for this slot.',
                         409,
                       );
                     }
