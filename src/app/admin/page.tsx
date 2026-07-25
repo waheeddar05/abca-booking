@@ -75,6 +75,34 @@ const CATEGORY_LABELS: Record<string, string> = {
   MATCH_SIMULATION: 'Match Simulation',
 };
 
+// Compact axis labels for phone-width charts, where the full names can't
+// fit under seven bars at once. Longest single word ≈ "Corporate".
+const CATEGORY_LABELS_SHORT: Record<string, string> = {
+  MACHINE: 'Machine',
+  SIDEARM: 'Sidearm',
+  NET: 'Net',
+  FULL_COURT: 'Full Court',
+  COACHING: 'Coaching',
+  // Two short words so the tick wraps them onto two lines — a single
+  // "Corporate" is the one word wider than a 7-bar phone column.
+  CORPORATE_BATCH: 'Corp Batch',
+  MATCH_SIMULATION: 'Match Sim',
+};
+
+// True below the given breakpoint (default: Tailwind's `sm`). Drives the
+// compact chart sizing so all bars fit a phone screen without scrolling.
+function useIsCompactScreen(query = '(max-width: 639px)') {
+  const [compact, setCompact] = useState(false);
+  useEffect(() => {
+    const mq = window.matchMedia(query);
+    const update = () => setCompact(mq.matches);
+    update();
+    mq.addEventListener('change', update);
+    return () => mq.removeEventListener('change', update);
+  }, [query]);
+  return compact;
+}
+
 // Categories shown on the Booking Distribution table + Revenue by
 // Category chart. Match Practice categories included so corporate-batch
 // enrollments and match-simulation seats show up in counts and revenue.
@@ -86,18 +114,19 @@ interface AxisTickProps {
   x?: number;
   y?: number;
   payload?: { value?: string | number };
+  fontSize?: number;
 }
 
 // X-axis tick that wraps multi-word labels onto separate lines, so the name
 // sits directly under its bar and stays readable on narrow mobile columns
 // (e.g. "Full Indoor Court" stacks into three lines instead of overflowing).
-function WrappedAxisTick({ x = 0, y = 0, payload }: AxisTickProps) {
+function WrappedAxisTick({ x = 0, y = 0, payload, fontSize = 10 }: AxisTickProps) {
   const words = String(payload?.value ?? '').split(' ');
   return (
     <g transform={`translate(${x},${y})`}>
-      <text textAnchor="middle" fill="#94a3b8" fontSize={10}>
+      <text textAnchor="middle" fill="#94a3b8" fontSize={fontSize}>
         {words.map((word, i) => (
-          <tspan key={i} x={0} dy={i === 0 ? 12 : 11}>
+          <tspan key={i} x={0} dy={i === 0 ? fontSize + 2 : fontSize + 1}>
             {word}
           </tspan>
         ))}
@@ -124,6 +153,9 @@ export default function AdminDashboard() {
   const [to, setTo] = useState(defaultRange.to);
   // Bumped by the Retry button to re-run the fetch without changing the range.
   const [reloadKey, setReloadKey] = useState(0);
+  // Phone-width screens get a compact Revenue-by-Category chart: short
+  // labels, thinner bars, smaller fonts — so all bars fit in one screen.
+  const isCompact = useIsCompactScreen();
 
   // Guard against an inverted range on the client so we never fire a request
   // that can only come back empty. (The API also swaps it defensively.)
@@ -182,7 +214,7 @@ export default function AdminDashboard() {
   const revenueByCategoryData = (stats?.revenueBreakdown?.entries || [])
     .filter(entry => entry && DASHBOARD_CATEGORIES.includes(entry.key))
     .map(entry => ({
-      name: CATEGORY_LABELS[entry.key] || entry.key,
+      name: (isCompact ? CATEGORY_LABELS_SHORT[entry.key] : CATEGORY_LABELS[entry.key]) || entry.key,
       revenue: safeNumber(entry?._sum?.price),
     }))
     .sort((a, b) => b.revenue - a.revenue);
@@ -356,58 +388,57 @@ export default function AdminDashboard() {
         </div>
       </div>
 
-      {/* Revenue by Category Chart. The plot is slightly wider than the
-          other cards (slimmer padding, tighter chart margins, narrower Y
-          axis) and every category is guaranteed a fixed slice of width —
-          on screens too narrow to honor that the chart scrolls
-          horizontally instead of overlapping or truncating the labels. */}
+      {/* Revenue by Category Chart. Always fits the screen width — no
+          horizontal scrolling. The plot is slightly wider than the other
+          cards (slimmer padding, tighter margins, narrower Y axis); on
+          phone-width screens everything scales down (short labels, thin
+          bars, smaller fonts) so all seven bars fit in a single screen
+          with every label fully readable. */}
       <div className="bg-white/[0.03] backdrop-blur-sm rounded-xl border border-white/[0.07] p-3 sm:p-4">
-        <h2 className="text-sm font-bold text-white uppercase tracking-wider mb-6 px-2 pt-1">Revenue by Category</h2>
+        <h2 className="text-sm font-bold text-white uppercase tracking-wider mb-4 sm:mb-6 px-2 pt-1">Revenue by Category</h2>
         {loading ? (
-          <div className="h-72 w-full bg-white/[0.03] rounded-lg animate-pulse flex items-center justify-center">
+          <div className="h-60 sm:h-72 w-full bg-white/[0.03] rounded-lg animate-pulse flex items-center justify-center">
             <div className="w-8 h-8 border-2 border-accent/20 border-t-accent rounded-full animate-spin" />
           </div>
         ) : revenueByCategoryData.length > 0 ? (
-          <div className="overflow-x-auto overflow-y-hidden">
-            <div
-              className="h-72"
-              style={{ minWidth: `${Math.max(revenueByCategoryData.length * 96 + 48, 320)}px` }}
-            >
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={revenueByCategoryData} margin={{ top: 10, right: 8, left: 0, bottom: 34 }}>
-                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="rgba(255,255,255,0.05)" />
-                  <XAxis
-                    dataKey="name"
-                    axisLine={false}
-                    tickLine={false}
-                    tick={<WrappedAxisTick />}
-                    interval={0}
-                  />
-                  <YAxis
-                    axisLine={false}
-                    tickLine={false}
-                    width={44}
-                    tick={{ fill: '#64748b', fontSize: 10 }}
-                    tickFormatter={(v) => `₹${v >= 1000 ? (v/1000).toFixed(0) + 'k' : v}`}
-                  />
-                  <Tooltip
-                    cursor={{ fill: 'rgba(255,255,255,0.05)' }}
-                    contentStyle={{ backgroundColor: '#0f172a', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px' }}
-                    itemStyle={{ color: '#fff', fontSize: '12px' }}
-                    labelStyle={{ color: '#94a3b8', fontSize: '11px', marginBottom: '4px' }}
-                    formatter={(value: any) => [`₹${value.toLocaleString()}`, 'Revenue']}
-                  />
-                  <Bar dataKey="revenue" radius={[4, 4, 0, 0]} barSize={40} name="Revenue">
-                    {revenueByCategoryData.map((_, index) => (
-                      <Cell key={`cell-${index}`} fill={CHART_COLORS[index % CHART_COLORS.length]} />
-                    ))}
-                  </Bar>
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
+          <div className="h-60 sm:h-72 w-full">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart
+                data={revenueByCategoryData}
+                margin={isCompact ? { top: 8, right: 2, left: 0, bottom: 24 } : { top: 10, right: 8, left: 0, bottom: 34 }}
+              >
+                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="rgba(255,255,255,0.05)" />
+                <XAxis
+                  dataKey="name"
+                  axisLine={false}
+                  tickLine={false}
+                  tick={<WrappedAxisTick fontSize={isCompact ? 9 : 10} />}
+                  interval={0}
+                />
+                <YAxis
+                  axisLine={false}
+                  tickLine={false}
+                  width={isCompact ? 34 : 44}
+                  tick={{ fill: '#64748b', fontSize: isCompact ? 9 : 10 }}
+                  tickFormatter={(v) => `₹${v >= 1000 ? (v/1000).toFixed(0) + 'k' : v}`}
+                />
+                <Tooltip
+                  cursor={{ fill: 'rgba(255,255,255,0.05)' }}
+                  contentStyle={{ backgroundColor: '#0f172a', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px' }}
+                  itemStyle={{ color: '#fff', fontSize: '12px' }}
+                  labelStyle={{ color: '#94a3b8', fontSize: '11px', marginBottom: '4px' }}
+                  formatter={(value: any) => [`₹${value.toLocaleString()}`, 'Revenue']}
+                />
+                <Bar dataKey="revenue" radius={isCompact ? [3, 3, 0, 0] : [4, 4, 0, 0]} barSize={isCompact ? 16 : 40} name="Revenue">
+                  {revenueByCategoryData.map((_, index) => (
+                    <Cell key={`cell-${index}`} fill={CHART_COLORS[index % CHART_COLORS.length]} />
+                  ))}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
           </div>
         ) : (
-          <div className="h-72 flex flex-col items-center justify-center text-slate-500 italic">
+          <div className="h-60 sm:h-72 flex flex-col items-center justify-center text-slate-500 italic">
             No data available for the selected date range.
           </div>
         )}
