@@ -11,6 +11,7 @@ import {
   processCancellationRefund,
 } from '@/lib/booking-cancellation';
 import { getBookingPaymentSplits, splitAmountNet, EMPTY_SPLIT } from '@/lib/booking-payment';
+import { canOperateAtCenter } from '@/lib/operatorAssign';
 import { log } from '@/lib/logger';
 
 type MachineIdFilter = 'GRAVITY' | 'YANTRA' | 'LEVERAGE_INDOOR' | 'LEVERAGE_OUTDOOR';
@@ -35,6 +36,11 @@ const SAFE_BOOKING_SELECT = {
   pitchType: true,
   operationMode: true,
   operatorId: true,
+  // Join the operator the same way assignedCoach / assignedStaff /
+  // assignedGroundStaff are joined below. Without it this fallback
+  // select carried a bare id and every consumer rendered the booking as
+  // having no operator.
+  operator: { select: { id: true, name: true, mobileNumber: true } },
   cancelledBy: true,
   cancellationReason: true,
   isSuperAdminBooking: true,
@@ -489,24 +495,49 @@ export async function PATCH(req: NextRequest) {
 
     const data: any = {};
 
-    // Handle operator reassignment
+    // Handle operator reassignment.
+    //
+    // The dropdown that feeds this endpoint is built from
+    // CenterMembership (GET /api/admin/operators), so validating against
+    // the global `User.role` column rejected every operator who was
+    // granted the role through the center Members tab — the admin picked
+    // a name the UI had just offered them and got "User is not an
+    // operator". Validate the same way the sidearm / ground-staff
+    // branches below do: an active membership at THIS booking's center.
     if (operatorId !== undefined) {
       if (operatorId === null) {
-        // Unassign operator
+        // Unassign operator. A machine booking with no operator is, by
+        // definition, self-operated — leaving operationMode at
+        // WITH_OPERATOR is what produced rows that render as a dangling
+        // "Unassigned" operator forever.
         data.operatorId = null;
+        data.operationMode = 'SELF_OPERATE';
       } else {
-        // Validate operator exists and has OPERATOR role
+        const target = await prisma.booking.findUnique({
+          where: { id: bookingId },
+          select: { centerId: true },
+        });
+        if (!target) {
+          return NextResponse.json({ error: 'Booking not found' }, { status: 404 });
+        }
         const operator = await prisma.user.findUnique({
           where: { id: operatorId },
-          select: { id: true, role: true },
+          select: { id: true },
         });
         if (!operator) {
           return NextResponse.json({ error: 'Operator not found' }, { status: 404 });
         }
-        if (operator.role !== 'OPERATOR' && operator.role !== 'ADMIN') {
-          return NextResponse.json({ error: 'User is not an operator' }, { status: 400 });
+        if (!(await canOperateAtCenter(operatorId, target.centerId))) {
+          return NextResponse.json(
+            { error: 'User is not an operator at this center' },
+            { status: 400 },
+          );
         }
         data.operatorId = operatorId;
+        // Naming an operator implies the session is operator-run. Without
+        // this the admin's assignment lands on a SELF_OPERATE row and the
+        // operator control disappears from the UI on the next refresh.
+        data.operationMode = 'WITH_OPERATOR';
       }
     }
 

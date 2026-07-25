@@ -26,6 +26,7 @@ import { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 import { getAuthenticatedUser } from '@/lib/auth';
 import { resolveCurrentCenter } from '@/lib/centers';
+import { invalidateOperatorRoster } from '@/lib/operatorAssign';
 
 const SUPER_ADMIN_EMAIL = process.env.SUPER_ADMIN_EMAIL || 'waheeddar8@gmail.com';
 
@@ -61,6 +62,10 @@ async function setCenterMembership(
   centerId: string,
   role: MembershipRoleString,
 ): Promise<void> {
+  // The operator roster (and therefore the on-duty default used by the
+  // booking engine) is cached — drop it whenever the roster changes here
+  // too, not just in the center Members tab.
+  if (role === 'OPERATOR') invalidateOperatorRoster(centerId);
   const existing = await tx.centerMembership.findFirst({
     where: { userId, centerId, role },
     select: { id: true },
@@ -423,6 +428,7 @@ export async function PATCH(req: NextRequest) {
           // if that's all the user has left, fall back to plain USER and
           // keep the membership intact.
           await tx.centerMembership.deleteMany({ where: { userId: id, centerId } });
+          invalidateOperatorRoster(centerId);
           const otherMemberships = await tx.centerMembership.findMany({
             where: { userId: id, isActive: true },
             select: { role: true },

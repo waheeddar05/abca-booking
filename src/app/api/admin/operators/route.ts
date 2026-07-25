@@ -3,6 +3,7 @@ import { prisma } from '@/lib/prisma';
 import { requireCenterAdmin } from '@/lib/adminAuth';
 import { getAuthenticatedUser } from '@/lib/auth';
 import { resolveCurrentCenter } from '@/lib/centers';
+import { centerOperatorUserWhere } from '@/lib/operatorAssign';
 import type { MachineId } from '@prisma/client';
 
 // Legacy enum values — accepted only when the active center is
@@ -28,9 +29,11 @@ function buildOperatorQuery(centerId: string | null) {
     //     can tell the two apart.
     // For the no-center fallback (super admin without a center selected),
     // match any active OPERATOR membership anywhere.
-    where: centerId
-      ? { centerMemberships: { some: { centerId, role: 'OPERATOR' as const, isActive: true } } }
-      : { centerMemberships: { some: { role: 'OPERATOR' as const, isActive: true } } },
+    //
+    // Shared with the auto-assigner and the stats roster via
+    // `centerOperatorUserWhere` so this list can never disagree with the
+    // set of people the booking engine is allowed to assign.
+    where: centerOperatorUserWhere(centerId),
     select: {
       id: true,
       name: true,

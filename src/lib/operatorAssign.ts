@@ -111,15 +111,71 @@ function findOverrideCount(
   return undefined;
 }
 
-// ─── Rostered-operator count (unconfigured fallback) ──────
-// `getOperatorCount` doubles as the per-slot operator *capacity*: the
-// booking engine refuses to assign more operators to a slot than this
-// number. Falling back to a hard-coded 1 meant that a center which had
-// never opened Admin → Operators → Schedule could only ever put an
-// operator on the FIRST booking of each time slot — every other net
-// booked at 07:00 came out with `operatorId = null`. Default to the
-// number of operators actually on the roster instead, so an
-// unconfigured center behaves like "everyone is on duty".
+// ─── "Operator at this center" — the single definition ────
+//
+// This codebase used to answer "is X an operator here?" three different
+// ways: the global `User.role` column, an active
+// `CenterMembership(role='OPERATOR')`, and (in the machine-assignment
+// path) either of the two. Those answers disagree, which is what
+// produced BOTH reported symptoms:
+//
+//   - The admin bookings dropdown is built from memberships while the
+//     save guard read `User.role`, so an operator granted through the
+//     center Members tab was listed and then rejected with
+//     "User is not an operator".
+//   - The auto-assigner could pick a `User.role`-only operator whom the
+//     membership-scoped dropdown cannot render, so the row displayed as
+//     "Unassigned" even though `operatorId` was set.
+//
+// One definition from here on: an **active OPERATOR CenterMembership at
+// that center**. Every operator surface — picker, roster count, admin
+// dropdown, stats, and the manual-assign guard — resolves through this.
+// (The multi-center migration backfilled a membership for every legacy
+// `User.role='OPERATOR'` user, so nothing is stranded by narrowing to
+// memberships.)
+
+/** Prisma `User.where` fragment selecting this center's operators. */
+export function centerOperatorUserWhere(centerId: string | null) {
+  return centerId
+    ? { centerMemberships: { some: { centerId, role: 'OPERATOR' as const, isActive: true } } }
+    : { centerMemberships: { some: { role: 'OPERATOR' as const, isActive: true } } };
+}
+
+/**
+ * Can this user be recorded as the operator on a booking at this center?
+ *
+ * Accepts an active OPERATOR **or ADMIN** membership at the booking's own
+ * center (admins stand in for operators at small centers), and still
+ * honours the legacy global `User.role` so no previously-working
+ * assignment regresses.
+ */
+export async function canOperateAtCenter(
+  userId: string,
+  centerId: string,
+  db: PrismaTransaction | typeof defaultPrisma = defaultPrisma,
+): Promise<boolean> {
+  const user = await db.user.findUnique({
+    where: { id: userId },
+    select: {
+      role: true,
+      centerMemberships: {
+        where: { centerId, role: { in: ['OPERATOR', 'ADMIN'] }, isActive: true },
+        select: { id: true },
+      },
+    },
+  });
+  if (!user) return false;
+  if ((user.centerMemberships?.length ?? 0) > 0) return true;
+  return user.role === 'OPERATOR' || user.role === 'ADMIN';
+}
+
+// ─── Rostered-operator count ──────────────────────────────
+// Used as the "how many operators are on duty" default when a center has
+// no explicit schedule. Cached briefly because the availability grid
+// asks once per slot in the day. Zero is deliberately NOT cached: a
+// brand-new center that gets its first operator must not stay stuck at
+// "no operators" for the TTL (module scope is per-serverless-instance,
+// so an explicit invalidation can't reach the other warm instances).
 const rosterCache = new Map<string, { count: number; expiresAt: number }>();
 const ROSTER_TTL_MS = 30_000;
 
@@ -129,9 +185,8 @@ function rosterKey(centerId: string | null): string {
 
 /**
  * How many operators are on this center's roster — the exact same pool
- * `loadCenterOperators` picks from, so the capacity gate and the picker
- * can never disagree. Cached briefly: the availability grid asks once
- * per slot in the day.
+ * `loadCenterOperators` picks from, so the on-duty default and the
+ * picker can never disagree.
  */
 export async function getRosteredOperatorCount(
   centerId: string | null,
@@ -144,9 +199,11 @@ export async function getRosteredOperatorCount(
 
   const count = centerId
     ? await db.centerMembership.count({ where: { centerId, role: 'OPERATOR', isActive: true } })
-    : await db.user.count({ where: { role: 'OPERATOR' } });
+    : await db.centerMembership.count({ where: { role: 'OPERATOR', isActive: true } });
 
-  rosterCache.set(key, { count, expiresAt: now + ROSTER_TTL_MS });
+  // Never cache "no operators" — see the note above.
+  if (count > 0) rosterCache.set(key, { count, expiresAt: now + ROSTER_TTL_MS });
+  else rosterCache.delete(key);
   return count;
 }
 
@@ -160,11 +217,17 @@ export function invalidateOperatorRoster(centerId?: string | null): void {
 }
 
 /**
- * Get the number of operators on duty for a given date + time slot.
+ * Get the number of operators **on duty** for a given date + time slot.
  * Priority: 1. Date-specific overrides, 2. Day-of-week schedule,
  * 3. Legacy NUMBER_OF_OPERATORS, 4. The center's operator roster size.
- * Returns 0 when explicitly configured (allows "no operator" mode) or
- * when the center has no operators at all.
+ *
+ * IMPORTANT — this is a staffing level, NOT a per-slot booking capacity.
+ * It answers "is anyone on duty, and how many", and the only value the
+ * booking engine treats specially is 0 ("nobody on duty" → self-operate
+ * for tennis, refuse for leather). It must never be used to stop
+ * assigning an operator to the Nth booking of a slot: one operator
+ * walks between nets and covers several bookings in the same hour,
+ * which is exactly what admins do by hand today.
  *
  * `centerId` is optional. When supplied, every policy lookup cascades
  * CenterPolicy → Policy → fallback so each center can override scheduling
@@ -282,15 +345,10 @@ async function loadCenterOperators(
   db: PrismaTransaction | typeof defaultPrisma,
   centerId: string | null,
 ): Promise<OperatorInfo[]> {
-  if (!centerId) {
-    const rows = await db.user.findMany({
-      where: { role: 'OPERATOR' },
-      select: OPERATOR_SELECT,
-    });
-    return rows.map(op => ({ ...op, operatorDayPriorities: op.operatorDayPriorities as DayPriorities | null }));
-  }
   const memberships = await db.centerMembership.findMany({
-    where: { centerId, role: 'OPERATOR', isActive: true },
+    where: centerId
+      ? { centerId, role: 'OPERATOR', isActive: true }
+      : { role: 'OPERATOR', isActive: true },
     include: { user: { select: OPERATOR_SELECT } },
   });
   return memberships.map(m => ({
@@ -348,48 +406,64 @@ async function loadAssignedOperators(
       return daysFilter.length === 0 || daysFilter.includes(dayOfWeek);
     })
     .filter(a =>
-      // Either:
-      //   - legacy: User.role === 'OPERATOR' (works for ABCA where
-      //     the bumping ladder always set User.role correctly), OR
-      //   - new: any active OPERATOR CenterMembership at this center
-      //     (catches users whose User.role was outranked by an ADMIN
-      //     membership elsewhere, or who were added via the Members
-      //     tab on a RESOURCE_BASED center).
-      a.user.role === 'OPERATOR' || (a.user.centerMemberships?.length ?? 0) > 0,
+      // Active OPERATOR membership at this center — the one definition
+      // (see the header note). This used to also admit a bare
+      // `User.role === 'OPERATOR'`, which let the auto-assigner pick
+      // someone the membership-scoped admin dropdown cannot render, so
+      // the booking displayed as "Unassigned" despite having an
+      // operator. A stale machine assignment must not outrank the
+      // roster.
+      (a.user.centerMemberships?.length ?? 0) > 0,
     )
     .map(a => ({ id: a.user.id, operatorPriority: a.user.operatorPriority, operatorMorningPriority: a.user.operatorMorningPriority, operatorEveningPriority: a.user.operatorEveningPriority, operatorDayPriorities: a.user.operatorDayPriorities as DayPriorities | null }));
 }
 
 /**
- * Auto-assign an operator to a booking based on priority and availability.
- * Picks the highest-priority operator not already booked at the same time.
- * Falls back to highest-priority operator if all are busy.
- * Respects weekday preferences from OperatorAssignment.days.
+ * Auto-assign an operator to a booking.
+ *
+ * Returns null ONLY when the center has no operators at all. As long as
+ * somebody is on the roster this always names one — a slot with more
+ * bookings than operators gives the busiest-but-highest-priority person
+ * a second booking rather than leaving the row unassigned. That matches
+ * how the centers actually run (one operator walks between nets) and is
+ * exactly the manual assignment admins were doing to paper over the old
+ * behaviour.
  *
  * Candidate resolution:
  *   1. Operators explicitly assigned to this machine (either machine
- *      axis) and rostered for this weekday — preferred, and among them
- *      the highest-priority one who is free.
- *   2. Any other operator at the center who is free at this time. This
- *      widening matters because a machine-specific pool that is entirely
- *      busy used to double-book its top operator while free colleagues
- *      sat idle.
- *   3. Highest-priority candidate overall when literally everyone is
- *      busy (ABCA's long-standing last-resort behaviour).
+ *      axis) and rostered for this weekday — preferred.
+ *   2. Any other operator at the center.
+ * Within that order, the operator carrying the fewest bookings in this
+ * slot wins, ties broken by priority (day+slab, then overall).
  *
- * `centerId` scopes the candidate pool to a center's memberships. ABCA
- * callers can pass `null` to keep the legacy global `role: 'OPERATOR'`
- * lookup; new code should pass the resolved center.
+ * `centerId` scopes the candidate pool to a center's memberships. Pass
+ * null only for cross-center tooling.
  */
-export async function autoAssignOperator(
-  date: Date,
-  startTime: Date,
-  tx?: PrismaTransaction,
-  machineId?: MachineId | null,
-  timeSlab?: 'morning' | 'evening',
-  centerId: string | null = null,
-  machineRowId?: string | null,
-): Promise<string | null> {
+export interface AutoAssignOperatorArgs {
+  date: Date;
+  startTime: Date;
+  /** Slot end. Used for overlap-aware load counting; defaults to a zero-length window. */
+  endTime?: Date | null;
+  /** Transaction client — pass it so the read joins the tx's read set. */
+  tx?: PrismaTransaction;
+  /** Legacy `MachineId` enum (MACHINE_PITCH centers). */
+  machineId?: MachineId | null;
+  /** `Machine` row id (RESOURCE_BASED centers). */
+  machineRowId?: string | null;
+  timeSlab?: 'morning' | 'evening';
+  centerId?: string | null;
+}
+
+export async function autoAssignOperator({
+  date,
+  startTime,
+  endTime = null,
+  tx,
+  machineId = null,
+  machineRowId = null,
+  timeSlab,
+  centerId = null,
+}: AutoAssignOperatorArgs): Promise<string | null> {
   const db = tx || defaultPrisma;
   const slab = timeSlab || 'morning';
   const dayOfWeek = getDayOfWeekIST(date);
@@ -408,20 +482,40 @@ export async function autoAssignOperator(
 
   if (sorted.length === 0) return null;
 
-  // Find which operators are already booked at this time (scoped to center
-  // when supplied so cross-center bookings don't mask availability).
+  // How many bookings each candidate already carries in this slot
+  // (scoped to center when supplied so cross-center bookings don't mask
+  // availability). Overlap, not exact-equality: a 07:00–09:00 session
+  // keeps its operator busy at 07:30 and 08:00 too, which exact
+  // startTime matching missed.
   const busyBookings = await db.booking.findMany({
     where: {
       date,
-      startTime,
+      ...(endTime
+        ? { startTime: { lt: endTime }, endTime: { gt: startTime } }
+        : { startTime }),
       status: 'BOOKED',
       operatorId: { in: sorted.map(o => o.id) },
       ...(centerId ? { centerId } : {}),
     },
     select: { operatorId: true },
   });
-  const busyIds = new Set(busyBookings.map(b => b.operatorId));
+  const load = new Map<string, number>();
+  for (const b of busyBookings) {
+    if (!b.operatorId) continue;
+    load.set(b.operatorId, (load.get(b.operatorId) ?? 0) + 1);
+  }
 
-  // Pick first available, or fallback to highest priority
-  return sorted.find(op => !busyIds.has(op.id))?.id ?? sorted[0].id;
+  // `sorted` is already in preference order, so a stable min-by-load
+  // scan keeps machine-assignment and priority as the tie-breakers.
+  let best = sorted[0];
+  let bestLoad = load.get(best.id) ?? 0;
+  for (const op of sorted) {
+    const opLoad = load.get(op.id) ?? 0;
+    if (opLoad < bestLoad) {
+      best = op;
+      bestLoad = opLoad;
+    }
+    if (bestLoad === 0) break;
+  }
+  return best.id;
 }

@@ -164,15 +164,31 @@ export const MODERATOR_MANAGEABLE_MEMBERSHIP_ROLES = new Set([
   'GROUND_STAFF',
 ]);
 
+/**
+ * True when the caller may use the operator surfaces: the global
+ * `User.role` ladder (legacy) OR an active OPERATOR/ADMIN
+ * CenterMembership anywhere. Gating on `User.role` alone locked out
+ * every operator granted the role through a center's Members tab —
+ * they'd be auto-assigned bookings they could never see.
+ */
+async function hasOperatorAccess(session: { id: string; role: string; isSuperAdmin?: boolean }) {
+  if (['ADMIN', 'OPERATOR'].includes(session.role) || session.isSuperAdmin) return true;
+  const membership = await prisma.centerMembership.findFirst({
+    where: { userId: session.id, role: { in: ['OPERATOR', 'ADMIN'] }, isActive: true },
+    select: { id: true },
+  });
+  return !!membership;
+}
+
 export async function requireOperatorOrAdmin(req: NextRequest) {
   const session = await getAdminSession(req);
-  if (!session?.role || !['ADMIN', 'OPERATOR'].includes(session.role)) return null;
+  if (!session || !(await hasOperatorAccess(session))) return null;
   return session;
 }
 
 export async function getOperatorSession(req: NextRequest) {
   const session = await getAdminSession(req);
-  if (!session?.role || !['ADMIN', 'OPERATOR'].includes(session.role)) return null;
+  if (!session || !(await hasOperatorAccess(session))) return null;
   const user = await prisma.user.findUnique({
     where: { email: session.email },
     select: { id: true },

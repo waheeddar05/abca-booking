@@ -545,19 +545,36 @@ function AdminBookingsContent() {
   // Inline reassignment controls injected into the standardized details
   // list (BookingDetailsList) for the Operator and Sidearm Specialist rows.
   // Same dropdown UX for both so admins reassign either the same way.
-  const renderOperatorAssignment = (booking: any) => (
-    <select
-      value={booking.operatorId || ''}
-      onChange={(e) => handleOperatorChange(booking.id, e.target.value || null)}
-      disabled={changingOperator === booking.id}
-      className="text-[11px] bg-white/[0.06] border border-white/[0.08] text-slate-200 rounded px-2 py-1 outline-none cursor-pointer disabled:opacity-50 max-w-[160px]"
-    >
-      <option value="">Unassigned</option>
-      {operators.map((op) => (
-        <option key={op.id} value={op.id}>{op.name}</option>
-      ))}
-    </select>
-  );
+  const renderOperatorAssignment = (booking: any) => {
+    // A controlled <select> whose value matches no <option> falls back to
+    // the first one — here, "Unassigned". So a booking assigned to
+    // someone missing from `operators` (an operator whose membership was
+    // deactivated, or any operator when the list is scoped to a
+    // different center) silently read as unassigned even though
+    // operatorId was set. Always carry the booking's own operator as an
+    // option so the control tells the truth.
+    const assignedId: string | null = booking.operatorId || null;
+    const options = [...operators];
+    if (assignedId && !options.some((op) => op.id === assignedId)) {
+      options.push({
+        id: assignedId,
+        name: booking.operator?.name || booking.operatorName || 'Assigned (not on this roster)',
+      });
+    }
+    return (
+      <select
+        value={assignedId || ''}
+        onChange={(e) => handleOperatorChange(booking.id, e.target.value || null)}
+        disabled={changingOperator === booking.id}
+        className="text-[11px] bg-white/[0.06] border border-white/[0.08] text-slate-200 rounded px-2 py-1 outline-none cursor-pointer disabled:opacity-50 max-w-[160px]"
+      >
+        <option value="">Unassigned</option>
+        {options.map((op) => (
+          <option key={op.id} value={op.id}>{op.name}</option>
+        ))}
+      </select>
+    );
+  };
 
   const renderStaffAssignment = (booking: any) => (
     <select

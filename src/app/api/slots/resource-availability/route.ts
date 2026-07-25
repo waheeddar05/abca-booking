@@ -297,10 +297,17 @@ export async function GET(req: NextRequest) {
           timeSlabConfig,
           center.id,
         );
-        // DISTINCT operators on BOOKED rows — same predicate the booking
-        // engine uses in /api/slots/book-resource. Counting rows (or
-        // including non-BOOKED ones) made the grid claim a slot was
-        // operator-full while the engine still had free operators.
+        // `operatorCount` is a staffing level, not a per-slot capacity —
+        // same rule the booking engine applies in /api/slots/book-resource.
+        // A slot is operator-served whenever anyone is on duty; the grid
+        // must not grey out (or silently downgrade to self-operate) the
+        // second booking of an hour just because one operator is already
+        // on another net.
+        const selfOperate = operatorCount === 0;
+        const operatorAvailable = !selfOperate;
+        // Informational only (surfaced as `operatorsBusy`) — distinct
+        // operators already committed in this slot. Deliberately NOT
+        // used to gate bookability any more.
         const busyOperators = new Set(
           bookings
             .filter(
@@ -311,8 +318,6 @@ export async function GET(req: NextRequest) {
             )
             .map((b) => b.operatorId),
         ).size;
-        const selfOperate = operatorCount === 0;
-        const operatorAvailable = selfOperate || busyOperators < operatorCount;
 
         // Pre-compute per-category prices. MACHINE is the base — when the
         // user picks a specific machine the UI swaps in the entry from

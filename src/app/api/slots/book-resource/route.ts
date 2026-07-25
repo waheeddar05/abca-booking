@@ -1017,38 +1017,27 @@ async function executeResourceBookingCore(
               let planOperatorRequired = false;
               let planOperatorAvailable = true;
               if (plan.category === 'MACHINE') {
-                // ballType comes from the picked Machine.machineType
-                // resolved earlier (`machineTypeBallType`). LEATHER (and
-                // anything that isn't TENNIS) requires an operator.
-                planOperatorRequired = machineTypeBallType !== 'TENNIS';
+                // Only a LEATHER machine truly can't run itself. An
+                // unidentified machine type (machineTypeBallType null —
+                // `machineId` is optional on the request schema) used to
+                // fall into this branch and be treated as leather, which
+                // turned a should-be-self-operate booking into a hard
+                // 409. Require an operator only when we positively know
+                // the machine needs one.
+                planOperatorRequired = machineTypeBallType === 'LEATHER';
                 if (planOperatorRequired) {
+                  // On-duty staffing level, NOT a per-slot capacity. The
+                  // booking is refused only when literally nobody is on
+                  // duty; one operator covering several nets in the same
+                  // hour is normal and must not block the Nth booking.
                   const opCount = await getOperatorCount(
                     plan.date,
                     plan.startTime,
                     timeSlabConfig,
                     center.id,
+                    tx,
                   );
-                  if (opCount === 0) {
-                    planOperatorAvailable = false;
-                  } else {
-                    // Count DISTINCT operators, not bookings. Two rows
-                    // can name the same operator (the last-resort
-                    // fallback in autoAssignOperator double-books the
-                    // top-priority one), and counting rows would then
-                    // retire a seat that nobody is actually occupying.
-                    const busyOperators = await tx.booking.findMany({
-                      where: {
-                        centerId: center.id,
-                        date: plan.date,
-                        startTime: plan.startTime,
-                        status: 'BOOKED',
-                        operatorId: { not: null },
-                      },
-                      select: { operatorId: true },
-                      distinct: ['operatorId'],
-                    });
-                    planOperatorAvailable = busyOperators.length < opCount;
-                  }
+                  planOperatorAvailable = opCount > 0;
                 }
               }
 
@@ -1268,37 +1257,28 @@ async function executeResourceBookingCore(
               }
 
               // ─── Operator auto-assignment (MACHINE category only) ───
-              // Mirrors ABCA's WITH_OPERATOR booking flow:
-              //   - Read center's operator count (per day/slab).
-              //   - If 0 → self-operate slot, no assignment.
-              //   - Else check live availability: fail with 409 if every
-              //     operator is already booked at this date+startTime.
-              //   - Pick the highest-priority free operator via
-              //     autoAssignOperator (falls back to highest-priority
-              //     even when all are busy, matching ABCA semantics).
+              //   - operatorsOnDuty === 0 → nobody is working this
+              //     window: leather can't be booked, tennis self-operates.
+              //   - Otherwise ALWAYS name an operator. The on-duty count
+              //     is a staffing level, never a per-slot cap: a center
+              //     with one operator and four nets still wants that one
+              //     operator on all four bookings, which is precisely the
+              //     manual assignment admins were doing to work around
+              //     the old "Nth booking gets nobody" behaviour.
               // SIDEARM/COACHING/FULL_COURT skip this — those categories
               // already pin a specific staff/coach via assignedStaffId /
               // assignedCoachId, or need no operator at all.
               let assignedOperatorId: string | null = null;
               let operationMode: 'WITH_OPERATOR' | 'SELF_OPERATE' = 'WITH_OPERATOR';
               if (plan.category === 'MACHINE') {
-                // Tennis machines don't strictly need an operator — the
-                // user can run the machine themselves. This mirrors
-                // ABCA's logic in /api/slots/available:360-377, where
-                // tennis machines fall back to SELF_OPERATE when all
-                // operators are busy. Leather machines (Yantra / Gravity)
-                // still hard-require an operator. Gate on ballType
-                // (TENNIS / LEATHER) instead of the code string so the
-                // check survives future machine types being added with
-                // arbitrary codes.
-                const isTennisMachine = machineTypeBallType === 'TENNIS';
+                // Only a machine we positively know is LEATHER hard-
+                // requires an operator. Tennis (and an unidentified
+                // machine type) can self-operate.
+                const operatorMandatory = machineTypeBallType === 'LEATHER';
 
-                // User-picked SELF_OPERATE: honour it for tennis
-                // machines only — bypass operator lookup entirely and
-                // record the booking without an assigned operator.
-                // Leather machines ignore the request because the
-                // machine literally needs someone to load balls.
-                if (body.operationMode === 'SELF_OPERATE' && isTennisMachine) {
+                // User-picked SELF_OPERATE: honour it unless the machine
+                // literally needs someone to load balls.
+                if (body.operationMode === 'SELF_OPERATE' && !operatorMandatory) {
                   operationMode = 'SELF_OPERATE';
                   assignedOperatorId = null;
                   // Skip the rest of the operator-assignment cascade
@@ -1308,16 +1288,17 @@ async function executeResourceBookingCore(
                   // explicit pick.)
                 } else {
 
-                const operatorCount = await getOperatorCount(
+                const operatorsOnDuty = await getOperatorCount(
                   plan.date,
                   plan.startTime,
                   timeSlabConfig,
                   center.id,
+                  tx,
                 );
-                if (operatorCount === 0) {
-                  // No operators scheduled: leather can't be booked at all,
+                if (operatorsOnDuty === 0) {
+                  // Nobody on duty: leather can't be booked at all,
                   // tennis falls back to self-operate.
-                  if (!isTennisMachine) {
+                  if (operatorMandatory) {
                     throw new BookingResourceError(
                       `No operator scheduled for this slot, and ${machineTypeCode ?? 'this'} machine requires one.`,
                       409,
@@ -1325,65 +1306,39 @@ async function executeResourceBookingCore(
                   }
                   operationMode = 'SELF_OPERATE';
                 } else {
-                  // DISTINCT operators — see the note on the pre-check
-                  // above. Counting booking rows retired an operator
-                  // seat per booking even when the same person covered
-                  // two of them, which is what left later bookings in
-                  // a busy slot with `operatorId = null`.
-                  const operatorBookings = await tx.booking.findMany({
-                    where: {
-                      centerId: center.id,
-                      date: plan.date,
-                      startTime: plan.startTime,
-                      status: 'BOOKED',
-                      operatorId: { not: null },
-                    },
-                    select: { operatorId: true },
-                    distinct: ['operatorId'],
+                  const slab = getTimeSlab(plan.startTime, timeSlabConfig);
+                  assignedOperatorId = await autoAssignOperator({
+                    date: plan.date,
+                    startTime: plan.startTime,
+                    endTime: plan.endTime,
+                    tx,
+                    // Resource-based bookings identify the machine by row
+                    // id, so the admin's per-machine operator assignments
+                    // (and their weekday `days` filter) actually apply.
+                    machineRowId: assignment.machineId,
+                    timeSlab: slab,
+                    centerId: center.id,
                   });
-                  if (operatorBookings.length >= operatorCount) {
-                    // All operators busy. Tennis machine: graceful self-
-                    // operate fallback (this is what ABCA does). Leather
-                    // machine: hard fail — admin needs to either schedule
-                    // more operators or the user picks a different slot.
-                    if (!isTennisMachine) {
+                  // Only null when the center's roster is empty — the
+                  // on-duty count came from a schedule policy that
+                  // disagrees with the actual roster.
+                  if (!assignedOperatorId) {
+                    if (operatorMandatory) {
                       throw new BookingResourceError(
-                        `Operator not available for slot at ${plan.startTime.toISOString()}. All ${operatorCount} operator(s) are already booked.`,
+                        'No operator could be assigned for this slot.',
                         409,
                       );
                     }
                     operationMode = 'SELF_OPERATE';
-                  } else {
-                    const slab = getTimeSlab(plan.startTime, timeSlabConfig);
-                    assignedOperatorId = await autoAssignOperator(
-                      plan.date,
-                      plan.startTime,
-                      tx,
-                      null, // resource-based bookings don't use the legacy enum machineId
-                      slab,
-                      center.id,
-                      // …they identify the machine by row id instead, so
-                      // the admin's per-machine operator assignments
-                      // (and their weekday `days` filter) actually apply.
-                      assignment.machineId,
-                    );
-                    // autoAssignOperator falls back to highest-priority
-                    // operator even when all are busy. If that fallback
-                    // returned no one (no operators configured at this
-                    // center at all), treat as self-operate for tennis,
-                    // hard fail for leather.
-                    if (!assignedOperatorId) {
-                      if (!isTennisMachine) {
-                        throw new BookingResourceError(
-                          'No operator could be assigned for this slot.',
-                          409,
-                        );
-                      }
-                      operationMode = 'SELF_OPERATE';
-                    }
                   }
                 }
                 } // end else (user did NOT pick SELF_OPERATE)
+              } else {
+                // Non-MACHINE categories have no operator concept at all.
+                // Persisting them as WITH_OPERATOR made every net /
+                // sidearm / coaching row look like an unassigned machine
+                // booking in operator reports.
+                operationMode = 'SELF_OPERATE';
               }
 
               const booking = await tx.booking.create({

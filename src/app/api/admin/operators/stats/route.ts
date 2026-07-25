@@ -4,6 +4,7 @@ import { requireAdmin } from '@/lib/adminAuth';
 import { getAuthenticatedUser } from '@/lib/auth';
 import { resolveCurrentCenter } from '@/lib/centers';
 import { getISTTodayUTC, getISTTime } from '@/lib/time';
+import { centerOperatorUserWhere } from '@/lib/operatorAssign';
 import { subDays } from 'date-fns';
 
 type PeriodType = 'today' | 'week' | 'month' | 'all';
@@ -72,10 +73,12 @@ export async function GET(req: NextRequest) {
 
     // Fetch operators — filtered to those with active membership at the
     // current center when not in allCenters mode.
+    // Membership is the source of truth for "operator at this center"
+    // (same predicate as GET /api/admin/operators). AND-ing the global
+    // `User.role` column in here dropped every membership-only operator,
+    // so their bookings vanished from every stat.
     const operators = await prisma.user.findMany({
-      where: centerId
-        ? { role: 'OPERATOR', centerMemberships: { some: { centerId, isActive: true } } }
-        : { role: 'OPERATOR' },
+      where: centerOperatorUserWhere(centerId),
       select: {
         id: true,
         name: true,
