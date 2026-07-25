@@ -1,3 +1,10 @@
+/** A user referenced by a ledger entry (recorder or collector). */
+export interface LedgerPerson {
+  id: string;
+  name: string | null;
+  email: string | null;
+}
+
 /** Shape of a ledger entry as the admin API returns it. */
 export interface LedgerEntry {
   id: string;
@@ -5,7 +12,8 @@ export interface LedgerEntry {
   revenueCategory: string | null;
   customerName: string | null;
   serviceDate: string | null;
-  serviceTime: string | null;
+  serviceStartTime: string | null;
+  serviceEndTime: string | null;
   expenseCategory: string | null;
   expenseSubcategory: string | null;
   description: string | null;
@@ -15,16 +23,14 @@ export interface LedgerEntry {
   entryTime: string;
   paymentMethod: string;
   remarks: string | null;
+  /** Who physically handled the money. */
+  collectedById: string | null;
+  collectedBy: LedgerPerson | null;
+  /** Who keyed the entry in — never changes on edit. */
   recordedById: string;
-  recordedBy: { id: string; name: string | null; email: string | null } | null;
+  recordedBy: LedgerPerson | null;
   createdAt: string;
   updatedAt: string;
-}
-
-export interface LedgerRecorder {
-  id: string;
-  name: string | null;
-  email: string | null;
 }
 
 export interface LedgerListResponse {
@@ -33,6 +39,14 @@ export interface LedgerListResponse {
   page: number;
   pageSize: number;
   totalAmount: number;
-  recorders: LedgerRecorder[];
+  /** Everyone who has recorded an entry here — the "Recorded By" filter. */
+  recorders: LedgerPerson[];
+  /** Center members selectable as "Collected By". */
+  collectors: LedgerPerson[];
+  /** Full admins only. */
   canDelete: boolean;
+  /** False for moderators, who may edit only their own entries. */
+  canEditAll: boolean;
+  /** The current user's id, for the per-row edit check. */
+  viewerId: string;
 }

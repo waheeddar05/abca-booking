@@ -376,6 +376,7 @@ model User {
   adminRefunds            Refund[]             @relation("AdminRefunds")
   centerMemberships       CenterMembership[]
   ledgerEntries           LedgerEntry[]        @relation("LedgerEntriesRecorded")
+  ledgerEntriesCollected  LedgerEntry[]        @relation("LedgerEntriesCollected")
 }
 
 // Global policy / feature flags. Keys without a centerId in
@@ -1097,11 +1098,18 @@ model LedgerEntry {
   // plus OTHER for anything that isn't one of them.
   revenueCategory LedgerRevenueCategory?
   customerName    String?
-  // When the session the customer paid for actually takes place. This
-  // is deliberately separate from `entryDate` (when the money changed
-  // hands) — a customer can pay today for a slot next week.
-  serviceDate     DateTime?              @db.Date
-  serviceTime     String? // "HH:MM" IST
+
+  // ── Session timing (both kinds, all optional) ──
+  //
+  // When the session this entry relates to actually takes place —
+  // deliberately separate from `entryDate`/`entryTime` (when the money
+  // changed hands), since a customer can pay today for a slot next
+  // week. Recorded as a range so the full session duration is captured.
+  // Available on expenses too (e.g. a staff payout for a specific
+  // session), which is why these are not under the REVENUE heading.
+  serviceDate      DateTime? @db.Date
+  serviceStartTime String? // "HH:MM" IST
+  serviceEndTime   String? // "HH:MM" IST
 
   // ── EXPENSE-only ──
   expenseCategory    LedgerExpenseCategory?
@@ -1120,17 +1128,29 @@ model LedgerEntry {
   entryTime     String // "HH:MM" IST
   paymentMethod LedgerPaymentMethod
   remarks       String?
-  recordedById  String
-  createdAt     DateTime            @default(now())
-  updatedAt     DateTime            @updatedAt
 
-  center     Center @relation(fields: [centerId], references: [id], onDelete: Cascade)
-  recordedBy User   @relation("LedgerEntriesRecorded", fields: [recordedById], references: [id])
+  // Who physically handled the money — the staff member who took the
+  // cash or whose account it landed in. A real User rather than an enum
+  // of names, so the list tracks the center's actual roster. Defaults
+  // to whoever is adding the entry.
+  collectedById String?
+  // Who keyed the entry in. Always stamped from the session, never
+  // accepted from the request body, and never rewritten on edit.
+  recordedById  String
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  center      Center @relation(fields: [centerId], references: [id], onDelete: Cascade)
+  recordedBy  User   @relation("LedgerEntriesRecorded", fields: [recordedById], references: [id])
+  collectedBy User?  @relation("LedgerEntriesCollected", fields: [collectedById], references: [id])
 
   // Dashboard/report scans: "all entries of kind K at center C in range".
   @@index([centerId, kind, entryDate])
   // "Recorded By" filter.
   @@index([centerId, recordedById])
+  // "Collected By" filter.
+  @@index([centerId, collectedById])
 }
 
 enum LedgerEntryKind {
@@ -1138,17 +1158,22 @@ enum LedgerEntryKind {
   EXPENSE
 }
 
-// Revenue buckets = the bookable categories (so a manual entry can be
-// attributed to the same service a system booking would have been),
-// plus OTHER for miscellaneous income. MATCH_PRACTICE is the umbrella
-// used by the booking UI (Corporate Batch + Match Simulation).
+// Revenue buckets = the bookable categories, so a manual entry can be
+// attributed to the same service a system booking would have been —
+// and lands in the same bucket on the dashboard's Revenue by Category
+// chart. These mirror `BookingCategory` one-for-one (CORPORATE_BATCH
+// and MATCH_SIMULATION individually, NOT the MATCH_PRACTICE UI
+// umbrella, which is not a BookingCategory and has no chart bucket).
+// OTHER is the only extra: miscellaneous income with no service behind
+// it, which gets its own bucket.
 enum LedgerRevenueCategory {
   MACHINE
   NET
   SIDEARM
   COACHING
   FULL_COURT
-  MATCH_PRACTICE
+  CORPORATE_BATCH
+  MATCH_SIMULATION
   OTHER
 }
 
@@ -1160,15 +1185,11 @@ enum LedgerExpenseCategory {
   MISCELLANEOUS
 }
 
-// How the money moved. CASH plus the two QR/scanner merchant accounts
-// the centers collect on, and the usual bank rails.
+// How the money moved. Deliberately tiny: WHO handled it is a separate
+// question, answered by `LedgerEntry.collectedById` (a real User at the
+// center) rather than by hardcoding staff names into an enum that would
+// go stale every time someone joins or leaves.
 enum LedgerPaymentMethod {
   CASH
-  TOPLAY_SCANNER
-  PLAYORBIT_SCANNER
-  UPI
-  CARD
-  BANK_TRANSFER
-  ONLINE
   OTHER
 }

@@ -4,10 +4,10 @@
  * Create / edit dialog for a ledger entry.
  *
  * One component serves both sides of the book — the `kind` prop decides
- * which half of the form renders (customer + session details for
- * Manual Revenue, vendor + description + subcategory for Expenses).
- * The shared half (amount, payment date/time, payment method, remarks)
- * is identical either way.
+ * which half of the form renders (customer for Manual Revenue, vendor +
+ * description + subcategory for Expenses). Everything else is shared:
+ * the session block (date + From/To time), amount, payment method,
+ * Collected By, when the money moved, and remarks.
  *
  * "Recorded By" is not a field: the API stamps it from the session.
  */
@@ -26,7 +26,7 @@ import {
   type LedgerExpenseCategoryId,
   type LedgerKind,
 } from '@/lib/ledger';
-import type { LedgerEntry } from './types';
+import type { LedgerEntry, LedgerPerson } from './types';
 
 const inputClass =
   'w-full bg-slate-900/60 border border-white/[0.1] text-white rounded-lg px-3 py-2 text-sm outline-none focus:border-accent focus:ring-1 focus:ring-accent/20 [color-scheme:dark] disabled:opacity-50';
@@ -53,52 +53,62 @@ function toDateInput(value: string | null | undefined): string {
 interface FormState {
   revenueCategory: string;
   customerName: string;
-  serviceDate: string;
-  serviceTime: string;
   expenseCategory: string;
   expenseSubcategory: string;
   description: string;
   paidTo: string;
+  serviceDate: string;
+  serviceStartTime: string;
+  serviceEndTime: string;
   amount: string;
   entryDate: string;
   entryTime: string;
   paymentMethod: string;
+  collectedById: string;
   remarks: string;
 }
 
-function blankForm(): FormState {
+function blankForm(defaultCollectorId: string): FormState {
   return {
     revenueCategory: 'MACHINE',
     customerName: '',
-    serviceDate: istToday(),
-    serviceTime: '',
     expenseCategory: 'REPAIRS_MAINTENANCE',
     expenseSubcategory: 'NET_REPAIR',
     description: '',
     paidTo: '',
+    serviceDate: istToday(),
+    serviceStartTime: '',
+    serviceEndTime: '',
     amount: '',
     entryDate: istToday(),
     entryTime: istNowTime(),
     paymentMethod: 'CASH',
+    // Whoever is adding the entry is, by default, whoever handled the
+    // money — that is the overwhelmingly common case.
+    collectedById: defaultCollectorId,
     remarks: '',
   };
 }
 
-function formFromEntry(entry: LedgerEntry): FormState {
+function formFromEntry(entry: LedgerEntry, defaultCollectorId: string): FormState {
   return {
-    ...blankForm(),
+    ...blankForm(defaultCollectorId),
     revenueCategory: entry.revenueCategory || 'MACHINE',
     customerName: entry.customerName || '',
-    serviceDate: toDateInput(entry.serviceDate),
-    serviceTime: entry.serviceTime || '',
     expenseCategory: entry.expenseCategory || 'REPAIRS_MAINTENANCE',
     expenseSubcategory: entry.expenseSubcategory || '',
     description: entry.description || '',
     paidTo: entry.paidTo || '',
+    serviceDate: toDateInput(entry.serviceDate),
+    serviceStartTime: entry.serviceStartTime || '',
+    serviceEndTime: entry.serviceEndTime || '',
     amount: String(entry.amount ?? ''),
     entryDate: toDateInput(entry.entryDate),
     entryTime: entry.entryTime || istNowTime(),
     paymentMethod: entry.paymentMethod,
+    // Keep an existing entry's collector even if they've since left the
+    // roster — blanking it silently on edit would lose the record.
+    collectedById: entry.collectedById || '',
     remarks: entry.remarks || '',
   };
 }
@@ -107,13 +117,29 @@ interface Props {
   kind: LedgerKind;
   /** Entry being edited, or null to create a new one. */
   entry: LedgerEntry | null;
+  /** Center members selectable as "Collected By". */
+  collectors: LedgerPerson[];
+  /** Current user's id — the default collector on a new entry. */
+  viewerId: string;
   onClose: () => void;
   onSaved: () => void;
 }
 
-export function LedgerEntryDialog({ kind, entry, onClose, onSaved }: Props) {
+export function LedgerEntryDialog({
+  kind,
+  entry,
+  collectors,
+  viewerId,
+  onClose,
+  onSaved,
+}: Props) {
   const isRevenue = kind === 'REVENUE';
-  const [form, setForm] = useState<FormState>(() => (entry ? formFromEntry(entry) : blankForm()));
+  // Only default to the viewer if they're actually a selectable member;
+  // a super admin acting on a center they don't belong to is not.
+  const defaultCollectorId = collectors.some((c) => c.id === viewerId) ? viewerId : '';
+  const [form, setForm] = useState<FormState>(() =>
+    entry ? formFromEntry(entry, defaultCollectorId) : blankForm(defaultCollectorId),
+  );
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -139,6 +165,16 @@ export function LedgerEntryDialog({ kind, entry, onClose, onSaved }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [form.expenseCategory, isRevenue]);
 
+  // The collector on the edited entry may no longer be an active member.
+  // Surface them so the select shows a name rather than falling blank.
+  const collectorOptions = useMemo(() => {
+    const list = [...collectors];
+    if (entry?.collectedBy && !list.some((c) => c.id === entry.collectedBy!.id)) {
+      list.push(entry.collectedBy);
+    }
+    return list;
+  }, [collectors, entry]);
+
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
@@ -148,19 +184,37 @@ export function LedgerEntryDialog({ kind, entry, onClose, onSaved }: Props) {
       setError('Enter an amount greater than 0.');
       return;
     }
+    if (form.serviceEndTime && !form.serviceStartTime) {
+      setError('Enter a session "From" time as well as the "To" time.');
+      return;
+    }
+    if (
+      form.serviceStartTime &&
+      form.serviceEndTime &&
+      form.serviceEndTime <= form.serviceStartTime
+    ) {
+      setError('Session "To" time must be after the "From" time.');
+      return;
+    }
+
+    const shared = {
+      serviceDate: form.serviceDate || null,
+      serviceStartTime: form.serviceStartTime || null,
+      serviceEndTime: form.serviceEndTime || null,
+      amount,
+      entryDate: form.entryDate,
+      entryTime: form.entryTime,
+      paymentMethod: form.paymentMethod,
+      collectedById: form.collectedById || null,
+      remarks: form.remarks.trim() || null,
+    };
 
     const payload = isRevenue
       ? {
           kind: 'REVENUE' as const,
           revenueCategory: form.revenueCategory,
           customerName: form.customerName.trim(),
-          serviceDate: form.serviceDate || null,
-          serviceTime: form.serviceTime || null,
-          amount,
-          entryDate: form.entryDate,
-          entryTime: form.entryTime,
-          paymentMethod: form.paymentMethod,
-          remarks: form.remarks.trim() || null,
+          ...shared,
         }
       : {
           kind: 'EXPENSE' as const,
@@ -172,11 +226,7 @@ export function LedgerEntryDialog({ kind, entry, onClose, onSaved }: Props) {
             : null,
           description: form.description.trim(),
           paidTo: form.paidTo.trim() || null,
-          amount,
-          entryDate: form.entryDate,
-          entryTime: form.entryTime,
-          paymentMethod: form.paymentMethod,
-          remarks: form.remarks.trim() || null,
+          ...shared,
         };
 
     setSaving(true);
@@ -250,30 +300,6 @@ export function LedgerEntryDialog({ kind, entry, onClose, onSaved }: Props) {
                   maxLength={200}
                 />
               </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className={labelClass}>Session Date</label>
-                  <input
-                    type="date"
-                    value={form.serviceDate}
-                    onChange={(e) => set('serviceDate', e.target.value)}
-                    className={inputClass}
-                  />
-                </div>
-                <div>
-                  <label className={labelClass}>Session Time</label>
-                  <input
-                    type="time"
-                    value={form.serviceTime}
-                    onChange={(e) => set('serviceTime', e.target.value)}
-                    className={inputClass}
-                  />
-                </div>
-              </div>
-              <p className="text-[11px] text-slate-500 -mt-2">
-                When the session is played. Leave blank for income with no session behind it.
-              </p>
             </>
           ) : (
             <>
@@ -334,6 +360,48 @@ export function LedgerEntryDialog({ kind, entry, onClose, onSaved }: Props) {
             </>
           )}
 
+          {/* Session timing — the slot this entry relates to, recorded as
+              a range so the full duration is captured. Optional on both
+              kinds: plenty of entries have no session behind them. */}
+          <div className="rounded-lg border border-white/[0.06] bg-white/[0.02] p-3 space-y-3">
+            <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">
+              Session Timing
+            </p>
+            <div className="grid grid-cols-3 gap-2.5">
+              <div>
+                <label className={labelClass}>Date</label>
+                <input
+                  type="date"
+                  value={form.serviceDate}
+                  onChange={(e) => set('serviceDate', e.target.value)}
+                  className={inputClass}
+                />
+              </div>
+              <div>
+                <label className={labelClass}>From</label>
+                <input
+                  type="time"
+                  value={form.serviceStartTime}
+                  onChange={(e) => set('serviceStartTime', e.target.value)}
+                  className={inputClass}
+                />
+              </div>
+              <div>
+                <label className={labelClass}>To</label>
+                <input
+                  type="time"
+                  value={form.serviceEndTime}
+                  onChange={(e) => set('serviceEndTime', e.target.value)}
+                  className={inputClass}
+                />
+              </div>
+            </div>
+            <p className="text-[11px] text-slate-500">
+              When the session is played — separate from when the money moved. Leave blank if there
+              is no session behind this entry.
+            </p>
+          </div>
+
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className={labelClass}>Amount (₹)</label>
@@ -361,6 +429,27 @@ export function LedgerEntryDialog({ kind, entry, onClose, onSaved }: Props) {
                 ))}
               </select>
             </div>
+          </div>
+
+          <div>
+            <label className={labelClass}>
+              {isRevenue ? 'Collected By' : 'Paid By'}
+            </label>
+            <select
+              value={form.collectedById}
+              onChange={(e) => set('collectedById', e.target.value)}
+              className={inputClass}
+            >
+              <option value="">Not recorded</option>
+              {collectorOptions.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name || c.email || 'Unnamed'}
+                </option>
+              ))}
+            </select>
+            <p className="text-[11px] text-slate-500 mt-1">
+              Who physically handled the money. Defaults to you.
+            </p>
           </div>
 
           <div className="grid grid-cols-2 gap-3">

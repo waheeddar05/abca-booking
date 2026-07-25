@@ -1,6 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import {
   LEDGER_EXPENSE_SUBCATEGORIES,
+  LEDGER_PAYMENT_METHODS,
+  LEDGER_REVENUE_CATEGORIES,
+  LEDGER_REVENUE_CATEGORY_LABELS,
   LedgerEntryInputSchema,
   categoryHasSubcategories,
   expenseSubcategoryLabel,
@@ -26,7 +29,7 @@ const baseExpense = {
   amount: 2500,
   entryDate: '2026-07-25',
   entryTime: '11:00',
-  paymentMethod: 'TOPLAY_SCANNER' as const,
+  paymentMethod: 'OTHER' as const,
 };
 
 describe('LedgerEntryInputSchema — revenue', () => {
@@ -54,13 +57,59 @@ describe('LedgerEntryInputSchema — revenue', () => {
     );
   });
 
-  it('accepts an optional session date/time distinct from the payment date', () => {
+  it('accepts an optional session date/range distinct from the payment date', () => {
     const parsed = LedgerEntryInputSchema.safeParse({
       ...baseRevenue,
       serviceDate: '2026-08-02',
-      serviceTime: '07:00',
+      serviceStartTime: '07:00',
+      serviceEndTime: '09:00',
     });
     expect(parsed.success).toBe(true);
+  });
+});
+
+describe('session range', () => {
+  it('rejects a To time at or before the From time', () => {
+    for (const end of ['07:00', '06:30']) {
+      const parsed = LedgerEntryInputSchema.safeParse({
+        ...baseRevenue,
+        serviceStartTime: '07:00',
+        serviceEndTime: end,
+      });
+      expect(parsed.success, `end=${end} should be rejected`).toBe(false);
+    }
+  });
+
+  it('applies the same range rule to expenses', () => {
+    const parsed = LedgerEntryInputSchema.safeParse({
+      ...baseExpense,
+      serviceStartTime: '11:00',
+      serviceEndTime: '10:00',
+    });
+    expect(parsed.success).toBe(false);
+  });
+
+  it('keeps the session range on an expense entry', () => {
+    const parsed = LedgerEntryInputSchema.parse({
+      ...baseExpense,
+      serviceDate: '2026-07-25',
+      serviceStartTime: '11:00',
+      serviceEndTime: '12:30',
+    });
+    const cols = toLedgerColumns(parsed);
+    expect(cols.serviceDate?.toISOString()).toBe('2026-07-25T00:00:00.000Z');
+    expect(cols.serviceStartTime).toBe('11:00');
+    expect(cols.serviceEndTime).toBe('12:30');
+  });
+
+  it('drops a To time with no From time — it describes nothing', () => {
+    const parsed = LedgerEntryInputSchema.parse({
+      ...baseRevenue,
+      serviceEndTime: '09:00',
+    });
+    const cols = toLedgerColumns(parsed);
+    expect(cols.serviceStartTime).toBeNull();
+    expect(cols.serviceEndTime).toBeNull();
   });
 });
 
@@ -122,8 +171,6 @@ describe('toLedgerColumns', () => {
     expect(cols.paidTo).toBe('Sharma Sports');
     expect(cols.revenueCategory).toBeNull();
     expect(cols.customerName).toBeNull();
-    expect(cols.serviceDate).toBeNull();
-    expect(cols.serviceTime).toBeNull();
   });
 
   it('drops a subcategory sent for MISCELLANEOUS', () => {
@@ -142,10 +189,76 @@ describe('toLedgerColumns', () => {
   });
 });
 
+describe('revenue categories mirror the booking categories', () => {
+  // The dashboard merges manual revenue into the same Revenue-by-Category
+  // buckets as system revenue, so every ledger revenue category (bar
+  // OTHER) must be a real `BookingCategory`. If a booking category is
+  // ever added, this catches the ledger falling out of step.
+  const BOOKING_CATEGORIES_ON_CHART = [
+    'MACHINE',
+    'SIDEARM',
+    'COACHING',
+    'NET',
+    'FULL_COURT',
+    'CORPORATE_BATCH',
+    'MATCH_SIMULATION',
+  ];
+
+  it('covers every charted booking category, plus OTHER', () => {
+    expect([...LEDGER_REVENUE_CATEGORIES].sort()).toEqual(
+      [...BOOKING_CATEGORIES_ON_CHART, 'OTHER'].sort(),
+    );
+  });
+
+  it('has no MATCH_PRACTICE umbrella — it is not a BookingCategory', () => {
+    expect(LEDGER_REVENUE_CATEGORIES).not.toContain('MATCH_PRACTICE');
+  });
+
+  it('labels every category', () => {
+    for (const c of LEDGER_REVENUE_CATEGORIES) {
+      expect(LEDGER_REVENUE_CATEGORY_LABELS[c], `missing label for ${c}`).toBeTruthy();
+    }
+  });
+});
+
+describe('collectedBy', () => {
+  it('passes the collector through on both kinds', () => {
+    const revenue = toLedgerColumns(
+      LedgerEntryInputSchema.parse({ ...baseRevenue, collectedById: 'usr_raj' }),
+    );
+    expect(revenue.collectedById).toBe('usr_raj');
+
+    const expense = toLedgerColumns(
+      LedgerEntryInputSchema.parse({ ...baseExpense, collectedById: 'usr_raj' }),
+    );
+    expect(expense.collectedById).toBe('usr_raj');
+  });
+
+  it('normalises a missing or blank collector to null', () => {
+    expect(toLedgerColumns(LedgerEntryInputSchema.parse(baseRevenue)).collectedById).toBeNull();
+    expect(
+      toLedgerColumns(LedgerEntryInputSchema.parse({ ...baseRevenue, collectedById: null }))
+        .collectedById,
+    ).toBeNull();
+  });
+});
+
+describe('payment methods', () => {
+  it('is just cash vs. everything else — who handled it is a separate field', () => {
+    expect([...LEDGER_PAYMENT_METHODS]).toEqual(['CASH', 'OTHER']);
+  });
+});
+
 describe('labels', () => {
   it('labels both kinds off the right enum', () => {
     expect(ledgerCategoryLabel({ kind: 'REVENUE', revenueCategory: 'FULL_COURT' })).toBe(
       'Full Indoor Court',
+    );
+    expect(ledgerCategoryLabel({ kind: 'REVENUE', revenueCategory: 'CORPORATE_BATCH' })).toBe(
+      'Corporate Batch',
+    );
+    expect(ledgerCategoryLabel({ kind: 'REVENUE', revenueCategory: 'MATCH_SIMULATION' })).toBe(
+      'Match Simulation',
     );
     expect(ledgerCategoryLabel({ kind: 'EXPENSE', expenseCategory: 'BALLS' })).toBe(
       'Ball Expenses',

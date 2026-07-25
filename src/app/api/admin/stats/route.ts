@@ -469,16 +469,21 @@ export async function GET(req: NextRequest) {
       // ─── Ledger: hand-entered revenue + expenses (Admin → Ledger) ───
       //
       // Manual revenue is real money in, so it joins Total Revenue and
-      // gets its own bucket on the category chart. Expenses are money
-      // OUT — reported as a separate card and deliberately NOT netted
-      // off revenue, so the revenue figures stay comparable with the
-      // booking/package numbers above.
+      // lands in the SAME category buckets as system revenue — a cash
+      // sidearm session recorded by hand belongs on the Sidearm bar next
+      // to the ones the booking engine created. That is why the ledger's
+      // revenue categories mirror `BookingCategory` exactly (plus OTHER
+      // for income with no service behind it, which gets its own bar).
+      //
+      // Expenses are money OUT — reported as a separate card and
+      // deliberately NOT netted off revenue, so the revenue figures stay
+      // comparable with the booking/package numbers above.
       //
       // Scoped by `entryDate` (when the money changed hands), matching
       // how bookings are scoped by their session date and packages by
       // their purchase date: each recognises revenue on its own event.
       prisma.ledgerEntry.groupBy({
-        by: ['kind'],
+        by: ['kind', 'revenueCategory'],
         _sum: { amount: true },
         where: {
           ...centerFilter,
@@ -487,29 +492,50 @@ export async function GET(req: NextRequest) {
       }).then((rows) => {
         let manualRevenue = 0;
         let manualExpenses = 0;
+        const byCategory = new Map<string, number>();
         for (const r of rows) {
           const amount = r._sum.amount || 0;
-          if (r.kind === 'REVENUE') manualRevenue += amount;
-          else manualExpenses += amount;
+          if (r.kind === 'REVENUE') {
+            manualRevenue += amount;
+            // Null category shouldn't happen (the schema requires one on
+            // revenue rows), but bucket it as OTHER rather than dropping
+            // it — the chart must always sum to Total Revenue.
+            const key = r.revenueCategory ?? 'OTHER';
+            byCategory.set(key, (byCategory.get(key) || 0) + amount);
+          } else {
+            manualExpenses += amount;
+          }
         }
-        return { manualRevenue, manualExpenses };
-      }).catch(() => ({ manualRevenue: 0, manualExpenses: 0 })),
+        return { manualRevenue, manualExpenses, byCategory };
+      }).catch(() => ({
+        manualRevenue: 0,
+        manualExpenses: 0,
+        byCategory: new Map<string, number>(),
+      })),
     ]);
 
-    // Manual revenue rides on top of the booking + package total and
-    // shows up as one extra bar on the category chart. It is a single
-    // bucket rather than being folded into MACHINE/SIDEARM/… so an
-    // admin can always tell system-generated revenue apart from what
-    // was keyed in by hand — the per-entry category breakdown lives on
-    // the Ledger page itself.
+    // Merge manual revenue into the booking/package category buckets so
+    // each bar is the whole story for that service. The sum over every
+    // bucket still equals Total Revenue by construction.
+    //
+    // One asymmetry worth knowing: the Revenue by Bowling Machine Type
+    // chart below is NOT topped up the same way — a manual MACHINE entry
+    // records no specific machine, so it can't be attributed to one.
+    // That chart therefore covers system revenue only, and its bars sum
+    // to less than the MACHINE category bar whenever manual machine
+    // revenue exists.
     const totalRevenue = revenue.totalRevenue + ledgerTotals.manualRevenue;
-    const revenueByCategory = [...revenue.revenueByCategory];
-    if (ledgerTotals.manualRevenue !== 0) {
-      revenueByCategory.push({
-        key: 'MANUAL_REVENUE',
-        _sum: { price: ledgerTotals.manualRevenue },
-      });
+    const mergedByCategory = new Map<string, number>();
+    for (const entry of revenue.revenueByCategory) {
+      mergedByCategory.set(entry.key, (mergedByCategory.get(entry.key) || 0) + entry._sum.price);
     }
+    for (const [key, amount] of ledgerTotals.byCategory) {
+      mergedByCategory.set(key, (mergedByCategory.get(key) || 0) + amount);
+    }
+    const revenueByCategory = Array.from(mergedByCategory.entries()).map(([key, price]) => ({
+      key,
+      _sum: { price },
+    }));
 
     return NextResponse.json({
       totalBookings,

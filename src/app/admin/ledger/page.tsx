@@ -8,9 +8,11 @@
  * tabs over one table — **Manual Revenue** (money in) and **Expenses**
  * (money out) — sharing the same filter bar, list, and CSV export.
  *
- * Open to center ADMIN and MODERATOR alike. Moderators can add and edit
- * but not delete; the API reports that via `canDelete`, which hides the
- * delete control (the server enforces it regardless).
+ * Open to center ADMIN and MODERATOR alike. Moderators see every entry
+ * and can add new ones, but may edit only what they recorded themselves
+ * and may never delete. The API reports `canDelete` / `canEditAll` /
+ * `viewerId` so the per-row controls match; the server enforces all of
+ * it regardless.
  *
  * Manual Revenue feeds the dashboard's Total Revenue and its own card;
  * Expenses get a card of their own and are never netted off revenue.
@@ -59,6 +61,15 @@ function defaultRange(): { from: string; to: string } {
   const ist = new Date(now.getTime() + (5 * 60 + 30) * 60 * 1000);
   const firstOfMonth = new Date(Date.UTC(ist.getUTCFullYear(), ist.getUTCMonth(), 1));
   return { from: istYMD(firstOfMonth), to: istYMD(now) };
+}
+
+/** "07:00 – 09:00", or just the start when there's no end time. */
+function formatTimeRange(
+  start: string | null | undefined,
+  end: string | null | undefined,
+): string {
+  if (!start) return '';
+  return end ? `${start} – ${end}` : start;
 }
 
 function formatDate(value: string | null | undefined): string {
@@ -164,6 +175,12 @@ export default function AdminLedgerPage() {
       setDeletingId(null);
     }
   };
+
+  // A moderator may correct only what they recorded themselves; a full
+  // admin may edit anything. Mirrors the PATCH guard exactly — this only
+  // decides whether the pencil renders, never whether the edit succeeds.
+  const canEdit = (entry: LedgerEntry): boolean =>
+    !!data && (data.canEditAll || entry.recordedById === data.viewerId);
 
   const categoryOptions = isRevenue
     ? LEDGER_REVENUE_CATEGORIES.map((c) => ({ value: c, label: LEDGER_REVENUE_CATEGORY_LABELS[c] }))
@@ -437,7 +454,9 @@ export default function AdminLedgerPage() {
                           {e.serviceDate && (
                             <span className="block text-[10px] text-slate-500">
                               Session {formatDate(e.serviceDate)}
-                              {e.serviceTime ? ` · ${e.serviceTime}` : ''}
+                              {formatTimeRange(e.serviceStartTime, e.serviceEndTime)
+                                ? ` · ${formatTimeRange(e.serviceStartTime, e.serviceEndTime)}`
+                                : ''}
                             </span>
                           )}
                         </>
@@ -447,6 +466,14 @@ export default function AdminLedgerPage() {
                           {e.paidTo && (
                             <span className="block text-[10px] text-slate-500 truncate">
                               To {e.paidTo}
+                            </span>
+                          )}
+                          {e.serviceDate && (
+                            <span className="block text-[10px] text-slate-500">
+                              Session {formatDate(e.serviceDate)}
+                              {formatTimeRange(e.serviceStartTime, e.serviceEndTime)
+                                ? ` · ${formatTimeRange(e.serviceStartTime, e.serviceEndTime)}`
+                                : ''}
                             </span>
                           )}
                         </>
@@ -467,23 +494,37 @@ export default function AdminLedgerPage() {
                     <td className="px-4 py-3 text-slate-400 whitespace-nowrap">
                       {LEDGER_PAYMENT_METHOD_LABELS[e.paymentMethod as LedgerPaymentMethodId] ||
                         e.paymentMethod}
+                      {e.collectedBy && (
+                        <span className="block text-[10px] text-slate-500 truncate max-w-[120px]">
+                          via {e.collectedBy.name || e.collectedBy.email}
+                        </span>
+                      )}
                     </td>
                     <td className="px-4 py-3 text-slate-400 truncate max-w-[140px]">
                       {e.recordedBy?.name || e.recordedBy?.email || '—'}
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex items-center justify-end gap-1.5">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setEditing(e);
-                            setDialogOpen(true);
-                          }}
-                          className="p-1.5 rounded-lg text-slate-400 hover:text-accent hover:bg-white/[0.06] cursor-pointer"
-                          title="Edit entry"
-                        >
-                          <Pencil className="w-3.5 h-3.5" />
-                        </button>
+                        {canEdit(e) ? (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setEditing(e);
+                              setDialogOpen(true);
+                            }}
+                            className="p-1.5 rounded-lg text-slate-400 hover:text-accent hover:bg-white/[0.06] cursor-pointer"
+                            title="Edit entry"
+                          >
+                            <Pencil className="w-3.5 h-3.5" />
+                          </button>
+                        ) : (
+                          <span
+                            className="p-1.5 text-slate-700"
+                            title="Only the person who recorded this entry can edit it"
+                          >
+                            <Pencil className="w-3.5 h-3.5" />
+                          </span>
+                        )}
                         {data?.canDelete && (
                           <button
                             type="button"
@@ -537,6 +578,8 @@ export default function AdminLedgerPage() {
         <LedgerEntryDialog
           kind={kind}
           entry={editing}
+          collectors={data?.collectors ?? []}
+          viewerId={data?.viewerId ?? ''}
           onClose={() => {
             setDialogOpen(false);
             setEditing(null);

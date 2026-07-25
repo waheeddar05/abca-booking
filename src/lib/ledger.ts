@@ -30,14 +30,27 @@ export type LedgerKind = 'REVENUE' | 'EXPENSE';
 
 export const LEDGER_KINDS = ['REVENUE', 'EXPENSE'] as const;
 
-/** What a Manual Revenue entry was earned from. */
+/**
+ * What a Manual Revenue entry was earned from.
+ *
+ * These mirror `BookingCategory` one-for-one so a manual entry lands in
+ * the same Revenue-by-Category bucket as the booking it stands in for.
+ * Corporate Batch and Match Simulation are listed individually, NOT as
+ * the "Match Practice" umbrella the booking UI shows — that umbrella is
+ * a tab, not a `BookingCategory`, so it has no bucket on the chart and
+ * would have left this revenue unattributable.
+ *
+ * `OTHER` is the one addition: miscellaneous income with no service
+ * behind it. It gets its own chart bucket.
+ */
 export const LEDGER_REVENUE_CATEGORIES = [
   'MACHINE',
   'NET',
   'SIDEARM',
   'COACHING',
   'FULL_COURT',
-  'MATCH_PRACTICE',
+  'CORPORATE_BATCH',
+  'MATCH_SIMULATION',
   'OTHER',
 ] as const;
 export type LedgerRevenueCategoryId = (typeof LEDGER_REVENUE_CATEGORIES)[number];
@@ -53,7 +66,8 @@ export const LEDGER_REVENUE_CATEGORY_LABELS: Record<LedgerRevenueCategoryId, str
   SIDEARM: 'Side Arm',
   COACHING: 'Personal Coaching',
   FULL_COURT: 'Full Indoor Court',
-  MATCH_PRACTICE: 'Match Practice',
+  CORPORATE_BATCH: 'Corporate Batch',
+  MATCH_SIMULATION: 'Match Simulation',
   OTHER: 'Other / Miscellaneous',
 };
 
@@ -135,26 +149,17 @@ export function categoryHasSubcategories(category: LedgerExpenseCategoryId): boo
   return (LEDGER_EXPENSE_SUBCATEGORIES[category]?.length ?? 0) > 0;
 }
 
-export const LEDGER_PAYMENT_METHODS = [
-  'CASH',
-  'TOPLAY_SCANNER',
-  'PLAYORBIT_SCANNER',
-  'UPI',
-  'CARD',
-  'BANK_TRANSFER',
-  'ONLINE',
-  'OTHER',
-] as const;
+/**
+ * How the money moved. Deliberately tiny: WHO handled it is a separate
+ * question, answered by `collectedById` — a real User at the center —
+ * rather than by hardcoding staff names into a list that goes stale
+ * every time someone joins or leaves.
+ */
+export const LEDGER_PAYMENT_METHODS = ['CASH', 'OTHER'] as const;
 export type LedgerPaymentMethodId = (typeof LEDGER_PAYMENT_METHODS)[number];
 
 export const LEDGER_PAYMENT_METHOD_LABELS: Record<LedgerPaymentMethodId, string> = {
   CASH: 'Cash',
-  TOPLAY_SCANNER: 'Toplay Scanner',
-  PLAYORBIT_SCANNER: 'PlayOrbit Scanner',
-  UPI: 'UPI',
-  CARD: 'Card',
-  BANK_TRANSFER: 'Bank Transfer',
-  ONLINE: 'Online (Razorpay)',
   OTHER: 'Other',
 };
 
@@ -181,6 +186,11 @@ const optionalText = (max: number) =>
 /**
  * Shared columns. `recordedById` is intentionally absent — it is always
  * taken from the session server-side, never from the request body.
+ *
+ * The session block (date + From/To time) is shared by both kinds:
+ * revenue is usually paid for a specific session, and an expense can be
+ * tied to one too (a staff payout for a given slot). All three parts
+ * are optional — plenty of entries have no session behind them.
  */
 const BaseFields = {
   amount: z
@@ -192,18 +202,47 @@ const BaseFields = {
   entryTime: timeString,
   paymentMethod: z.enum(LEDGER_PAYMENT_METHODS),
   remarks: optionalText(1000),
+  serviceDate: dateString.optional().nullable(),
+  serviceStartTime: timeString.optional().nullable(),
+  serviceEndTime: timeString.optional().nullable(),
+  // Who physically handled the money. Validated as a User at this
+  // center by the API before it is written.
+  collectedById: z
+    .string()
+    .trim()
+    .min(1)
+    .max(64)
+    .optional()
+    .nullable()
+    .transform((v) => (v ? v : null)),
 };
 
-const RevenueEntrySchema = z.object({
-  kind: z.literal('REVENUE'),
-  revenueCategory: z.enum(LEDGER_REVENUE_CATEGORIES),
-  customerName: z.string().trim().min(1, 'Customer name is required').max(200),
-  // The session being paid for. Optional: a miscellaneous sale (a ball,
-  // a kit rental) has no session behind it.
-  serviceDate: dateString.optional().nullable(),
-  serviceTime: timeString.optional().nullable(),
-  ...BaseFields,
-});
+/**
+ * A session range must not end before it starts. Sessions never cross
+ * midnight here (centers close well before it), so a plain string
+ * compare on HH:MM is the right check.
+ */
+function checkSessionRange(
+  val: { serviceStartTime?: string | null; serviceEndTime?: string | null },
+  ctx: z.RefinementCtx,
+) {
+  if (val.serviceStartTime && val.serviceEndTime && val.serviceEndTime <= val.serviceStartTime) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['serviceEndTime'],
+      message: 'Session "To" time must be after the "From" time',
+    });
+  }
+}
+
+const RevenueEntrySchema = z
+  .object({
+    kind: z.literal('REVENUE'),
+    revenueCategory: z.enum(LEDGER_REVENUE_CATEGORIES),
+    customerName: z.string().trim().min(1, 'Customer name is required').max(200),
+    ...BaseFields,
+  })
+  .superRefine(checkSessionRange);
 
 const ExpenseEntrySchema = z
   .object({
@@ -214,6 +253,7 @@ const ExpenseEntrySchema = z
     paidTo: optionalText(200),
     ...BaseFields,
   })
+  .superRefine(checkSessionRange)
   .superRefine((val, ctx) => {
     const options = LEDGER_EXPENSE_SUBCATEGORIES[val.expenseCategory] ?? [];
     if (options.length === 0) {
@@ -263,6 +303,12 @@ export function toLedgerColumns(input: LedgerEntryInput) {
     entryTime: input.entryTime,
     paymentMethod: input.paymentMethod,
     remarks: input.remarks ?? null,
+    collectedById: input.collectedById ?? null,
+    // The session block belongs to both kinds. A "To" time without a
+    // "From" describes nothing, so it is dropped rather than stored.
+    serviceDate: input.serviceDate ? new Date(`${input.serviceDate}T00:00:00.000Z`) : null,
+    serviceStartTime: input.serviceStartTime ?? null,
+    serviceEndTime: input.serviceStartTime ? (input.serviceEndTime ?? null) : null,
   };
 
   if (input.kind === 'REVENUE') {
@@ -270,8 +316,6 @@ export function toLedgerColumns(input: LedgerEntryInput) {
       ...shared,
       revenueCategory: input.revenueCategory,
       customerName: input.customerName,
-      serviceDate: input.serviceDate ? new Date(`${input.serviceDate}T00:00:00.000Z`) : null,
-      serviceTime: input.serviceTime ?? null,
       expenseCategory: null,
       expenseSubcategory: null,
       description: null,
@@ -283,8 +327,6 @@ export function toLedgerColumns(input: LedgerEntryInput) {
     ...shared,
     revenueCategory: null,
     customerName: null,
-    serviceDate: null,
-    serviceTime: null,
     expenseCategory: input.expenseCategory,
     // MISCELLANEOUS has no subcategories — drop anything sent for it.
     expenseSubcategory: categoryHasSubcategories(input.expenseCategory)

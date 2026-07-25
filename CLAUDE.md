@@ -216,18 +216,32 @@ Seat-based booking category for RESOURCE_BASED centers — no machine, ball type
 
 Admin → **Ledger** (`/admin/ledger`) records money the booking engine never sees. Two tabs over one `LedgerEntry` table, discriminated by `kind`:
 
-- **Manual Revenue** (`kind = REVENUE`) — walk-in cash, off-platform transfers. Fields: `revenueCategory` (the bookable categories + `OTHER`), `customerName`, optional `serviceDate`/`serviceTime` (when the session is played, distinct from when the money arrived).
+- **Manual Revenue** (`kind = REVENUE`) — walk-in cash, off-platform transfers. Fields: `revenueCategory`, `customerName`.
 - **Expenses** (`kind = EXPENSE`) — `expenseCategory` (`REPAIRS_MAINTENANCE`, `BALLS`, `STAFF_PAYMENTS`, `UTILITIES_CONSUMABLES`, `MISCELLANEOUS`), `expenseSubcategory` (TEXT code validated against the catalog in `src/lib/ledger.ts`, so it grows without a migration), `description`, `paidTo`.
 
-Shared columns: `amount`, `entryDate`/`entryTime` (when the money actually moved), `paymentMethod` (`LedgerPaymentMethod`: CASH / TOPLAY_SCANNER / PLAYORBIT_SCANNER / UPI / CARD / BANK_TRANSFER / ONLINE / OTHER), `remarks`, `recordedById`. **`recordedById` is always stamped from the session server-side, never accepted from the request body.**
+`LedgerRevenueCategory` mirrors `BookingCategory` **one-for-one** — `MACHINE`, `NET`, `SIDEARM`, `COACHING`, `FULL_COURT`, `CORPORATE_BATCH`, `MATCH_SIMULATION` — plus `OTHER` for income with no service behind it. Corporate Batch and Match Simulation are listed individually, *not* as the `MATCH_PRACTICE` UI umbrella (which isn't a `BookingCategory` and has no dashboard bucket). A test in `ledger.test.ts` asserts this parity, so adding a booking category fails loudly until the ledger follows.
+
+Shared columns (both kinds): `amount`, `entryDate`/`entryTime` (when the money actually moved), `paymentMethod` (`LedgerPaymentMethod`: just `CASH` / `OTHER`), `remarks`, `serviceDate`/`serviceStartTime`/`serviceEndTime` (the session this entry relates to, as a From/To range — separate from when the money moved, and optional), `collectedById`, `recordedById`.
+
+- **`collectedById`** — who physically handled the money; a `User` FK (nullable), *not* an enum of staff names, so the picker tracks the center's live roster. The API rejects any user without an active `CenterMembership` at the center. Defaults in the form to whoever is adding the entry.
+- **`recordedById`** — who keyed it in. **Always stamped from the session server-side, never accepted from the request body**, and never rewritten on edit (the moderator edit check keys off it, so rewriting would let an edit hand ownership away).
 
 **Naming**: this was specced as "Ad Hoc Revenue / Ad Hoc Expenses". "Ad hoc" already means the per-session Match Practice purchase mode (`CorporateBatchMode.REGULAR`, formerly `ADHOC`) and both would appear on the same dashboard, so the module is the **Ledger** and its sides are "Manual Revenue" and "Expenses". Nothing user-visible says "ad hoc".
 
 **Key files**: `src/lib/ledger.ts` (labels, subcategory catalog, discriminated-union Zod schema, `toLedgerColumns` — which nulls the other kind's columns so switching kind on edit can't leave stale data), `src/lib/ledger-query.ts` (`buildLedgerWhere`, shared by list + CSV so an export always matches the screen), `/api/admin/ledger` (GET list + totals, POST), `/api/admin/ledger/[id]` (PATCH, DELETE), `/api/admin/ledger/export` (CSV), `src/app/admin/ledger/page.tsx`, `src/components/admin/ledger/`.
 
-**Permissions**: `requireCenterAdmin` — center ADMIN and MODERATOR both read/create/edit; **delete is full-admin only** (moderators get 403; the GET response's `canDelete` hides the button). `/admin/ledger` is intentionally absent from the middleware moderator blocklist.
+**Permissions** (`requireCenterAdmin`, which admits both roles and reports `isModerator`):
 
-**Dashboard**: `/api/admin/stats` adds `manualRevenue` and `manualExpenses` (grouped by `kind`, scoped by `entryDate` against the dashboard range). **Total Revenue = booking + package + manual revenue**; expenses are a separate card and are never netted off revenue. Manual revenue appears on the Revenue-by-Category chart as one `MANUAL_REVENUE` bucket (not folded into MACHINE/SIDEARM/…) so system-generated revenue stays distinguishable — the per-entry category breakdown lives on the Ledger page.
+| | View all | Create | Edit own | Edit others' | Delete |
+|---|---|---|---|---|---|
+| Center ADMIN | ✅ | ✅ | ✅ | ✅ | ✅ |
+| MODERATOR | ✅ | ✅ | ✅ | ❌ 403 | ❌ 403 |
+
+The GET response carries `canDelete`, `canEditAll` and `viewerId` so the UI can gate per row; every rule is re-enforced in `[id]/route.ts`. `/admin/ledger` is intentionally absent from the middleware moderator blocklist.
+
+**Dashboard**: `/api/admin/stats` adds `manualRevenue` and `manualExpenses` (grouped by `kind` + `revenueCategory`, scoped by `entryDate` against the dashboard range). **Total Revenue = booking + package + manual revenue**; expenses are a separate card and are never netted off revenue.
+
+Manual revenue **merges into the same Revenue-by-Category bars as system revenue** — a hand-recorded sidearm session sits on the Sidearm bar next to the booked ones — so the buckets still sum to Total Revenue. The only extra bar is `OTHER`. One asymmetry: the *Revenue by Bowling Machine Type* chart is **not** topped up, because a manual MACHINE entry names no specific machine; its bars sum to less than the MACHINE category bar whenever manual machine revenue exists.
 
 ### Per-center Razorpay (phase 6)
 

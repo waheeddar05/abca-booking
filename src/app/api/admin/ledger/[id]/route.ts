@@ -2,10 +2,16 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { requireCenterAdmin } from '@/lib/adminAuth';
 import { LedgerEntryInputSchema, toLedgerColumns } from '@/lib/ledger';
+import { isCenterCollector, LEDGER_ENTRY_SELECT } from '@/lib/ledger-query';
 
 /**
- * PATCH  /api/admin/ledger/[id]   Update an entry (admin + moderator)
+ * PATCH  /api/admin/ledger/[id]   Update an entry
  * DELETE /api/admin/ledger/[id]   Delete an entry (full admin only)
+ *
+ * Permissions:
+ *   - Full admin  — edit and delete any entry at the center.
+ *   - Moderator   — edit ONLY entries they recorded themselves; never
+ *                   delete, whoever recorded it.
  *
  * Both verbs re-fetch the row and check it belongs to the caller's
  * current center before touching it — the id alone must never be enough
@@ -28,10 +34,20 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<Params> }) 
 
     const existing = await prisma.ledgerEntry.findUnique({
       where: { id },
-      select: { id: true, centerId: true },
+      select: { id: true, centerId: true, recordedById: true },
     });
     if (!existing || existing.centerId !== auth.center.id) {
       return NextResponse.json({ error: 'Entry not found' }, { status: 404 });
+    }
+
+    // A moderator may correct their own entries but not somebody
+    // else's — their own or another moderator's is the line, and an
+    // admin's entries are certainly off-limits.
+    if (auth.isModerator && existing.recordedById !== auth.user.id) {
+      return NextResponse.json(
+        { error: 'Moderators can only edit entries they recorded themselves' },
+        { status: 403 },
+      );
     }
 
     let body: unknown;
@@ -49,32 +65,26 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<Params> }) 
       );
     }
 
+    const columns = toLedgerColumns(parsed.data);
+
+    if (
+      columns.collectedById &&
+      !(await isCenterCollector(auth.center.id, columns.collectedById))
+    ) {
+      return NextResponse.json(
+        { error: 'Collected By must be a member of this center' },
+        { status: 400 },
+      );
+    }
+
     // `recordedById` is deliberately left untouched — it records who
-    // originally booked the money, not who last touched the row.
+    // originally booked the money, not who last touched the row. (It is
+    // also what the moderator check above keys off, so rewriting it
+    // would let an edit hand ownership away.)
     const entry = await prisma.ledgerEntry.update({
       where: { id },
-      data: toLedgerColumns(parsed.data),
-      select: {
-        id: true,
-        kind: true,
-        revenueCategory: true,
-        customerName: true,
-        serviceDate: true,
-        serviceTime: true,
-        expenseCategory: true,
-        expenseSubcategory: true,
-        description: true,
-        paidTo: true,
-        amount: true,
-        entryDate: true,
-        entryTime: true,
-        paymentMethod: true,
-        remarks: true,
-        recordedById: true,
-        recordedBy: { select: { id: true, name: true, email: true } },
-        createdAt: true,
-        updatedAt: true,
-      },
+      data: columns,
+      select: LEDGER_ENTRY_SELECT,
     });
 
     return NextResponse.json(entry);
@@ -91,7 +101,8 @@ export async function DELETE(req: NextRequest, ctx: { params: Promise<Params> })
     if (!auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 403 });
 
     // Deleting financial history is full-admin territory. Moderators can
-    // create and correct entries but never make one disappear.
+    // create and correct entries but never make one disappear — not even
+    // one they recorded themselves.
     if (auth.isModerator) {
       return NextResponse.json(
         { error: 'Moderators cannot delete ledger entries' },

@@ -2,7 +2,13 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { requireCenterAdmin } from '@/lib/adminAuth';
 import { LedgerEntryInputSchema, toLedgerColumns } from '@/lib/ledger';
-import { buildLedgerWhere, LEDGER_PAGE_SIZE } from '@/lib/ledger-query';
+import {
+  buildLedgerWhere,
+  isCenterCollector,
+  listCenterCollectors,
+  LEDGER_ENTRY_SELECT,
+  LEDGER_PAGE_SIZE,
+} from '@/lib/ledger-query';
 
 /**
  * Ledger — manually recorded revenue & expenses for the current center.
@@ -11,35 +17,13 @@ import { buildLedgerWhere, LEDGER_PAGE_SIZE } from '@/lib/ledger-query';
  *   POST /api/admin/ledger   Create an entry
  *
  * Access: center ADMIN **and** MODERATOR (the restricted admin) may read
- * and create; deletion is full-admin-only and lives in `[id]/route.ts`.
- * `requireCenterAdmin` admits both and reports which one via
- * `isModerator`, so the guard is one call.
+ * every entry and create new ones. Two things a moderator may NOT do,
+ * both enforced in `[id]/route.ts`: edit an entry somebody else created,
+ * and delete anything at all.
  *
  * Every query is scoped to the resolved current center — a ledger row is
  * center money and must never leak across centers.
  */
-
-const ENTRY_SELECT = {
-  id: true,
-  kind: true,
-  revenueCategory: true,
-  customerName: true,
-  serviceDate: true,
-  serviceTime: true,
-  expenseCategory: true,
-  expenseSubcategory: true,
-  description: true,
-  paidTo: true,
-  amount: true,
-  entryDate: true,
-  entryTime: true,
-  paymentMethod: true,
-  remarks: true,
-  recordedById: true,
-  recordedBy: { select: { id: true, name: true, email: true } },
-  createdAt: true,
-  updatedAt: true,
-} as const;
 
 export async function GET(req: NextRequest) {
   try {
@@ -51,10 +35,10 @@ export async function GET(req: NextRequest) {
     if ('error' in built) return NextResponse.json({ error: built.error }, { status: 400 });
     const { where, page } = built;
 
-    const [entries, total, sum, recorderRows] = await Promise.all([
+    const [entries, total, sum, recorderRows, collectors] = await Promise.all([
       prisma.ledgerEntry.findMany({
         where,
-        select: ENTRY_SELECT,
+        select: LEDGER_ENTRY_SELECT,
         // Newest money first; createdAt breaks ties within a day.
         orderBy: [{ entryDate: 'desc' }, { entryTime: 'desc' }, { createdAt: 'desc' }],
         skip: (page - 1) * LEDGER_PAGE_SIZE,
@@ -70,6 +54,7 @@ export async function GET(req: NextRequest) {
         distinct: ['recordedById'],
         select: { recordedBy: { select: { id: true, name: true, email: true } } },
       }),
+      listCenterCollectors(auth.center.id),
     ]);
 
     return NextResponse.json({
@@ -82,9 +67,17 @@ export async function GET(req: NextRequest) {
         .map((r) => r.recordedBy)
         .filter(Boolean)
         .sort((a, b) => (a.name || a.email || '').localeCompare(b.name || b.email || '')),
-      // Moderators may create and edit but not delete; the UI hides the
-      // delete control off this flag (the [id] route enforces it).
+      collectors,
+      // ── Permission hints for the UI ──
+      // Every one of these is re-checked server-side; hiding a control
+      // is a convenience, not the security boundary.
+      //
+      // Deleting financial history is full-admin only. Moderators may
+      // edit only what they themselves recorded, so the client needs to
+      // know who it is to decide per row.
       canDelete: !auth.isModerator,
+      canEditAll: !auth.isModerator,
+      viewerId: auth.user.id,
     });
   } catch (error) {
     console.error('Ledger list error:', error);
@@ -113,15 +106,27 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    const columns = toLedgerColumns(parsed.data);
+
+    if (
+      columns.collectedById &&
+      !(await isCenterCollector(auth.center.id, columns.collectedById))
+    ) {
+      return NextResponse.json(
+        { error: 'Collected By must be a member of this center' },
+        { status: 400 },
+      );
+    }
+
     const entry = await prisma.ledgerEntry.create({
       data: {
         centerId: auth.center.id,
         // "Recorded By" is captured from the session, never the body —
         // an admin can't attribute an entry to someone else.
         recordedById: auth.user.id,
-        ...toLedgerColumns(parsed.data),
+        ...columns,
       },
-      select: ENTRY_SELECT,
+      select: LEDGER_ENTRY_SELECT,
     });
 
     return NextResponse.json(entry, { status: 201 });

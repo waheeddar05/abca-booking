@@ -9,6 +9,7 @@
 
 import { z } from 'zod';
 import type { Prisma } from '@prisma/client';
+import { prisma } from '@/lib/prisma';
 import { dateStringToUTC } from '@/lib/time';
 import {
   LEDGER_EXPENSE_CATEGORIES,
@@ -17,6 +18,64 @@ import {
 } from '@/lib/ledger';
 
 export const LEDGER_PAGE_SIZE = 50;
+
+/** Columns every ledger endpoint returns, so list/create/update agree. */
+export const LEDGER_ENTRY_SELECT = {
+  id: true,
+  kind: true,
+  revenueCategory: true,
+  customerName: true,
+  serviceDate: true,
+  serviceStartTime: true,
+  serviceEndTime: true,
+  expenseCategory: true,
+  expenseSubcategory: true,
+  description: true,
+  paidTo: true,
+  amount: true,
+  entryDate: true,
+  entryTime: true,
+  paymentMethod: true,
+  remarks: true,
+  collectedById: true,
+  collectedBy: { select: { id: true, name: true, email: true } },
+  recordedById: true,
+  recordedBy: { select: { id: true, name: true, email: true } },
+  createdAt: true,
+  updatedAt: true,
+} as const;
+
+/**
+ * Users who may be named as having handled the money: everyone with an
+ * active membership at this center, whatever their role. Ground staff
+ * and operators take cash at the desk just as admins do, so the list is
+ * deliberately not restricted to admin-level roles.
+ */
+export async function listCenterCollectors(centerId: string) {
+  const memberships = await prisma.centerMembership.findMany({
+    where: { centerId, isActive: true },
+    select: { user: { select: { id: true, name: true, email: true } } },
+  });
+  const byId = new Map<string, { id: string; name: string | null; email: string | null }>();
+  for (const m of memberships) {
+    if (m.user) byId.set(m.user.id, m.user);
+  }
+  return [...byId.values()].sort((a, b) =>
+    (a.name || a.email || '').localeCompare(b.name || b.email || ''),
+  );
+}
+
+/**
+ * A collector must be an active member of THIS center — otherwise the
+ * id is a way to point a center's books at an outsider.
+ */
+export async function isCenterCollector(centerId: string, userId: string): Promise<boolean> {
+  const member = await prisma.centerMembership.findFirst({
+    where: { centerId, userId, isActive: true },
+    select: { id: true },
+  });
+  return !!member;
+}
 
 const ListQuerySchema = z.object({
   kind: z.enum(['REVENUE', 'EXPENSE']).default('REVENUE'),

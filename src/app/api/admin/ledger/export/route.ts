@@ -42,7 +42,8 @@ export async function GET(req: NextRequest) {
         revenueCategory: true,
         customerName: true,
         serviceDate: true,
-        serviceTime: true,
+        serviceStartTime: true,
+        serviceEndTime: true,
         expenseCategory: true,
         expenseSubcategory: true,
         description: true,
@@ -52,6 +53,7 @@ export async function GET(req: NextRequest) {
         entryTime: true,
         paymentMethod: true,
         remarks: true,
+        collectedBy: { select: { name: true, email: true } },
         recordedBy: { select: { name: true, email: true } },
       },
     });
@@ -63,9 +65,11 @@ export async function GET(req: NextRequest) {
           'Category',
           'Customer Name',
           'Session Date',
-          'Session Time',
+          'Session From',
+          'Session To',
           'Amount',
           'Payment Method',
+          'Collected By',
           'Recorded By',
           'Remarks',
         ]
@@ -76,8 +80,12 @@ export async function GET(req: NextRequest) {
           'Subcategory',
           'Description',
           'Paid To / Vendor',
+          'Session Date',
+          'Session From',
+          'Session To',
           'Amount',
           'Payment Method',
+          'Paid By',
           'Recorded By',
           'Remarks',
         ];
@@ -86,6 +94,7 @@ export async function GET(req: NextRequest) {
       const method =
         LEDGER_PAYMENT_METHOD_LABELS[e.paymentMethod as LedgerPaymentMethodId] || e.paymentMethod;
       const recordedBy = e.recordedBy?.name || e.recordedBy?.email || '';
+      const collectedBy = e.collectedBy?.name || e.collectedBy?.email || '';
       const category = ledgerCategoryLabel(e);
       return isRevenue
         ? [
@@ -94,9 +103,11 @@ export async function GET(req: NextRequest) {
             category,
             e.customerName || '',
             istDate(e.serviceDate),
-            e.serviceTime || '',
+            e.serviceStartTime || '',
+            e.serviceEndTime || '',
             e.amount,
             method,
+            collectedBy,
             recordedBy,
             e.remarks || '',
           ]
@@ -110,8 +121,12 @@ export async function GET(req: NextRequest) {
             ),
             e.description || '',
             e.paidTo || '',
+            istDate(e.serviceDate),
+            e.serviceStartTime || '',
+            e.serviceEndTime || '',
             e.amount,
             method,
+            collectedBy,
             recordedBy,
             e.remarks || '',
           ];
