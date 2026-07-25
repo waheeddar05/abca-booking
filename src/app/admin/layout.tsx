@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useSession } from 'next-auth/react';
-import { LayoutDashboard, CalendarCheck, Users, Clock, Wrench, Package, Zap, SlidersHorizontal, ArrowLeft, Power, DatabaseZap, UserCog, Tag, Building2, AlertTriangle, HardHat } from 'lucide-react';
+import { LayoutDashboard, CalendarCheck, Users, Clock, Wrench, Package, Zap, SlidersHorizontal, ArrowLeft, Power, DatabaseZap, UserCog, Tag, Building2, AlertTriangle, HardHat, BookOpenCheck } from 'lucide-react';
 import { signOut } from 'next-auth/react';
 import { AdminMobileNav } from '@/components/admin/AdminMobileNav';
 import { CenterSwitcher } from '@/components/admin/CenterSwitcher';
@@ -87,6 +87,10 @@ export default function AdminLayout({
     { href: '/admin/ground-staff', label: 'Ground Staff', icon: HardHat, models: ['RESOURCE_BASED'], hidden: !isAdminLevel },
     { href: '/admin/offers', label: 'Offers', icon: Tag, hidden: !isAdminLevel },
     { href: '/admin/packages', label: 'Packages', icon: Package, hidden: !isAdminLevel },
+    // Ledger — hand-entered revenue + expenses. Admins and moderators
+    // both get it: moderators can add and edit entries, only full
+    // admins can delete them (enforced in the API, hidden in the UI).
+    { href: '/admin/ledger', label: 'Ledger', icon: BookOpenCheck, hidden: !isAdminLevel },
     // Settings — full admins only. Restricted for moderators.
     { href: '/admin/configuration', label: 'Settings', icon: SlidersHorizontal, hidden: !isAdmin },
     // /admin/policies removed — its raw key/value editor was confusing

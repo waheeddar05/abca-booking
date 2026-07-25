@@ -1,0 +1,428 @@
+'use client';
+
+/**
+ * Create / edit dialog for a ledger entry.
+ *
+ * One component serves both sides of the book — the `kind` prop decides
+ * which half of the form renders (customer + session details for
+ * Manual Revenue, vendor + description + subcategory for Expenses).
+ * The shared half (amount, payment date/time, payment method, remarks)
+ * is identical either way.
+ *
+ * "Recorded By" is not a field: the API stamps it from the session.
+ */
+
+import { useEffect, useMemo, useState } from 'react';
+import { Loader2, X } from 'lucide-react';
+import {
+  LEDGER_EXPENSE_CATEGORIES,
+  LEDGER_EXPENSE_CATEGORY_LABELS,
+  LEDGER_EXPENSE_SUBCATEGORIES,
+  LEDGER_PAYMENT_METHODS,
+  LEDGER_PAYMENT_METHOD_LABELS,
+  LEDGER_REVENUE_CATEGORIES,
+  LEDGER_REVENUE_CATEGORY_LABELS,
+  categoryHasSubcategories,
+  type LedgerExpenseCategoryId,
+  type LedgerKind,
+} from '@/lib/ledger';
+import type { LedgerEntry } from './types';
+
+const inputClass =
+  'w-full bg-slate-900/60 border border-white/[0.1] text-white rounded-lg px-3 py-2 text-sm outline-none focus:border-accent focus:ring-1 focus:ring-accent/20 [color-scheme:dark] disabled:opacity-50';
+const labelClass =
+  'block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1.5 ml-0.5';
+
+/** IST calendar date as yyyy-MM-dd — the default for a new entry. */
+function istToday(): string {
+  const ist = new Date(Date.now() + (5 * 60 + 30) * 60 * 1000);
+  return ist.toISOString().slice(0, 10);
+}
+
+/** Current IST wall-clock time as HH:MM. */
+function istNowTime(): string {
+  const ist = new Date(Date.now() + (5 * 60 + 30) * 60 * 1000);
+  return ist.toISOString().slice(11, 16);
+}
+
+/** A @db.Date value arrives as an ISO string — take the date part. */
+function toDateInput(value: string | null | undefined): string {
+  return value ? String(value).slice(0, 10) : '';
+}
+
+interface FormState {
+  revenueCategory: string;
+  customerName: string;
+  serviceDate: string;
+  serviceTime: string;
+  expenseCategory: string;
+  expenseSubcategory: string;
+  description: string;
+  paidTo: string;
+  amount: string;
+  entryDate: string;
+  entryTime: string;
+  paymentMethod: string;
+  remarks: string;
+}
+
+function blankForm(): FormState {
+  return {
+    revenueCategory: 'MACHINE',
+    customerName: '',
+    serviceDate: istToday(),
+    serviceTime: '',
+    expenseCategory: 'REPAIRS_MAINTENANCE',
+    expenseSubcategory: 'NET_REPAIR',
+    description: '',
+    paidTo: '',
+    amount: '',
+    entryDate: istToday(),
+    entryTime: istNowTime(),
+    paymentMethod: 'CASH',
+    remarks: '',
+  };
+}
+
+function formFromEntry(entry: LedgerEntry): FormState {
+  return {
+    ...blankForm(),
+    revenueCategory: entry.revenueCategory || 'MACHINE',
+    customerName: entry.customerName || '',
+    serviceDate: toDateInput(entry.serviceDate),
+    serviceTime: entry.serviceTime || '',
+    expenseCategory: entry.expenseCategory || 'REPAIRS_MAINTENANCE',
+    expenseSubcategory: entry.expenseSubcategory || '',
+    description: entry.description || '',
+    paidTo: entry.paidTo || '',
+    amount: String(entry.amount ?? ''),
+    entryDate: toDateInput(entry.entryDate),
+    entryTime: entry.entryTime || istNowTime(),
+    paymentMethod: entry.paymentMethod,
+    remarks: entry.remarks || '',
+  };
+}
+
+interface Props {
+  kind: LedgerKind;
+  /** Entry being edited, or null to create a new one. */
+  entry: LedgerEntry | null;
+  onClose: () => void;
+  onSaved: () => void;
+}
+
+export function LedgerEntryDialog({ kind, entry, onClose, onSaved }: Props) {
+  const isRevenue = kind === 'REVENUE';
+  const [form, setForm] = useState<FormState>(() => (entry ? formFromEntry(entry) : blankForm()));
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const set = <K extends keyof FormState>(key: K, value: FormState[K]) =>
+    setForm((f) => ({ ...f, [key]: value }));
+
+  const subcategories = useMemo(
+    () => LEDGER_EXPENSE_SUBCATEGORIES[form.expenseCategory as LedgerExpenseCategoryId] ?? [],
+    [form.expenseCategory],
+  );
+
+  // Keep the subcategory valid whenever the category changes — an
+  // orphaned code from the previous category would be rejected server-side.
+  useEffect(() => {
+    if (isRevenue) return;
+    if (subcategories.length === 0) {
+      if (form.expenseSubcategory) set('expenseSubcategory', '');
+      return;
+    }
+    if (!subcategories.some((s) => s.value === form.expenseSubcategory)) {
+      set('expenseSubcategory', subcategories[0].value);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [form.expenseCategory, isRevenue]);
+
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError(null);
+
+    const amount = Number(form.amount);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      setError('Enter an amount greater than 0.');
+      return;
+    }
+
+    const payload = isRevenue
+      ? {
+          kind: 'REVENUE' as const,
+          revenueCategory: form.revenueCategory,
+          customerName: form.customerName.trim(),
+          serviceDate: form.serviceDate || null,
+          serviceTime: form.serviceTime || null,
+          amount,
+          entryDate: form.entryDate,
+          entryTime: form.entryTime,
+          paymentMethod: form.paymentMethod,
+          remarks: form.remarks.trim() || null,
+        }
+      : {
+          kind: 'EXPENSE' as const,
+          expenseCategory: form.expenseCategory,
+          expenseSubcategory: categoryHasSubcategories(
+            form.expenseCategory as LedgerExpenseCategoryId,
+          )
+            ? form.expenseSubcategory
+            : null,
+          description: form.description.trim(),
+          paidTo: form.paidTo.trim() || null,
+          amount,
+          entryDate: form.entryDate,
+          entryTime: form.entryTime,
+          paymentMethod: form.paymentMethod,
+          remarks: form.remarks.trim() || null,
+        };
+
+    setSaving(true);
+    try {
+      const res = await fetch(entry ? `/api/admin/ledger/${entry.id}` : '/api/admin/ledger', {
+        method: entry ? 'PATCH' : 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body?.error || `HTTP ${res.status}`);
+      }
+      onSaved();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to save entry');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const title = `${entry ? 'Edit' : 'New'} ${isRevenue ? 'Revenue' : 'Expense'} Entry`;
+
+  return (
+    <div className="fixed inset-0 z-[60] flex items-end sm:items-center justify-center bg-black/70 backdrop-blur-sm p-0 sm:p-4">
+      <div className="w-full sm:max-w-lg max-h-[92vh] overflow-y-auto rounded-t-2xl sm:rounded-2xl border border-white/[0.08] bg-[#0b1726] shadow-2xl">
+        <div className="sticky top-0 z-10 flex items-center justify-between px-5 py-3.5 border-b border-white/[0.07] bg-[#0b1726]">
+          <h2 className="text-sm font-bold text-white uppercase tracking-wider">{title}</h2>
+          <button
+            type="button"
+            onClick={onClose}
+            className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-white/[0.06] cursor-pointer"
+            aria-label="Close"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+
+        <form onSubmit={submit} className="p-5 space-y-4">
+          {error && (
+            <div className="rounded-lg border border-red-500/20 bg-red-500/[0.07] px-3 py-2 text-xs text-red-300">
+              {error}
+            </div>
+          )}
+
+          {isRevenue ? (
+            <>
+              <div>
+                <label className={labelClass}>Revenue Category</label>
+                <select
+                  value={form.revenueCategory}
+                  onChange={(e) => set('revenueCategory', e.target.value)}
+                  className={inputClass}
+                >
+                  {LEDGER_REVENUE_CATEGORIES.map((c) => (
+                    <option key={c} value={c}>
+                      {LEDGER_REVENUE_CATEGORY_LABELS[c]}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className={labelClass}>Customer Name</label>
+                <input
+                  value={form.customerName}
+                  onChange={(e) => set('customerName', e.target.value)}
+                  className={inputClass}
+                  placeholder="Who paid?"
+                  required
+                  maxLength={200}
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className={labelClass}>Session Date</label>
+                  <input
+                    type="date"
+                    value={form.serviceDate}
+                    onChange={(e) => set('serviceDate', e.target.value)}
+                    className={inputClass}
+                  />
+                </div>
+                <div>
+                  <label className={labelClass}>Session Time</label>
+                  <input
+                    type="time"
+                    value={form.serviceTime}
+                    onChange={(e) => set('serviceTime', e.target.value)}
+                    className={inputClass}
+                  />
+                </div>
+              </div>
+              <p className="text-[11px] text-slate-500 -mt-2">
+                When the session is played. Leave blank for income with no session behind it.
+              </p>
+            </>
+          ) : (
+            <>
+              <div>
+                <label className={labelClass}>Expense Category</label>
+                <select
+                  value={form.expenseCategory}
+                  onChange={(e) => set('expenseCategory', e.target.value)}
+                  className={inputClass}
+                >
+                  {LEDGER_EXPENSE_CATEGORIES.map((c) => (
+                    <option key={c} value={c}>
+                      {LEDGER_EXPENSE_CATEGORY_LABELS[c]}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {subcategories.length > 0 && (
+                <div>
+                  <label className={labelClass}>Subcategory</label>
+                  <select
+                    value={form.expenseSubcategory}
+                    onChange={(e) => set('expenseSubcategory', e.target.value)}
+                    className={inputClass}
+                  >
+                    {subcategories.map((s) => (
+                      <option key={s.value} value={s.value}>
+                        {s.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              <div>
+                <label className={labelClass}>Description</label>
+                <input
+                  value={form.description}
+                  onChange={(e) => set('description', e.target.value)}
+                  className={inputClass}
+                  placeholder="What was the money spent on?"
+                  required
+                  maxLength={500}
+                />
+              </div>
+
+              <div>
+                <label className={labelClass}>Paid To / Vendor</label>
+                <input
+                  value={form.paidTo}
+                  onChange={(e) => set('paidTo', e.target.value)}
+                  className={inputClass}
+                  placeholder="Optional"
+                  maxLength={200}
+                />
+              </div>
+            </>
+          )}
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className={labelClass}>Amount (₹)</label>
+              <input
+                type="number"
+                min="1"
+                step="0.01"
+                value={form.amount}
+                onChange={(e) => set('amount', e.target.value)}
+                className={inputClass}
+                required
+              />
+            </div>
+            <div>
+              <label className={labelClass}>Payment Method</label>
+              <select
+                value={form.paymentMethod}
+                onChange={(e) => set('paymentMethod', e.target.value)}
+                className={inputClass}
+              >
+                {LEDGER_PAYMENT_METHODS.map((m) => (
+                  <option key={m} value={m}>
+                    {LEDGER_PAYMENT_METHOD_LABELS[m]}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className={labelClass}>{isRevenue ? 'Received On' : 'Paid On'}</label>
+              <input
+                type="date"
+                value={form.entryDate}
+                onChange={(e) => set('entryDate', e.target.value)}
+                className={inputClass}
+                required
+              />
+            </div>
+            <div>
+              <label className={labelClass}>Time</label>
+              <input
+                type="time"
+                value={form.entryTime}
+                onChange={(e) => set('entryTime', e.target.value)}
+                className={inputClass}
+                required
+              />
+            </div>
+          </div>
+
+          <div>
+            <label className={labelClass}>Remarks</label>
+            <textarea
+              value={form.remarks}
+              onChange={(e) => set('remarks', e.target.value)}
+              className={`${inputClass} min-h-[64px] resize-y`}
+              placeholder="Optional"
+              maxLength={1000}
+            />
+          </div>
+
+          {entry && (
+            <p className="text-[11px] text-slate-500">
+              Recorded by {entry.recordedBy?.name || entry.recordedBy?.email || 'Unknown'} — editing
+              keeps the original recorder.
+            </p>
+          )}
+
+          <div className="flex items-center justify-end gap-2 pt-1">
+            <button
+              type="button"
+              onClick={onClose}
+              className="px-4 py-2 rounded-lg text-sm font-medium text-slate-300 bg-white/[0.05] hover:bg-white/[0.1] cursor-pointer"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={saving}
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold text-slate-900 bg-accent hover:brightness-110 disabled:opacity-60 cursor-pointer"
+            >
+              {saving && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+              {entry ? 'Save Changes' : 'Add Entry'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}

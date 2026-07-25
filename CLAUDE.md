@@ -212,6 +212,23 @@ Seat-based booking category for RESOURCE_BASED centers — no machine, ball type
 
 **Key files**: `src/lib/match-practice.ts` (config normalization, session/occurrence generation, `resolveMatchPracticePlans`, in-tx `assertMatchPracticeSeat` capacity + duplicate guards), `/api/match-practice/availability` (months with enrollment counts + upcoming sessions with seat counts), `/api/slots/book-resource` (dispatches both categories through the same payment/wallet/refund machinery; capacity re-checked inside the serializable tx), `src/components/admin/MatchPracticeConfigEditor.tsx` (Admin → Settings → Match Practice card). Fees are flat admin-set amounts — recurring/promotional discounts and packages don't apply; admin blocks (`BlockedSlot.categories`) do.
 
+### Ledger (manual revenue & expenses)
+
+Admin → **Ledger** (`/admin/ledger`) records money the booking engine never sees. Two tabs over one `LedgerEntry` table, discriminated by `kind`:
+
+- **Manual Revenue** (`kind = REVENUE`) — walk-in cash, off-platform transfers. Fields: `revenueCategory` (the bookable categories + `OTHER`), `customerName`, optional `serviceDate`/`serviceTime` (when the session is played, distinct from when the money arrived).
+- **Expenses** (`kind = EXPENSE`) — `expenseCategory` (`REPAIRS_MAINTENANCE`, `BALLS`, `STAFF_PAYMENTS`, `UTILITIES_CONSUMABLES`, `MISCELLANEOUS`), `expenseSubcategory` (TEXT code validated against the catalog in `src/lib/ledger.ts`, so it grows without a migration), `description`, `paidTo`.
+
+Shared columns: `amount`, `entryDate`/`entryTime` (when the money actually moved), `paymentMethod` (`LedgerPaymentMethod`: CASH / TOPLAY_SCANNER / PLAYORBIT_SCANNER / UPI / CARD / BANK_TRANSFER / ONLINE / OTHER), `remarks`, `recordedById`. **`recordedById` is always stamped from the session server-side, never accepted from the request body.**
+
+**Naming**: this was specced as "Ad Hoc Revenue / Ad Hoc Expenses". "Ad hoc" already means the per-session Match Practice purchase mode (`CorporateBatchMode.REGULAR`, formerly `ADHOC`) and both would appear on the same dashboard, so the module is the **Ledger** and its sides are "Manual Revenue" and "Expenses". Nothing user-visible says "ad hoc".
+
+**Key files**: `src/lib/ledger.ts` (labels, subcategory catalog, discriminated-union Zod schema, `toLedgerColumns` — which nulls the other kind's columns so switching kind on edit can't leave stale data), `src/lib/ledger-query.ts` (`buildLedgerWhere`, shared by list + CSV so an export always matches the screen), `/api/admin/ledger` (GET list + totals, POST), `/api/admin/ledger/[id]` (PATCH, DELETE), `/api/admin/ledger/export` (CSV), `src/app/admin/ledger/page.tsx`, `src/components/admin/ledger/`.
+
+**Permissions**: `requireCenterAdmin` — center ADMIN and MODERATOR both read/create/edit; **delete is full-admin only** (moderators get 403; the GET response's `canDelete` hides the button). `/admin/ledger` is intentionally absent from the middleware moderator blocklist.
+
+**Dashboard**: `/api/admin/stats` adds `manualRevenue` and `manualExpenses` (grouped by `kind`, scoped by `entryDate` against the dashboard range). **Total Revenue = booking + package + manual revenue**; expenses are a separate card and are never netted off revenue. Manual revenue appears on the Revenue-by-Category chart as one `MANUAL_REVENUE` bucket (not folded into MACHINE/SIDEARM/…) so system-generated revenue stays distinguishable — the per-entry category breakdown lives on the Ledger page.
+
 ### Per-center Razorpay (phase 6)
 
 Each `Center` row may store its own `razorpayKeyId`, `razorpayKeySecret`, and `razorpayWebhookSecret`. When set, every Razorpay operation for that center routes to its own merchant account; centers without keys fall back to the env (`RAZORPAY_KEY_ID` / `RAZORPAY_KEY_SECRET` / `RAZORPAY_WEBHOOK_SECRET`).
@@ -240,6 +257,7 @@ The legacy `getRazorpayInstance()` and `verifyPaymentSignature(...)` are depreca
 | Booking, Slot, BlockedSlot | center | unique on `(centerId, …)` |
 | Package, UserPackage | center via Package | `Package.centerId` is authoritative; `UserPackage` derives via join |
 | Payment, Refund | center | per-center Razorpay account |
+| LedgerEntry | center | manual revenue + expenses; `(centerId, kind, entryDate)` index |
 | **Wallet, WalletTransaction** | **center** | `(userId, centerId)` unique; per-center balances; refunds at center X credit user's center-X wallet only |
 | PromotionalOffer, RecurringSlotDiscount | center | |
 | OperatorAssignment, CashPaymentUser | center | |

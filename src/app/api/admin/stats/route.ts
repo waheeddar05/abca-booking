@@ -79,6 +79,7 @@ export async function GET(req: NextRequest) {
       selfOperatedBookings,
       unassignedBookings,
       matchPracticeSummary,
+      ledgerTotals,
     ] = await Promise.all([
       // Staff sessions: total counts per operator/coach/specialist.
       prisma.booking.groupBy({
@@ -465,7 +466,50 @@ export async function GET(req: NextRequest) {
         }
         return { matchSimMonthly, matchSimRegular, corporateMonthly, corporateRegular };
       }).catch(() => ({ matchSimMonthly: 0, matchSimRegular: 0, corporateMonthly: 0, corporateRegular: 0 })),
+      // ─── Ledger: hand-entered revenue + expenses (Admin → Ledger) ───
+      //
+      // Manual revenue is real money in, so it joins Total Revenue and
+      // gets its own bucket on the category chart. Expenses are money
+      // OUT — reported as a separate card and deliberately NOT netted
+      // off revenue, so the revenue figures stay comparable with the
+      // booking/package numbers above.
+      //
+      // Scoped by `entryDate` (when the money changed hands), matching
+      // how bookings are scoped by their session date and packages by
+      // their purchase date: each recognises revenue on its own event.
+      prisma.ledgerEntry.groupBy({
+        by: ['kind'],
+        _sum: { amount: true },
+        where: {
+          ...centerFilter,
+          ...(hasDateFilter ? { entryDate: dateFilter } : {}),
+        },
+      }).then((rows) => {
+        let manualRevenue = 0;
+        let manualExpenses = 0;
+        for (const r of rows) {
+          const amount = r._sum.amount || 0;
+          if (r.kind === 'REVENUE') manualRevenue += amount;
+          else manualExpenses += amount;
+        }
+        return { manualRevenue, manualExpenses };
+      }).catch(() => ({ manualRevenue: 0, manualExpenses: 0 })),
     ]);
+
+    // Manual revenue rides on top of the booking + package total and
+    // shows up as one extra bar on the category chart. It is a single
+    // bucket rather than being folded into MACHINE/SIDEARM/… so an
+    // admin can always tell system-generated revenue apart from what
+    // was keyed in by hand — the per-entry category breakdown lives on
+    // the Ledger page itself.
+    const totalRevenue = revenue.totalRevenue + ledgerTotals.manualRevenue;
+    const revenueByCategory = [...revenue.revenueByCategory];
+    if (ledgerTotals.manualRevenue !== 0) {
+      revenueByCategory.push({
+        key: 'MANUAL_REVENUE',
+        _sum: { price: ledgerTotals.manualRevenue },
+      });
+    }
 
     return NextResponse.json({
       totalBookings,
@@ -474,11 +518,14 @@ export async function GET(req: NextRequest) {
       upcomingBookings,
       lastMonthBookings,
       totalSlots,
-      totalRevenue: revenue.totalRevenue,
+      // Total Revenue = booking + package + manual (ledger) revenue.
+      totalRevenue,
       bookingRevenue: revenue.bookingRevenue,
       packageRevenue: revenue.packageRevenue,
+      manualRevenue: ledgerTotals.manualRevenue,
+      manualExpenses: ledgerTotals.manualExpenses,
       totalDiscount: totalDiscountValue,
-      revenueBreakdown: { axis: 'category', entries: revenue.revenueByCategory },
+      revenueBreakdown: { axis: 'category', entries: revenueByCategory },
       machineTypeRevenue: revenue.machineTypeRevenue,
       bookingDistribution,
       selfOperatedBookings,

@@ -80,6 +80,7 @@ model Center {
   operatorAssignments OperatorAssignment[]
   centerPolicies      CenterPolicy[]
   wallets             Wallet[]
+  ledgerEntries       LedgerEntry[]
 }
 
 enum BookingModel {
@@ -374,6 +375,7 @@ model User {
   wallets                 Wallet[]
   adminRefunds            Refund[]             @relation("AdminRefunds")
   centerMemberships       CenterMembership[]
+  ledgerEntries           LedgerEntry[]        @relation("LedgerEntriesRecorded")
 }
 
 // Global policy / feature flags. Keys without a centerId in
@@ -1066,4 +1068,107 @@ model RecurringSlotDiscount {
   center Center @relation(fields: [centerId], references: [id], onDelete: Cascade)
 
   @@index([centerId, enabled])
+}
+
+// ─── Ledger: manually recorded revenue & expenses ────────────────────
+//
+// Money that never flows through the booking/package/Razorpay rails
+// still has to be accounted for: a walk-in who paid cash at the desk, a
+// net repair bill, the electricity bill, a sidearm specialist's payout.
+// A `LedgerEntry` is one such hand-entered line item.
+//
+// One table holds both sides of the book, discriminated by `kind`:
+//   REVENUE — money IN  (revenueCategory / customerName / serviceDate)
+//   EXPENSE — money OUT (expenseCategory / expenseSubcategory / paidTo)
+// The shared columns (amount, entryDate, entryTime, paymentMethod,
+// remarks, recordedBy) apply to both. Kind-specific columns are
+// nullable at the DB level and enforced per-kind in `src/lib/ledger.ts`.
+//
+// Center-scoped like every other financial table. `recordedById` is the
+// admin/moderator who created the row — captured server-side from the
+// session, never accepted from the client.
+model LedgerEntry {
+  id       String          @id @default(cuid())
+  centerId String
+  kind     LedgerEntryKind
+
+  // ── REVENUE-only ──
+  // Which service the money was for. Mirrors the bookable categories
+  // plus OTHER for anything that isn't one of them.
+  revenueCategory LedgerRevenueCategory?
+  customerName    String?
+  // When the session the customer paid for actually takes place. This
+  // is deliberately separate from `entryDate` (when the money changed
+  // hands) — a customer can pay today for a slot next week.
+  serviceDate     DateTime?              @db.Date
+  serviceTime     String? // "HH:MM" IST
+
+  // ── EXPENSE-only ──
+  expenseCategory    LedgerExpenseCategory?
+  // Subcategory code from the per-category catalog in lib/ledger.ts
+  // (e.g. "NET_REPAIR", "LEATHER_BALL"). Stored as text rather than an
+  // enum so the catalog can grow without a migration.
+  expenseSubcategory String?
+  description        String?
+  // Vendor / person the money was paid to.
+  paidTo             String?
+
+  // ── Shared ──
+  amount        Float
+  // Date + time the money was actually received / paid.
+  entryDate     DateTime            @db.Date
+  entryTime     String // "HH:MM" IST
+  paymentMethod LedgerPaymentMethod
+  remarks       String?
+  recordedById  String
+  createdAt     DateTime            @default(now())
+  updatedAt     DateTime            @updatedAt
+
+  center     Center @relation(fields: [centerId], references: [id], onDelete: Cascade)
+  recordedBy User   @relation("LedgerEntriesRecorded", fields: [recordedById], references: [id])
+
+  // Dashboard/report scans: "all entries of kind K at center C in range".
+  @@index([centerId, kind, entryDate])
+  // "Recorded By" filter.
+  @@index([centerId, recordedById])
+}
+
+enum LedgerEntryKind {
+  REVENUE
+  EXPENSE
+}
+
+// Revenue buckets = the bookable categories (so a manual entry can be
+// attributed to the same service a system booking would have been),
+// plus OTHER for miscellaneous income. MATCH_PRACTICE is the umbrella
+// used by the booking UI (Corporate Batch + Match Simulation).
+enum LedgerRevenueCategory {
+  MACHINE
+  NET
+  SIDEARM
+  COACHING
+  FULL_COURT
+  MATCH_PRACTICE
+  OTHER
+}
+
+enum LedgerExpenseCategory {
+  REPAIRS_MAINTENANCE
+  BALLS
+  STAFF_PAYMENTS
+  UTILITIES_CONSUMABLES
+  MISCELLANEOUS
+}
+
+// How the money moved. CASH plus the two QR/scanner merchant accounts
+// the centers collect on, and the usual bank rails.
+enum LedgerPaymentMethod {
+  CASH
+  TOPLAY_SCANNER
+  PLAYORBIT_SCANNER
+  UPI
+  CARD
+  BANK_TRANSFER
+  ONLINE
+  OTHER
 }
