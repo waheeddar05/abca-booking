@@ -128,6 +128,21 @@ export const INSTAGRAM_URL = 'https://www.instagram.com/playorbit.in/';
 
 export const LOCATION_URL = 'https://maps.app.goo.gl/iy8f6nRLmkZAqztF9?g_st=awb';
 
+// ─── Booking notice ──────────────────────────────────────
+/**
+ * Facility rule shown, in red, on the booking confirmation the moment the
+ * user commits to a booking — and again on the "Booking Confirmed" alert
+ * so it survives the redirect to /bookings.
+ *
+ * This is the DEFAULT only. Each center overrides it with a
+ * `BOOKING_NOTICE` policy (center → global → this constant, resolved by
+ * `getPolicyValue`) and can blank it out entirely by saving an empty
+ * string, so a center with no shoe rule shows no notice.
+ */
+export const DEFAULT_BOOKING_NOTICE =
+  'Please carry a separate pair of sports shoes and change into them at '
+  + 'TopPlay—outside shoes are strictly not allowed inside the facility.';
+
 // ─── Helpers ─────────────────────────────────────────────
 export function getMachineCard(id: MachineId): MachineCard {
   const card = MACHINE_CARDS.find(m => m.id === id);

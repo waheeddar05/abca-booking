@@ -10,8 +10,12 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
  * remains is exactly the Ground Staff / Coach / Sidearm model:
  *
  *  1. An operator is on duty for a slot when their OPERATOR membership's
- *     weekly availability covers it. No schedule configured = always on
- *     duty, so a center that hasn't filled anything in still works.
+ *     weekly availability covers it. No schedule configured = NOT
+ *     available: an operator only becomes eligible for assignment once an
+ *     admin has entered a window that covers the slot. (Coaches and
+ *     sidearm specialists already work this way; ground staff are the
+ *     deliberate exception, being a floor contact rather than an
+ *     assignable resource.)
  *  2. An operator serves one booking at a time, so the number of
  *     operator-assisted machine bookings a slot can carry is exactly the
  *     number of operators available for it.
@@ -134,8 +138,15 @@ describe('loadOperatorRoster', () => {
 });
 
 describe('operatorIsAvailableForSlot', () => {
-  it('treats an operator with no configured schedule as always on duty', () => {
-    expect(operatorIsAvailableForSlot(op('a', 1), slot)).toBe(true);
+  it('treats an operator with no configured schedule as NOT available', () => {
+    expect(operatorIsAvailableForSlot(op('a', 1), slot)).toBe(false);
+  });
+
+  it('matches the coach / sidearm rule rather than the ground-staff one', () => {
+    // Ground staff fall back to "always on the floor" when unscheduled.
+    // Operators are an assignable resource, so they do not.
+    expect(operatorIsAvailableForSlot(op('a', 1, []), slot)).toBe(false);
+    expect(operatorsAvailableForSlot([op('a', 1), op('b', 2)], slot)).toEqual([]);
   });
 
   it('accepts a slot that fits inside a weekly window', () => {
@@ -165,11 +176,12 @@ describe('operatorIsAvailableForSlot', () => {
 
   it('filters the roster while preserving priority order', () => {
     const roster = [
-      op('a', 1, [{ ...MORNING, dayOfWeek: 0 }]),
-      op('b', 2, [MORNING]),
-      op('c', 3),
+      op('a', 1, [{ ...MORNING, dayOfWeek: 0 }]), // wrong weekday
+      op('b', 2, [MORNING]), // covers the slot
+      op('c', 3), // no schedule at all
+      op('d', 4, [MORNING]), // covers the slot
     ];
-    expect(operatorsAvailableForSlot(roster, slot).map((o) => o.userId)).toEqual(['b', 'c']);
+    expect(operatorsAvailableForSlot(roster, slot).map((o) => o.userId)).toEqual(['b', 'd']);
   });
 });
 
@@ -182,10 +194,10 @@ describe('getAvailableOperatorCount — capacity comes from availability', () =>
     expect(await getAvailableOperatorCount('ctr_x', slot, db as never)).toBe(2);
   });
 
-  it('counts the whole roster when nobody has a schedule configured', async () => {
+  it('is 0 when nobody has a schedule configured, however large the roster', async () => {
     const db = makeDb({ roster: [op('a', 1), op('b', 2), op('c', 3), op('d', 4)] });
 
-    expect(await getAvailableOperatorCount('ctr_x', slot, db as never)).toBe(4);
+    expect(await getAvailableOperatorCount('ctr_x', slot, db as never)).toBe(0);
   });
 
   it('is 0 when the center has no operators at all', async () => {
@@ -201,7 +213,10 @@ describe('getAvailableOperatorCount — capacity comes from availability', () =>
 
 describe('getOperatorSlotCapacity — one operator, one booking', () => {
   it('subtracts operators already on an overlapping booking', async () => {
-    const db = makeDb({ roster: [op('a', 1), op('b', 2), op('c', 3)], busyOperatorIds: ['a'] });
+    const db = makeDb({
+      roster: [op('a', 1, [MORNING]), op('b', 2, [MORNING]), op('c', 3, [MORNING])],
+      busyOperatorIds: ['a'],
+    });
 
     const capacity = await getOperatorSlotCapacity({ centerId: 'ctr_x', slot, tx: db as never });
 
@@ -209,13 +224,28 @@ describe('getOperatorSlotCapacity — one operator, one booking', () => {
   });
 
   it('reports zero remaining capacity once every operator is booked', async () => {
-    const db = makeDb({ roster: [op('a', 1), op('b', 2)], busyOperatorIds: ['a', 'b'] });
+    const db = makeDb({
+      roster: [op('a', 1, [MORNING]), op('b', 2, [MORNING])],
+      busyOperatorIds: ['a', 'b'],
+    });
 
     const capacity = await getOperatorSlotCapacity({ centerId: 'ctr_x', slot, tx: db as never });
 
     expect(capacity.onDuty).toBe(2);
     expect(capacity.free).toBe(0);
     expect(capacity.freeOperatorIds).toEqual([]);
+  });
+
+  it('reports no capacity at all when the roster has no schedules', async () => {
+    // The whole point of the "unscheduled = unavailable" rule: a roster of
+    // three operators with nothing entered yields zero bookable capacity,
+    // not three.
+    const db = makeDb({ roster: [op('a', 1), op('b', 2), op('c', 3)] });
+
+    const capacity = await getOperatorSlotCapacity({ centerId: 'ctr_x', slot, tx: db as never });
+
+    expect(capacity).toEqual({ onDuty: 0, busy: 0, free: 0, freeOperatorIds: [] });
+    expect(db.booking.findMany).not.toHaveBeenCalled();
   });
 
   it('ignores an off-duty operator who is busy elsewhere', async () => {
@@ -245,7 +275,7 @@ describe('getOperatorSlotCapacity — one operator, one booking', () => {
       centerId: 'ctr_x',
       slot,
       tx: db as never,
-      roster: [op('a', 1)],
+      roster: [op('a', 1, [MORNING])],
     });
 
     expect(capacity.freeOperatorIds).toEqual(['a']);
@@ -253,7 +283,7 @@ describe('getOperatorSlotCapacity — one operator, one booking', () => {
   });
 
   it('counts overlapping bookings, not just an identical start time', async () => {
-    const db = makeDb({ roster: [op('a', 1)] });
+    const db = makeDb({ roster: [op('a', 1, [MORNING])] });
 
     await getOperatorSlotCapacity({ centerId: 'ctr_x', slot, tx: db as never });
 
@@ -267,13 +297,26 @@ describe('getOperatorSlotCapacity — one operator, one booking', () => {
 
 describe('autoAssignOperator', () => {
   it('picks the highest-priority operator available for the slot', async () => {
-    const db = makeDb({ roster: [op('a', 1), op('b', 2)] });
+    const db = makeDb({ roster: [op('a', 1, [MORNING]), op('b', 2, [MORNING])] });
     expect(await assign(db)).toBe('a');
   });
 
   it('skips an operator who is already on an overlapping booking', async () => {
-    const db = makeDb({ roster: [op('a', 1), op('b', 2)], busyOperatorIds: ['a'] });
+    const db = makeDb({
+      roster: [op('a', 1, [MORNING]), op('b', 2, [MORNING])],
+      busyOperatorIds: ['a'],
+    });
     expect(await assign(db)).toBe('b');
+  });
+
+  it('skips an operator with no availability entered, even at priority 1', async () => {
+    const db = makeDb({ roster: [op('a', 1), op('b', 2, [MORNING])] });
+    expect(await assign(db)).toBe('b');
+  });
+
+  it('returns null when no operator has entered any availability', async () => {
+    const db = makeDb({ roster: [op('a', 1), op('b', 2), op('c', 3)] });
+    expect(await assign(db)).toBeNull();
   });
 
   it('skips an operator whose schedule does not cover the slot', async () => {
@@ -286,7 +329,10 @@ describe('autoAssignOperator', () => {
   it('returns null once the slot is at operator capacity', async () => {
     // Two operators, both already booked in this window — the third
     // machine booking cannot be operator-assisted.
-    const db = makeDb({ roster: [op('a', 1), op('b', 2)], busyOperatorIds: ['a', 'b'] });
+    const db = makeDb({
+      roster: [op('a', 1, [MORNING]), op('b', 2, [MORNING])],
+      busyOperatorIds: ['a', 'b'],
+    });
     expect(await assign(db)).toBeNull();
   });
 

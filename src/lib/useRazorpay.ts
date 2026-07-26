@@ -32,6 +32,10 @@ interface PaymentConfig {
    *  the first supported value per machine and hide the picker. */
   ballTypeSelectionEnabled?: boolean;
   pitchTypeSelectionEnabled?: boolean;
+  /** Must-read facility rule shown in red on the booking confirmation.
+   *  Resolved center → global → `DEFAULT_BOOKING_NOTICE`; an empty string
+   *  means the center turned the notice off. */
+  bookingNotice?: string;
 }
 
 interface RazorpayOrderResponse {

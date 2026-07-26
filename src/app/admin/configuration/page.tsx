@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useSession } from 'next-auth/react';
-import { Settings, IndianRupee, Save, Loader2, Zap, Check, CreditCard, Banknote, Wallet, ShoppingBag } from 'lucide-react';
+import { Settings, IndianRupee, Save, Loader2, Zap, Check, CreditCard, Banknote, Wallet, ShoppingBag, AlertTriangle } from 'lucide-react';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { AdminPageHeader } from '@/components/admin/AdminPageHeader';
 import { AdminCard } from '@/components/admin/AdminCard';
@@ -12,6 +12,7 @@ import { ResourcePricingEditor } from '@/components/admin/ResourcePricingEditor'
 import { EnabledCategoriesEditor } from '@/components/admin/EnabledCategoriesEditor';
 import { MatchPracticeConfigEditor } from '@/components/admin/MatchPracticeConfigEditor';
 import { EnabledPitchTypesEditor } from '@/components/admin/EnabledPitchTypesEditor';
+import { DEFAULT_BOOKING_NOTICE } from '@/lib/client-constants';
 import { Ticket } from 'lucide-react';
 
 interface SlabPricing {
@@ -231,6 +232,13 @@ export default function ConfigurationPage() {
   const [savingPayment, setSavingPayment] = useState(false);
   const [paymentMessage, setPaymentMessage] = useState({ text: '', type: '' });
 
+  // Booking notice — the red must-read facility rule on the booking
+  // confirmation. Stored as the `BOOKING_NOTICE` policy so each center
+  // can reword it (or clear it to hide the notice entirely). Unset falls
+  // back to DEFAULT_BOOKING_NOTICE, so we seed the editor with the
+  // default rather than an empty box the admin might save by accident.
+  const [bookingNotice, setBookingNotice] = useState(DEFAULT_BOOKING_NOTICE);
+
   // Kit Rental Config state. `machineRowConfigs` is a Toplay (and
   // future RESOURCE_BASED center) extension: instead of one global
   // price + an ABCA enum allowlist, each Machine row at the center
@@ -316,6 +324,13 @@ export default function ConfigurationPage() {
                 ? true
                 : policies['PITCH_TYPE_SELECTION_ENABLED'] === 'true',
           });
+          // Booking notice. `undefined` = never configured → show the
+          // default. A stored empty string is a real value (notice off)
+          // and must survive the round-trip, so only `undefined` falls
+          // back.
+          if (policies['BOOKING_NOTICE'] !== undefined) {
+            setBookingNotice(policies['BOOKING_NOTICE']);
+          }
           // Load kit rental config
           if (policies['KIT_RENTAL_CONFIG']) {
             try {
@@ -439,7 +454,15 @@ export default function ConfigurationPage() {
       });
       if (!kitRes.ok) errors.push('Failed to save kit rental settings');
 
-      // 3. Fire the trigger-based child editors (resource-based centers).
+      // 3. Booking notice (the red rule on the booking confirmation).
+      const noticeRes = await fetch(`/api/admin/policies?scope=${scope}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ key: 'BOOKING_NOTICE', value: bookingNotice.trim() }),
+      });
+      if (!noticeRes.ok) errors.push('Failed to save booking notice');
+
+      // 4. Fire the trigger-based child editors (resource-based centers).
       setSettingsSaveTrigger(prev => prev + 1);
 
       if (errors.length > 0) {
@@ -547,6 +570,43 @@ export default function ConfigurationPage() {
             ))}
           </div>
         )}
+      </AdminCard>
+
+      {/* ─── Booking Notice ──────────────────────── */}
+      <AdminCard
+        title="Booking Notice"
+        icon={<AlertTriangle className="w-4 h-4 text-red-400" />}
+        collapsible
+        defaultOpen={false}
+      >
+        <div className="space-y-3">
+          <p className="text-[11px] leading-relaxed text-slate-400">
+            Shown in red on the booking confirmation dialog and at the top of
+            the user&apos;s Bookings page — for rules a player must act on
+            before they arrive. Leave it empty to hide the notice entirely.
+            Saved by the single Save button at the bottom of this page.
+          </p>
+          <textarea
+            value={bookingNotice}
+            onChange={(e) => setBookingNotice(e.target.value)}
+            rows={3}
+            placeholder={DEFAULT_BOOKING_NOTICE}
+            className={`${inputClass} resize-y min-h-[72px]`}
+          />
+          {/* Live preview so the admin sees exactly what the player gets. */}
+          {bookingNotice.trim() ? (
+            <div className="flex items-start gap-2 px-3 py-2.5 bg-red-500/[0.12] border border-red-500/40 rounded-lg">
+              <AlertTriangle className="w-4 h-4 text-red-400 mt-0.5 flex-shrink-0" />
+              <p className="text-xs font-semibold text-red-300 leading-relaxed whitespace-pre-line">
+                {bookingNotice.trim()}
+              </p>
+            </div>
+          ) : (
+            <p className="text-[11px] text-slate-500 italic">
+              Empty — no notice will be shown to players.
+            </p>
+          )}
+        </div>
       </AdminCard>
 
       {/* ─── Kit Rental Settings ─────────────────── */}

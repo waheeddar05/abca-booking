@@ -84,6 +84,14 @@ Resolution: center → global → code default. Use `getPolicyValue(key, centerI
 
 `policy-cache.ts` (`getCachedPolicy`) is the legacy global-only helper. Prefer the new `policy.ts` resolver in any new code.
 
+### Booking notice (`BOOKING_NOTICE`)
+
+A must-read facility rule rendered **in red** wherever the user meets a booking confirmation: the `ConfirmDialog`'s `notice` prop (louder than the existing amber `warning` prop — `warning` is advice about the booking, `notice` is a rule the player has to act on) on both `ResourceSlotsPage` and `MatchPracticePanel`, plus a banner at the top of `/bookings`, since the booking flow redirects there and the dialog is gone by the time the confirmed booking is read.
+
+Text resolves center → global → `DEFAULT_BOOKING_NOTICE` (`src/lib/client-constants.ts`, defaults to the TopPlay outside-shoes rule) and reaches the client via `bookingNotice` on `/api/payments/config`. **A stored empty string means "no notice"** and is a real value — only an unset policy falls back to the default, so a center without a shoe rule turns it off by saving blank. Edited on Admin → Configuration → **Booking Notice** (with a live red preview), saved by that page's single Save button.
+
+Not carried on WhatsApp: `booking_detail` is a Meta-approved fixed-param template, so adding a line would need re-approval.
+
 ### API Route Pattern
 All API routes are in `src/app/api/`. Standard pattern for protected, center-scoped routes:
 ```typescript
@@ -208,9 +216,10 @@ ABCA's existing rows default to `MACHINE` and have no `BookingResourceAssignment
 Operators are staffed exactly like Ground Staff / Coaches / Sidearm Specialists — there is no operator-specific configuration model any more. Each `CenterMembership(role='OPERATOR')` carries weekly `MembershipAvailability` windows (with an optional effective date range) plus a `priority` (1 = first pick), both edited on **Admin → Operators** (`src/app/admin/operators/page.tsx`), which is a 1:1 mirror of Admin → Ground Staff and reuses `SpecialistAvailabilityCard` / the `…/members/[membershipId]/availability` endpoint.
 
 Rules, all in `src/lib/operatorAssign.ts`:
-- **On duty** = the operator's weekly schedule covers the slot. **No schedule configured = always on duty** (same rule as `pickGroundStaffForSlot`), so a center that hasn't filled anything in keeps working and its capacity is its roster size.
-- **One operator, one booking.** The number of operator-assisted MACHINE bookings a slot can hold equals the number of operators available for that slot. `getOperatorSlotCapacity` returns `{ onDuty, busy, free, freeOperatorIds }`; `autoAssignOperator` takes the highest-priority free one, or null when the slot is at capacity.
-- `onDuty === 0` → nobody available: LEATHER machines are unbookable, TENNIS falls back to `SELF_OPERATE`. Same fallback when `free === 0`.
+- **On duty** = the operator's weekly schedule covers the slot. **No schedule configured = NOT available** — an operator is only eligible for auto-assignment once an admin has entered a window that covers the slot. This is the coach / sidearm rule (`slotMatchesMembershipAvailability` returns false on an empty schedule), **not** the ground-staff rule; `pickGroundStaffForSlot` keeps its "unscheduled = always on the floor" fallback because ground staff are a floor contact rather than an assignable resource. Consequence when rolling out to a center that hasn't filled schedules in yet: capacity is 0, so LEATHER is unbookable and TENNIS self-operates until the schedules exist. Admin → Operators warns about unscheduled operators by count.
+- **One operator, one booking.** The number of operator-assisted MACHINE bookings a slot can hold equals the number of operators available for that slot — never the roster size. `getOperatorSlotCapacity` returns `{ onDuty, busy, free, freeOperatorIds }`; `autoAssignOperator` takes the highest-priority free one, or null when the slot is at capacity.
+- `onDuty === 0` → nobody available: LEATHER machines are unbookable, TENNIS falls back to `SELF_OPERATE`. Same fallback when `free === 0`. Enforced server-side in `/api/slots/book-resource` (409 for LEATHER) and surfaced to the grid by `/api/slots/resource-availability` as `operatorCount` / `operatorsBusy` / `operatorAvailable` / `selfOperate`.
+- The **manual** operator reassignment on Admin → Bookings (`canOperateAtCenter`) is deliberately *not* availability-gated — it is an admin override for the off-schedule case.
 - Changing an operator's availability does **not** cancel or refund existing bookings (`bookingAssignmentFilter` returns null for OPERATOR, as for GROUND_STAFF) — operators are fungible and never user-picked, so an admin reassigns from Admin → Bookings instead.
 
 **Removed, do not reintroduce**: the `OPERATOR_SCHEDULE_CONFIG` and `OPERATOR_DATE_OVERRIDES` policies, the `NUMBER_OF_OPERATORS` fallback for staffing, the day+slab priority matrix on `User.operator*Priority`, and the per-machine `OperatorAssignment` table. The columns/table survive in the schema marked DEPRECATED so existing rows aren't destroyed, but nothing reads them. `/api/admin/operators` is now GET-only (the Admin → Bookings reassignment dropdown); `/api/admin/override-cancellations` is gone.

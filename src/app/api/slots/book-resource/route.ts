@@ -1317,14 +1317,20 @@ async function executeResourceBookingCore(
               }
 
               // ─── Operator auto-assignment (MACHINE category only) ───
-              //   - operatorsOnDuty === 0 → nobody is working this
-              //     window: leather can't be booked, tennis self-operates.
-              //   - Otherwise ALWAYS name an operator. The on-duty count
-              //     is a staffing level, never a per-slot cap: a center
-              //     with one operator and four nets still wants that one
-              //     operator on all four bookings, which is precisely the
-              //     manual assignment admins were doing to work around
-              //     the old "Nth booking gets nobody" behaviour.
+              //
+              // Capacity comes from the operator availability schedule, not
+              // from a roster count: one operator serves one booking, so a
+              // slot carries exactly as many operator-assisted machine
+              // bookings as there are operators on duty for it. Operators
+              // with no weekly schedule are not on duty at all.
+              //
+              //   - onDuty === 0 → nobody is working this window: leather
+              //     is rejected (409), tennis falls back to SELF_OPERATE.
+              //   - onDuty > 0 but every one already has an overlapping
+              //     booking → slot is at capacity: same split, leather 409
+              //     and tennis SELF_OPERATE.
+              //   - Otherwise take the highest-priority free operator.
+              //
               // SIDEARM/COACHING/FULL_COURT skip this — those categories
               // already pin a specific staff/coach via assignedStaffId /
               // assignedCoachId, or need no operator at all.

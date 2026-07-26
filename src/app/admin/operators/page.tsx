@@ -20,8 +20,10 @@
  * availability alone:
  *
  *   - An operator is on duty for a slot when their weekly schedule covers
- *     it (no schedule configured = always on duty, same rule ground staff
- *     use).
+ *     it. An operator with NO schedule is NOT available and is never
+ *     auto-assigned — the same rule coaches and sidearm specialists
+ *     follow. (Ground staff are the exception: they are a floor contact,
+ *     not an assignable resource, so unscheduled means always on hand.)
  *   - Each operator-assisted machine booking consumes one operator, so a
  *     slot can carry exactly as many as are available for it.
  *
@@ -133,6 +135,10 @@ export default function AdminOperatorsPage() {
     return <p className="text-sm text-slate-400">Select a center first.</p>;
   }
 
+  // Operators the booking engine will skip entirely because no weekly
+  // window has been entered for them.
+  const unscheduledCount = operators.filter((o) => o.availability.length === 0).length;
+
   return (
     <div className="space-y-4">
       <AdminPageHeader
@@ -146,8 +152,24 @@ export default function AdminOperatorsPage() {
       <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] px-3 py-2.5 text-[11px] leading-relaxed text-slate-400">
         Each machine booking with an operator uses one operator, so the number
         of operator-assisted bookings a slot can hold equals the number of
-        operators available for it. An operator with no weekly schedule
-        configured is treated as available at all times.
+        operators available for it.
+      </div>
+
+      {/* Unscheduled operators are invisible to the booking engine, and
+          that is easy to miss — call it out with the count so an admin
+          knows exactly why a slot shows no operator. */}
+      <div className="rounded-xl border border-amber-500/25 bg-amber-500/[0.07] px-3 py-2.5 text-[11px] leading-relaxed text-amber-200/90">
+        <span className="font-semibold">Availability is required.</span> An
+        operator with no weekly schedule is treated as <span className="font-semibold">Not
+        Available</span> and is never assigned to a booking. Add their
+        availability below to make them eligible.
+        {unscheduledCount > 0 && (
+          <>
+            {' '}Right now {unscheduledCount === 1 ? '1 operator has' : `${unscheduledCount} operators have`}{' '}
+            no availability set and {unscheduledCount === 1 ? 'is' : 'are'} not being
+            considered for any slot.
+          </>
+        )}
       </div>
 
       {error && (

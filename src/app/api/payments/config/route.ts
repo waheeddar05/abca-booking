@@ -4,6 +4,7 @@ import { getAuthenticatedUser } from '@/lib/auth';
 import { resolveCurrentCenter } from '@/lib/centers';
 import { getCenterRazorpayCredentials } from '@/lib/razorpay';
 import { getPolicyValue, isPolicyEnabled } from '@/lib/policy';
+import { DEFAULT_BOOKING_NOTICE } from '@/lib/client-constants';
 
 const ENV_RAZORPAY_PUBLIC_KEY = process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID
   || process.env.RAZORPAY_KEY_ID
@@ -28,6 +29,7 @@ export async function GET(req: NextRequest) {
       kitRentalRaw,
       ballTypeSelectionEnabled,
       pitchTypeSelectionEnabled,
+      bookingNoticeRaw,
     ] = await Promise.all([
       isPolicyEnabled('PAYMENT_GATEWAY_ENABLED', centerId),
       isPolicyEnabled('SLOT_PAYMENT_REQUIRED', centerId),
@@ -43,6 +45,11 @@ export async function GET(req: NextRequest) {
       // when the policy isn't set, matching the existing UI behaviour.
       isPolicyEnabled('BALL_TYPE_SELECTION_ENABLED', centerId, true),
       isPolicyEnabled('PITCH_TYPE_SELECTION_ENABLED', centerId, true),
+      // Must-read facility rule shown in red on the booking confirmation.
+      // `null` (never configured) falls back to DEFAULT_BOOKING_NOTICE
+      // below; an explicitly saved empty string suppresses the notice, so
+      // a center without a shoe rule can turn it off without a code change.
+      getPolicyValue('BOOKING_NOTICE', centerId, null),
     ]);
 
     // Check per-user cash payment override at the user's current center.
@@ -99,6 +106,8 @@ export async function GET(req: NextRequest) {
       // center configuration page to force-pick the first option.
       ballTypeSelectionEnabled,
       pitchTypeSelectionEnabled,
+      // Empty string = admin deliberately turned the notice off.
+      bookingNotice: (bookingNoticeRaw ?? DEFAULT_BOOKING_NOTICE).trim(),
       centerId: center?.id ?? null,
     });
   } catch (error) {

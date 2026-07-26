@@ -48,11 +48,12 @@ function istHHMM(d: Date): string {
 
 /**
  * Same rule as `operatorIsAvailableForSlot`: no configured schedule means
- * always on duty; otherwise the slot must fit entirely inside one weekly
- * window whose effective date range covers the booking's date.
+ * NOT available (an operator has to have a window before the engine will
+ * hand them a booking); otherwise the slot must fit entirely inside one
+ * weekly window whose effective date range covers the booking's date.
  */
 function isAvailable(op: Candidate, booking: { date: Date; startTime: Date; endTime: Date }): boolean {
-  if (op.availability.length === 0) return true;
+  if (op.availability.length === 0) return false;
   const dow = istDayOfWeek(booking.startTime);
   const dateMs = booking.date.getTime();
   const start = istHHMM(booking.startTime);

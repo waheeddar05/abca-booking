@@ -9,6 +9,13 @@ interface ConfirmDialogProps {
   message: string;
   /** Optional warning text shown below message */
   warning?: string;
+  /**
+   * Optional red, must-read facility rule shown below `message` and
+   * `warning`. Louder than `warning` on purpose — `warning` is amber
+   * advice about the booking ("you'll be self-operating"), `notice` is a
+   * rule the user has to act on before they arrive.
+   */
+  notice?: string;
   confirmLabel?: string;
   cancelLabel?: string;
   variant?: 'default' | 'danger';
@@ -22,6 +29,7 @@ export function ConfirmDialog({
   title,
   message,
   warning,
+  notice,
   confirmLabel = 'Confirm',
   cancelLabel = 'Cancel',
   variant = 'default',
@@ -78,43 +86,65 @@ export function ConfirmDialog({
       aria-labelledby="confirm-dialog-title"
       aria-describedby="confirm-dialog-desc"
     >
+      {/*
+        Three-row flex column so the dialog fits a phone: the header and
+        the action buttons are pinned and only the message area scrolls.
+        Before this, a multi-slot summary plus the red facility notice
+        could push the Confirm button below the fold on a short screen
+        with no way to scroll to it (the backdrop locks body scroll).
+        `dvh` rather than `vh` so the mobile browser chrome is excluded.
+      */}
       <div
         ref={dialogRef}
-        className="bg-[#0f1d2f] border border-white/[0.12] rounded-2xl w-full max-w-sm p-5 shadow-2xl animate-slide-up"
+        className="bg-[#0f1d2f] border border-white/[0.12] rounded-2xl w-full max-w-sm shadow-2xl animate-slide-up flex flex-col max-h-[calc(100dvh-2rem)]"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
-        <div className="flex items-start justify-between mb-4">
-          <h2 id="confirm-dialog-title" className="text-base font-bold text-white pr-4">
+        <div className="flex items-start justify-between gap-2 px-5 pt-5 pb-3 flex-shrink-0">
+          <h2 id="confirm-dialog-title" className="text-base font-bold text-white">
             {title}
           </h2>
           <button
             onClick={onCancel}
-            className="p-1.5 text-slate-400 hover:text-white hover:bg-white/[0.06] rounded-lg transition-colors cursor-pointer flex-shrink-0"
+            className="p-1.5 -mt-1 -mr-1.5 text-slate-400 hover:text-white hover:bg-white/[0.06] rounded-lg transition-colors cursor-pointer flex-shrink-0"
             aria-label="Close dialog"
           >
             <X className="w-4 h-4" />
           </button>
         </div>
 
-        {/* Body */}
-        <p id="confirm-dialog-desc" className="text-sm text-slate-300 leading-relaxed whitespace-pre-line">
-          {message}
-        </p>
+        {/* Body — the only scrollable region */}
+        <div className="px-5 flex-1 min-h-0 overflow-y-auto overscroll-contain">
+          <p id="confirm-dialog-desc" className="text-sm text-slate-300 leading-relaxed whitespace-pre-line">
+            {message}
+          </p>
 
-        {warning && (
-          <div className="mt-3 px-3 py-2.5 bg-amber-500/10 border border-amber-500/20 rounded-lg flex items-start gap-2">
-            <AlertTriangle className="w-4 h-4 text-amber-400 mt-0.5 flex-shrink-0" />
-            <p className="text-xs text-amber-300 leading-relaxed">{warning}</p>
-          </div>
-        )}
+          {warning && (
+            <div className="mt-3 px-3 py-2.5 bg-amber-500/10 border border-amber-500/20 rounded-lg flex items-start gap-2">
+              <AlertTriangle className="w-4 h-4 text-amber-400 mt-0.5 flex-shrink-0" />
+              <p className="text-xs text-amber-300 leading-relaxed">{warning}</p>
+            </div>
+          )}
+
+          {notice && (
+            <div
+              role="alert"
+              className="mt-3 px-3 py-2.5 bg-red-500/[0.12] border border-red-500/40 rounded-lg flex items-start gap-2"
+            >
+              <AlertTriangle className="w-4 h-4 text-red-400 mt-0.5 flex-shrink-0" />
+              <p className="text-xs font-semibold text-red-300 leading-relaxed whitespace-pre-line">
+                {notice}
+              </p>
+            </div>
+          )}
+        </div>
 
         {/* Actions */}
-        <div className="flex gap-3 mt-5">
+        <div className="flex gap-3 px-5 pt-4 pb-5 flex-shrink-0">
           <button
             onClick={onCancel}
             disabled={loading}
-            className="flex-1 px-4 py-2.5 text-sm font-medium text-slate-300 bg-white/[0.06] hover:bg-white/[0.1] rounded-xl transition-colors cursor-pointer disabled:opacity-50"
+            className="flex-1 min-w-0 px-3 py-2.5 text-sm font-medium text-slate-300 bg-white/[0.06] hover:bg-white/[0.1] rounded-xl transition-colors cursor-pointer disabled:opacity-50"
           >
             {cancelLabel}
           </button>
@@ -122,7 +152,7 @@ export function ConfirmDialog({
             ref={confirmBtnRef}
             onClick={onConfirm}
             disabled={loading}
-            className={`flex-1 px-4 py-2.5 text-sm font-bold rounded-xl transition-colors cursor-pointer disabled:opacity-50 ${
+            className={`flex-1 min-w-0 px-3 py-2.5 text-sm font-bold rounded-xl transition-colors cursor-pointer disabled:opacity-50 ${
               isDanger
                 ? 'bg-red-500 hover:bg-red-400 text-white'
                 : 'bg-accent hover:bg-accent-light text-primary'

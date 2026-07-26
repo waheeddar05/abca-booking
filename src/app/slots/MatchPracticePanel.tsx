@@ -40,6 +40,7 @@ import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { PaymentMethodSelector } from '@/components/ui/PaymentMethodSelector';
 import { api } from '@/lib/api-client';
 import { useRazorpay } from '@/lib/useRazorpay';
+import { DEFAULT_BOOKING_NOTICE } from '@/lib/client-constants';
 
 // ─── API shapes (mirror /api/match-practice/availability) ────────────
 
@@ -141,6 +142,9 @@ interface PaymentConfigLite {
   slotPaymentRequired: boolean;
   cashPaymentEnabled: boolean;
   walletEnabled: boolean;
+  /** Red facility rule for the confirmation dialog. `''` = center turned
+   *  it off; absent = fall back to `DEFAULT_BOOKING_NOTICE`. */
+  bookingNotice?: string;
 }
 
 const DAY_SHORT = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
@@ -826,6 +830,11 @@ export default function MatchPracticePanel({
         open={showConfirm}
         title="Confirm Booking"
         message={confirmLines.join('\n')}
+        notice={
+          paymentConfig
+            ? paymentConfig.bookingNotice ?? DEFAULT_BOOKING_NOTICE
+            : DEFAULT_BOOKING_NOTICE
+        }
         confirmLabel={
           dialogRequiresOnline
             ? `Pay ₹${dialogAfterWallet.toLocaleString()}`

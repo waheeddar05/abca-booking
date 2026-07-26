@@ -1,11 +1,13 @@
 'use client';
 
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { ClipboardList, Loader2, ChevronLeft, ChevronRight, XCircle } from 'lucide-react';
+import { ClipboardList, Loader2, ChevronLeft, ChevronRight, XCircle, AlertTriangle } from 'lucide-react';
 import { ContactFooter } from '@/components/ContactFooter';
 import { CancellationDialog } from '@/components/ui/CancellationDialog';
 import { BookingCard } from '@/components/BookingCard';
 import { useToast } from '@/components/ui/Toast';
+import { usePaymentConfig } from '@/lib/useRazorpay';
+import { DEFAULT_BOOKING_NOTICE } from '@/lib/client-constants';
 
 
 interface RefundEntry {
@@ -107,6 +109,15 @@ export default function BookingsPage() {
   const [activeTab, setActiveTab] = useState<BookingTab>('all');
   const [pagination, setPagination] = useState<PaginationInfo>({ page: 1, limit: 20, total: 0, totalPages: 0 });
   const toast = useToast();
+
+  // Facility rule for the current center, resolved center → global →
+  // default by /api/payments/config. Until the config lands we show the
+  // default rather than nothing — missing the rule is worse than showing
+  // it a beat early. `''` means the center switched the notice off.
+  const { config: paymentConfig } = usePaymentConfig();
+  const bookingNotice = paymentConfig
+    ? paymentConfig.bookingNotice ?? DEFAULT_BOOKING_NOTICE
+    : DEFAULT_BOOKING_NOTICE;
 
   const fetchBookings = useCallback(async () => {
     setLoading(true);
@@ -256,6 +267,23 @@ export default function BookingsPage() {
         </div>
       ) : (
         <div>
+          {/* Facility rule — same red notice the confirmation dialog shows,
+              repeated here because the booking flow redirects straight to
+              this page: the dialog is dismissed by the time the user reads
+              their confirmed booking. Hidden when the center blanked the
+              BOOKING_NOTICE policy. */}
+          {bookingNotice && (
+            <div
+              role="alert"
+              className="flex items-start gap-2 py-3 px-4 rounded-xl bg-red-500/[0.12] border border-red-500/40 mb-3"
+            >
+              <AlertTriangle className="w-4 h-4 text-red-400 mt-0.5 flex-shrink-0" />
+              <p className="text-xs md:text-sm font-semibold text-red-300 leading-relaxed">
+                {bookingNotice}
+              </p>
+            </div>
+          )}
+
           {/* Motivational quote banner */}
           <div className="py-3 px-4 rounded-xl bg-gradient-to-r from-accent/5 via-accent/10 to-accent/5 border border-accent/10 mb-4">
             <p className="text-center text-xs md:text-sm font-semibold text-accent italic">

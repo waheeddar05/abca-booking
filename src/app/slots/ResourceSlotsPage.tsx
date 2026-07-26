@@ -62,6 +62,7 @@ import { ContactFooter } from '@/components/ContactFooter';
 import { useCenter } from '@/lib/center-context';
 import { api } from '@/lib/api-client';
 import { useRazorpay, usePaymentConfig } from '@/lib/useRazorpay';
+import { DEFAULT_BOOKING_NOTICE } from '@/lib/client-constants';
 import { computeSlotDiscount, type OfferDescriptor } from '@/lib/offer-calc';
 import MatchPracticePanel from './MatchPracticePanel';
 
@@ -410,6 +411,15 @@ export default function ResourceSlotsPage() {
     },
     !!paymentConfig?.paymentEnabled,
   );
+
+  // Must-read facility rule for the confirmation dialog, resolved
+  // center → global → default by /api/payments/config. `''` means the
+  // center switched it off; `undefined` means the config hasn't landed
+  // yet (or predates the field), and we'd rather show the rule than
+  // silently drop it.
+  const bookingNotice = paymentConfig
+    ? paymentConfig.bookingNotice ?? DEFAULT_BOOKING_NOTICE
+    : DEFAULT_BOOKING_NOTICE;
 
   // Snap paymentMethod back to ONLINE when the center disables cash — the
   // PaymentMethodSelector self-hides the cash button but the state could
@@ -872,15 +882,15 @@ export default function ResourceSlotsPage() {
       }
       // Operator gating — only for non-tennis (leather) machines. Tennis
       // machines can self-operate, so a busy operator pool doesn't block
-      // them. Mirrors ABCA's behaviour in /api/slots/available:360-377 —
-      // leather goes to OperatorUnavailable, tennis falls back to
-      // self-operate. The source of truth is the machine type's
-      // ballType — relying on the code string would silently miss any
-      // future Tennis machine added with a different code than
-      // 'LEVERAGE'.
+      // them; leather machines go Not Available instead. The source of
+      // truth is the machine type's ballType — relying on the code string
+      // would silently miss any future Tennis machine added with a
+      // different code than 'LEVERAGE'.
       //
       // Two operator-unavailability paths to cover:
-      //   1. No operator's weekly availability covers this window.
+      //   1. No operator's weekly availability covers this window — which
+      //      includes operators who have no schedule entered at all, since
+      //      those are never on duty.
       //      → s.selfOperate === true, s.operatorAvailable === false.
       //      Tennis machines fall back to self-operate; leather
       //      machines need an operator who isn't there — Not Available.
@@ -2225,6 +2235,7 @@ export default function ResourceSlotsPage() {
             open={showConfirm}
             title="Confirm Booking"
             message={lines.join('\n')}
+            notice={bookingNotice}
             confirmLabel={confirmLabel}
             cancelLabel="Go Back"
             onCancel={() => setShowConfirm(false)}

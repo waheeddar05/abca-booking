@@ -82,11 +82,17 @@ export async function canOperateAtCenter(
 //   - The number of operator-assisted machine bookings a slot can carry
 //     equals the number of operators available for that slot. An
 //     operator is an exclusive resource: one booking each.
-//   - An operator with NO availability configured is treated as always
-//     available. This mirrors `pickGroundStaffForSlot` and keeps every
-//     existing center working the moment this ships — before an admin
-//     has entered a single window, the roster is the capacity, which is
-//     what the old policy fallback did too.
+//   - An operator with NO availability configured is NOT available. An
+//     operator becomes eligible for auto-assignment only once an admin
+//     has entered at least one weekly window that covers the slot. This
+//     is the same rule coaches and sidearm specialists already follow
+//     (`slotMatchesMembershipAvailability` returns false on an empty
+//     schedule); ground staff are the deliberate exception, because they
+//     are the center's floor contact rather than an assignable resource.
+//     Consequence to be aware of when rolling this out: a center whose
+//     operators have no schedule yet has zero operator capacity, so
+//     LEATHER machines are unbookable and TENNIS machines self-operate
+//     until the admin fills the schedule in.
 //   - Ordering is the membership `priority` (1 = first pick), managed
 //     with the same up/down arrows as the Ground Staff tab.
 
@@ -95,7 +101,7 @@ export interface OperatorRosterEntry {
   userId: string;
   /** Membership priority — lower is picked first. */
   priority: number;
-  /** Weekly windows. Empty = no schedule configured = always available. */
+  /** Weekly windows. Empty = no schedule configured = never available. */
   availability: AvailabilityWindow[];
 }
 
@@ -139,15 +145,18 @@ export async function loadOperatorRoster(
 /**
  * Is this operator on duty for `slot`?
  *
- * No configured schedule ⇒ always on duty (see the module note above).
- * Otherwise the slot must fall entirely inside one of their weekly
- * windows, honouring that window's effective date range.
+ * No configured schedule ⇒ NOT on duty (see the module note above): an
+ * operator has to opt in to a window before the engine will hand them a
+ * booking. Otherwise the slot must fall entirely inside one of their
+ * weekly windows, honouring that window's effective date range.
+ *
+ * `slotMatchesMembershipAvailability` already returns false for an empty
+ * schedule, so there is no special case here — that is the point.
  */
 export function operatorIsAvailableForSlot(
   entry: Pick<OperatorRosterEntry, 'availability'>,
   slot: BookableSlotWindow,
 ): boolean {
-  if (entry.availability.length === 0) return true;
   return slotMatchesMembershipAvailability(slot, entry.availability);
 }
 
