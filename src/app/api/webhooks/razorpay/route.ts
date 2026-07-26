@@ -6,6 +6,13 @@ import {
 } from '@/app/api/slots/book-resource/route';
 import { getCenterRazorpayCredentials, verifyWebhookSignatureWithSecret } from '@/lib/razorpay';
 import { completePackagePurchase } from '@/lib/package-purchase';
+import {
+  claimCaptureAndBooking,
+  claimBookingLease,
+  releaseBookingLease,
+  waitForFulfilment,
+  newLeaseHolder,
+} from '@/lib/payment-claim';
 
 // Booking creation runs a serializable transaction with retries and, on a
 // failure path, polls Payment.bookingIds for up to 8s before refunding.
@@ -31,6 +38,11 @@ export const maxDuration = 60;
  *   Events: payment.captured
  */
 export async function POST(req: NextRequest) {
+  // Payment id whose fulfilment lease this request holds, if any. The
+  // `finally` hands it back on every exit path so a webhook that times
+  // out mid-booking doesn't block recovery until the lease expires.
+  let leaseHeldFor: string | null = null;
+  const leaseHolder = newLeaseHolder('webhook');
   try {
     // Read raw body once — we need it for both parsing and signature verification.
     const rawBody = await req.text();
@@ -118,20 +130,61 @@ export async function POST(req: NextRequest) {
     // path bails out instead of attempting its own booking, which
     // previously caused duplicate-booking + spurious-refund incidents
     // (see verify route's same atomic-claim comment).
+    //
+    // The flip also takes a fulfilment lease that is held for the whole
+    // booking run: without it, the CAPTURED-with-no-bookings state we
+    // leave behind while booking is indistinguishable from an orphan,
+    // and the reconciler books the payment a second time.
+    const fulfilmentKind =
+      payment.paymentType === 'PACKAGE_PURCHASE' ? 'PACKAGE_PURCHASE' as const : 'SLOT_BOOKING' as const;
+
     if (payment.status === 'CREATED') {
-      const claim = await prisma.payment.updateMany({
-        where: { id: payment.id, status: 'CREATED' },
-        data: {
-          status: 'CAPTURED',
-          razorpayPaymentId,
-        },
+      const claim = await claimCaptureAndBooking({
+        paymentId: payment.id,
+        razorpayPaymentId,
+        holder: leaseHolder,
       });
-      if (claim.count === 0) {
-        console.log(`[RazorpayWebhook] Lost claim for payment ${payment.id} — verify is processing`);
+      if (claim.outcome === 'lost') {
+        console.log(`[RazorpayWebhook] Lost claim for payment ${payment.id} — another path is processing`);
         return NextResponse.json({ status: 'claim_lost_to_verify' });
       }
       console.log(`[RazorpayWebhook] Won claim for payment ${payment.id} — proceeding to create bookings`);
+    } else {
+      // Already CAPTURED and unfulfilled — either a genuine orphan
+      // (verify never landed) or a payment being fulfilled *right now*
+      // by verify/the reconciler. Only the lease tells them apart, so
+      // take it before touching the booking engine.
+      const lease = await claimBookingLease({
+        paymentId: payment.id,
+        kind: fulfilmentKind,
+        holder: leaseHolder,
+      });
+      if (lease.outcome === 'gone') {
+        return NextResponse.json({ status: 'no_record' });
+      }
+      if (lease.outcome === 'already_fulfilled') {
+        console.log(`[RazorpayWebhook] Payment ${payment.id} already fulfilled — skipping`);
+        return NextResponse.json({ status: 'already_completed' });
+      }
+      if (lease.outcome === 'busy') {
+        if (!lease.heldSince) {
+          // Refused for a reason other than a live lease — the payment
+          // isn't in a capturable state (FAILED, or flipped under us).
+          // Nothing to wait for and nothing to book.
+          console.log(`[RazorpayWebhook] Payment ${payment.id} is not in a fulfillable state — skipping`);
+          return NextResponse.json({ status: 'not_fulfillable' });
+        }
+        console.log(
+          `[RazorpayWebhook] Payment ${payment.id} is being fulfilled by ${lease.heldBy ?? 'another path'} — waiting`,
+        );
+        const fulfilled = await waitForFulfilment({ paymentId: payment.id, kind: fulfilmentKind });
+        return NextResponse.json({
+          status: fulfilled ? 'already_completed' : 'claim_lost_to_verify',
+        });
+      }
+      console.log(`[RazorpayWebhook] Took booking lease on captured orphan ${payment.id}`);
     }
+    leaseHeldFor = payment.id;
 
     // If CAPTURED but no bookings — the verify call either didn't happen or booking failed.
     // Try to create bookings now.
@@ -267,5 +320,7 @@ export async function POST(req: NextRequest) {
   } catch (error) {
     console.error('[RazorpayWebhook] Error:', error);
     return NextResponse.json({ error: 'Webhook processing failed' }, { status: 500 });
+  } finally {
+    if (leaseHeldFor) await releaseBookingLease(leaseHeldFor, leaseHolder);
   }
 }

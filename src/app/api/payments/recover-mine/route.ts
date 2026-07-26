@@ -16,10 +16,11 @@ export const maxDuration = 30;
  * cron, or webhook involved.
  *
  * Cheap when there's nothing to do (no candidate payments → zero
- * Razorpay calls). Safe to call repeatedly: the reconciler uses the
- * same atomic CREATED→CAPTURED claim as verify/webhook plus the DB slot
- * uniqueness constraint, so it can never double-book against an
- * in-flight verify.
+ * Razorpay calls). Safe to call repeatedly *and* concurrently: the
+ * reconciler takes a fulfilment lease on the Payment row that is held
+ * for the entire booking run (src/lib/payment-claim.ts), so a second
+ * call — from another tab, a remount, or the cron tick — waits for the
+ * first one's result instead of booking the same payment again.
  */
 export async function GET(req: NextRequest) {
   try {

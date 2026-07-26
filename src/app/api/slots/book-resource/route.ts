@@ -170,6 +170,22 @@ export class ResourceBookingServiceError extends Error {
   }
 }
 
+/**
+ * Thrown from inside the booking transaction when the payment we're
+ * fulfilling already has bookings against it — i.e. another path
+ * (verify / webhook / reconciler) got there first. Not an error the
+ * customer should ever see and emphatically NOT a refund trigger: the
+ * caller answers with the bookings that already exist.
+ */
+export class PaymentAlreadyFulfilledError extends Error {
+  bookingIds: string[];
+  constructor(bookingIds: string[]) {
+    super('Payment has already been converted into bookings');
+    this.name = 'PaymentAlreadyFulfilledError';
+    this.bookingIds = bookingIds;
+  }
+}
+
 const MAX_TX_RETRIES = 3;
 
 type AuthedUser = {
@@ -301,6 +317,20 @@ export async function executeResourceBooking(
     try {
       created = await executeResourceBookingCore(user, body, center, { onlinePaymentId });
     } catch (firstErr) {
+      // Another path already fulfilled this payment. Return its bookings
+      // untouched: no retry (there is nothing left to book) and above all
+      // no refund (the customer's money bought exactly these bookings).
+      if (firstErr instanceof PaymentAlreadyFulfilledError) {
+        const existing = await prisma.booking.findMany({
+          where: { id: { in: firstErr.bookingIds } },
+          select: { id: true, status: true },
+        });
+        log.warn(
+          { ...ctx, bookingIds: firstErr.bookingIds },
+          'Payment was already fulfilled by another path — returning existing booking(s), not creating duplicates',
+        );
+        return existing;
+      }
       // Auto-retry only captured online bookings; wallet / cash / free pass
       // straight through (retrying those could double-charge a wallet).
       if (!onlinePaymentId) throw firstErr;
@@ -353,6 +383,20 @@ export async function executeResourceBooking(
 
     return created;
   } catch (error) {
+    // Same guard as on the first attempt: "already fulfilled" is not a
+    // booking failure and must never reach the auto-refund below.
+    if (error instanceof PaymentAlreadyFulfilledError) {
+      const existing = await prisma.booking.findMany({
+        where: { id: { in: error.bookingIds } },
+        select: { id: true, status: true },
+      });
+      log.warn(
+        { ...ctx, bookingIds: error.bookingIds },
+        'Payment was already fulfilled by another path — returning existing booking(s), not refunding',
+      );
+      return existing;
+    }
+
     log.error(ctx, 'Booking failed', error);
 
     // Auto-refund-to-wallet when a Razorpay-captured payment can't be
@@ -948,6 +992,25 @@ async function executeResourceBookingCore(
       try {
         const results = await prisma.$transaction(
           async (tx) => {
+            // ─── Duplicate-fulfilment guard (inner layer) ──────────
+            // The outer guard is the fulfilment lease on the Payment row
+            // (src/lib/payment-claim.ts). This is the backstop for it:
+            // read the payment INSIDE the serializable transaction and
+            // refuse if it already has bookings. Because we also write
+            // `bookingIds` before this transaction commits, two
+            // concurrent attempts to fulfil one payment touch the same
+            // row and Postgres forces one of them to abort — so even a
+            // caller that forgot to take a lease cannot double-book.
+            if (onlinePaymentId) {
+              const payRow = await tx.payment.findUnique({
+                where: { id: onlinePaymentId },
+                select: { bookingIds: true },
+              });
+              if (payRow && payRow.bookingIds.length > 0) {
+                throw new PaymentAlreadyFulfilledError(payRow.bookingIds);
+              }
+            }
+
             const out: { id: string; status: string }[] = [];
             const txPlanCount = isMatchPractice ? mpPlans.length : plans.length;
             for (let i = 0; i < txPlanCount; i++) {
@@ -1468,6 +1531,20 @@ async function executeResourceBookingCore(
 
               out.push(booking);
             }
+
+            // Link the online Payment to the bookings *in the same
+            // transaction* that created them. Previously this was a
+            // post-commit update, which left a window where the payment
+            // looked captured-but-unfulfilled to every recovery path
+            // even though the bookings already existed — the window a
+            // concurrent reconcile ran straight into and double-booked.
+            if (onlinePaymentId && out.length > 0) {
+              await tx.payment.update({
+                where: { id: onlinePaymentId },
+                data: { bookingIds: out.map((b) => b.id) },
+              });
+            }
+
             return out;
           },
           {
@@ -1511,20 +1588,10 @@ async function executeResourceBookingCore(
     throw new ResourceBookingServiceError(msg, 500);
   }
 
-  // Link the online Payment row to the created bookings so refund and
-  // recovery flows can find them. Mirrors executeSlotBooking's post-tx
-  // linkage (src/app/api/slots/book/route.ts ~963).
-  if (onlinePaymentId && created.length > 0) {
-    try {
-      const bookingIds = created.map(b => b.id);
-      await prisma.payment.update({
-        where: { id: onlinePaymentId },
-        data: { bookingIds },
-      });
-    } catch (linkErr) {
-      console.error('Failed to link resource bookings to payment', onlinePaymentId, linkErr);
-    }
-  }
+  // NOTE: the Payment → bookings link is written *inside* the
+  // transaction above, not here. It has to commit atomically with the
+  // bookings, because `Payment.bookingIds` is what every recovery path
+  // reads as "this payment has already been fulfilled".
 
   // Wallet debit — runs *after* the bookings are committed so a wallet
   // failure can roll back the bookings to keep balances honest. Two

@@ -940,6 +940,24 @@ model Payment {
   refundedAt   DateTime?
   refundMethod RefundMethod?
 
+  // ─── Booking lease (duplicate-booking guard) ──────────────────────
+  //
+  // The CREATED→CAPTURED flip alone is NOT enough to serialise booking
+  // creation: it leaves the row as CAPTURED-with-no-bookingIds for the
+  // several seconds the booking transaction runs, and every recovery
+  // path (verify / webhook / reconciler) reads that state as "captured
+  // but unfulfilled → book it now". Two paths landing in that window
+  // both booked, and the customer got double the sessions they paid for.
+  //
+  // `bookingClaimAt` is a lease covering the *whole* fulfilment window,
+  // taken atomically with the capture flip and released when fulfilment
+  // finishes (or fails). Stale leases (older than BOOKING_LEASE_MS, see
+  // src/lib/payment-claim.ts) are stealable so a crashed finalizer can
+  // never wedge a payment permanently. `bookingClaimBy` records which
+  // path holds it, purely for log forensics.
+  bookingClaimAt DateTime?
+  bookingClaimBy String?
+
   // Metadata
   metadata      Json? // Store any extra info (slot details, package info, etc.)
   failureReason String?

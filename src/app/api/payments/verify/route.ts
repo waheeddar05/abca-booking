@@ -11,9 +11,17 @@ import { BookingResourceError } from '@/lib/resource-booking';
 import { completePackagePurchase } from '@/lib/package-purchase';
 import { log } from '@/lib/logger';
 import { markCaptureNeedsRecovery } from '@/lib/payment-recovery';
+import { claimCaptureAndBooking, releaseBookingLease, newLeaseHolder } from '@/lib/payment-claim';
 
 // POST /api/payments/verify - Verify payment and complete booking/purchase
 export async function POST(req: NextRequest) {
+  // Set to the payment id once we win the capture claim (and with it the
+  // fulfilment lease). The `finally` below hands the lease back on every
+  // exit path — success, booking failure, or an unhandled throw — so a
+  // verify that dies mid-booking doesn't block recovery for the full
+  // lease expiry.
+  let leaseHeldFor: string | null = null;
+  const leaseHolder = newLeaseHolder('verify');
   try {
     const user = await getAuthenticatedUser(req);
     if (!user) {
@@ -136,15 +144,22 @@ export async function POST(req: NextRequest) {
     //
     // updateMany with `where: { status: 'CREATED' }` is atomic at the
     // DB row level: exactly one caller's update returns count=1.
-    const claim = await prisma.payment.updateMany({
-      where: { id: paymentId, status: 'CREATED' },
-      data: {
-        status: 'CAPTURED',
-        razorpayPaymentId: razorpay_payment_id,
-        razorpaySignature: razorpay_signature,
-      },
+    //
+    // The flip alone is not sufficient, though: it leaves the row as
+    // CAPTURED-with-no-bookingIds for as long as the booking engine
+    // runs, and that is precisely the state the reconciler is built to
+    // rescue — so a `recover-mine` call landing in that window used to
+    // book the same payment a second time. `claimCaptureAndBooking`
+    // takes the flip AND a fulfilment lease in one statement, so no
+    // other path can mistake our in-flight work for an orphan.
+    const claim = await claimCaptureAndBooking({
+      paymentId,
+      razorpayPaymentId: razorpay_payment_id,
+      razorpaySignature: razorpay_signature,
+      holder: leaseHolder,
     });
-    const wonClaim = claim.count === 1;
+    const wonClaim = claim.outcome === 'won';
+    if (wonClaim) leaseHeldFor = paymentId;
 
     log.info(
       { ...baseCtx, extra: { ...baseCtx.extra, wonClaim, priorStatus: payment.status } },
@@ -378,5 +393,7 @@ export async function POST(req: NextRequest) {
     log.error({ op: 'payment.verify' }, 'Unhandled error', error);
     const message = error instanceof Error ? error.message : 'Payment verification failed';
     return NextResponse.json({ error: message }, { status: 500 });
+  } finally {
+    if (leaseHeldFor) await releaseBookingLease(leaseHeldFor, leaseHolder);
   }
 }

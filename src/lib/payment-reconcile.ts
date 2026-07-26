@@ -23,7 +23,9 @@
  * **Razorpay as the source of truth**: it periodically asks Razorpay
  * "was this order actually paid?" and, if so, runs the exact same
  * booking-creation code the verify/webhook paths use — idempotently and
- * race-safely (same atomic CREATED→CAPTURED claim protocol).
+ * race-safely: it takes the same fulfilment lease verify and the webhook
+ * take (src/lib/payment-claim.ts), so it can never fulfil a payment that
+ * another path is already fulfilling.
  *
  * Driven by:
  *   • `/api/cron/reconcile-payments`        — Vercel Cron, every few min
@@ -34,7 +36,15 @@ import { prisma } from './prisma';
 import { fetchOrderPayments, type RazorpayOrderPaymentItem } from './razorpay';
 import { markCaptureNeedsRecovery } from './payment-recovery';
 import { completePackagePurchase } from './package-purchase';
-import { log } from './logger';
+import { log, type LogContext } from './logger';
+import {
+  claimCaptureAndBooking,
+  claimBookingLease,
+  releaseBookingLease,
+  waitForFulfilment,
+  newLeaseHolder,
+  type FulfilmentKind,
+} from './payment-claim';
 import {
   executeResourceBooking,
   ResourceBookingBodySchema,
@@ -107,15 +117,25 @@ export interface FinalizeOutcome {
 }
 
 /**
- * Turn a known-paid Payment into a confirmed booking/package. Uses the
- * same atomic CREATED→CAPTURED claim as verify/webhook so it can never
- * double-create against a concurrent path.
+ * Turn a known-paid Payment into a confirmed booking/package.
+ *
+ * Holds the fulfilment lease for the whole run, so it can never
+ * double-create against a concurrent verify / webhook / reconcile tick —
+ * including one that arrives while this run is inside the booking
+ * transaction, which is exactly the window that produced a customer
+ * paying for 2 slots and receiving 4.
  */
 async function finalizeCapturedPayment(
   paymentId: string,
   razorpayPaymentId: string,
   source: string,
 ): Promise<FinalizeOutcome> {
+  const holder = newLeaseHolder(`reconcile/${source}`);
+  // Bounded: the self-heal endpoint may scan several payments inside one
+  // 30s request, so a contended payment must not eat the whole budget.
+  // Giving up here is safe — it just means the next tick (or the user's
+  // next visit) reports the result instead of this one.
+  const WAIT_MS = 8_000;
   const payment = await prisma.payment.findUnique({ where: { id: paymentId } });
   if (!payment) return { paymentId, result: 'failed', error: 'payment vanished' };
 
@@ -139,35 +159,91 @@ async function finalizeCapturedPayment(
     return { paymentId, result: 'already_done' };
   }
 
-  // Atomic claim. Only the path that flips CREATED→CAPTURED proceeds.
+  const kind: FulfilmentKind =
+    payment.paymentType === 'PACKAGE_PURCHASE' ? 'PACKAGE_PURCHASE' : 'SLOT_BOOKING';
+
+  // ─── Claim ────────────────────────────────────────────────────────
+  // Two things have to be true before we may run the booking engine:
+  // the payment is ours to finalize, and nobody else is already
+  // finalizing it. The capture flip alone only answered the first —
+  // which is how two `recover-mine` calls 5s apart both booked the same
+  // order (the second one arrived while the first was still inside its
+  // booking transaction, saw CAPTURED-with-no-bookings, and treated it
+  // as an orphan to rescue). The lease answers the second, and is held
+  // until fulfilment finishes. See src/lib/payment-claim.ts.
   if (payment.status === 'CREATED') {
-    const claim = await prisma.payment.updateMany({
-      where: { id: payment.id, status: 'CREATED' },
-      data: { status: 'CAPTURED', razorpayPaymentId },
+    const claim = await claimCaptureAndBooking({
+      paymentId: payment.id,
+      razorpayPaymentId,
+      holder,
     });
-    if (claim.count === 0) {
-      // verify / webhook / another tick grabbed it. Re-read to see if
-      // they already finished; if so report already_done, else back off.
-      const fresh = await prisma.payment.findUnique({ where: { id: payment.id } });
-      const done =
-        !!fresh &&
-        (fresh.status === 'REFUNDED' ||
-          (fresh.paymentType === 'SLOT_BOOKING' && fresh.bookingIds.length > 0) ||
-          (fresh.paymentType === 'PACKAGE_PURCHASE' && !!fresh.userPackageId));
-      if (done) return { paymentId, result: 'already_done', bookingIds: fresh?.bookingIds };
-      log.info(ctx, 'Reconcile lost claim to another path — backing off');
+    if (claim.outcome === 'lost') {
+      // verify / webhook / another tick grabbed it and is fulfilling
+      // now. Wait for their result rather than racing them.
+      const fulfilled = await waitForFulfilment({ paymentId: payment.id, kind, timeoutMs: WAIT_MS });
+      if (fulfilled) {
+        return { paymentId, result: 'already_done', bookingIds: fulfilled.bookingIds };
+      }
+      log.info(ctx, 'Reconcile lost capture claim to another path — backing off');
       return { paymentId, result: 'claim_lost' };
     }
-    log.info(ctx, 'Reconcile won capture claim — finalizing orphaned payment');
+    log.info(ctx, 'Reconcile won capture claim + booking lease — finalizing orphaned payment');
   } else if (payment.status === 'CAPTURED') {
     if (!payment.razorpayPaymentId) {
       await prisma.payment
         .update({ where: { id: payment.id }, data: { razorpayPaymentId } })
         .catch((e) => log.error(ctx, 'Failed to backfill razorpayPaymentId', e));
     }
+    // Already CAPTURED and unfulfilled. This is the state a genuine
+    // orphan sits in — and *also* the state a payment being fulfilled
+    // right now sits in. Only the lease tells them apart.
+    const lease = await claimBookingLease({ paymentId: payment.id, kind, holder });
+    if (lease.outcome === 'gone') {
+      return { paymentId, result: 'failed', error: 'payment vanished' };
+    }
+    if (lease.outcome === 'already_fulfilled') {
+      return { paymentId, result: 'already_done', bookingIds: lease.bookingIds };
+    }
+    if (lease.outcome === 'busy') {
+      const fulfilled = await waitForFulfilment({ paymentId: payment.id, kind, timeoutMs: WAIT_MS });
+      if (fulfilled) {
+        return { paymentId, result: 'already_done', bookingIds: fulfilled.bookingIds };
+      }
+      log.info(
+        { ...ctx, extra: { ...ctx.extra, heldBy: lease.heldBy } },
+        'Reconcile found a live booking lease — backing off (another path is finalizing)',
+      );
+      return { paymentId, result: 'claim_lost' };
+    }
+    log.info(ctx, 'Reconcile took booking lease on captured orphan — finalizing');
   } else {
     return { paymentId, result: 'failed', error: `unexpected status ${payment.status}` };
   }
+
+  try {
+    return await fulfilClaimedPayment(payment, source, ctx);
+  } finally {
+    // Hand the lease back whatever happened. On success `bookingIds` is
+    // already set so the lease is moot; on failure this lets the next
+    // tick retry immediately instead of waiting out the expiry.
+    await releaseBookingLease(payment.id, holder);
+  }
+}
+
+type PaymentRow = NonNullable<Awaited<ReturnType<typeof prisma.payment.findUnique>>>;
+
+/**
+ * Create the bookings / complete the package for a payment whose
+ * fulfilment lease we already hold. Split out from
+ * `finalizeCapturedPayment` purely so the lease can be released in a
+ * single `finally` regardless of which branch returns.
+ */
+async function fulfilClaimedPayment(
+  payment: PaymentRow,
+  source: string,
+  ctx: LogContext,
+): Promise<FinalizeOutcome> {
+  const paymentId = payment.id;
 
   // Build the (lightweight) user the booking engine expects.
   const user = await prisma.user.findUnique({
