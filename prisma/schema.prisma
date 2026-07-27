@@ -1132,14 +1132,15 @@ model LedgerEntry {
   revenueCategory LedgerRevenueCategory?
   customerName    String?
 
-  // ── Session timing (both kinds, all optional) ──
+  // ── Session timing (REVENUE only, all optional) ──
   //
   // When the session this entry relates to actually takes place —
   // deliberately separate from `entryDate`/`entryTime` (when the money
   // changed hands), since a customer can pay today for a slot next
   // week. Recorded as a range so the full session duration is captured.
-  // Available on expenses too (e.g. a staff payout for a specific
-  // session), which is why these are not under the REVENUE heading.
+  // Expenses have no session behind them (a repair bill or a utility
+  // payment isn't tied to a slot), so the expense form omits these and
+  // the API nulls them out on write.
   serviceDate      DateTime? @db.Date
   serviceStartTime String? // "HH:MM" IST
   serviceEndTime   String? // "HH:MM" IST
@@ -1224,5 +1225,6 @@ enum LedgerExpenseCategory {
 // go stale every time someone joins or leaves.
 enum LedgerPaymentMethod {
   CASH
+  ONLINE
   OTHER
 }

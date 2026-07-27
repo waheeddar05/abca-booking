@@ -18,13 +18,9 @@ import { autoCancelImpactedBookings, getImpactedBookings } from '@/lib/availabil
  * transaction. Empty array clears the schedule (which means "unavailable by
  * default" per the engine's default).
  *
- * Auth: must be admin OR moderator at this center, or super admin —
- * moderators have full admin parity on the staff-management tabs this
- * route serves. Availability for ADMIN memberships is not modeled.
- *
- * OPERATOR is the one role here that moderators may NOT touch: it sits
- * outside `MODERATOR_MANAGEABLE_MEMBERSHIP_ROLES`, matching the members
- * listing which already refuses to show operators to a moderator.
+ * Auth: must be a full admin at this center, or super admin. The
+ * staff-management tabs this route serves are closed to moderators.
+ * Availability for ADMIN memberships is not modeled.
  */
 
 type Params = { id: string; membershipId: string };
@@ -34,21 +30,14 @@ const AVAILABILITY_ROLES = ['COACH', 'SIDEARM_SPECIALIST', 'GROUND_STAFF', 'OPER
 type AvailabilityRole = (typeof AVAILABILITY_ROLES)[number];
 
 /**
- * Gate a membership by role + caller. Returns an error response when the
- * role has no availability model, or when a moderator reaches for the
- * operator roster; null when the caller may proceed.
+ * Gate a membership by role. Returns an error response when the role has
+ * no availability model; null when the caller may proceed.
  */
-function checkRole(role: string, isModerator: boolean): NextResponse | null {
+function checkRole(role: string): NextResponse | null {
   if (!AVAILABILITY_ROLES.includes(role as AvailabilityRole)) {
     return NextResponse.json(
       { error: 'Availability is only modeled for coaches, sidearm specialists, ground staff, and operators' },
       { status: 400 },
-    );
-  }
-  if (role === 'OPERATOR' && isModerator) {
-    return NextResponse.json(
-      { error: 'Moderators cannot manage operator availability.' },
-      { status: 403 },
     );
   }
   return null;
@@ -90,20 +79,16 @@ async function loadMembership(centerId: string, membershipId: string) {
 }
 
 /**
- * Admin or moderator at this center (or super admin) — see file header.
- * Returns null when the caller has no business here at all, otherwise
- * reports whether they are acting as a moderator (which narrows which
- * roles they may edit — see `checkRole`).
+ * Full admin at this center, or super admin — see file header.
+ * Moderators are not admitted.
  */
 function canManageStaffAvailability(
   user: NonNullable<Awaited<ReturnType<typeof getAuthenticatedUser>>>,
   centerId: string,
-): { isModerator: boolean } | null {
-  if (user.isSuperAdmin) return { isModerator: false };
-  if (user.role !== 'ADMIN' && user.role !== 'MODERATOR') return null;
-  if (hasMembershipRole(user, centerId, 'ADMIN')) return { isModerator: false };
-  if (hasMembershipRole(user, centerId, 'MODERATOR')) return { isModerator: true };
-  return null;
+): boolean {
+  if (user.isSuperAdmin) return true;
+  if (user.role !== 'ADMIN') return false;
+  return hasMembershipRole(user, centerId, 'ADMIN');
 }
 
 export async function GET(req: NextRequest, ctx: { params: Promise<Params> }) {
@@ -113,14 +98,13 @@ export async function GET(req: NextRequest, ctx: { params: Promise<Params> }) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 403 });
     }
     const { id: centerId, membershipId } = await ctx.params;
-    const access = canManageStaffAvailability(user, centerId);
-    if (!access) {
+    if (!canManageStaffAvailability(user, centerId)) {
       return NextResponse.json({ error: 'You are not an admin at this center' }, { status: 403 });
     }
 
     const m = await loadMembership(centerId, membershipId);
     if (!m) return NextResponse.json({ error: 'Membership not found' }, { status: 404 });
-    const roleError = checkRole(m.role, access.isModerator);
+    const roleError = checkRole(m.role);
     if (roleError) return roleError;
 
     const rows = await prisma.membershipAvailability.findMany({
@@ -154,14 +138,13 @@ export async function PUT(req: NextRequest, ctx: { params: Promise<Params> }) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 403 });
     }
     const { id: centerId, membershipId } = await ctx.params;
-    const access = canManageStaffAvailability(user, centerId);
-    if (!access) {
+    if (!canManageStaffAvailability(user, centerId)) {
       return NextResponse.json({ error: 'You are not an admin at this center' }, { status: 403 });
     }
 
     const m = await loadMembership(centerId, membershipId);
     if (!m) return NextResponse.json({ error: 'Membership not found' }, { status: 404 });
-    const roleError = checkRole(m.role, access.isModerator);
+    const roleError = checkRole(m.role);
     if (roleError) return roleError;
 
     let body: unknown;

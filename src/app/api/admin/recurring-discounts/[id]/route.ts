@@ -9,7 +9,9 @@ export async function PUT(
 ) {
   try {
     const session = await requireCenterAdmin(req);
-    if (!session) {
+    // Full admins only — the Offers and Operators surfaces are closed
+    // to moderators.
+    if (!session || session.isModerator) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 403 });
     }
 
@@ -113,7 +115,9 @@ export async function DELETE(
 ) {
   try {
     const session = await requireCenterAdmin(req);
-    if (!session) {
+    // Full admins only — the Offers and Operators surfaces are closed
+    // to moderators.
+    if (!session || session.isModerator) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 403 });
     }
 

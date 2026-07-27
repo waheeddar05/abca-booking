@@ -80,26 +80,19 @@ describe('session range', () => {
     }
   });
 
-  it('applies the same range rule to expenses', () => {
-    const parsed = LedgerEntryInputSchema.safeParse({
-      ...baseExpense,
-      serviceStartTime: '11:00',
-      serviceEndTime: '10:00',
-    });
-    expect(parsed.success).toBe(false);
-  });
-
-  it('keeps the session range on an expense entry', () => {
+  it('never stores a session on an expense — a repair bill has no slot', () => {
     const parsed = LedgerEntryInputSchema.parse({
       ...baseExpense,
+      // Even if a stale client sends the old session fields, they are
+      // stripped by the schema and nulled on the way to the DB.
       serviceDate: '2026-07-25',
       serviceStartTime: '11:00',
       serviceEndTime: '12:30',
     });
     const cols = toLedgerColumns(parsed);
-    expect(cols.serviceDate?.toISOString()).toBe('2026-07-25T00:00:00.000Z');
-    expect(cols.serviceStartTime).toBe('11:00');
-    expect(cols.serviceEndTime).toBe('12:30');
+    expect(cols.serviceDate).toBeNull();
+    expect(cols.serviceStartTime).toBeNull();
+    expect(cols.serviceEndTime).toBeNull();
   });
 
   it('drops a To time with no From time — it describes nothing', () => {
@@ -244,8 +237,8 @@ describe('collectedBy', () => {
 });
 
 describe('payment methods', () => {
-  it('is just cash vs. everything else — who handled it is a separate field', () => {
-    expect([...LEDGER_PAYMENT_METHODS]).toEqual(['CASH', 'OTHER']);
+  it('is cash / online / other — who handled it is a separate field', () => {
+    expect([...LEDGER_PAYMENT_METHODS]).toEqual(['CASH', 'ONLINE', 'OTHER']);
   });
 });
 

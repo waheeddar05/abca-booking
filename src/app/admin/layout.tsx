@@ -35,7 +35,8 @@ export default function AdminLayout({
   // somewhere.
   const isAdmin = sessionUser?.role === 'ADMIN';
   // Moderators are restricted admins: they get most of the panel but the
-  // Users, Settings, User-Management and My-Center links are hidden below.
+  // Users, Settings, User-Management, My-Center, staff-management and
+  // Offers links are hidden below.
   // `isAdminLevel` is the gate for everything a moderator IS allowed to see.
   const isModerator = sessionUser?.role === 'MODERATOR';
   const isAdminLevel = isAdmin || isModerator;
@@ -44,15 +45,15 @@ export default function AdminLayout({
   // We also allow Sidearm Specialists to access the /admin/sidearm page
   // so they can manage their own availability. The middleware is updated
   // to allow them into /admin, and we gate the links here.
-  // Staff-management tabs (Sidearm / Coach / Ground Staff) are open to
-  // moderators with full admin parity — the members API admits them,
-  // scoped to the coach/sidearm/ground-staff roles.
+  // Staff-management tabs (Operators / Sidearm / Coach / Ground Staff)
+  // and Offers are full-admin surfaces — moderators are blocked from
+  // them in the middleware and in the APIs, so the links stay hidden.
   const hasSidearmMembership = currentCenter && sessionUser?.role === 'SIDEARM_SPECIALIST';
-  const canAccessSidearmTab = isAdminLevel || hasSidearmMembership;
+  const canAccessSidearmTab = isAdmin || hasSidearmMembership;
   // Personal Coaches get the same self-service access to /admin/coach,
   // mirroring the Sidearm tab exactly.
   const hasCoachMembership = currentCenter && sessionUser?.role === 'COACH';
-  const canAccessCoachTab = isAdminLevel || hasCoachMembership;
+  const canAccessCoachTab = isAdmin || hasCoachMembership;
 
   // Until we rebuild Slots/Operators/Offers/Packages for RESOURCE_BASED
   // centers (Toplay-style), the legacy forms hardcode the ABCA machine
@@ -69,7 +70,8 @@ export default function AdminLayout({
     { href: '/admin/slots', label: 'Slots', icon: Clock, hidden: !isAdminLevel },
     // Users — full admins only. Restricted for moderators.
     { href: '/admin/users', label: 'Users', icon: Users, hidden: !isAdmin },
-    { href: '/admin/operators', label: 'Operators', icon: UserCog, hidden: !isAdminLevel },
+    // Operators — full admins only. Restricted for moderators.
+    { href: '/admin/operators', label: 'Operators', icon: UserCog, hidden: !isAdmin },
     // Sidearm tab — manages SIDEARM_SPECIALIST memberships and their
     // availability (recurring + date-range) plus priority order for
     // auto-assignment. Resource-based centers only; ABCA never had a
@@ -82,10 +84,11 @@ export default function AdminLayout({
     // Ground Staff tab — manages GROUND_STAFF memberships and their
     // availability (recurring + date-range) plus priority order, exactly
     // like the Sidearm and Personal Coach tabs. Resource-based centers
-    // only. Admins + moderators: GROUND_STAFF has no UserRole equivalent,
+    // only. Full admins only: GROUND_STAFF has no UserRole equivalent,
     // so there is no self-service variant the way Sidearm/Coach have.
-    { href: '/admin/ground-staff', label: 'Ground Staff', icon: HardHat, models: ['RESOURCE_BASED'], hidden: !isAdminLevel },
-    { href: '/admin/offers', label: 'Offers', icon: Tag, hidden: !isAdminLevel },
+    { href: '/admin/ground-staff', label: 'Ground Staff', icon: HardHat, models: ['RESOURCE_BASED'], hidden: !isAdmin },
+    // Offers — full admins only. Restricted for moderators.
+    { href: '/admin/offers', label: 'Offers', icon: Tag, hidden: !isAdmin },
     { href: '/admin/packages', label: 'Packages', icon: Package, hidden: !isAdminLevel },
     // Ledger — hand-entered revenue + expenses. Admins and moderators
     // both get it: moderators can add and edit entries, only full

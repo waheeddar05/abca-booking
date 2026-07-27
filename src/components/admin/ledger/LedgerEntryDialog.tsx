@@ -4,10 +4,13 @@
  * Create / edit dialog for a ledger entry.
  *
  * One component serves both sides of the book — the `kind` prop decides
- * which half of the form renders (customer for Manual Revenue, vendor +
- * description + subcategory for Expenses). Everything else is shared:
- * the session block (date + From/To time), amount, payment method,
- * Collected By, when the money moved, and remarks.
+ * which half of the form renders (customer + session block for Manual
+ * Revenue, vendor + description + subcategory for Expenses). Everything
+ * else is shared: amount, payment method, Collected By, when the money
+ * moved, and remarks.
+ *
+ * The session block is revenue-only: a repair bill or a utility payment
+ * has no session behind it, so expenses never ask for one.
  *
  * "Recorded By" is not a field: the API stamps it from the session.
  */
@@ -184,11 +187,12 @@ export function LedgerEntryDialog({
       setError('Enter an amount greater than 0.');
       return;
     }
-    if (form.serviceEndTime && !form.serviceStartTime) {
+    if (isRevenue && form.serviceEndTime && !form.serviceStartTime) {
       setError('Enter a session "From" time as well as the "To" time.');
       return;
     }
     if (
+      isRevenue &&
       form.serviceStartTime &&
       form.serviceEndTime &&
       form.serviceEndTime <= form.serviceStartTime
@@ -198,9 +202,6 @@ export function LedgerEntryDialog({
     }
 
     const shared = {
-      serviceDate: form.serviceDate || null,
-      serviceStartTime: form.serviceStartTime || null,
-      serviceEndTime: form.serviceEndTime || null,
       amount,
       entryDate: form.entryDate,
       entryTime: form.entryTime,
@@ -214,6 +215,9 @@ export function LedgerEntryDialog({
           kind: 'REVENUE' as const,
           revenueCategory: form.revenueCategory,
           customerName: form.customerName.trim(),
+          serviceDate: form.serviceDate || null,
+          serviceStartTime: form.serviceStartTime || null,
+          serviceEndTime: form.serviceEndTime || null,
           ...shared,
         }
       : {
@@ -300,6 +304,51 @@ export function LedgerEntryDialog({
                   maxLength={200}
                 />
               </div>
+
+          {/* Session timing — the slot this revenue was earned from,
+              recorded as a range so the full duration is captured. All
+              optional: plenty of entries have no session behind them.
+              Date gets its own row and From/To share the next one — a
+              single three-up row squeezed the native date and time
+              controls until their values were clipped on a phone. */}
+          <div className="rounded-lg border border-white/[0.06] bg-white/[0.02] p-3 space-y-3">
+            <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">
+              Session Timing
+            </p>
+            <div>
+              <label className={labelClass}>Date</label>
+              <input
+                type="date"
+                value={form.serviceDate}
+                onChange={(e) => set('serviceDate', e.target.value)}
+                className={inputClass}
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-2.5">
+              <div>
+                <label className={labelClass}>From</label>
+                <input
+                  type="time"
+                  value={form.serviceStartTime}
+                  onChange={(e) => set('serviceStartTime', e.target.value)}
+                  className={inputClass}
+                />
+              </div>
+              <div>
+                <label className={labelClass}>To</label>
+                <input
+                  type="time"
+                  value={form.serviceEndTime}
+                  onChange={(e) => set('serviceEndTime', e.target.value)}
+                  className={inputClass}
+                />
+              </div>
+            </div>
+            <p className="text-[11px] text-slate-500">
+              When the session is played — separate from when the money moved. Leave blank if there
+              is no session behind this entry.
+            </p>
+          </div>
             </>
           ) : (
             <>
@@ -360,47 +409,6 @@ export function LedgerEntryDialog({
             </>
           )}
 
-          {/* Session timing — the slot this entry relates to, recorded as
-              a range so the full duration is captured. Optional on both
-              kinds: plenty of entries have no session behind them. */}
-          <div className="rounded-lg border border-white/[0.06] bg-white/[0.02] p-3 space-y-3">
-            <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">
-              Session Timing
-            </p>
-            <div className="grid grid-cols-3 gap-2.5">
-              <div>
-                <label className={labelClass}>Date</label>
-                <input
-                  type="date"
-                  value={form.serviceDate}
-                  onChange={(e) => set('serviceDate', e.target.value)}
-                  className={inputClass}
-                />
-              </div>
-              <div>
-                <label className={labelClass}>From</label>
-                <input
-                  type="time"
-                  value={form.serviceStartTime}
-                  onChange={(e) => set('serviceStartTime', e.target.value)}
-                  className={inputClass}
-                />
-              </div>
-              <div>
-                <label className={labelClass}>To</label>
-                <input
-                  type="time"
-                  value={form.serviceEndTime}
-                  onChange={(e) => set('serviceEndTime', e.target.value)}
-                  className={inputClass}
-                />
-              </div>
-            </div>
-            <p className="text-[11px] text-slate-500">
-              When the session is played — separate from when the money moved. Leave blank if there
-              is no session behind this entry.
-            </p>
-          </div>
 
           <div className="grid grid-cols-2 gap-3">
             <div>

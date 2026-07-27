@@ -23,13 +23,14 @@ import {
   BookOpenCheck,
   Download,
   Loader2,
-  Pencil,
+  ChevronRight,
   Plus,
   Search,
-  Trash2,
   X,
 } from 'lucide-react';
 import { AdminPageHeader } from '@/components/admin/AdminPageHeader';
+import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
+import { LedgerDetailDialog } from '@/components/admin/ledger/LedgerDetailDialog';
 import { LedgerEntryDialog } from '@/components/admin/ledger/LedgerEntryDialog';
 import type { LedgerEntry, LedgerListResponse } from '@/components/admin/ledger/types';
 import {
@@ -39,9 +40,7 @@ import {
   LEDGER_PAYMENT_METHOD_LABELS,
   LEDGER_REVENUE_CATEGORIES,
   LEDGER_REVENUE_CATEGORY_LABELS,
-  expenseSubcategoryLabel,
   ledgerCategoryLabel,
-  type LedgerExpenseCategoryId,
   type LedgerKind,
   type LedgerPaymentMethodId,
 } from '@/lib/ledger';
@@ -61,15 +60,6 @@ function defaultRange(): { from: string; to: string } {
   const ist = new Date(now.getTime() + (5 * 60 + 30) * 60 * 1000);
   const firstOfMonth = new Date(Date.UTC(ist.getUTCFullYear(), ist.getUTCMonth(), 1));
   return { from: istYMD(firstOfMonth), to: istYMD(now) };
-}
-
-/** "07:00 – 09:00", or just the start when there's no end time. */
-function formatTimeRange(
-  start: string | null | undefined,
-  end: string | null | undefined,
-): string {
-  if (!start) return '';
-  return end ? `${start} – ${end}` : start;
 }
 
 function formatDate(value: string | null | undefined): string {
@@ -101,6 +91,8 @@ export default function AdminLedgerPage() {
 
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<LedgerEntry | null>(null);
+  const [viewing, setViewing] = useState<LedgerEntry | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState<LedgerEntry | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
 
   const isRevenue = kind === 'REVENUE';
@@ -156,11 +148,10 @@ export default function AdminLedgerPage() {
     setPage(1);
   };
 
+  // Deleting goes through the app-wide ConfirmDialog rather than the
+  // browser's `confirm()`, so it looks and behaves like every other
+  // destructive confirmation in PlayOrbit.
   const remove = async (entry: LedgerEntry) => {
-    const what = isRevenue
-      ? `${entry.customerName || 'this entry'} — ₹${entry.amount.toLocaleString()}`
-      : `${entry.description || 'this entry'} — ₹${entry.amount.toLocaleString()}`;
-    if (!confirm(`Delete ${what}? This cannot be undone.`)) return;
     setDeletingId(entry.id);
     try {
       const res = await fetch(`/api/admin/ledger/${entry.id}`, { method: 'DELETE' });
@@ -168,8 +159,11 @@ export default function AdminLedgerPage() {
         const body = await res.json().catch(() => ({}));
         throw new Error(body?.error || `HTTP ${res.status}`);
       }
+      setConfirmDelete(null);
+      setViewing(null);
       refresh();
     } catch (err) {
+      setConfirmDelete(null);
       setError(err instanceof Error ? err.message : 'Failed to delete entry');
     } finally {
       setDeletingId(null);
@@ -397,158 +391,86 @@ export default function AdminLedgerPage() {
         </div>
       </div>
 
-      {/* Entries */}
+      {/* Entries — a compact, screen-width list. Only the five fields
+          you scan for are shown (date, category, amount, method, who
+          handled the money); everything else opens in a detail view on
+          tap. The old wide table needed horizontal scrolling on a phone,
+          which made the list unusable exactly where it is used most. */}
       <div className="bg-white/[0.03] backdrop-blur-sm rounded-xl border border-white/[0.07] overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm text-left">
-            <thead>
-              <tr className="bg-white/[0.02] text-[10px] text-slate-500 uppercase">
-                <th className="px-4 py-2.5 font-bold">Date</th>
-                <th className="px-4 py-2.5 font-bold">Category</th>
-                <th className="px-4 py-2.5 font-bold">{isRevenue ? 'Customer' : 'Details'}</th>
-                <th className="px-4 py-2.5 font-bold text-right">Amount</th>
-                <th className="px-4 py-2.5 font-bold">Method</th>
-                <th className="px-4 py-2.5 font-bold">Recorded By</th>
-                <th className="px-4 py-2.5 font-bold text-right">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-white/[0.05]">
-              {loading ? (
-                [...Array(5)].map((_, i) => (
-                  <tr key={i} className="animate-pulse">
-                    {[...Array(7)].map((__, j) => (
-                      <td key={j} className="px-4 py-3.5">
-                        <div className="h-3 bg-white/10 rounded w-20" />
-                      </td>
-                    ))}
-                  </tr>
-                ))
-              ) : entries.length === 0 ? (
-                <tr>
-                  <td colSpan={7} className="px-4 py-10 text-center text-slate-500 italic">
-                    No {isRevenue ? 'revenue' : 'expense'} entries for these filters.
-                  </td>
-                </tr>
-              ) : (
-                entries.map((e) => (
-                  <tr key={e.id} className="hover:bg-white/[0.02] transition-colors align-top">
-                    <td className="px-4 py-3 text-slate-300 whitespace-nowrap">
+        {/* Column headings — desktop only; the mobile cards label
+            themselves inline. */}
+        <div className="hidden sm:grid grid-cols-[6.5rem_1fr_7rem_6rem_9rem_1.5rem] gap-3 px-4 py-2.5 bg-white/[0.02] text-[10px] font-bold text-slate-500 uppercase">
+          <span>Date</span>
+          <span>Category</span>
+          <span className="text-right">Amount</span>
+          <span>Method</span>
+          <span>{isRevenue ? 'Collected By' : 'Expense Made By'}</span>
+          <span />
+        </div>
+
+        <div className="divide-y divide-white/[0.05]">
+          {loading ? (
+            [...Array(5)].map((_, i) => (
+              <div key={i} className="px-4 py-3.5 animate-pulse">
+                <div className="h-3 bg-white/10 rounded w-1/2" />
+              </div>
+            ))
+          ) : entries.length === 0 ? (
+            <p className="px-4 py-10 text-center text-sm text-slate-500 italic">
+              No {isRevenue ? 'revenue' : 'expense'} entries for these filters.
+            </p>
+          ) : (
+            entries.map((e) => {
+              const method =
+                LEDGER_PAYMENT_METHOD_LABELS[e.paymentMethod as LedgerPaymentMethodId] ||
+                e.paymentMethod;
+              const handledBy = e.collectedBy?.name || e.collectedBy?.email || '—';
+              const amount = (
+                <span className={isRevenue ? 'text-emerald-400' : 'text-rose-400'}>
+                  ₹{e.amount.toLocaleString()}
+                </span>
+              );
+              return (
+                <button
+                  key={e.id}
+                  type="button"
+                  onClick={() => setViewing(e)}
+                  className="w-full text-left px-4 py-3 hover:bg-white/[0.03] transition-colors cursor-pointer"
+                >
+                  {/* Mobile: two lines, no horizontal overflow. */}
+                  <div className="sm:hidden space-y-1">
+                    <div className="flex items-baseline justify-between gap-3">
+                      <span className="text-sm text-white font-medium truncate">
+                        {ledgerCategoryLabel(e)}
+                      </span>
+                      <span className="text-sm font-bold whitespace-nowrap">{amount}</span>
+                    </div>
+                    <div className="flex items-center justify-between gap-3 text-[11px] text-slate-500">
+                      <span className="whitespace-nowrap">{formatDate(e.entryDate)}</span>
+                      <span className="truncate">
+                        {method} · {handledBy}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Desktop: the same five fields on one row. */}
+                  <div className="hidden sm:grid grid-cols-[6.5rem_1fr_7rem_6rem_9rem_1.5rem] gap-3 items-center text-sm">
+                    <span className="text-slate-300 whitespace-nowrap">
                       {formatDate(e.entryDate)}
-                      <span className="block text-[10px] text-slate-500">{e.entryTime}</span>
-                    </td>
-                    <td className="px-4 py-3 text-slate-300">
-                      {ledgerCategoryLabel(e)}
-                      {!isRevenue && e.expenseSubcategory && (
-                        <span className="block text-[10px] text-slate-500">
-                          {expenseSubcategoryLabel(
-                            e.expenseCategory as LedgerExpenseCategoryId | null,
-                            e.expenseSubcategory,
-                          )}
-                        </span>
-                      )}
-                    </td>
-                    <td className="px-4 py-3 text-slate-300 max-w-[240px]">
-                      {isRevenue ? (
-                        <>
-                          <span className="block truncate">{e.customerName || '—'}</span>
-                          {e.serviceDate && (
-                            <span className="block text-[10px] text-slate-500">
-                              Session {formatDate(e.serviceDate)}
-                              {formatTimeRange(e.serviceStartTime, e.serviceEndTime)
-                                ? ` · ${formatTimeRange(e.serviceStartTime, e.serviceEndTime)}`
-                                : ''}
-                            </span>
-                          )}
-                        </>
-                      ) : (
-                        <>
-                          <span className="block truncate">{e.description || '—'}</span>
-                          {e.paidTo && (
-                            <span className="block text-[10px] text-slate-500 truncate">
-                              To {e.paidTo}
-                            </span>
-                          )}
-                          {e.serviceDate && (
-                            <span className="block text-[10px] text-slate-500">
-                              Session {formatDate(e.serviceDate)}
-                              {formatTimeRange(e.serviceStartTime, e.serviceEndTime)
-                                ? ` · ${formatTimeRange(e.serviceStartTime, e.serviceEndTime)}`
-                                : ''}
-                            </span>
-                          )}
-                        </>
-                      )}
-                      {e.remarks && (
-                        <span className="block text-[10px] text-slate-600 italic truncate">
-                          {e.remarks}
-                        </span>
-                      )}
-                    </td>
-                    <td
-                      className={`px-4 py-3 text-right font-bold whitespace-nowrap ${
-                        isRevenue ? 'text-emerald-400' : 'text-rose-400'
-                      }`}
-                    >
-                      ₹{e.amount.toLocaleString()}
-                    </td>
-                    <td className="px-4 py-3 text-slate-400 whitespace-nowrap">
-                      {LEDGER_PAYMENT_METHOD_LABELS[e.paymentMethod as LedgerPaymentMethodId] ||
-                        e.paymentMethod}
-                      {e.collectedBy && (
-                        <span className="block text-[10px] text-slate-500 truncate max-w-[120px]">
-                          via {e.collectedBy.name || e.collectedBy.email}
-                        </span>
-                      )}
-                    </td>
-                    <td className="px-4 py-3 text-slate-400 truncate max-w-[140px]">
-                      {e.recordedBy?.name || e.recordedBy?.email || '—'}
-                    </td>
-                    <td className="px-4 py-3">
-                      <div className="flex items-center justify-end gap-1.5">
-                        {canEdit(e) ? (
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setEditing(e);
-                              setDialogOpen(true);
-                            }}
-                            className="p-1.5 rounded-lg text-slate-400 hover:text-accent hover:bg-white/[0.06] cursor-pointer"
-                            title="Edit entry"
-                          >
-                            <Pencil className="w-3.5 h-3.5" />
-                          </button>
-                        ) : (
-                          <span
-                            className="p-1.5 text-slate-700"
-                            title="Only the person who recorded this entry can edit it"
-                          >
-                            <Pencil className="w-3.5 h-3.5" />
-                          </span>
-                        )}
-                        {data?.canDelete && (
-                          <button
-                            type="button"
-                            onClick={() => remove(e)}
-                            disabled={deletingId === e.id}
-                            className="p-1.5 rounded-lg text-slate-400 hover:text-red-400 hover:bg-white/[0.06] disabled:opacity-40 cursor-pointer"
-                            title="Delete entry"
-                          >
-                            {deletingId === e.id ? (
-                              <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                            ) : (
-                              <Trash2 className="w-3.5 h-3.5" />
-                            )}
-                          </button>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
+                    </span>
+                    <span className="text-slate-200 truncate">{ledgerCategoryLabel(e)}</span>
+                    <span className="text-right font-bold whitespace-nowrap">{amount}</span>
+                    <span className="text-slate-400 truncate">{method}</span>
+                    <span className="text-slate-400 truncate">{handledBy}</span>
+                    <ChevronRight className="w-4 h-4 text-slate-600" />
+                  </div>
+                </button>
+              );
+            })
+          )}
         </div>
       </div>
+
 
       {totalPages > 1 && (
         <div className="flex items-center justify-between text-xs text-slate-400">
@@ -573,6 +495,45 @@ export default function AdminLedgerPage() {
           </button>
         </div>
       )}
+
+      {viewing && (
+        <LedgerDetailDialog
+          entry={viewing}
+          canEdit={canEdit(viewing)}
+          canDelete={!!data?.canDelete}
+          onEdit={() => {
+            setEditing(viewing);
+            setViewing(null);
+            setDialogOpen(true);
+          }}
+          onDelete={() => setConfirmDelete(viewing)}
+          onClose={() => setViewing(null)}
+        />
+      )}
+
+      <ConfirmDialog
+        open={!!confirmDelete}
+        title={isRevenue ? 'Delete revenue entry?' : 'Delete expense entry?'}
+        message={
+          confirmDelete
+            ? `${ledgerCategoryLabel(confirmDelete)} — ₹${confirmDelete.amount.toLocaleString()}${
+                isRevenue
+                  ? confirmDelete.customerName
+                    ? ` from ${confirmDelete.customerName}`
+                    : ''
+                  : confirmDelete.description
+                    ? ` (${confirmDelete.description})`
+                    : ''
+              }`
+            : ''
+        }
+        warning="This cannot be undone. The entry is removed from the ledger and from the dashboard totals."
+        confirmLabel="Delete"
+        variant="danger"
+        loading={!!deletingId}
+        onConfirm={() => confirmDelete && remove(confirmDelete)}
+        onCancel={() => setConfirmDelete(null)}
+      />
 
       {dialogOpen && (
         <LedgerEntryDialog

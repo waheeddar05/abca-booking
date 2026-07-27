@@ -155,11 +155,12 @@ export function categoryHasSubcategories(category: LedgerExpenseCategoryId): boo
  * rather than by hardcoding staff names into a list that goes stale
  * every time someone joins or leaves.
  */
-export const LEDGER_PAYMENT_METHODS = ['CASH', 'OTHER'] as const;
+export const LEDGER_PAYMENT_METHODS = ['CASH', 'ONLINE', 'OTHER'] as const;
 export type LedgerPaymentMethodId = (typeof LEDGER_PAYMENT_METHODS)[number];
 
 export const LEDGER_PAYMENT_METHOD_LABELS: Record<LedgerPaymentMethodId, string> = {
   CASH: 'Cash',
+  ONLINE: 'Online',
   OTHER: 'Other',
 };
 
@@ -187,10 +188,11 @@ const optionalText = (max: number) =>
  * Shared columns. `recordedById` is intentionally absent — it is always
  * taken from the session server-side, never from the request body.
  *
- * The session block (date + From/To time) is shared by both kinds:
- * revenue is usually paid for a specific session, and an expense can be
- * tied to one too (a staff payout for a given slot). All three parts
- * are optional — plenty of entries have no session behind them.
+ * The session block (date + From/To time) is NOT here: it belongs to
+ * revenue alone. An expense — a repair bill, a utility payment, a staff
+ * payout — has no session behind it, so the expense form has no such
+ * field and the schema below rejects nothing because it never accepts
+ * one; `toLedgerColumns` nulls those columns for expenses.
  */
 const BaseFields = {
   amount: z
@@ -202,9 +204,6 @@ const BaseFields = {
   entryTime: timeString,
   paymentMethod: z.enum(LEDGER_PAYMENT_METHODS),
   remarks: optionalText(1000),
-  serviceDate: dateString.optional().nullable(),
-  serviceStartTime: timeString.optional().nullable(),
-  serviceEndTime: timeString.optional().nullable(),
   // Who physically handled the money. Validated as a User at this
   // center by the API before it is written.
   collectedById: z
@@ -240,6 +239,10 @@ const RevenueEntrySchema = z
     kind: z.literal('REVENUE'),
     revenueCategory: z.enum(LEDGER_REVENUE_CATEGORIES),
     customerName: z.string().trim().min(1, 'Customer name is required').max(200),
+    // The session this revenue was earned from — all optional.
+    serviceDate: dateString.optional().nullable(),
+    serviceStartTime: timeString.optional().nullable(),
+    serviceEndTime: timeString.optional().nullable(),
     ...BaseFields,
   })
   .superRefine(checkSessionRange);
@@ -253,7 +256,6 @@ const ExpenseEntrySchema = z
     paidTo: optionalText(200),
     ...BaseFields,
   })
-  .superRefine(checkSessionRange)
   .superRefine((val, ctx) => {
     const options = LEDGER_EXPENSE_SUBCATEGORIES[val.expenseCategory] ?? [];
     if (options.length === 0) {
@@ -304,16 +306,16 @@ export function toLedgerColumns(input: LedgerEntryInput) {
     paymentMethod: input.paymentMethod,
     remarks: input.remarks ?? null,
     collectedById: input.collectedById ?? null,
-    // The session block belongs to both kinds. A "To" time without a
-    // "From" describes nothing, so it is dropped rather than stored.
-    serviceDate: input.serviceDate ? new Date(`${input.serviceDate}T00:00:00.000Z`) : null,
-    serviceStartTime: input.serviceStartTime ?? null,
-    serviceEndTime: input.serviceStartTime ? (input.serviceEndTime ?? null) : null,
   };
 
   if (input.kind === 'REVENUE') {
     return {
       ...shared,
+      // A "To" time without a "From" describes nothing, so it is
+      // dropped rather than stored.
+      serviceDate: input.serviceDate ? new Date(`${input.serviceDate}T00:00:00.000Z`) : null,
+      serviceStartTime: input.serviceStartTime ?? null,
+      serviceEndTime: input.serviceStartTime ? (input.serviceEndTime ?? null) : null,
       revenueCategory: input.revenueCategory,
       customerName: input.customerName,
       expenseCategory: null,
@@ -325,6 +327,11 @@ export function toLedgerColumns(input: LedgerEntryInput) {
 
   return {
     ...shared,
+    // Expenses carry no session — nulled explicitly so switching an
+    // entry's kind on edit can't leave a stale session behind.
+    serviceDate: null,
+    serviceStartTime: null,
+    serviceEndTime: null,
     revenueCategory: null,
     customerName: null,
     expenseCategory: input.expenseCategory,

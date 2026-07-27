@@ -178,10 +178,14 @@ export async function middleware(req: NextRequest) {
         "/admin/maintenance",
         "/admin/db-cleanup",
         "/admin/payments",
-        // The staff-management tabs (/admin/sidearm, /admin/coach,
-        // /admin/ground-staff) are NOT blocked: moderators have full
-        // admin parity there. Their members API admits moderators but
-        // keeps them scoped to coach/sidearm/ground-staff roles.
+        // Staff management and Offers are full-admin surfaces too:
+        // moderators run the day-to-day floor (bookings, slots,
+        // packages, ledger) but do not staff the center or price it.
+        "/admin/operators",
+        "/admin/sidearm",
+        "/admin/coach",
+        "/admin/ground-staff",
+        "/admin/offers",
       ];
       if (moderatorBlockedPrefixes.some((p) => pathname === p || pathname.startsWith(p + "/"))) {
         return NextResponse.redirect(new URL("/admin", req.url));

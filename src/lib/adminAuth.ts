@@ -126,43 +126,15 @@ export async function requireCenterAdminForCenter(req: NextRequest, centerId: st
 }
 
 /**
- * Like `requireCenterAdminForCenter`, but ALSO admits MODERATOR members
- * of the given center. Moderators have full admin-equivalent access to
- * the staff-management surfaces (Sidearm / Personal Coach / Ground
- * Staff), so the routes backing those tabs use this guard instead.
- *
- * Returns `{ user, isSuperAdmin, isModerator }` — callers MUST keep
- * moderators scoped to staff roles (COACH / SIDEARM_SPECIALIST /
- * GROUND_STAFF memberships) via the `isModerator` flag; ADMIN /
- * MODERATOR / OPERATOR membership management stays off-limits to them.
- * Do NOT use this for any other `/api/admin/centers/[id]/*` surface —
- * center profile, machines, resources, and policies remain full-admin
- * territory through `requireCenterAdminForCenter`.
+ * Staff management (Operators / Sidearm / Personal Coach / Ground Staff)
+ * is **full-admin only** — moderators are excluded outright, same as
+ * Users and Settings. This is a thin alias of
+ * `requireCenterAdminForCenter` kept so the intent reads at the call
+ * site; there is no moderator carve-out to reason about any more.
  */
 export async function requireCenterStaffManagerForCenter(req: NextRequest, centerId: string) {
-  const user = await getAuthenticatedUser(req);
-  if (!user) return null;
-  if (user.isSuperAdmin) return { user, isSuperAdmin: true as const, isModerator: false };
-  if (user.role !== 'ADMIN' && user.role !== 'MODERATOR') return null;
-  if (
-    !hasMembershipRole(user, centerId, 'ADMIN') &&
-    !hasMembershipRole(user, centerId, 'MODERATOR')
-  ) {
-    return null;
-  }
-  return { user, isSuperAdmin: false as const, isModerator: isCenterModerator(user, centerId) };
+  return requireCenterAdminForCenter(req, centerId);
 }
-
-/**
- * Membership roles a MODERATOR may view and manage through the
- * staff-management tabs. Everything else (ADMIN / MODERATOR / OPERATOR)
- * requires a full admin.
- */
-export const MODERATOR_MANAGEABLE_MEMBERSHIP_ROLES = new Set([
-  'COACH',
-  'SIDEARM_SPECIALIST',
-  'GROUND_STAFF',
-]);
 
 /**
  * True when the caller may use the operator surfaces: the global

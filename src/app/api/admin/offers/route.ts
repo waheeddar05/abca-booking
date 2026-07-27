@@ -56,7 +56,10 @@ const OFFER_SELECT = {
 // GET: List offers at the admin's current center
 export async function GET(req: NextRequest) {
   try {
-    if (!(await requireCenterAdmin(req))) {
+    const auth = await requireCenterAdmin(req);
+    // Offers are a full-admin surface: moderators are blocked outright,
+    // the same way they are from Users and Settings.
+    if (!auth || auth.isModerator) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 403 });
     }
 
@@ -91,7 +94,10 @@ export async function GET(req: NextRequest) {
 // POST: Create a new offer
 export async function POST(req: NextRequest) {
   try {
-    if (!(await requireCenterAdmin(req))) {
+    const auth = await requireCenterAdmin(req);
+    // Offers are a full-admin surface: moderators are blocked outright,
+    // the same way they are from Users and Settings.
+    if (!auth || auth.isModerator) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 403 });
     }
 
@@ -172,7 +178,10 @@ export async function POST(req: NextRequest) {
 // PATCH: Update an offer by id
 export async function PATCH(req: NextRequest) {
   try {
-    if (!(await requireCenterAdmin(req))) {
+    const auth = await requireCenterAdmin(req);
+    // Offers are a full-admin surface: moderators are blocked outright,
+    // the same way they are from Users and Settings.
+    if (!auth || auth.isModerator) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 403 });
     }
 
@@ -252,7 +261,10 @@ export async function PATCH(req: NextRequest) {
 // DELETE: Delete an offer by id
 export async function DELETE(req: NextRequest) {
   try {
-    if (!(await requireCenterAdmin(req))) {
+    const auth = await requireCenterAdmin(req);
+    // Offers are a full-admin surface: moderators are blocked outright,
+    // the same way they are from Users and Settings.
+    if (!auth || auth.isModerator) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 403 });
     }
 

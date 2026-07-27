@@ -25,7 +25,9 @@ export async function GET(req: NextRequest) {
     // center. A user with `User.role=ADMIN` at center A can no longer
     // flip the cookie to center B and read another center's roster.
     const ctx = await requireCenterAdmin(req);
-    if (!ctx) {
+    // Full admins only — the Offers and Operators surfaces are closed
+    // to moderators.
+    if (!ctx || ctx.isModerator) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 403 });
     }
 

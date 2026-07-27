@@ -1,10 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
-import {
-  requireCenterStaffManagerForCenter,
-  MODERATOR_MANAGEABLE_MEMBERSHIP_ROLES,
-} from '@/lib/adminAuth';
+import { requireCenterStaffManagerForCenter } from '@/lib/adminAuth';
 import { z } from 'zod';
 
 const SUPER_ADMIN_EMAIL = process.env.SUPER_ADMIN_EMAIL || 'waheeddar8@gmail.com';
@@ -40,15 +37,6 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<Params> }) 
   const m = await prisma.centerMembership.findUnique({ where: { id: membershipId } });
   if (!m || m.centerId !== centerId) {
     return NextResponse.json({ error: 'Membership not found' }, { status: 404 });
-  }
-
-  // Moderators manage the staff-tab roles only (Sidearm / Personal Coach /
-  // Ground Staff) — with full admin parity there, and nothing else.
-  if (ctxAuth.isModerator && !MODERATOR_MANAGEABLE_MEMBERSHIP_ROLES.has(m.role)) {
-    return NextResponse.json(
-      { error: 'Moderators can only manage coach, sidearm and ground staff members.' },
-      { status: 403 },
-    );
   }
 
   let body: unknown;
@@ -162,15 +150,6 @@ export async function DELETE(req: NextRequest, ctx: { params: Promise<Params> })
   const m = await prisma.centerMembership.findUnique({ where: { id: membershipId } });
   if (!m || m.centerId !== centerId) {
     return NextResponse.json({ error: 'Membership not found' }, { status: 404 });
-  }
-
-  // Moderators can only revoke staff-tab memberships (coach / sidearm /
-  // ground staff) — same scoping as PATCH above.
-  if (ctxAuth.isModerator && !MODERATOR_MANAGEABLE_MEMBERSHIP_ROLES.has(m.role)) {
-    return NextResponse.json(
-      { error: 'Moderators can only manage coach, sidearm and ground staff members.' },
-      { status: 403 },
-    );
   }
 
   // Center admins cannot revoke another ADMIN — only super admin can.

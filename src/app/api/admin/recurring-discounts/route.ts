@@ -8,7 +8,9 @@ import { resolveCurrentCenter } from '@/lib/centers';
 export async function GET(req: NextRequest) {
   try {
     const session = await requireCenterAdmin(req);
-    if (!session) {
+    // Full admins only — the Offers and Operators surfaces are closed
+    // to moderators.
+    if (!session || session.isModerator) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 403 });
     }
 
@@ -45,7 +47,9 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   try {
     const session = await requireCenterAdmin(req);
-    if (!session) {
+    // Full admins only — the Offers and Operators surfaces are closed
+    // to moderators.
+    if (!session || session.isModerator) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 403 });
     }
 
