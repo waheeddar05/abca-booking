@@ -226,6 +226,21 @@ Rules, all in `src/lib/operatorAssign.ts`:
 
 **Removed, do not reintroduce**: the `OPERATOR_SCHEDULE_CONFIG` and `OPERATOR_DATE_OVERRIDES` policies, the `NUMBER_OF_OPERATORS` fallback for staffing, the day+slab priority matrix on `User.operator*Priority`, and the per-machine `OperatorAssignment` table. The columns/table survive in the schema marked DEPRECATED so existing rows aren't destroyed, but nothing reads them. `/api/admin/operators` is now GET-only (the Admin → Bookings reassignment dropdown); `/api/admin/override-cancellations` is gone.
 
+### Staff Mode booking visibility (`/staff`)
+
+One page, one tab per `CenterMembership` role the user holds (admins see all four). Each tab is that role's **operational category**, not a personal worklist — `/api/staff/bookings?role=…`:
+
+| Tab | Shows | Scoped by assignee? |
+|---|---|---|
+| Operator | `category = MACHINE` — every bowling-machine session at the center | ❌ no |
+| Ground Staff | every facility category: `NET`, `FULL_COURT`, `MATCH_SIMULATION`, `CORPORATE_BATCH` | ❌ no |
+| Sidearm | `category = SIDEARM` | ✅ `assignedStaffId = viewer` |
+| Coach | `category = COACHING` | ✅ `assignedCoachId = viewer` |
+
+Operator and Ground Staff are deliberately **assignment-blind**: any operator sees every machine booking whoever it's assigned to, and any ground-staff member sees every facility booking, so the floor can be coordinated by whoever is on it. Sidearm specialists and coaches stay scoped to their own sessions (those are personally-booked resources). Admins keep full visibility on every tab.
+
+The Ground Staff category set is expressed as the **complement** of `GROUND_STAFF_EXCLUDED_CATEGORIES` (`MACHINE`, `SIDEARM`, `COACHING`) rather than an allowlist, so a new facility category shows up without a code change — and it lines up with the booking engine, where exactly those three categories leave `assignedGroundStaffId` null.
+
 ### Match Practice (Corporate Batch + Match Simulation)
 
 Seat-based booking category for RESOURCE_BASED centers — no machine, ball type, pitch type, or operator anywhere in the flow. The user-facing "Match Practice" tab (`MATCH_PRACTICE` in `ENABLED_BOOKING_CATEGORIES`, a UI umbrella, NOT a `BookingCategory` value) renders `src/app/slots/MatchPracticePanel.tsx` with two subcategories:

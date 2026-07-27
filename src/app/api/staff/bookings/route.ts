@@ -15,23 +15,29 @@ import type { Prisma } from '@prisma/client';
  *
  * Query params:
  *   role     OPERATOR | COACH | SIDEARM_SPECIALIST | GROUND_STAFF  (required)
- *            Selects the booking *category* to show:
+ *            Selects the booking *category* to show — each tab is that
+ *            role's operational category, not a personal worklist:
  *              - OPERATOR  → MACHINE  bookings (legacy ABCA rows are
  *                            MACHINE too — the column is NOT NULL with
  *                            a default of MACHINE)
  *              - COACH     → COACHING bookings
  *              - SIDEARM_… → SIDEARM  bookings
- *              - GROUND_STAFF → every other (facility) booking — Cricket
- *                            Nets, Full Indoor Court, etc. i.e. every
- *                            non-operator / non-sidearm / non-coaching
- *                            booking, which is what the center's ground
- *                            staff handle on the floor.
+ *              - GROUND_STAFF → every booking that needs ground-staff
+ *                            support: Cricket Nets, Full Indoor Court,
+ *                            Match Simulation, Corporate Batch, and any
+ *                            future facility category. Expressed as the
+ *                            complement of the three staffed categories
+ *                            (see GROUND_STAFF_EXCLUDED_CATEGORIES) so a
+ *                            new category is covered by default — which
+ *                            matches the engine, where exactly these
+ *                            categories get an `assignedGroundStaffId`.
  *
  *            Visibility within a category depends on the role:
  *              - OPERATOR / GROUND_STAFF get *full* visibility — every
  *                booking of the category at the center, regardless of
- *                which operator / ground-staff member is assigned, so
- *                they can coordinate the whole floor.
+ *                which operator / ground-staff member is assigned and of
+ *                who is logged in, so any of them can coordinate the
+ *                whole floor for their category.
  *              - SIDEARM_SPECIALIST / COACH get *assignment-scoped*
  *                visibility — only the sessions assigned to the viewing
  *                staff member. Admins overseeing keep full visibility.
@@ -56,6 +62,16 @@ function isValidRole(r: unknown): r is StaffRole {
 }
 
 const ALL_LEGACY_MACHINES = ['GRAVITY', 'YANTRA', 'LEVERAGE_INDOOR', 'LEVERAGE_OUTDOOR'];
+
+/**
+ * Categories the Ground Staff tab does NOT show. Each has a staffed tab
+ * of its own (Operator / Sidearm / Coach) and the booking engine leaves
+ * `assignedGroundStaffId` null on all three. Everything else is a
+ * facility booking that ground staff prepare the floor for — Cricket
+ * Nets, Full Indoor Court, Match Simulation, Corporate Batch today, plus
+ * whatever facility category is added next.
+ */
+const GROUND_STAFF_EXCLUDED_CATEGORIES = ['MACHINE', 'SIDEARM', 'COACHING'] as const;
 
 export async function GET(req: NextRequest) {
   try {
@@ -127,25 +143,24 @@ export async function GET(req: NextRequest) {
       ...(centerId ? { centerId } : {}),
     };
 
-    // The role tab first selects a booking *category*. For Operator and
-    // Ground Staff this is the whole story — every booking of that
-    // category at the center shows, regardless of which operator /
-    // ground-staff member is assigned. Sidearm and Coach add a second,
-    // per-staff predicate below so a specialist / coach sees only their
-    // own assigned sessions.
+    // The role tab selects a booking *category* — the work that role
+    // does on the floor. For Operator and Ground Staff that is the whole
+    // story: every booking of that category at the center shows,
+    // regardless of which operator / ground-staff member is assigned or
+    // who is signed in. Sidearm and Coach add a second, per-staff
+    // predicate below so a specialist / coach sees only their own
+    // assigned sessions.
     //
-    //   OPERATOR           → EVERY booking category at the center, so an
-    //                        operator can coordinate the whole floor and
-    //                        see the ground staff / sidearm / coach on
-    //                        each session (not just machine sessions).
+    //   OPERATOR           → MACHINE  (every bowling-machine session at
+    //                        the center — the operator-assisted ones and
+    //                        the self-operated ones alike)
     //   COACH              → COACHING (personal-coaching sessions)
     //   SIDEARM_SPECIALIST → SIDEARM  (sidearm-specialist sessions)
-    //   GROUND_STAFF       → EVERY booking category at the center, same
-    //                        full-floor visibility as operators.
+    //   GROUND_STAFF       → every facility category (see
+    //                        GROUND_STAFF_EXCLUDED_CATEGORIES)
     if (role === 'OPERATOR') {
-      // No category predicate — operators see all bookings. The optional
-      // machine dropdown still narrows to a specific machine when the user
-      // picks one (which implicitly scopes to machine sessions). The UI
+      bookingWhere.category = 'MACHINE';
+      // The optional machine dropdown narrows to one machine. The UI
       // sends either a legacy enum string or a Machine.id (cuid).
       if (filterMachineId) {
         if (ALL_LEGACY_MACHINES.includes(filterMachineId)) {
@@ -158,8 +173,9 @@ export async function GET(req: NextRequest) {
       bookingWhere.category = 'COACHING';
     } else if (role === 'SIDEARM_SPECIALIST') {
       bookingWhere.category = 'SIDEARM';
+    } else {
+      bookingWhere.category = { notIn: [...GROUND_STAFF_EXCLUDED_CATEGORIES] };
     }
-    // GROUND_STAFF: no category predicate — full-floor visibility.
 
     // Assignment-based visibility for Sidearm & Coach.
     //

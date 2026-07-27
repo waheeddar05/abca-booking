@@ -14,13 +14,15 @@
  *   - Operator     → MACHINE  bookings (bowling-machine sessions)
  *   - Coach        → COACHING bookings (personal-coaching sessions)
  *   - Sidearm      → SIDEARM  bookings (sidearm-specialist sessions)
- *   - Ground Staff → every other (facility) booking — Cricket Nets,
- *                    Full Indoor Court, etc. (non-operator / non-sidearm
- *                    / non-coaching), which ground staff handle on-floor
+ *   - Ground Staff → every facility booking — Cricket Nets, Full Indoor
+ *                    Court, Match Simulation, Corporate Batch — i.e.
+ *                    everything that isn't a machine / sidearm / coaching
+ *                    session, which ground staff handle on-floor
  *
  * Operator and Ground Staff see every booking of their category at the
- * center (full operational visibility, regardless of assignment) so they
- * can coordinate the floor. Sidearm specialists and coaches see only the
+ * center — regardless of which operator / ground-staff member is
+ * assigned and of who is signed in — so any of them can coordinate the
+ * floor for that category. Sidearm specialists and coaches see only the
  * sessions assigned to them. Admins overseeing keep full visibility on
  * every tab.
  */
@@ -116,10 +118,10 @@ const CATEGORY_TABS = [
 ] as const;
 
 const ROLE_LABELS: Record<StaffRole, { label: string; sub: string; icon: typeof Wrench }> = {
-  OPERATOR: { label: 'Operator', sub: 'All bookings on the floor', icon: Wrench },
+  OPERATOR: { label: 'Operator', sub: 'Every bowling machine booking', icon: Wrench },
   COACH: { label: 'Coach', sub: 'Personal coaching sessions', icon: UserCog },
   SIDEARM_SPECIALIST: { label: 'Sidearm', sub: 'Sidearm specialist sessions', icon: Users },
-  GROUND_STAFF: { label: 'Ground Staff', sub: 'All bookings on the floor', icon: HardHat },
+  GROUND_STAFF: { label: 'Ground Staff', sub: 'Every ground-staff booking', icon: HardHat },
 };
 
 export default function StaffDashboard() {
@@ -549,7 +551,9 @@ export default function StaffDashboard() {
               ? 'No coaching sessions found.'
               : role === 'SIDEARM_SPECIALIST'
                 ? 'No sidearm sessions found.'
-                : 'No bookings found.'}
+                : role === 'OPERATOR'
+                  ? 'No bowling machine bookings found.'
+                  : 'No ground-staff bookings found.'}
           </p>
         </div>
       ) : (
