@@ -40,19 +40,9 @@ import { NumberInputDialog } from '@/components/ui/NumberInputDialog';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { useCenter } from '@/lib/center-context';
 import { useAdminRole } from '@/lib/useAdminRole';
+import { bookingCategoryOptions, isMatchPracticeCategory } from '@/lib/booking-categories';
 
 type TabId = 'packages' | 'users' | 'assign' | 'reports';
-
-// Same category set RESOURCE_BASED uses elsewhere (resource-pricing,
-// resource-booking, ResourcePackageManagement). FULL_COURT and
-// CORPORATE_BATCH are intentionally omitted from the custom-assign
-// picker — those aren't session-based redemptions in practice.
-const ASSIGN_CATEGORY_OPTIONS = [
-  { id: 'MACHINE', label: 'Bowling Machine' },
-  { id: 'SIDEARM', label: 'Sidearm' },
-  { id: 'COACHING', label: 'Personal Coaching' },
-  { id: 'NET', label: 'Cricket Nets' },
-];
 
 // Standardized labels — plain "Day" / "Evening" / "Any time" to
 // match the rest of the admin packages UI.
@@ -286,6 +276,46 @@ export function ResourcePackagesPage() {
     validityDays: 30,
   });
   const [assigning, setAssigning] = useState(false);
+
+  // Category options come from the center's ENABLED_BOOKING_CATEGORIES
+  // policy — the same list that drives the user-facing /slots tabs — so
+  // turning a category on or off in Admin → Settings is reflected here
+  // with no code change. `/api/packages` already resolves that policy
+  // (center → global → "everything enabled") and returns it as
+  // `enabledCategories`; `bookingCategoryOptions` expands the
+  // MATCH_PRACTICE umbrella into the two categories its bookings
+  // actually persist as. A failed fetch falls back to every category
+  // rather than to a shorter hardcoded list, matching the resolver's own
+  // fallback.
+  const [assignCategoryOptions, setAssignCategoryOptions] = useState(() =>
+    bookingCategoryOptions(null),
+  );
+  useEffect(() => {
+    if (!currentCenter) return;
+    let cancelled = false;
+    fetch('/api/packages')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (!cancelled) setAssignCategoryOptions(bookingCategoryOptions(data?.enabledCategories));
+      })
+      .catch(() => {
+        if (!cancelled) setAssignCategoryOptions(bookingCategoryOptions(null));
+      });
+    return () => { cancelled = true; };
+  }, [currentCenter]);
+
+  // Keep the selection inside the offered set. Without this, switching
+  // to a center that doesn't offer the currently-selected category would
+  // leave a stale value in the form and assign a package nobody can
+  // redeem.
+  useEffect(() => {
+    if (assignCategoryOptions.length === 0) return;
+    setAssignForm((f) =>
+      assignCategoryOptions.some((o) => o.id === f.category)
+        ? f
+        : { ...f, category: assignCategoryOptions[0].id, machineRowId: '' },
+    );
+  }, [assignCategoryOptions]);
 
   useEffect(() => {
     if (!assignSearch || assignSearch.length < 2) {
@@ -670,10 +700,20 @@ export function ResourcePackagesPage() {
                   onChange={(e) => setAssignForm((f) => ({ ...f, category: e.target.value, machineRowId: '' }))}
                   className="w-full bg-white/[0.04] border border-white/[0.1] text-white text-sm rounded-lg px-3 py-2 outline-none focus:border-accent"
                 >
-                  {ASSIGN_CATEGORY_OPTIONS.map((c) => (
+                  {assignCategoryOptions.map((c) => (
                     <option key={c.id} value={c.id}>{c.label}</option>
                   ))}
                 </select>
+                {/* Match Practice seats are flat-fee purchases and
+                    /api/slots/book-resource rejects a package on them, so
+                    say so here rather than letting an admin hand out a
+                    package that can't be spent. */}
+                {isMatchPracticeCategory(assignForm.category) && (
+                  <p className="mt-1 text-[10px] leading-snug text-amber-400/90">
+                    Match Practice seats are flat-fee purchases — package sessions
+                    can&apos;t be redeemed against them.
+                  </p>
+                )}
               </div>
               {assignForm.category === 'MACHINE' && (
                 <div>

@@ -14,6 +14,8 @@
  * the UI by construction.
  */
 
+import { BOOKING_CATEGORY_LABELS, bookingCategoryLabel } from '@/lib/booking-categories';
+
 // ─── Wicket / Pitch ──────────────────────────────────────
 // Canonical admin-facing wicket labels. Values match the
 // PackageWicketType enum (ASTRO / CEMENT / NATURAL) — only the labels
@@ -166,25 +168,23 @@ export const PACKAGE_TIMING_DAY_LABEL = '6 a.m. to 6 p.m.';
 export const PACKAGE_TIMING_EVENING_LABEL = '6 p.m. to 10:30 p.m.';
 
 // ─── Booking Category ────────────────────────────────────
-// Surfaced as a column in the packages CSV and in the user-style
-// admin cards. Mirrors the labels used by the booking export so the
-// two CSVs stay aligned for finance reviewers.
-export const PACKAGE_CATEGORY_LABEL: Record<string, string> = {
-  MACHINE:    'Bowling Machine',
-  SIDEARM:    'Sidearm',
-  NET:        'Cricket Nets',
-  FULL_COURT: 'Full Indoor Court',
-  COACHING:   'Personal Coaching',
-};
+// Surfaced as a column in the packages CSV and in the user-style admin
+// cards. Re-exported straight from `booking-categories.ts` rather than
+// re-typed here: the packages CSV and the bookings CSV name a category
+// identically because they read the same map, not because two lists
+// happen to agree today. That also means every `BookingCategory` is
+// covered — a Corporate Batch or Match Simulation package used to fall
+// through the old five-entry map and export as "Bowling Machine".
+export const PACKAGE_CATEGORY_LABEL: Record<string, string> = { ...BOOKING_CATEGORY_LABELS };
 
 /**
  * Resolve a Package row to its booking-category label for display /
- * CSV. Falls back to "Bowling Machine" when the package row has no
- * `category` set (legacy ABCA packages predate the column).
+ * CSV — always the base category, never a purchase-mode suffix. Falls
+ * back to "Bowling Machine" when the package row has no `category` set
+ * (legacy ABCA packages predate the column).
  */
 export function packageCategoryLabel(category: string | null | undefined): string {
-  if (!category) return 'Bowling Machine';
-  return PACKAGE_CATEGORY_LABEL[category] || 'Bowling Machine';
+  return bookingCategoryLabel(category);
 }
 
 /** True for categories where ball type is a meaningful axis. Mirrors

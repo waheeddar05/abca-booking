@@ -86,6 +86,11 @@ const ListQuerySchema = z.object({
   category: z.string().optional(),
   paymentMethod: z.enum(LEDGER_PAYMENT_METHODS).optional(),
   recordedById: z.string().optional(),
+  // Who physically handled the money — surfaced as "Collected By" on the
+  // Manual Revenue tab and "Expenses Made By" on the Expenses tab. One
+  // column, two labels, because it answers the same question on both
+  // sides of the ledger.
+  collectedById: z.string().optional(),
   q: z.string().trim().max(200).optional(),
   page: z.coerce.number().int().min(1).default(1),
 });
@@ -107,7 +112,8 @@ export function buildLedgerWhere(centerId: string, params: URLSearchParams): Led
   if (!parsed.success) {
     return { error: parsed.error.issues[0]?.message || 'Invalid filters' };
   }
-  const { kind, from, to, category, paymentMethod, recordedById, q, page } = parsed.data;
+  const { kind, from, to, category, paymentMethod, recordedById, collectedById, q, page } =
+    parsed.data;
 
   const where: Prisma.LedgerEntryWhereInput = { centerId, kind };
 
@@ -134,6 +140,7 @@ export function buildLedgerWhere(centerId: string, params: URLSearchParams): Led
 
   if (paymentMethod) where.paymentMethod = paymentMethod;
   if (recordedById) where.recordedById = recordedById;
+  if (collectedById) where.collectedById = collectedById;
 
   // Free-text search across the name-ish columns of both kinds, so one
   // search box serves the Revenue and Expenses tabs.

@@ -3,6 +3,7 @@ import { prisma } from '@/lib/prisma';
 import { requireCenterAdmin } from '@/lib/adminAuth';
 import { getAuthenticatedUser } from '@/lib/auth';
 import { resolveCurrentCenter } from '@/lib/centers';
+import { BOOKING_CATEGORIES } from '@/lib/booking-categories';
 
 // POST /api/admin/packages/assign - Assign a custom package to a user
 export async function POST(req: NextRequest) {
@@ -61,8 +62,11 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Invalid wicketType' }, { status: 400 });
     }
     // Resource-based fields are validated against the BookingCategory
-    // enum; null/undefined keeps the legacy (MACHINE_PITCH) shape.
-    if (category && !['MACHINE', 'SIDEARM', 'COACHING', 'NET', 'FULL_COURT', 'CORPORATE_BATCH'].includes(category)) {
+    // enum; null/undefined keeps the legacy (MACHINE_PITCH) shape. The
+    // list is the shared one, so a category the Assign picker offers is
+    // never rejected here — the picker is driven by the center's enabled
+    // categories, which can include any enum value.
+    if (category && !(BOOKING_CATEGORIES as readonly string[]).includes(category)) {
       return NextResponse.json({ error: 'Invalid category' }, { status: 400 });
     }
 

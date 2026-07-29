@@ -5,6 +5,7 @@ import { getAuthenticatedUser } from '@/lib/auth';
 import { resolveCurrentCenter } from '@/lib/centers';
 import { getISTTodayUTC, getISTLastMonthRange, dateStringToUTC, formatIST } from '@/lib/time';
 import { getBookingPaymentSplits, splitAmountGross, paymentMethodLabel, EMPTY_SPLIT } from '@/lib/booking-payment';
+import { bookingCategoryLabel, BOOKING_CATEGORIES } from '@/lib/booking-categories';
 
 const SAFE_BOOKING_SELECT = {
   id: true,
@@ -144,8 +145,7 @@ export async function GET(req: NextRequest) {
     // not a valid IS NULL predicate), so a Bowling Machine export captured
     // every category — the CSV equivalent of the list-view leak.
     if (categoryFilter) {
-      const validCategories = new Set(['MACHINE', 'SIDEARM', 'COACHING', 'NET', 'FULL_COURT', 'CORPORATE_BATCH', 'MATCH_SIMULATION']);
-      if (validCategories.has(categoryFilter)) {
+      if ((BOOKING_CATEGORIES as readonly string[]).includes(categoryFilter)) {
         where.category = categoryFilter;
       }
     }
@@ -198,51 +198,6 @@ export async function GET(req: NextRequest) {
 
     // Check if there are any package bookings to decide whether to show Extra Amount column
     const hasPackageBookings = bookings.some((b: any) => !!b.packageBooking);
-
-    // Map raw BookingCategory enum to human-readable labels. ABCA legacy
-    // rows have null category but are effectively bowling-machine
-    // sessions (schema defaults to MACHINE), so the fallback is "Bowling
-    // Machine".
-    const CATEGORY_LABELS: Record<string, string> = {
-      MACHINE: 'Bowling Machine',
-      SIDEARM: 'Sidearm',
-      NET: 'Cricket Nets',
-      FULL_COURT: 'Full Indoor Court',
-      COACHING: 'Personal Coaching',
-      CORPORATE_BATCH: 'Corporate Batch',
-      MATCH_SIMULATION: 'Match Simulation',
-    };
-    const categoryLabel = (raw: string | null | undefined): string =>
-      (raw && CATEGORY_LABELS[raw]) || 'Bowling Machine';
-
-    // Corporate-batch rows carry their purchase mode so revenue splits
-    // cleanly in the sheet: "Corporate Batch (Monthly · 2026-07)" /
-    // "Corporate Batch (Regular)". ADHOC is the legacy pre-rename value
-    // — render it as Regular too.
-    const CORPORATE_MODE_LABELS: Record<string, string> = {
-      MONTHLY: 'Monthly',
-      HALF_MONTH: 'Half Month',
-      REGULAR: 'Regular',
-      ADHOC: 'Regular',
-    };
-    const categoryCell = (b: {
-      category?: string | null;
-      corporateBatchMode?: string | null;
-      enrollmentPeriod?: string | null;
-    }): string => {
-      const base = categoryLabel(b.category);
-      // Both Corporate Batch and Match Simulation carry a purchase mode on
-      // monthly / half-month rows so revenue splits cleanly in the sheet:
-      // "Match Simulation (Monthly · 2026-07)".
-      if (
-        (b.category === 'CORPORATE_BATCH' || b.category === 'MATCH_SIMULATION')
-        && b.corporateBatchMode
-      ) {
-        const mode = CORPORATE_MODE_LABELS[b.corporateBatchMode] || b.corporateBatchMode;
-        return b.enrollmentPeriod ? `${base} (${mode} · ${b.enrollmentPeriod})` : `${base} (${mode})`;
-      }
-      return base;
-    };
 
     // Ball type / operation mode only apply to bowling-machine sessions.
     // For sidearm / nets / coaching / full-court / corporate-batch the
@@ -363,11 +318,13 @@ export async function GET(req: NextRequest) {
         machineRow ? b.ballType : 'Not Applicable',
         b.pitchType || 'Not Applicable',
         machineLabel,
-        // Resource-based columns: category (human label + corporate-batch
-        // mode/period when applicable), coach, staff. Legacy ABCA rows
-        // have null category but represent bowling machine sessions, so
-        // the label falls back to "Bowling Machine".
-        categoryCell(b),
+        // Resource-based columns: category, coach, staff. Always the
+        // BASE category label — a Corporate Batch / Match Simulation row
+        // reads "Corporate Batch" / "Match Simulation" whatever its
+        // purchase mode, so the column groups and pivots cleanly. Legacy
+        // ABCA rows have null category but represent bowling machine
+        // sessions, so the label falls back to "Bowling Machine".
+        bookingCategoryLabel(b.category),
         b.assignedCoach?.name || 'Not Applicable',
         b.assignedStaff?.name || 'Not Applicable',
         machineRow ? (b.operationMode || '') : 'Not Applicable',

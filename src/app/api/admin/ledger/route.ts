@@ -35,7 +35,7 @@ export async function GET(req: NextRequest) {
     if ('error' in built) return NextResponse.json({ error: built.error }, { status: 400 });
     const { where, page } = built;
 
-    const [entries, total, sum, recorderRows, collectors] = await Promise.all([
+    const [entries, total, sum, recorderRows, handlerRows, collectors] = await Promise.all([
       prisma.ledgerEntry.findMany({
         where,
         select: LEDGER_ENTRY_SELECT,
@@ -54,8 +54,24 @@ export async function GET(req: NextRequest) {
         distinct: ['recordedById'],
         select: { recordedBy: { select: { id: true, name: true, email: true } } },
       }),
+      // Options for the "Collected By" / "Expenses Made By" filter.
+      // Derived from the entries themselves rather than from the current
+      // roster: somebody who took cash for a year and then left must stay
+      // filterable, or their history becomes unreachable. Same reason the
+      // recorder list above is entry-derived, and the same
+      // filters-are-independent rule — unaffected by the active filters.
+      prisma.ledgerEntry.findMany({
+        where: { centerId: auth.center.id, collectedById: { not: null } },
+        distinct: ['collectedById'],
+        select: { collectedBy: { select: { id: true, name: true, email: true } } },
+      }),
       listCenterCollectors(auth.center.id),
     ]);
+
+    const byName = (
+      a: { name: string | null; email: string | null },
+      b: { name: string | null; email: string | null },
+    ) => (a.name || a.email || '').localeCompare(b.name || b.email || '');
 
     return NextResponse.json({
       entries,
@@ -63,10 +79,11 @@ export async function GET(req: NextRequest) {
       page,
       pageSize: LEDGER_PAGE_SIZE,
       totalAmount: sum._sum.amount || 0,
-      recorders: recorderRows
-        .map((r) => r.recordedBy)
-        .filter(Boolean)
-        .sort((a, b) => (a.name || a.email || '').localeCompare(b.name || b.email || '')),
+      recorders: recorderRows.map((r) => r.recordedBy).filter(Boolean).sort(byName),
+      handlers: handlerRows
+        .map((r) => r.collectedBy)
+        .filter((h): h is NonNullable<typeof h> => h !== null)
+        .sort(byName),
       collectors,
       // ── Permission hints for the UI ──
       // Every one of these is re-checked server-side; hiding a control

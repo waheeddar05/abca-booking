@@ -41,6 +41,13 @@ export interface LedgerListResponse {
   totalAmount: number;
   /** Everyone who has recorded an entry here — the "Recorded By" filter. */
   recorders: LedgerPerson[];
+  /**
+   * Everyone who appears as the money handler on an entry here — the
+   * "Collected By" / "Expenses Made By" filter. Entry-derived, so a
+   * staff member who has since left is still filterable; `collectors`
+   * below is the *form's* picker and lists active members only.
+   */
+  handlers: LedgerPerson[];
   /** Center members selectable as "Collected By". */
   collectors: LedgerPerson[];
   /** Full admins only. */

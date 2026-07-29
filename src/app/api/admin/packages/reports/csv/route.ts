@@ -60,9 +60,10 @@ export async function GET(req: NextRequest) {
             machineType: true,
             totalSessions: true,
             // `category` discriminates Bowling Machine / Cricket Nets /
-            // Sidearm / Personal Coaching / Full Indoor Court. Legacy
-            // ABCA rows have null here — `packageCategoryLabel` falls
-            // back to "Bowling Machine" for those.
+            // Sidearm / Personal Coaching / Full Indoor Court /
+            // Corporate Batch / Match Simulation. Legacy ABCA rows have
+            // null here — `packageCategoryLabel` falls back to "Bowling
+            // Machine" for those.
             category: true,
             // `ballType` is only meaningful for Bowling Machine
             // packages; the CSV prints "Not Applicable" otherwise.
@@ -153,10 +154,13 @@ export async function GET(req: NextRequest) {
 
     // Build CSV.
     //
-    // `Booking Category` is the resource-based discriminator (Bowling
-    // Machine / Cricket Nets / Sidearm / Personal Coaching / Full
-    // Indoor Court). For legacy ABCA packages (null `category` column)
-    // we surface "Bowling Machine" to keep the column populated.
+    // `Booking Category` is the resource-based discriminator, labelled
+    // from the same map the bookings CSV uses (`booking-categories.ts`)
+    // so the two files name a category identically. Always the BASE
+    // category — a Corporate Batch or Match Simulation package exports
+    // as "Corporate Batch" / "Match Simulation" with no purchase-mode
+    // suffix. For legacy ABCA packages (null `category` column) we
+    // surface "Bowling Machine" to keep the column populated.
     //
     // `Ball Type` only applies to Bowling Machine packages — for every
     // other category we write "Not Applicable" so reviewers can tell

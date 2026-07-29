@@ -80,6 +80,10 @@ export default function AdminLedgerPage() {
   const [category, setCategory] = useState('');
   const [paymentMethod, setPaymentMethod] = useState('');
   const [recordedById, setRecordedById] = useState('');
+  // Who handled the money. Same column on both tabs, labelled "Collected
+  // By" for revenue and "Expenses Made By" for expenses — matching the
+  // list's own header, which already renames itself per kind.
+  const [collectedById, setCollectedById] = useState('');
   const [search, setSearch] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [page, setPage] = useState(1);
@@ -109,10 +113,11 @@ export default function AdminLedgerPage() {
     if (category) params.set('category', category);
     if (paymentMethod) params.set('paymentMethod', paymentMethod);
     if (recordedById) params.set('recordedById', recordedById);
+    if (collectedById) params.set('collectedById', collectedById);
     if (debouncedSearch) params.set('q', debouncedSearch);
     params.set('page', String(page));
     return params.toString();
-  }, [kind, from, to, category, paymentMethod, recordedById, debouncedSearch, page]);
+  }, [kind, from, to, category, paymentMethod, recordedById, collectedById, debouncedSearch, page]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -188,6 +193,7 @@ export default function AdminLedgerPage() {
     !!category ||
     !!paymentMethod ||
     !!recordedById ||
+    !!collectedById ||
     !!search;
 
   const resetFilters = () => {
@@ -196,6 +202,7 @@ export default function AdminLedgerPage() {
     setCategory('');
     setPaymentMethod('');
     setRecordedById('');
+    setCollectedById('');
     setSearch('');
     setPage(1);
   };
@@ -243,7 +250,7 @@ export default function AdminLedgerPage() {
 
       {/* Filters */}
       <div className="bg-white/[0.03] backdrop-blur-sm rounded-xl border border-white/[0.07] p-4 space-y-3">
-        <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
+        <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3">
           <div>
             <label className={filterLabelClass}>From</label>
             <input
@@ -300,6 +307,29 @@ export default function AdminLedgerPage() {
               {LEDGER_PAYMENT_METHODS.map((m) => (
                 <option key={m} value={m}>
                   {LEDGER_PAYMENT_METHOD_LABELS[m]}
+                </option>
+              ))}
+            </select>
+          </div>
+          {/* Who handled the money. The option list comes from the
+              entries themselves, so a staff member who has since left the
+              center can still be filtered on. */}
+          <div>
+            <label className={filterLabelClass}>
+              {isRevenue ? 'Collected By' : 'Expenses Made By'}
+            </label>
+            <select
+              value={collectedById}
+              onChange={(e) => {
+                setCollectedById(e.target.value);
+                setPage(1);
+              }}
+              className={controlClass}
+            >
+              <option value="">Anyone</option>
+              {(data?.handlers ?? []).map((h) => (
+                <option key={h.id} value={h.id}>
+                  {h.name || h.email || 'Unnamed'}
                 </option>
               ))}
             </select>
