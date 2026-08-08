@@ -17,6 +17,8 @@ import {
   getBookingPaymentSplits,
   splitAmountGross,
   splitAmountNet,
+  splitAmountNetSigned,
+  sumActiveRefunds,
   paymentMethodLabel,
   EMPTY_SPLIT,
 } from '../booking-payment';
@@ -127,6 +129,31 @@ describe('splitAmountGross / splitAmountNet', () => {
     // 3-slot ₹1000 order (share 333); the cancelled slot was refunded its
     // ₹550 price → the row reads ₹0 collected, not −217.
     expect(splitAmountNet({ wallet: 0, online: 333 }, [{ amount: 550, status: 'PROCESSED' }])).toBe(0);
+  });
+});
+
+describe('sumActiveRefunds / splitAmountNetSigned', () => {
+  it('sums every refund that is not FAILED', () => {
+    expect(sumActiveRefunds([
+      { amount: 100, status: 'PROCESSED' },
+      { amount: 50, status: 'INITIATED' },
+      { amount: 999, status: 'FAILED' },
+    ])).toBe(150);
+    expect(sumActiveRefunds([])).toBe(0);
+    expect(sumActiveRefunds()).toBe(0);
+  });
+
+  it('signed net does NOT clamp, so an over-refunded row can carry its excess', () => {
+    // Same case the clamped variant zeroes out above. Aggregations need the
+    // −217 so the order's other two slots don't over-report the ₹1000 order.
+    expect(splitAmountNetSigned({ wallet: 0, online: 333 }, [{ amount: 550, status: 'PROCESSED' }])).toBe(-217);
+  });
+
+  it('agrees with the clamped variant whenever the result is non-negative', () => {
+    const split = { wallet: 200, online: 550 };
+    const refunds = [{ amount: 100, status: 'PROCESSED' }];
+    expect(splitAmountNetSigned(split, refunds)).toBe(650);
+    expect(splitAmountNet(split, refunds)).toBe(650);
   });
 });
 

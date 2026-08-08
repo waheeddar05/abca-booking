@@ -250,6 +250,10 @@ Seat-based booking category for RESOURCE_BASED centers — no machine, ball type
 - **Corporate Batch** (`Booking.category = CORPORATE_BATCH`): fixed weekly batch (default Mon/Wed/Fri 07:00–09:00, coach Govind Lashkare, capacity 25). Two purchase modes on `Booking.corporateBatchMode`: `MONTHLY` (₹2000 default; one row per user per month, `enrollmentPeriod = "YYYY-MM"`; optional `HALF_MONTH` split — "YYYY-MM-H1"/"-H2" — when enabled in config) and `REGULAR` (₹200/session default; one row per attended date; renamed from `ADHOC` — config key `regularFee`, legacy `adhocFee` still read). Session seats = members whose period covers the date + regular (per-session) rows for that date. Config: `CORPORATE_BATCH_CONFIG` (shared with the net-hold overlay).
 - **Match Simulation** (`Booking.category = MATCH_SIMULATION`): admin-CRUD session list in `MATCH_SIMULATION_CONFIG` — each session has days (default Tue/Thu/Fri/Sat/Sun), a time window (default 07:00–09:00), capacity (default 10), fee, optional coach, and an enabled flag; multiple sessions per day supported. Seats counted per `(date, startTime)`.
 
+**Session Type box**: shown whenever **at least one** subcategory is enabled, listing only the enabled ones — with a single type it stays as one selected tile so the user can still see what they're booking. It is hidden only when *both* are disabled, and that case already short-circuits to the "not available at this center" state before the box renders. Do not gate it on "both enabled" again; a center that runs only Match Simulation still needs the label.
+
+**Landing defaults**: tapping Match Practice arrives on **Match Simulation** + **Regular** (per-day session) for both subcategories, so the user only has to pick a session. Match Simulation is the fallback-second choice only when it is the disabled one. Both stay freely switchable.
+
 **Key files**: `src/lib/match-practice.ts` (config normalization, session/occurrence generation, `resolveMatchPracticePlans`, in-tx `assertMatchPracticeSeat` capacity + duplicate guards), `/api/match-practice/availability` (months with enrollment counts + upcoming sessions with seat counts), `/api/slots/book-resource` (dispatches both categories through the same payment/wallet/refund machinery; capacity re-checked inside the serializable tx), `src/components/admin/MatchPracticeConfigEditor.tsx` (Admin → Settings → Match Practice card). Fees are flat admin-set amounts — recurring/promotional discounts and packages don't apply; admin blocks (`BlockedSlot.categories`) do.
 
 ### Ledger (manual revenue & expenses)
@@ -285,9 +289,30 @@ Shared columns (both kinds): `amount`, `entryDate`/`entryTime` (when the money a
 
 The GET response carries `canDelete`, `canEditAll` and `viewerId` so the UI can gate per row; every rule is re-enforced in `[id]/route.ts`. `/admin/ledger` is intentionally absent from the middleware moderator blocklist.
 
-**Dashboard**: `/api/admin/stats` adds `manualRevenue` and `manualExpenses` (grouped by `kind` + `revenueCategory`, scoped by `entryDate` against the dashboard range). **Total Revenue = booking + package + manual revenue**; expenses are a separate card and are never netted off revenue.
+**Dashboard**: `/api/admin/stats` adds `manualRevenue` and `manualExpenses` (grouped by `kind` + `revenueCategory`, scoped by `entryDate` against the dashboard range). **Total Revenue = booking + package + manual revenue**; expenses are a separate card and are never netted off revenue. See "Admin dashboard revenue" below for how manual revenue folds into the charts.
 
-Manual revenue **merges into the same Revenue-by-Category bars as system revenue** — a hand-recorded sidearm session sits on the Sidearm bar next to the booked ones — so the buckets still sum to Total Revenue. The only extra bar is `OTHER`. One asymmetry: the *Revenue by Bowling Machine Type* chart is **not** topped up, because a manual MACHINE entry names no specific machine; its bars sum to less than the MACHINE category bar whenever manual machine revenue exists.
+### Admin dashboard revenue (`/admin` + `/api/admin/stats`)
+
+Every rupee comes from **one formula**, applied to bookings, package purchases and Ledger entries alike:
+
+```
+Revenue = Σ(online) + Σ(wallet) − Σ(refunds)
+```
+
+`src/lib/dashboard-revenue.ts` is the single fold. The route turns each money source into a `RevenueRow` (`{ category, online, wallet, refunds, machineName }`) and `aggregateRevenue` buckets them, so two rules hold **by construction** — not by coincidence — and are asserted in `dashboard-revenue.test.ts`:
+
+1. **Σ(Revenue-by-Category bars) === Total Revenue** (=== Bookings + Packages + Manual).
+2. **Σ(Revenue-by-Machine bars) === the Bowling Machine category bar.**
+
+Consequences worth knowing:
+
+- **Manual revenue merges into the same category bars as system revenue** — a hand-recorded sidearm session sits on the Sidearm bar next to the booked ones. The only extra category bar is `OTHER` (manual income with no service behind it). It reaches the **machine** chart too, under a `Manual Entry` bar (`MANUAL_MACHINE_LABEL`), because a manual entry names a category but never a machine and rule 2 has to hold. A machine booking that names no machine lands on `Other` (`UNATTRIBUTED_MACHINE_LABEL`).
+- **CANCELLED bookings and packages are included, net of their refunds.** A cancellation that retained a fee retained money; excluding the row reported that fee as ₹0. A fully refunded one nets to zero on its own.
+- **Refunds are subtracted unclamped** (`splitAmountNetSigned`, not `splitAmountNet`). A refund is sized from the slot's mutable `price` and can exceed that slot's even share of its order, so zeroing a negative row before summing would strand the excess and over-report the order. The clamped `splitAmountNet` stays the **one-row display** figure (admin bookings list, CSV).
+- **Cash collects nothing through these rails and contributes 0** — walk-in cash belongs in the Ledger as Manual Revenue.
+- **Profit = Total Revenue − Expenses**, derived on the client from the two cards beside it so the three can never disagree on screen.
+
+**Operator Sessions card**: all four numbers count the same universe — non-cancelled `category = MACHINE` bookings in range — partitioned into three disjoint, exhaustive buckets so `Total = Σ(per-operator) + Self-Operate + Unassigned` always holds: `operatorId` set / no operator + `SELF_OPERATE` / no operator + `WITH_OPERATOR`. The `category: MACHINE` scope is what makes the identity true: `operationMode` is a non-null column defaulting to `WITH_OPERATOR` and the resource engine stamps every non-machine row `SELF_OPERATE`, so counting across all categories dumped every net / sidearm / coaching / match-practice booking into the Self-Operate and Unassigned buckets.
 
 ### Per-center Razorpay (phase 6)
 

@@ -4,7 +4,14 @@ import { requireAdmin } from '@/lib/adminAuth';
 import { getAuthenticatedUser } from '@/lib/auth';
 import { resolveCurrentCenter } from '@/lib/centers';
 import { getISTTodayUTC, getISTLastMonthRange, dateStringToUTC } from '@/lib/time';
-import { getBookingPaymentSplits, splitAmountNet, EMPTY_SPLIT } from '@/lib/booking-payment';
+import { getBookingPaymentSplits, sumActiveRefunds, EMPTY_SPLIT } from '@/lib/booking-payment';
+import {
+  aggregateRevenue,
+  rowRevenue,
+  MANUAL_MACHINE_LABEL,
+  DEFAULT_REVENUE_CATEGORY,
+  type RevenueRow,
+} from '@/lib/dashboard-revenue';
 
 // Epoch millis for a nullable groupBy `_max.date`. Used to break ties when two
 // staff have the same session count so the most recent booking ranks higher.
@@ -62,6 +69,32 @@ export async function GET(req: NextRequest) {
     const todayUTC = getISTTodayUTC();
     const lastMonthRange = getISTLastMonthRange();
 
+    // ─── Operator session universe ───────────────────────────────────
+    //
+    // Everything on the Operator Sessions card counts the SAME set of rows:
+    // live bowling-machine sessions in the selected range. That set splits
+    // into exactly three disjoint, exhaustive parts, so the card's numbers
+    // always satisfy
+    //
+    //   Total = Σ(per-operator sessions) + Self-Operate + Unassigned
+    //
+    //   • assigned     → operatorId is set (whatever the operationMode says)
+    //   • self-operate → no operator, and the row is marked SELF_OPERATE
+    //   • unassigned   → no operator, but the row still expects one
+    //
+    // Scoping to `category: MACHINE` is what makes the identity true. Only
+    // machine sessions ever carry an operator, yet `operationMode` is a
+    // non-null column defaulting to WITH_OPERATOR, and the resource booking
+    // engine stamps every non-machine row SELF_OPERATE — so counting across
+    // all categories dumped every net / sidearm / coaching / match-practice
+    // booking into the Self-Operate and Unassigned buckets.
+    const operatorSessionFilter = {
+      ...centerFilter,
+      category: 'MACHINE' as const,
+      status: { not: 'CANCELLED' as const },
+      ...(hasDateFilter ? { date: dateFilter } : {}),
+    };
+
     // Run ALL queries in a single Promise.all for maximum parallelism
     const [
       operatorSummary,
@@ -78,6 +111,7 @@ export async function GET(req: NextRequest) {
       revenue,
       selfOperatedBookings,
       unassignedBookings,
+      operatorSessionsTotal,
       matchPracticeSummary,
       ledgerTotals,
     ] = await Promise.all([
@@ -87,10 +121,8 @@ export async function GET(req: NextRequest) {
         _count: { _all: true },
         _max: { date: true },
         where: {
-          ...centerFilter,
-          status: { not: 'CANCELLED' },
+          ...operatorSessionFilter,
           operatorId: { not: null },
-          ...(hasDateFilter ? { date: dateFilter } : {}),
         },
       }).then(async (results) => {
         if (results.length === 0) return [];
@@ -244,33 +276,34 @@ export async function GET(req: NextRequest) {
       }).then(r => r._sum.discountAmount || 0).catch(() => 0),
       // ─── Revenue (cards + Revenue-by-Category + Revenue-by-Machine) ───
       //
-      // All revenue figures are derived here from ONE shared pass so the
-      // three top cards, the category chart, and the machine chart always
-      // reconcile to the rupee. Revenue is what was actually COLLECTED from
-      // the customer (not the list price), recognised when the money is
-      // received:
+      // Every rupee on this dashboard comes out of ONE pass, as a list of
+      // `RevenueRow`s that `aggregateRevenue` folds into the category and
+      // machine buckets. That is what makes the two reconciliation rules
+      // hold by construction rather than by coincidence:
       //
-      //   • Booking revenue (any booking) → (online + wallet) − refunds,
-      //     i.e. the funds actually collected for that booking, bucketed by
+      //   Σ(category bars) === Total Revenue
+      //   Σ(machine bars)  === the Bowling Machine category bar
+      //
+      // One formula for every source — Revenue = online + wallet − refunds:
+      //
+      //   • Booking → the booking's share of its captured Razorpay payment
+      //     plus the wallet deducted for it, less its refunds; bucketed by
       //     the booking's category/machine. CASH and free bookings collect
-      //     nothing through these rails and contribute 0. This holds for
-      //     package-redemption rows too: a package session's collected amount
-      //     is whatever upgrade it paid (online/wallet) — the package base was
-      //     already counted at PURCHASE below, so it is not double-counted.
-      //   • Package purchase             → the FULL `amountPaid` − wallet
-      //     refunds, recognised on the purchase date and bucketed by the
-      //     PACKAGE's category/machine — regardless of how many sessions
-      //     have been used. Cancelled packages are excluded entirely.
+      //     nothing through these rails and contribute 0. Package-redemption
+      //     rows contribute only the upgrade they paid on top — the package
+      //     base was already counted at PURCHASE below, never twice.
+      //   • Package purchase → the FULL `amountPaid` − wallet refunds,
+      //     recognised on the purchase date and bucketed by the PACKAGE's
+      //     category/machine, regardless of how many sessions have been used.
       //
-      // Therefore: Total = Booking + Package, and the sum over every
-      // category bucket equals Total Revenue by construction.
+      // CANCELLED rows are INCLUDED, net of their refunds: a cancellation
+      // that kept a fee kept money, and excluding the row reported that fee
+      // as ₹0. A fully refunded one nets to zero on its own.
       (async () => {
         const empty = {
           bookingRevenue: 0,
           packageRevenue: 0,
-          totalRevenue: 0,
-          revenueByCategory: [] as Array<{ key: string; _sum: { price: number } }>,
-          machineTypeRevenue: [] as Array<{ name: string; revenue: number }>,
+          rows: [] as RevenueRow[],
         };
         try {
           // Resolve legacy enum machine IDs → this center's actual machine
@@ -293,18 +326,14 @@ export async function GET(req: NextRequest) {
               : machineId === 'GRAVITY' ? 'Gravity'
               : 'Other');
 
-          const byCategory = new Map<string, number>();
-          const byMachine = new Map<string, number>();
-          const addCategory = (cat: string, amount: number) =>
-            byCategory.set(cat, (byCategory.get(cat) || 0) + amount);
-          const addMachine = (name: string, amount: number) =>
-            byMachine.set(name, (byMachine.get(name) || 0) + amount);
+          const rows: RevenueRow[] = [];
 
           // ── Bookings: direct payments + package-redemption extras ──
+          // No status filter — a cancelled booking that kept a cancellation
+          // fee still earned that fee, and its refunds net it out below.
           const bookings = await prisma.booking.findMany({
             where: {
               ...centerFilter,
-              status: { in: ['BOOKED', 'DONE'] },
               ...(hasDateFilter ? { date: dateFilter } : {}),
             },
             select: {
@@ -327,21 +356,26 @@ export async function GET(req: NextRequest) {
 
           let bookingRevenue = 0;
           for (const b of bookings) {
-            // Net of non-failed refunds. Cash/free/package-covered rows resolve
-            // to 0. Identical for regular and package-redemption rows.
-            const value = splitAmountNet(
-              paymentSplits.get(b.id) ?? EMPTY_SPLIT,
-              b.refunds,
-            );
-            bookingRevenue += value;
-            addCategory(b.category, value);
+            const split = paymentSplits.get(b.id) ?? EMPTY_SPLIT;
+            let machineName: string | null = null;
             if (b.category === 'MACHINE') {
-              let name = 'Other';
-              if (b.assignedMachine?.name) name = b.assignedMachine.name;
-              else if (b.machineId) name = machineNameFromLegacy(b.machineId);
-              else if (b.assignedMachine?.machineType?.name) name = b.assignedMachine.machineType.name;
-              addMachine(name, value);
+              if (b.assignedMachine?.name) machineName = b.assignedMachine.name;
+              else if (b.machineId) machineName = machineNameFromLegacy(b.machineId);
+              else if (b.assignedMachine?.machineType?.name) machineName = b.assignedMachine.machineType.name;
             }
+            // Refunds are subtracted UNCLAMPED: a refund is sized from the
+            // slot's (mutable) price and can exceed that slot's even share of
+            // its order, so zeroing a negative row here would strand the
+            // excess and over-report the order. See `splitAmountNetSigned`.
+            const row: RevenueRow = {
+              category: b.category,
+              online: split.online,
+              wallet: split.wallet,
+              refunds: sumActiveRefunds(b.refunds),
+              machineName,
+            };
+            rows.push(row);
+            bookingRevenue += rowRevenue(row);
           }
 
           // ── Package purchases: full amount recognised on purchase date ──
@@ -356,10 +390,13 @@ export async function GET(req: NextRequest) {
             if (fromDate) createdFilter.gte = new Date(fromDate.getTime() - IST_OFFSET_MS);
             if (toDate) createdFilter.lt = new Date(toDate.getTime() + 24 * 60 * 60 * 1000 - IST_OFFSET_MS);
           }
+          // Cancelled packages are kept, exactly like cancelled bookings: the
+          // cancellation refunds only the UNUSED sessions pro rata, so the
+          // used portion is revenue the center earned and kept. Dropping the
+          // row reported it as ₹0.
           const ups = await prisma.userPackage.findMany({
             where: {
               ...(centerId ? { package: { centerId } } : {}),
-              status: { not: 'CANCELLED' },
               ...(createdFilter ? { createdAt: createdFilter } : {}),
             },
             select: {
@@ -387,52 +424,56 @@ export async function GET(req: NextRequest) {
               refundById.set(r.referenceId, (refundById.get(r.referenceId) || 0) + r.amount);
             }
             for (const up of ups) {
-              const net = up.amountPaid - (refundById.get(up.id) || 0);
-              packageRevenue += net;
               // Legacy ABCA packages have a null category — they are bowling
               // machine packages, so they fall into MACHINE.
-              const cat = up.package?.category || 'MACHINE';
-              addCategory(cat, net);
+              const cat = up.package?.category || DEFAULT_REVENUE_CATEGORY;
+              let machineName: string | null = null;
               if (cat === 'MACHINE') {
-                let name = 'Other';
-                if (up.package?.machineRow?.name) name = up.package.machineRow.name;
-                else if (up.package?.machineId) name = machineNameFromLegacy(up.package.machineId);
-                addMachine(name, net);
+                if (up.package?.machineRow?.name) machineName = up.package.machineRow.name;
+                else if (up.package?.machineId) machineName = machineNameFromLegacy(up.package.machineId);
               }
+              // A package is bought as one amount; the online/wallet split
+              // isn't tracked per purchase, so the whole `amountPaid` sits on
+              // the online side of the same formula. Refunds are the wallet
+              // credits raised against it.
+              const row: RevenueRow = {
+                category: cat,
+                online: up.amountPaid,
+                wallet: 0,
+                refunds: refundById.get(up.id) || 0,
+                machineName,
+              };
+              rows.push(row);
+              packageRevenue += rowRevenue(row);
             }
           }
 
-          return {
-            bookingRevenue,
-            packageRevenue,
-            totalRevenue: bookingRevenue + packageRevenue,
-            revenueByCategory: Array.from(byCategory.entries()).map(([category, price]) => ({
-              key: category,
-              _sum: { price },
-            })),
-            machineTypeRevenue: Array.from(byMachine.entries()).map(([name, revenue]) => ({ name, revenue })),
-          };
+          return { bookingRevenue, packageRevenue, rows };
         } catch {
           return empty;
         }
       })(),
+      // Self-operated: machine sessions the player ran themselves. Keyed on
+      // "no operator AND marked self-operate" rather than the mode alone, so
+      // this and `unassignedBookings` can never overlap or leave a gap.
       prisma.booking.count({
         where: {
-          ...centerFilter,
-          status: { not: 'CANCELLED' },
-          operationMode: 'SELF_OPERATE',
-          ...(hasDateFilter ? { date: dateFilter } : {}),
-        },
-      }).catch(() => 0),
-      prisma.booking.count({
-        where: {
-          ...centerFilter,
-          status: { not: 'CANCELLED' },
-          operationMode: 'WITH_OPERATOR',
+          ...operatorSessionFilter,
           operatorId: null,
-          ...(hasDateFilter ? { date: dateFilter } : {}),
+          operationMode: 'SELF_OPERATE',
         },
       }).catch(() => 0),
+      // Unassigned: machine sessions that still expect an operator but have
+      // none — the queue an admin needs to work through on Admin → Bookings.
+      prisma.booking.count({
+        where: {
+          ...operatorSessionFilter,
+          operatorId: null,
+          operationMode: 'WITH_OPERATOR',
+        },
+      }).catch(() => 0),
+      // The whole universe the three buckets partition.
+      prisma.booking.count({ where: operatorSessionFilter }).catch(() => 0),
       // Match Practice session stats — booking counts per subcategory,
       // mirroring the operator/sidearm/coach summary cards. Each category
       // splits into "Monthly" (MONTHLY + HALF_MONTH passes) and "Regular"
@@ -489,53 +530,54 @@ export async function GET(req: NextRequest) {
           ...centerFilter,
           ...(hasDateFilter ? { entryDate: dateFilter } : {}),
         },
-      }).then((rows) => {
+      }).then((grouped) => {
         let manualRevenue = 0;
         let manualExpenses = 0;
-        const byCategory = new Map<string, number>();
-        for (const r of rows) {
+        const rows: RevenueRow[] = [];
+        for (const r of grouped) {
           const amount = r._sum.amount || 0;
           if (r.kind === 'REVENUE') {
             manualRevenue += amount;
             // Null category shouldn't happen (the schema requires one on
             // revenue rows), but bucket it as OTHER rather than dropping
             // it — the chart must always sum to Total Revenue.
-            const key = r.revenueCategory ?? 'OTHER';
-            byCategory.set(key, (byCategory.get(key) || 0) + amount);
+            rows.push({
+              category: r.revenueCategory ?? 'OTHER',
+              online: amount,
+              wallet: 0,
+              refunds: 0,
+              // A manual entry names a category but never a machine, and the
+              // machine bars still have to sum to the Bowling Machine bar —
+              // so it gets its own clearly-labelled column rather than being
+              // dropped or smuggled into a real machine's total.
+              machineName: MANUAL_MACHINE_LABEL,
+            });
           } else {
             manualExpenses += amount;
           }
         }
-        return { manualRevenue, manualExpenses, byCategory };
+        return { manualRevenue, manualExpenses, rows };
       }).catch(() => ({
         manualRevenue: 0,
         manualExpenses: 0,
-        byCategory: new Map<string, number>(),
+        rows: [] as RevenueRow[],
       })),
     ]);
 
-    // Merge manual revenue into the booking/package category buckets so
-    // each bar is the whole story for that service. The sum over every
-    // bucket still equals Total Revenue by construction.
+    // One fold over every money row — bookings, package purchases and
+    // hand-entered Ledger revenue alike — so each bar is the whole story for
+    // that service (a cash sidearm session recorded by hand sits on the
+    // Sidearm bar next to the booked ones) and the reconciliation rules hold
+    // by construction rather than by coincidence:
     //
-    // One asymmetry worth knowing: the Revenue by Bowling Machine Type
-    // chart below is NOT topped up the same way — a manual MACHINE entry
-    // records no specific machine, so it can't be attributed to one.
-    // That chart therefore covers system revenue only, and its bars sum
-    // to less than the MACHINE category bar whenever manual machine
-    // revenue exists.
-    const totalRevenue = revenue.totalRevenue + ledgerTotals.manualRevenue;
-    const mergedByCategory = new Map<string, number>();
-    for (const entry of revenue.revenueByCategory) {
-      mergedByCategory.set(entry.key, (mergedByCategory.get(entry.key) || 0) + entry._sum.price);
-    }
-    for (const [key, amount] of ledgerTotals.byCategory) {
-      mergedByCategory.set(key, (mergedByCategory.get(key) || 0) + amount);
-    }
-    const revenueByCategory = Array.from(mergedByCategory.entries()).map(([key, price]) => ({
-      key,
-      _sum: { price },
-    }));
+    //   Σ(category bars) === Total Revenue === Bookings + Packages + Manual
+    //   Σ(machine bars)  === the Bowling Machine category bar
+    //
+    // The machine chart is topped up the same way the category chart is: a
+    // manual MACHINE entry names no machine, so it lands on its own
+    // "Manual Entry" column instead of leaving the bars short of the bar
+    // they are meant to explain.
+    const aggregate = aggregateRevenue([...revenue.rows, ...ledgerTotals.rows]);
 
     return NextResponse.json({
       totalBookings,
@@ -544,18 +586,24 @@ export async function GET(req: NextRequest) {
       upcomingBookings,
       lastMonthBookings,
       totalSlots,
-      // Total Revenue = booking + package + manual (ledger) revenue.
-      totalRevenue,
+      // Total Revenue = booking + package + manual (ledger) revenue, read
+      // straight off the category buckets so the chart can never disagree
+      // with the card above it.
+      totalRevenue: aggregate.totalRevenue,
       bookingRevenue: revenue.bookingRevenue,
       packageRevenue: revenue.packageRevenue,
       manualRevenue: ledgerTotals.manualRevenue,
       manualExpenses: ledgerTotals.manualExpenses,
       totalDiscount: totalDiscountValue,
-      revenueBreakdown: { axis: 'category', entries: revenueByCategory },
-      machineTypeRevenue: revenue.machineTypeRevenue,
+      revenueBreakdown: {
+        axis: 'category',
+        entries: aggregate.byCategory.map(b => ({ key: b.key, _sum: { price: b.amount } })),
+      },
+      machineTypeRevenue: aggregate.byMachine.map(b => ({ name: b.key, revenue: b.amount })),
       bookingDistribution,
       selfOperatedBookings,
       unassignedBookings,
+      operatorSessionsTotal,
       operatorSummary,
       sidearmSummary,
       coachSummary,

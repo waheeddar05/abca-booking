@@ -192,7 +192,9 @@ export default function MatchPracticePanel({
 
   type Sub = 'CORPORATE' | 'SIMULATION';
   const [sub, setSub] = useState<Sub | null>(null);
-  const [corpMode, setCorpMode] = useState<'MONTHLY' | 'REGULAR'>('MONTHLY');
+  // Booking Option defaults to Regular (per-day session) for both
+  // subcategories — see the landing default in the fetch below.
+  const [corpMode, setCorpMode] = useState<'MONTHLY' | 'REGULAR'>('REGULAR');
   /** Selected enrollment period — a month ("2026-07") or a half
    *  ("2026-07-H1"). Only one enrollment at a time. */
   const [selectedPeriod, setSelectedPeriod] = useState<string | null>(null);
@@ -201,7 +203,7 @@ export default function MatchPracticePanel({
   const [selectedRegular, setSelectedRegular] = useState<Set<string>>(new Set());
   const [selectedSim, setSelectedSim] = useState<Set<string>>(new Set());
   // ── Match Simulation Monthly / Regular ──────────────────────────────
-  const [simMode, setSimMode] = useState<'MONTHLY' | 'REGULAR'>('MONTHLY');
+  const [simMode, setSimMode] = useState<'MONTHLY' | 'REGULAR'>('REGULAR');
   /** Which monthly-enabled sim session the user is enrolling in. */
   const [selectedSimSessionId, setSelectedSimSessionId] = useState<string | null>(null);
   /** Selected sim enrollment period (month or half). */
@@ -227,8 +229,12 @@ export default function MatchPracticePanel({
       .get<MatchPracticeAvailability>('/api/match-practice/availability')
       .then((res) => {
         setData(res);
-        // Land on the first enabled subcategory.
-        setSub(res.corporateBatch.enabled ? 'CORPORATE' : res.matchSimulation.enabled ? 'SIMULATION' : null);
+        // Land on Match Simulation — the default session type — falling back
+        // to Corporate Batch when simulation is the one that's turned off.
+        // Paired with the Regular (per-day) Booking Option defaults above, a
+        // user who taps Match Practice arrives on a ready-to-book state and
+        // only has to pick a session.
+        setSub(res.matchSimulation.enabled ? 'SIMULATION' : res.corporateBatch.enabled ? 'CORPORATE' : null);
         // Default the monthly enrollment to the first session that offers it.
         setSelectedSimSessionId(res.matchSimulation.monthly?.sessions[0]?.sessionId ?? null);
       })
@@ -486,7 +492,15 @@ export default function MatchPracticePanel({
 
   const cb = data.corporateBatch;
   const ms = data.matchSimulation;
-  const bothEnabled = cb.enabled && ms.enabled;
+
+  // Session Type options — only the ones the center has enabled. The box is
+  // shown whenever there is at least one (the both-disabled case already
+  // returned the "not available" state above), so a user always sees which
+  // session type they are booking, even when it's the only one on offer.
+  const subOptions = [
+    { key: 'SIMULATION' as Sub, label: 'Match Simulation', icon: Trophy, enabled: ms.enabled },
+    { key: 'CORPORATE' as Sub, label: 'Corporate Batch', icon: Users, enabled: cb.enabled },
+  ].filter((o) => o.enabled);
 
   const showPaymentSelector =
     selection.count > 0
@@ -527,17 +541,16 @@ export default function MatchPracticePanel({
 
   return (
     <div>
-      {/* Subcategory toggle — hidden when only one is enabled. */}
-      {bothEnabled && (
+      {/* Session Type. Always rendered while at least one type is enabled —
+          with only one, it stays as a single (selected) tile so the user can
+          still see what they're booking. */}
+      {subOptions.length > 0 && (
         <div className="mb-4">
           <label className="block text-[10px] font-medium text-accent mb-1 uppercase tracking-wider">
             Session Type
           </label>
-          <div className="grid grid-cols-2 gap-1.5">
-            {([
-              { key: 'SIMULATION' as Sub, label: 'Match Simulation', icon: Trophy },
-              { key: 'CORPORATE' as Sub, label: 'Corporate Batch', icon: Users },
-            ]).map(({ key, label, icon: Icon }) => {
+          <div className={`grid gap-1.5 ${subOptions.length > 1 ? 'grid-cols-2' : 'grid-cols-1'}`}>
+            {subOptions.map(({ key, label, icon: Icon }) => {
               const active = sub === key;
               return (
                 <button

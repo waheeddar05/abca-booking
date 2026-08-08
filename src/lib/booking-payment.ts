@@ -136,17 +136,46 @@ export function splitAmountGross(split: PaymentSplit): number {
 }
 
 /**
+ * Rupees actually returned to the customer for this booking. A FAILED refund
+ * never left the account, so it does not count. Single definition of
+ * "refunded", shared by the per-row net figures and the dashboard totals.
+ */
+export function sumActiveRefunds(refunds: RefundLite[] = []): number {
+  let total = 0;
+  for (const r of refunds) {
+    if (r.status !== 'FAILED') total += r.amount;
+  }
+  return total;
+}
+
+/**
+ * Gross collected minus the booking's non-failed refunds, WITHOUT the display
+ * clamp — the result may be negative.
+ *
+ * Use this whenever the figure is going to be SUMMED. A refund row is sized
+ * from the (mutable) per-slot price, which can exceed that slot's even share of
+ * its order; clamping each row first would strand the excess and over-report
+ * the order. Example: a ₹300 order over three slots priced 150/100/50, with the
+ * ₹150 slot cancelled and refunded. Shares are 100 each, so the signed values
+ * are −50 / +100 / +100 = ₹150 — exactly the money the center kept. Clamping
+ * first would report ₹200.
+ */
+export function splitAmountNetSigned(split: PaymentSplit, refunds: RefundLite[] = []): number {
+  return splitAmountGross(split) - sumActiveRefunds(refunds);
+}
+
+/**
  * Gross collected, net of the booking's non-failed refunds. Clamped at 0:
  * refund rows are sized from the (mutable) per-slot price, which can exceed
  * this booking's even share of its order — a cancelled slot then reads ₹0
  * collected rather than a negative amount.
+ *
+ * This is the ONE-ROW display figure (admin bookings list, CSV). For totals,
+ * use `splitAmountNetSigned` — see its note on why clamping before summing
+ * over-reports.
  */
 export function splitAmountNet(split: PaymentSplit, refunds: RefundLite[] = []): number {
-  let v = splitAmountGross(split);
-  for (const r of refunds) {
-    if (r.status !== 'FAILED') v -= r.amount;
-  }
-  return Math.max(0, v);
+  return Math.max(0, splitAmountNetSigned(split, refunds));
 }
 
 /**

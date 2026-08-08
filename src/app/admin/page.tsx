@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { CalendarCheck, LayoutDashboard, X, IndianRupee, AlertCircle } from 'lucide-react';
+import { CalendarCheck, LayoutDashboard, X, IndianRupee, AlertCircle, TrendingUp } from 'lucide-react';
 import { AdminPageHeader } from '@/components/admin/AdminPageHeader';
 import { AdminStatCard } from '@/components/admin/AdminStatCard';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, CartesianGrid } from 'recharts';
@@ -33,6 +33,11 @@ interface Stats {
   manualRevenue: number;
   /** Hand-entered expenses; reported separately, never netted off revenue. */
   manualExpenses: number;
+  /** Bowling-machine sessions in range. Equals the per-operator sessions
+   *  plus self-operated plus unassigned — see the Operator Sessions card. */
+  operatorSessionsTotal: number;
+  selfOperatedBookings: number;
+  unassignedBookings: number;
   bookingDistribution: BookingDistributionItem[];
   revenueBreakdown: {
     entries: Array<{
@@ -240,6 +245,20 @@ export default function AdminDashboard() {
     .map(item => ({ name: item?.name ?? '—', revenue: safeNumber(item?.revenue) }))
     .sort((a, b) => b.revenue - a.revenue);
 
+  // Profit = Total Revenue − Expenses, derived from the two cards beside it
+  // so the three can never disagree on screen.
+  const totalRevenue = safeNumber(stats?.totalRevenue);
+  const totalExpenses = safeNumber(stats?.manualExpenses);
+  const profit = totalRevenue - totalExpenses;
+
+  // Operator session split. The API guarantees these three partition the
+  // center's bowling-machine sessions for the selected range:
+  //   Total = Σ(per-operator) + Self-Operate + Unassigned
+  const operatorRows = stats?.operatorSummary ?? [];
+  const selfOperated = safeNumber(stats?.selfOperatedBookings);
+  const unassignedSessions = safeNumber(stats?.unassignedBookings);
+  const operatorSessionsTotal = safeNumber(stats?.operatorSessionsTotal);
+
   return (
     <div className="space-y-6 pb-10">
       <AdminPageHeader
@@ -303,11 +322,16 @@ export default function AdminDashboard() {
         </div>
       )}
 
-      {/* KPI Summary Cards. Five metrics now (Ledger added Manual Revenue
-          and Expenses), so phones get 2-across and desktops fit all five
-          on one row. Total Revenue = Bookings + Packages + Manual;
-          Expenses sit alongside and are never subtracted from it. */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-5 gap-2 sm:gap-4">
+      {/* KPI Summary Cards. Six metrics, and six divides evenly by every
+          column count below — phones get 2-across × 3 rows, tablets and
+          laptops 3-across × 2, wide screens all six on one row — so no
+          breakpoint is ever left with an orphan card on its own row.
+          Six across only from 2xl: at 1280px the sidebar leaves each card
+          too narrow for a ₹-lakh figure at text-2xl.
+          Total Revenue = Bookings + Packages + Manual; Expenses sit
+          alongside and are never subtracted from it. Profit is the one
+          card that nets the two: Total Revenue − Expenses. */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 2xl:grid-cols-6 gap-2 sm:gap-4">
         <AdminStatCard
           label="Total Revenue"
           value={stats?.totalRevenue ? `₹${stats.totalRevenue.toLocaleString()}` : '₹0'}
@@ -362,6 +386,21 @@ export default function AdminDashboard() {
           isText
           loading={loading}
           delay={400}
+        />
+        {/* Profit = Total Revenue − Expenses. Turns rose when the range
+            spent more than it earned, so a loss reads as one at a glance. */}
+        <AdminStatCard
+          label="Profit"
+          value={`${profit < 0 ? '-₹' : '₹'}${Math.abs(profit).toLocaleString()}`}
+          icon={TrendingUp}
+          href="/admin/ledger"
+          gradient={profit < 0
+            ? 'bg-gradient-to-br from-rose-500/20 to-rose-500/5'
+            : 'bg-gradient-to-br from-violet-500/20 to-violet-500/5'}
+          iconColor={profit < 0 ? 'text-rose-400' : 'text-violet-300'}
+          isText
+          loading={loading}
+          delay={500}
         />
       </div>
 
@@ -486,39 +525,48 @@ export default function AdminDashboard() {
         )}
       </div>
 
-      {/* Revenue by Bowling Machine Type Chart */}
-      <div className="bg-white/[0.03] backdrop-blur-sm rounded-xl border border-white/[0.07] p-5">
-        <h2 className="text-sm font-bold text-white uppercase tracking-wider mb-6">Revenue by Bowling Machine Type</h2>
-        <div className="h-72 w-full">
+      {/* Revenue by Bowling Machine Type Chart. These bars sum exactly to the
+          Bowling Machine bar above: a machine session that names no machine
+          lands on "Other", and hand-entered Ledger revenue filed under
+          Bowling Machine lands on "Manual Entry", so nothing goes missing
+          between the two charts. Scales down on phones like the category
+          chart so every bar and label fits without horizontal scrolling. */}
+      <div className="bg-white/[0.03] backdrop-blur-sm rounded-xl border border-white/[0.07] p-3 sm:p-5">
+        <h2 className="text-sm font-bold text-white uppercase tracking-wider mb-4 sm:mb-6 px-2 pt-1 sm:px-0 sm:pt-0">Revenue by Bowling Machine Type</h2>
+        <div className="h-60 sm:h-72 w-full">
           {loading ? (
             <div className="h-full w-full bg-white/[0.03] rounded-lg animate-pulse flex items-center justify-center">
               <div className="w-8 h-8 border-2 border-accent/20 border-t-accent rounded-full animate-spin" />
             </div>
           ) : revenueByMachineData.length > 0 ? (
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={revenueByMachineData} margin={{ top: 10, right: 10, left: 10, bottom: 28 }}>
+              <BarChart
+                data={revenueByMachineData}
+                margin={isCompact ? { top: 8, right: 2, left: 0, bottom: 24 } : { top: 10, right: 10, left: 10, bottom: 28 }}
+              >
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="rgba(255,255,255,0.05)" />
                 <XAxis
                   dataKey="name"
                   axisLine={false}
                   tickLine={false}
-                  tick={<WrappedAxisTick />}
+                  tick={<WrappedAxisTick fontSize={isCompact ? 9 : 10} />}
                   interval={0}
                 />
-                <YAxis 
-                  axisLine={false} 
-                  tickLine={false} 
-                  tick={{ fill: '#64748b', fontSize: 10 }}
+                <YAxis
+                  axisLine={false}
+                  tickLine={false}
+                  width={isCompact ? 34 : 44}
+                  tick={{ fill: '#64748b', fontSize: isCompact ? 9 : 10 }}
                   tickFormatter={(v) => `₹${v >= 1000 ? (v/1000).toFixed(0) + 'k' : v}`}
                 />
-                <Tooltip 
+                <Tooltip
                   cursor={{ fill: 'rgba(255,255,255,0.05)' }}
                   contentStyle={{ backgroundColor: '#0f172a', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px' }}
                   itemStyle={{ color: '#fff', fontSize: '12px' }}
                   labelStyle={{ color: '#94a3b8', fontSize: '11px', marginBottom: '4px' }}
                   formatter={(value: any) => [`₹${value.toLocaleString()}`, 'Revenue']}
                 />
-                <Bar dataKey="revenue" radius={[4, 4, 0, 0]} barSize={40}>
+                <Bar dataKey="revenue" radius={isCompact ? [3, 3, 0, 0] : [4, 4, 0, 0]} barSize={isCompact ? 14 : 40}>
                   {revenueByMachineData.map((_, index) => (
                     <Cell key={`cell-${index}`} fill={CHART_COLORS[0]} />
                   ))}
@@ -535,10 +583,16 @@ export default function AdminDashboard() {
 
       {/* Staff Session Distribution Tables */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Table A — Operators */}
+        {/* Table A — Operators.
+            Beyond the per-operator counts this card closes the books on
+            every bowling-machine session in the range: the sessions nobody
+            was assigned to are split into "ran it themselves" and "still
+            needs an operator", and the footer total is the sum of all of
+            them. Reading down the column always adds up to Total Sessions. */}
         <div className="bg-white/[0.03] backdrop-blur-sm rounded-xl border border-white/[0.07] overflow-hidden h-fit">
           <div className="px-4 py-3 bg-white/[0.02] border-b border-white/[0.07]">
             <h3 className="text-[11px] font-bold text-slate-400 uppercase tracking-widest">Operator Sessions</h3>
+            <p className="text-[10px] text-slate-500 mt-0.5 normal-case tracking-normal">Bowling machine sessions</p>
           </div>
           <div className="overflow-x-auto">
             <table className="w-full text-sm text-left">
@@ -556,8 +610,8 @@ export default function AdminDashboard() {
                       <td className="px-4 py-3 text-right"><div className="h-3 bg-white/10 rounded w-6 ml-auto" /></td>
                     </tr>
                   ))
-                ) : stats?.operatorSummary && stats.operatorSummary.length > 0 ? (
-                  stats.operatorSummary.map(op => (
+                ) : operatorRows.length > 0 ? (
+                  operatorRows.map(op => (
                     <tr key={op.id} className="hover:bg-white/[0.02]">
                       <td className="px-4 py-3 text-slate-300 truncate max-w-[140px]">{op.name}</td>
                       <td className="px-4 py-3 text-right font-bold text-white">{op.sessions}</td>
@@ -565,10 +619,49 @@ export default function AdminDashboard() {
                   ))
                 ) : (
                   <tr>
-                    <td colSpan={2} className="px-4 py-6 text-center text-slate-500 text-xs italic">No operator data</td>
+                    <td colSpan={2} className="px-4 py-4 text-center text-slate-500 text-xs italic">
+                      No operator-assigned sessions
+                    </td>
                   </tr>
                 )}
+
+                {/* The two unassigned buckets — same column, so the numbers
+                    stay addable straight down the page. */}
+                <tr className="bg-white/[0.02]">
+                  <td className="px-4 py-3 text-slate-400">Self-Operate</td>
+                  <td className="px-4 py-3 text-right font-bold text-slate-300">
+                    {loading
+                      ? <span className="inline-block w-6 h-3 bg-white/10 rounded animate-pulse" />
+                      : selfOperated.toLocaleString()}
+                  </td>
+                </tr>
+                <tr className="bg-white/[0.02]">
+                  {/* No deep link here on purpose: the Bookings page has no
+                      unassigned-operator filter, so a link would land on a
+                      list that doesn't match this number. */}
+                  <td className="px-4 py-3 text-slate-400">
+                    Unassigned
+                    {!loading && unassignedSessions > 0 && (
+                      <span className="block text-[10px] text-amber-400/80">Still needs an operator</span>
+                    )}
+                  </td>
+                  <td className={`px-4 py-3 text-right font-bold ${!loading && unassignedSessions > 0 ? 'text-amber-400' : 'text-slate-300'}`}>
+                    {loading
+                      ? <span className="inline-block w-6 h-3 bg-white/10 rounded animate-pulse" />
+                      : unassignedSessions.toLocaleString()}
+                  </td>
+                </tr>
               </tbody>
+              <tfoot>
+                <tr className="border-t border-white/[0.1] bg-white/[0.04]">
+                  <td className="px-4 py-3 text-[11px] font-bold text-slate-300 uppercase tracking-wider">Total Sessions</td>
+                  <td className="px-4 py-3 text-right font-bold text-white">
+                    {loading
+                      ? <span className="inline-block w-6 h-3 bg-white/10 rounded animate-pulse" />
+                      : operatorSessionsTotal.toLocaleString()}
+                  </td>
+                </tr>
+              </tfoot>
             </table>
           </div>
         </div>
