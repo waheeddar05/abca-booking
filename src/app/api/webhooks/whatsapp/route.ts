@@ -3,6 +3,7 @@ import { prisma } from '@/lib/prisma';
 import {
   markWhatsAppUndeliverable,
   clearWhatsAppUndeliverable,
+  classifyFailedStatus,
 } from '@/lib/whatsapp-deliverability';
 
 const VERIFY_TOKEN = process.env.WHATSAPP_WEBHOOK_VERIFY_TOKEN || 'playorbit-webhook-verify-2024';
@@ -96,36 +97,33 @@ export async function POST(req: NextRequest) {
         const statuses = value?.statuses || [];
         for (const status of statuses) {
           if (status?.status === 'failed') {
-            const errors = status?.errors || [];
-            // Meta error 131047 = "Re-engagement message": message was a
-            // free-form text sent outside the 24h conversation window.
-            // This is an expected outcome for booking-confirmation /
-            // operator-notification messages when the recipient hasn't
-            // messaged the business recently — not a bug. Downgrade to
-            // a single-line warning so Vercel logs stay clean. The
-            // proper fix is sending a pre-approved template instead
-            // (handled in lib/whatsapp.ts), but until every operator
+            // Re-engagement (131047 / 470) = free-form text sent outside
+            // the 24h customer-service window. Expected for booking and
+            // operator notifications when the recipient hasn't messaged
+            // us recently — not a bug, so it stays a single-line warning
+            // and Vercel logs stay clean. The proper fix is a
+            // pre-approved template (lib/whatsapp.ts); until every
             // notification is templated this will keep firing.
-            const isReEngagement = Array.isArray(errors)
-              && errors.some((e: { code?: number }) => e?.code === 131047);
+            //
+            // Only a genuine "not on WhatsApp" code may raise the
+            // undeliverable flag — see classifyFailedStatus.
+            const { codes, isReEngagement, unreachableCode } = classifyFailedStatus(
+              status?.errors,
+            );
+
             if (isReEngagement) {
               console.warn(
-                `[WhatsApp Webhook] Skipped: ${status?.recipient_id} outside 24h window (131047)`,
+                `[WhatsApp Webhook] Skipped: ${status?.recipient_id} outside 24h window (${codes.join(',') || '131047'})`,
               );
             } else {
               console.error(
                 `[WhatsApp Webhook] Delivery failed for ${status?.recipient_id}:`,
-                JSON.stringify(errors),
+                JSON.stringify(status?.errors ?? []),
               );
-              // Hard delivery failure (e.g. 131026 "Message undeliverable" —
-              // number not on WhatsApp). Flag the recipient so OTP/notification
-              // send paths know Meta's "send success" doesn't mean delivery.
-              if (status?.recipient_id) {
-                const code = Array.isArray(errors)
-                  ? (errors[0] as { code?: number } | undefined)?.code
-                  : undefined;
-                await markWhatsAppUndeliverable(status.recipient_id, code);
-              }
+            }
+
+            if (unreachableCode !== undefined && status?.recipient_id) {
+              await markWhatsAppUndeliverable(status.recipient_id, unreachableCode);
             }
           } else if (status?.status === 'read' || status?.status === 'delivered') {
             // Message reached the device — clear any stale undeliverable flag.
