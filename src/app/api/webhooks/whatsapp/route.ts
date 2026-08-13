@@ -3,6 +3,8 @@ import { prisma } from '@/lib/prisma';
 import {
   markWhatsAppUndeliverable,
   clearWhatsAppUndeliverable,
+  markWhatsAppAccountBlocked,
+  clearWhatsAppAccountBlocked,
   classifyFailedStatus,
 } from '@/lib/whatsapp-deliverability';
 
@@ -107,9 +109,8 @@ export async function POST(req: NextRequest) {
             //
             // Only a genuine "not on WhatsApp" code may raise the
             // undeliverable flag — see classifyFailedStatus.
-            const { codes, isReEngagement, unreachableCode } = classifyFailedStatus(
-              status?.errors,
-            );
+            const { codes, isReEngagement, unreachableCode, accountBlockedCode } =
+              classifyFailedStatus(status?.errors);
 
             if (isReEngagement) {
               console.warn(
@@ -125,11 +126,21 @@ export async function POST(req: NextRequest) {
             if (unreachableCode !== undefined && status?.recipient_id) {
               await markWhatsAppUndeliverable(status.recipient_id, unreachableCode);
             }
+
+            // Account-level refusal (unpaid WABA billing, locked account,
+            // policy block). Nothing is reaching anyone until it's fixed,
+            // and it is NOT the recipient's number — record it once so
+            // the OTP flow can say something true.
+            if (accountBlockedCode !== undefined) {
+              await markWhatsAppAccountBlocked(accountBlockedCode);
+            }
           } else if (status?.status === 'read' || status?.status === 'delivered') {
             // Message reached the device — clear any stale undeliverable flag.
             if (status?.recipient_id) {
               await clearWhatsAppUndeliverable(status.recipient_id);
             }
+            // Delivery is demonstrably working, so the account isn't blocked.
+            await clearWhatsAppAccountBlocked();
             // Successful delivery events are noisy — only log on debug
             // when explicitly requested. Default: silent.
             if (process.env.WHATSAPP_LOG_DELIVERY === 'true') {

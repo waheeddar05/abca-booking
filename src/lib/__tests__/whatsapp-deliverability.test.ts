@@ -20,8 +20,12 @@ import {
   clearWhatsAppUndeliverable,
   isWhatsAppUndeliverable,
   isUnreachableErrorCode,
+  isAccountBlockedErrorCode,
   extractErrorCodes,
   classifyFailedStatus,
+  markWhatsAppAccountBlocked,
+  clearWhatsAppAccountBlocked,
+  isWhatsAppAccountBlocked,
 } from '../whatsapp-deliverability';
 
 beforeEach(() => {
@@ -228,5 +232,86 @@ describe('isWhatsAppUndeliverable', () => {
   it('returns false on DB errors', async () => {
     findUniqueMock.mockRejectedValue(new Error('db down'));
     expect(await isWhatsAppUndeliverable('8975181837')).toBe(false);
+  });
+});
+
+// The exact `errors` payload Meta sent to the production webhook on
+// 2026-08-13, when the WhatsApp Business account had unsettled billing.
+const REAL_131042_ERRORS = [
+  {
+    code: 131042,
+    title: 'Business eligibility payment issue',
+    message: 'Business eligibility payment issue',
+    error_data: {
+      details:
+        'Message failed to send because your WhatsApp Business account has unsettled payments.',
+    },
+    href: 'https://business.facebook.com/billing_hub/accounts/details/',
+  },
+];
+
+describe('account-level blocks', () => {
+  it('recognises payment, lock and policy codes', () => {
+    expect(isAccountBlockedErrorCode(131042)).toBe(true);
+    expect(isAccountBlockedErrorCode(131031)).toBe(true);
+    expect(isAccountBlockedErrorCode(368)).toBe(true);
+    expect(isAccountBlockedErrorCode(131026)).toBe(false);
+    expect(isAccountBlockedErrorCode(131049)).toBe(false);
+    expect(isAccountBlockedErrorCode(undefined)).toBe(false);
+  });
+
+  it('classifies the real 131042 payload as account-blocked, not unreachable', () => {
+    const r = classifyFailedStatus(REAL_131042_ERRORS);
+    expect(r.accountBlockedCode).toBe(131042);
+    expect(r.unreachableCode).toBeUndefined();
+    expect(r.isReEngagement).toBe(false);
+  });
+
+  it('never flags the recipient number for an account-level failure', async () => {
+    await markWhatsAppUndeliverable('8975181837', 131042);
+    expect(upsertMock).not.toHaveBeenCalled();
+  });
+
+  it('records the block under a single global key', async () => {
+    await markWhatsAppAccountBlocked(131042);
+    expect(upsertMock).toHaveBeenCalledTimes(1);
+    const args = upsertMock.mock.calls[0][0];
+    expect(args.where.key).toBe('WA_ACCOUNT_BLOCKED');
+    expect(JSON.parse(args.create.value).code).toBe(131042);
+  });
+
+  it('ignores codes that are not account-level', async () => {
+    await markWhatsAppAccountBlocked(131026);
+    expect(upsertMock).not.toHaveBeenCalled();
+  });
+
+  it('clears the global key', async () => {
+    await clearWhatsAppAccountBlocked();
+    expect(deleteManyMock).toHaveBeenCalledWith({ where: { key: 'WA_ACCOUNT_BLOCKED' } });
+  });
+
+  it('reports blocked for a fresh flag', async () => {
+    findUniqueMock.mockResolvedValue({
+      key: 'WA_ACCOUNT_BLOCKED',
+      value: JSON.stringify({ at: new Date().toISOString(), code: 131042 }),
+    });
+    expect(await isWhatsAppAccountBlocked()).toBe(true);
+  });
+
+  it('expires after an hour', async () => {
+    const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString();
+    findUniqueMock.mockResolvedValue({
+      key: 'WA_ACCOUNT_BLOCKED',
+      value: JSON.stringify({ at: twoHoursAgo, code: 131042 }),
+    });
+    expect(await isWhatsAppAccountBlocked()).toBe(false);
+  });
+
+  it('is false when absent, unparseable, or the DB is down', async () => {
+    expect(await isWhatsAppAccountBlocked()).toBe(false);
+    findUniqueMock.mockResolvedValue({ key: 'WA_ACCOUNT_BLOCKED', value: 'garbage' });
+    expect(await isWhatsAppAccountBlocked()).toBe(false);
+    findUniqueMock.mockRejectedValue(new Error('db down'));
+    expect(await isWhatsAppAccountBlocked()).toBe(false);
   });
 });

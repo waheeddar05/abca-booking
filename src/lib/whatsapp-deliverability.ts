@@ -56,6 +56,84 @@ export function isUnreachableErrorCode(code: unknown): code is number {
 const RE_ENGAGEMENT_ERROR_CODES: ReadonlySet<number> = new Set([131047, 470]);
 
 /**
+ * Account-level failures: Meta is refusing to deliver *anything* on this
+ * WhatsApp Business account, for every recipient. Nothing about the
+ * recipient's number is wrong, and no retry against a different number
+ * will help — only fixing the account will.
+ *
+ * 131042 — Business eligibility payment issue (unsettled WABA billing)
+ * 131031 — Account has been locked
+ *    368 — Temporarily blocked for policy violations
+ */
+const ACCOUNT_BLOCKED_ERROR_CODES: ReadonlySet<number> = new Set([131042, 131031, 368]);
+
+/** Whether a Meta error code means the whole WABA is refusing to send. */
+export function isAccountBlockedErrorCode(code: unknown): code is number {
+  return typeof code === 'number' && ACCOUNT_BLOCKED_ERROR_CODES.has(code);
+}
+
+const ACCOUNT_BLOCKED_KEY = 'WA_ACCOUNT_BLOCKED';
+/**
+ * Short TTL: an account block is an operational state someone is actively
+ * fixing, not a durable fact about a number. It also self-heals — any
+ * delivered/read status clears it — so this is only a backstop for the
+ * case where no message gets delivered after the account recovers.
+ */
+const ACCOUNT_BLOCKED_TTL_MS = 60 * 60 * 1000; // 1 hour
+
+/** Record that Meta is refusing to deliver on this WABA. */
+export async function markWhatsAppAccountBlocked(errorCode: number): Promise<void> {
+  if (!isAccountBlockedErrorCode(errorCode)) return;
+
+  const value = JSON.stringify({ at: new Date().toISOString(), code: errorCode });
+  try {
+    await prisma.policy.upsert({
+      where: { key: ACCOUNT_BLOCKED_KEY },
+      update: { value },
+      create: { key: ACCOUNT_BLOCKED_KEY, value },
+    });
+    console.error(
+      `[WhatsApp] ACCOUNT BLOCKED by Meta (code ${errorCode}) — no message will be delivered to anyone until this is resolved`,
+    );
+  } catch (err) {
+    console.warn('[WhatsApp] Failed to record account-blocked flag:', err);
+  }
+}
+
+/** Clear the account-blocked flag — a message just reached a device. */
+export async function clearWhatsAppAccountBlocked(): Promise<void> {
+  try {
+    const res = await prisma.policy.deleteMany({ where: { key: ACCOUNT_BLOCKED_KEY } });
+    if (res.count > 0) {
+      console.log('[WhatsApp] Account-blocked flag cleared — delivery is working again');
+    }
+  } catch (err) {
+    console.warn('[WhatsApp] Failed to clear account-blocked flag:', err);
+  }
+}
+
+/**
+ * Whether Meta recently refused to deliver on this WABA. Advisory only —
+ * callers warn, they must not block on it.
+ */
+export async function isWhatsAppAccountBlocked(): Promise<boolean> {
+  try {
+    const row = await prisma.policy.findUnique({ where: { key: ACCOUNT_BLOCKED_KEY } });
+    if (!row?.value) return false;
+
+    const parsed = JSON.parse(row.value) as { at?: string; code?: unknown };
+    if (!isAccountBlockedErrorCode(parsed?.code)) return false;
+
+    const ts = parsed.at ? Date.parse(parsed.at) : NaN;
+    if (Number.isNaN(ts)) return false;
+    return Date.now() - ts < ACCOUNT_BLOCKED_TTL_MS;
+  } catch {
+    // Unparseable row or DB error — never let this gate misfire.
+    return false;
+  }
+}
+
+/**
  * Pull every Meta error code out of a `failed` status' `errors` array.
  * Codes live at `errors[i].code`; some payloads also carry a numeric code
  * under `errors[i].error_data.code`. Reading all of them avoids missing
@@ -85,12 +163,14 @@ export function classifyFailedStatus(errors: unknown): {
   codes: number[];
   isReEngagement: boolean;
   unreachableCode?: number;
+  accountBlockedCode?: number;
 } {
   const codes = extractErrorCodes(errors);
   return {
     codes,
     isReEngagement: codes.some((c) => RE_ENGAGEMENT_ERROR_CODES.has(c)),
     unreachableCode: codes.find(isUnreachableErrorCode),
+    accountBlockedCode: codes.find(isAccountBlockedErrorCode),
   };
 }
 

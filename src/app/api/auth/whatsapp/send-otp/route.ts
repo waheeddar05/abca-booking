@@ -5,7 +5,10 @@ import { getAuthenticatedUser } from '@/lib/auth';
 import { sendWhatsAppOTP, sendWhatsAppNotification, isValidIndianMobile } from '@/lib/whatsapp';
 import { sendSMS } from '@/lib/sms';
 import { getCachedPolicy } from '@/lib/policy-cache';
-import { isWhatsAppUndeliverable } from '@/lib/whatsapp-deliverability';
+import {
+  isWhatsAppUndeliverable,
+  isWhatsAppAccountBlocked,
+} from '@/lib/whatsapp-deliverability';
 
 /**
  * POST /api/auth/whatsapp/send-otp
@@ -186,7 +189,31 @@ export async function POST(req: NextRequest) {
     // way to enter a code that may well have been delivered, and
     // /verify-mobile is the only route into the app after Google sign-in.
     let warning: string | undefined;
-    if (!smsSent && whatsappSent && (await isWhatsAppUndeliverable(cleaned))) {
+
+    // Account-level refusal (unpaid WABA billing, locked account, policy
+    // block) outranks anything about this particular number: Meta is
+    // delivering nothing to anyone. Telling the user to "try a
+    // WhatsApp-enabled number" would send them chasing a fault on their
+    // side that doesn't exist. Still non-blocking — if the account
+    // recovers between the webhook and this send, the code arrives and
+    // they can use it.
+    if (!smsSent && whatsappSent && (await isWhatsAppAccountBlocked())) {
+      console.error(
+        '[send-otp] WhatsApp accepted but the business account is blocked by Meta, and SMS is unavailable:',
+        { userId: user.id },
+      );
+      warning =
+        "WhatsApp messaging is temporarily unavailable on our side, so your code may be delayed. This isn't a problem with your number — we're working on it.";
+    } else if (!smsSent && whatsappSent && (await isWhatsAppUndeliverable(cleaned))) {
+      // Meta "accepts" sends to numbers that aren't on WhatsApp and only
+      // reports the failure later via webhook (error 131026). If this
+      // number was flagged unreachable and SMS didn't go out either, the
+      // code may not arrive — say so, but do NOT block: the flag
+      // describes an earlier message (up to 7 days old), while this send
+      // was accepted just now. Blocking here strands the user on the
+      // phone-number screen with no way to enter a code that may well
+      // have been delivered, and /verify-mobile is the only route into
+      // the app after Google sign-in.
       console.warn(
         '[send-otp] WhatsApp accepted but number was recently flagged unreachable, and SMS failed:',
         { userId: user.id },
