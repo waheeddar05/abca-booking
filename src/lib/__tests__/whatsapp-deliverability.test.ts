@@ -19,6 +19,9 @@ import {
   markWhatsAppUndeliverable,
   clearWhatsAppUndeliverable,
   isWhatsAppUndeliverable,
+  isUnreachableErrorCode,
+  extractErrorCodes,
+  classifyFailedStatus,
 } from '../whatsapp-deliverability';
 
 beforeEach(() => {
@@ -58,9 +61,95 @@ describe('markWhatsAppUndeliverable', () => {
     expect(upsertMock).not.toHaveBeenCalled();
   });
 
+  // Regression: flagging on any `failed` status locked reachable users
+  // out of the OTP flow for 7 days.
+  it.each([
+    ['re-engagement / 24h window', 131047],
+    ['legacy re-engagement', 470],
+    ['per-user pacing', 131049],
+    ['user opted out', 131050],
+    ['experiment bucket', 130472],
+    ['template param mismatch', 132000],
+    ['rate limit', 130429],
+  ])('does not flag on %s (%i)', async (_label, code) => {
+    await markWhatsAppUndeliverable('8975181837', code as number);
+    expect(upsertMock).not.toHaveBeenCalled();
+  });
+
+  it('does not flag when no error code is available', async () => {
+    await markWhatsAppUndeliverable('8975181837');
+    expect(upsertMock).not.toHaveBeenCalled();
+  });
+
   it('swallows DB errors', async () => {
     upsertMock.mockRejectedValue(new Error('db down'));
     await expect(markWhatsAppUndeliverable('8975181837', 131026)).resolves.toBeUndefined();
+  });
+});
+
+describe('isUnreachableErrorCode', () => {
+  it('accepts only 131026', () => {
+    expect(isUnreachableErrorCode(131026)).toBe(true);
+    expect(isUnreachableErrorCode(131047)).toBe(false);
+    expect(isUnreachableErrorCode(131049)).toBe(false);
+    expect(isUnreachableErrorCode(undefined)).toBe(false);
+    expect(isUnreachableErrorCode('131026')).toBe(false);
+  });
+});
+
+describe('extractErrorCodes', () => {
+  it('reads codes from every error entry, not just the first', () => {
+    expect(
+      extractErrorCodes([{ code: 131049 }, { code: 131026, title: 'Undeliverable' }]),
+    ).toEqual([131049, 131026]);
+  });
+
+  it('reads a nested error_data code', () => {
+    expect(extractErrorCodes([{ error_data: { code: 131026 } }])).toEqual([131026]);
+  });
+
+  it('returns an empty list for missing or malformed errors', () => {
+    expect(extractErrorCodes(undefined)).toEqual([]);
+    expect(extractErrorCodes(null)).toEqual([]);
+    expect(extractErrorCodes('boom')).toEqual([]);
+    expect(extractErrorCodes([null, { code: 'x' }, {}])).toEqual([]);
+  });
+});
+
+describe('classifyFailedStatus', () => {
+  it('flags 131026 as unreachable', () => {
+    const r = classifyFailedStatus([{ code: 131026 }]);
+    expect(r.unreachableCode).toBe(131026);
+    expect(r.isReEngagement).toBe(false);
+  });
+
+  it('treats 131047 and 470 as re-engagement, not unreachable', () => {
+    for (const code of [131047, 470]) {
+      const r = classifyFailedStatus([{ code }]);
+      expect(r.isReEngagement).toBe(true);
+      expect(r.unreachableCode).toBeUndefined();
+    }
+  });
+
+  it('leaves unrelated failures unattributed', () => {
+    for (const code of [131049, 131050, 130472, 132000, 130429, 133010]) {
+      const r = classifyFailedStatus([{ code }]);
+      expect(r.isReEngagement).toBe(false);
+      expect(r.unreachableCode).toBeUndefined();
+    }
+  });
+
+  it('finds 131026 even when it is not the first error', () => {
+    expect(classifyFailedStatus([{ code: 131049 }, { code: 131026 }]).unreachableCode)
+      .toBe(131026);
+  });
+
+  it('is inert on an empty errors array', () => {
+    expect(classifyFailedStatus([])).toEqual({
+      codes: [],
+      isReEngagement: false,
+      unreachableCode: undefined,
+    });
   });
 });
 
@@ -100,12 +189,32 @@ describe('isWhatsAppUndeliverable', () => {
     expect(await isWhatsAppUndeliverable('8975181837')).toBe(false);
   });
 
-  it('tolerates a plain ISO timestamp value', async () => {
+  // A legacy plain-ISO value carries no error code, so the failure
+  // can't be attributed to the number being off WhatsApp.
+  it('ignores a legacy plain ISO timestamp value', async () => {
     findUniqueMock.mockResolvedValue({
       key: 'WA_UNDELIVERABLE_8975181837',
       value: new Date().toISOString(),
     });
-    expect(await isWhatsAppUndeliverable('8975181837')).toBe(true);
+    expect(await isWhatsAppUndeliverable('8975181837')).toBe(false);
+  });
+
+  // Rows written by the previous build from unrelated failure codes stay
+  // in the Policy table until they expire — they must stop blocking now.
+  it('ignores flags written with a non-unreachable code', async () => {
+    findUniqueMock.mockResolvedValue({
+      key: 'WA_UNDELIVERABLE_8975181837',
+      value: JSON.stringify({ at: new Date().toISOString(), code: 131049 }),
+    });
+    expect(await isWhatsAppUndeliverable('8975181837')).toBe(false);
+  });
+
+  it('ignores flags with no recorded code', async () => {
+    findUniqueMock.mockResolvedValue({
+      key: 'WA_UNDELIVERABLE_8975181837',
+      value: JSON.stringify({ at: new Date().toISOString(), code: null }),
+    });
+    expect(await isWhatsAppUndeliverable('8975181837')).toBe(false);
   });
 
   it('returns false on unparseable values', async () => {

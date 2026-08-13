@@ -88,7 +88,7 @@ export async function POST(req: NextRequest) {
     const expiresAt = new Date(Date.now() + (Number(process.env.OTP_TTL_MINUTES) || 10) * 60000);
 
     // Store OTP
-    await prisma.otp.create({
+    const otpRecord = await prisma.otp.create({
       data: {
         userId: user.id,
         codeHash: hashedOtp,
@@ -167,6 +167,10 @@ export async function POST(req: NextRequest) {
 
     if (!whatsappSent && !smsSent) {
       console.error('[send-otp] Both WhatsApp and SMS failed for user:', user.id);
+      // Nothing was sent, so this attempt must not eat into the
+      // 3-per-10-minutes budget — otherwise a provider outage locks the
+      // user out for 10 minutes after three no-op tries.
+      await prisma.otp.delete({ where: { id: otpRecord.id } }).catch(() => {});
       return NextResponse.json(
         { error: 'Failed to send OTP. Please try again later.' },
         { status: 502 },
@@ -175,20 +179,20 @@ export async function POST(req: NextRequest) {
 
     // Meta "accepts" sends to numbers that aren't on WhatsApp and only
     // reports the failure later via webhook (error 131026). If this number
-    // is flagged undeliverable and SMS didn't go out either, the user will
-    // never receive the code — fail honestly instead of claiming success.
+    // was flagged unreachable and SMS didn't go out either, the code may
+    // not arrive — say so, but do NOT block: the flag describes an earlier
+    // message (up to 7 days old), while this send was accepted just now.
+    // Blocking here strands the user on the phone-number screen with no
+    // way to enter a code that may well have been delivered, and
+    // /verify-mobile is the only route into the app after Google sign-in.
+    let warning: string | undefined;
     if (!smsSent && whatsappSent && (await isWhatsAppUndeliverable(cleaned))) {
-      console.error(
-        '[send-otp] WhatsApp accepted but number is flagged undeliverable, and SMS failed:',
+      console.warn(
+        '[send-otp] WhatsApp accepted but number was recently flagged unreachable, and SMS failed:',
         { userId: user.id },
       );
-      return NextResponse.json(
-        {
-          error:
-            'This number does not appear to be reachable on WhatsApp, and SMS delivery is temporarily unavailable. Please use a WhatsApp-enabled number or try again later.',
-        },
-        { status: 502 },
-      );
+      warning =
+        "We couldn't reach this number on WhatsApp recently, and SMS is temporarily unavailable. If the code doesn't arrive, try a WhatsApp-enabled number.";
     }
 
     const channel = whatsappSent && smsSent ? 'WhatsApp & SMS' : smsSent ? 'SMS' : 'WhatsApp';
@@ -197,6 +201,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({
       message: `OTP sent to your ${smsSent ? 'phone' : 'WhatsApp'}`,
       channel,
+      ...(warning ? { warning } : {}),
     });
   } catch (error) {
     console.error('WhatsApp send-otp error:', error);

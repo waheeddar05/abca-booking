@@ -30,6 +30,10 @@ function VerifyMobileContent() {
   const [otp, setOtp] = useState(['', '', '', '', '', '']);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  // Non-blocking delivery caveat from the server (e.g. WhatsApp recently
+  // unreachable and SMS down). Shown alongside the OTP inputs so the user
+  // can still enter a code that does arrive.
+  const [warning, setWarning] = useState('');
   const [countdown, setCountdown] = useState(0);
   const [autoSendDone, setAutoSendDone] = useState(false);
 
@@ -75,6 +79,7 @@ function VerifyMobileContent() {
   const handleSendOtp = async () => {
     if (!isValidMobile) return;
     setError('');
+    setWarning('');
     setLoading(true);
     try {
       const res = await fetch('/api/auth/whatsapp/send-otp', {
@@ -87,6 +92,7 @@ function VerifyMobileContent() {
         setError(data.error || 'Failed to send OTP');
         return;
       }
+      if (data.warning) setWarning(data.warning);
       setStep('otp');
       setCountdown(60);
       // Focus first OTP input after transition
@@ -219,6 +225,16 @@ function VerifyMobileContent() {
                   <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
                 </svg>
                 {error}
+              </div>
+            )}
+
+            {/* Delivery caveat — informational, never blocks the flow */}
+            {!error && warning && (
+              <div className="flex items-start gap-2 p-3 bg-amber-500/10 border border-amber-500/20 text-amber-300 rounded-xl text-xs">
+                <svg className="w-4 h-4 flex-shrink-0 mt-px" fill="currentColor" viewBox="0 0 20 20">
+                  <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                </svg>
+                {warning}
               </div>
             )}
 
