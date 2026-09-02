@@ -105,7 +105,14 @@ export default function NotificationsPage() {
   const fetchNotifications = async () => {
     try {
       const res = await fetch('/api/notifications');
-      if (res.status === 401) {
+      // Signed-out is two shapes, not one. The route answers 401, but
+      // middleware also guards /api/* and redirects an unauthenticated
+      // request to the landing page — which arrives here as a followed
+      // 307 with status 200 and an HTML body. Treat both as signed out,
+      // otherwise the HTML would fail JSON parsing and the page would
+      // show an empty inbox instead of the login prompt.
+      const isJson = res.headers.get('content-type')?.includes('application/json') ?? false;
+      if (res.status === 401 || res.redirected || !isJson) {
         setAuthorized(false);
         return;
       }
@@ -115,6 +122,8 @@ export default function NotificationsPage() {
         setNotifications(data);
       }
     } catch (error) {
+      // A genuine network failure — leave the inbox as-is rather than
+      // claiming the visitor is signed out.
       console.error('Failed to fetch notifications', error);
     } finally {
       setLoading(false);

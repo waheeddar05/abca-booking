@@ -431,6 +431,39 @@ describe('role subscribers — cancellations', () => {
     expect(detail).toContain('Cancelled by: Admin Zoe');
   });
 
+  it('does not tell the person who cancelled about their own action', async () => {
+    findUniqueMock.mockResolvedValue(bookingRow({ cancelledBy: 'Admin Zoe' }));
+    getPolicyJsonMock.mockResolvedValue(rolesOn('ADMIN', 'MODERATOR'));
+    membershipFindManyMock.mockResolvedValue([
+      membership('ADMIN', { id: 'adm_1', name: 'Admin Zoe', mobileNumber: '9876500011' }),
+      membership('MODERATOR', { id: 'mod_1', name: 'Mod Priya', mobileNumber: '9876500010' }),
+    ]);
+
+    // Admin Zoe is doing the cancelling — an admin blocking a morning
+    // must not be sent one message per booking about their own click.
+    await notifyAssignedStaffBookingCancelled('bk_1', {
+      cancelledBy: 'Admin Zoe',
+      actorUserId: 'adm_1',
+    });
+
+    expect(inAppAlerts().map((a) => a.userId)).toEqual(['mod_1']);
+    expect(sendWhatsAppNotificationMock).toHaveBeenCalledTimes(1);
+    expect(sendWhatsAppNotificationMock.mock.calls[0][0]).toBe('9876500010');
+  });
+
+  it('still notifies every subscriber when the actor is unknown', async () => {
+    findUniqueMock.mockResolvedValue(bookingRow());
+    getPolicyJsonMock.mockResolvedValue(rolesOn('ADMIN', 'MODERATOR'));
+    membershipFindManyMock.mockResolvedValue([
+      membership('ADMIN', { id: 'adm_1', name: 'Admin Zoe', mobileNumber: '9876500011' }),
+      membership('MODERATOR', { id: 'mod_1', name: 'Mod Priya', mobileNumber: '9876500010' }),
+    ]);
+
+    await notifyAssignedStaffBookingCancelled('bk_1');
+
+    expect(inAppAlerts().map((a) => a.userId).sort()).toEqual(['adm_1', 'mod_1']);
+  });
+
   it('does not double-notify a subscriber who is also the assigned staff member', async () => {
     findUniqueMock.mockResolvedValue(
       bookingRow({

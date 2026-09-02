@@ -223,6 +223,7 @@ async function cancelAndRefundBooking(opts: {
     await notifyAssignedStaffBookingCancelled(booking.id, {
       cancelledBy: adminName,
       reason: cancelReason,
+      actorUserId: adminUserId,
     });
 
     log.info(ctx, `Auto-cancelled booking ${booking.id} due to availability change`);

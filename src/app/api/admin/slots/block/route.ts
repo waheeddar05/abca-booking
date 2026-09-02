@@ -515,6 +515,7 @@ export async function POST(req: NextRequest) {
         await notifyAssignedStaffBookingCancelled(booking.id, {
           cancelledBy: cancelledByName,
           reason: reason || 'Slot blocked',
+          actorUserId: admin.id,
         });
       } catch (cancelErr) {
         const msg = cancelErr instanceof Error ? cancelErr.message : String(cancelErr);

@@ -1291,18 +1291,25 @@ async function loadRoleSubscribers(opts: {
  * Append the center's role subscribers to the assigned-staff recipients
  * for a booking (or batch of booking rows from one submission). The
  * booking's own customer is excluded — they already get the customer
- * confirmation / cancellation notice.
+ * confirmation / cancellation notice — as is `actorUserId`, the person
+ * who triggered the event.
  */
 async function withRoleSubscribers(
   recipients: StaffRecipient[],
   bookings: StaffNotifyBooking[],
   event: BookingNotificationEvent,
+  actorUserId?: string | null,
 ): Promise<StaffRecipient[]> {
   if (bookings.length === 0) return recipients;
   const exclude = new Set(recipients.map((r) => r.userId));
   for (const b of bookings) {
     if (b.userId) exclude.add(b.userId);
   }
+  // Whoever performed the action doesn't need to be told they performed
+  // it. Without this an admin who is also a subscriber and blocks a
+  // morning gets one in-app row and one billed WhatsApp message per
+  // cancelled booking, narrating their own click back at them.
+  if (actorUserId) exclude.add(actorUserId);
   const subscribers = await loadRoleSubscribers({
     centerId: bookings[0].centerId,
     event,
@@ -1717,7 +1724,17 @@ export async function notifyAssignedStaffNewBooking(bookingIds: string[]): Promi
  */
 export async function notifyAssignedStaffBookingCancelled(
   bookingId: string,
-  details: { cancelledBy?: string; reason?: string } = {},
+  details: {
+    cancelledBy?: string;
+    reason?: string;
+    /**
+     * User id of whoever performed the cancellation. Excluded from the
+     * center-wide role broadcast so an admin blocking a morning isn't
+     * sent a message per booking about their own action. Display-only
+     * `cancelledBy` can't serve here — it's a name, not an id.
+     */
+    actorUserId?: string | null;
+  } = {},
 ): Promise<void> {
   try {
     const booking = (await prisma.booking.findUnique({
@@ -1730,6 +1747,7 @@ export async function notifyAssignedStaffBookingCancelled(
       await withGroundStaff(collectStaffRecipients([booking]), [booking]),
       [booking],
       'cancelled',
+      details.actorUserId,
     );
     if (recipients.length === 0) return;
 

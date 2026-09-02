@@ -187,6 +187,7 @@ export async function POST(req: NextRequest) {
       await notifyAssignedStaffBookingCancelled(bookingId, {
         cancelledBy: cancelledByName,
         reason: cancellationReason || undefined,
+        actorUserId: user.id,
       });
     } catch (opNotifErr) {
       log.error(ctx, 'Failed to notify staff about cancellation', opNotifErr);

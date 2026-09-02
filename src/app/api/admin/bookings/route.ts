@@ -762,6 +762,7 @@ export async function PATCH(req: NextRequest) {
         await notifyAssignedStaffBookingCancelled(bookingId, {
           cancelledBy: adminName,
           reason: cancellationReason || undefined,
+          actorUserId: authUser?.id ?? null,
         });
       } catch (opNotifErr) {
         log.error(adminCtx, 'Failed to notify staff about admin cancellation', opNotifErr);
