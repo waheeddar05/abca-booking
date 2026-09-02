@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { getAuthenticatedUser } from '@/lib/auth';
+import { getAuthenticatedUser, canAccessCenter } from '@/lib/auth';
 import { loadBookingCards } from '@/lib/booking-card';
 
 export async function GET(req: NextRequest) {
@@ -43,10 +43,23 @@ export async function GET(req: NextRequest) {
 
     const withBookings = notifications.map((n) => {
       const bookingId = (n as { bookingId?: string | null }).bookingId ?? null;
+      const card = bookingId ? cards.get(bookingId) ?? null : null;
+      const isOwnBooking = bookingId ? (ownerById.get(bookingId) ?? user.id) === user.id : true;
+      // The card is re-read on every fetch, so it is a LIVE view of the
+      // booking, not the frozen snapshot the message text is. For someone
+      // else's booking that has to be re-authorised each time: a staff
+      // member or role subscriber whose membership has since been revoked
+      // would otherwise keep watching that booking's current status,
+      // price, refund and assignments forever, through an alert they were
+      // legitimately sent months ago. Dropping the card leaves the
+      // historical message text, which is what staff alerts showed before
+      // they carried a bookingId at all.
+      const maySeeCard =
+        isOwnBooking || (!!card?.centerId && canAccessCenter(user, card.centerId));
       return {
         ...n,
-        booking: bookingId ? cards.get(bookingId) ?? null : null,
-        isOwnBooking: bookingId ? (ownerById.get(bookingId) ?? user.id) === user.id : true,
+        booking: maySeeCard ? card : null,
+        isOwnBooking,
       };
     });
 

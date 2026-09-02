@@ -20,8 +20,14 @@ vi.mock('@/lib/prisma', () => ({
   },
 }));
 
+const authUserMock = vi.fn();
 vi.mock('@/lib/auth', () => ({
-  getAuthenticatedUser: vi.fn(async () => ({ id: 'viewer_1' })),
+  getAuthenticatedUser: (req: unknown) => authUserMock(req),
+  // Real implementation — the card-visibility check is exactly this rule.
+  canAccessCenter: (
+    user: { isSuperAdmin?: boolean; centerMemberships: { centerId: string }[] },
+    centerId: string,
+  ) => user.isSuperAdmin === true || user.centerMemberships.some((m) => m.centerId === centerId),
 }));
 
 const loadBookingCardsMock = vi.fn();
@@ -50,7 +56,12 @@ function notification(overrides: Record<string, unknown> = {}) {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  loadBookingCardsMock.mockResolvedValue(new Map([['bk_1', { id: 'bk_1' }]]));
+  authUserMock.mockResolvedValue({
+    id: 'viewer_1',
+    isSuperAdmin: false,
+    centerMemberships: [{ centerId: 'ctr_1', role: 'MODERATOR' }],
+  });
+  loadBookingCardsMock.mockResolvedValue(new Map([['bk_1', { id: 'bk_1', centerId: 'ctr_1' }]]));
   bookingFindManyMock.mockResolvedValue([{ id: 'bk_1', userId: 'viewer_1' }]);
 });
 
@@ -62,7 +73,7 @@ describe('GET /api/notifications — isOwnBooking', () => {
     const body = await res.json();
 
     expect(body[0].isOwnBooking).toBe(true);
-    expect(body[0].booking).toEqual({ id: 'bk_1' });
+    expect(body[0].booking).toEqual({ id: 'bk_1', centerId: 'ctr_1' });
   });
 
   it("marks a staff / role-subscriber alert about someone else's booking as NOT own", async () => {
@@ -73,8 +84,8 @@ describe('GET /api/notifications — isOwnBooking', () => {
     const res = await GET(req);
     const body = await res.json();
 
-    // This is what makes the Alerts view show the booker's phone (operator
-    // role) and keep the detail text alongside the card snapshot.
+    // This is what makes the Alerts view keep the detail text alongside
+    // the card — the card carries no booker phone and only the first row.
     expect(body[0].isOwnBooking).toBe(false);
   });
 
@@ -100,7 +111,7 @@ describe('GET /api/notifications — isOwnBooking', () => {
 
     expect(res.status).toBe(200);
     expect(body[0].isOwnBooking).toBe(true);
-    expect(body[0].booking).toEqual({ id: 'bk_1' });
+    expect(body[0].booking).toEqual({ id: 'bk_1', centerId: 'ctr_1' });
   });
 
   it('looks the owners up in one query for a page of alerts', async () => {
@@ -111,8 +122,8 @@ describe('GET /api/notifications — isOwnBooking', () => {
     ]);
     loadBookingCardsMock.mockResolvedValue(
       new Map([
-        ['bk_1', { id: 'bk_1' }],
-        ['bk_2', { id: 'bk_2' }],
+        ['bk_1', { id: 'bk_1', centerId: 'ctr_1' }],
+        ['bk_2', { id: 'bk_2', centerId: 'ctr_1' }],
       ]),
     );
     bookingFindManyMock.mockResolvedValue([
@@ -128,12 +139,74 @@ describe('GET /api/notifications — isOwnBooking', () => {
   });
 
   it('rejects an unauthenticated request', async () => {
-    const { getAuthenticatedUser } = await import('@/lib/auth');
-    vi.mocked(getAuthenticatedUser).mockResolvedValueOnce(null);
+    authUserMock.mockResolvedValueOnce(null);
 
     const res = await GET(req);
 
     expect(res.status).toBe(401);
     expect(notificationFindManyMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("GET /api/notifications — live card is re-authorised each fetch", () => {
+  it("keeps the card for a subscriber who still holds a membership at the booking's center", async () => {
+    notificationFindManyMock.mockResolvedValue([notification()]);
+    bookingFindManyMock.mockResolvedValue([{ id: 'bk_1', userId: 'customer_1' }]);
+
+    const res = await GET(req);
+    const body = await res.json();
+
+    expect(body[0].isOwnBooking).toBe(false);
+    expect(body[0].booking).toEqual({ id: 'bk_1', centerId: 'ctr_1' });
+  });
+
+  it('drops the card once the membership is revoked, leaving the historical text', async () => {
+    // The card is re-read live on every fetch, so an ex-operator holding
+    // months-old alerts would otherwise keep watching those bookings'
+    // current status, price and refunds.
+    authUserMock.mockResolvedValue({ id: 'viewer_1', isSuperAdmin: false, centerMemberships: [] });
+    notificationFindManyMock.mockResolvedValue([notification()]);
+    bookingFindManyMock.mockResolvedValue([{ id: 'bk_1', userId: 'customer_1' }]);
+
+    const res = await GET(req);
+    const body = await res.json();
+
+    expect(body[0].booking).toBeNull();
+    // The notification itself, and its frozen message, are still theirs.
+    expect(body[0].message).toContain('Customer: Rahul');
+  });
+
+  it("drops the card for another center's booking even with a membership elsewhere", async () => {
+    loadBookingCardsMock.mockResolvedValue(new Map([['bk_1', { id: 'bk_1', centerId: 'ctr_other' }]]));
+    notificationFindManyMock.mockResolvedValue([notification()]);
+    bookingFindManyMock.mockResolvedValue([{ id: 'bk_1', userId: 'customer_1' }]);
+
+    const res = await GET(req);
+    const body = await res.json();
+
+    expect(body[0].booking).toBeNull();
+  });
+
+  it("never drops the viewer's OWN booking card, membership or not", async () => {
+    authUserMock.mockResolvedValue({ id: 'viewer_1', isSuperAdmin: false, centerMemberships: [] });
+    notificationFindManyMock.mockResolvedValue([notification()]);
+    bookingFindManyMock.mockResolvedValue([{ id: 'bk_1', userId: 'viewer_1' }]);
+
+    const res = await GET(req);
+    const body = await res.json();
+
+    expect(body[0].booking).toEqual({ id: 'bk_1', centerId: 'ctr_1' });
+  });
+
+  it('lets a super admin see any center', async () => {
+    authUserMock.mockResolvedValue({ id: 'viewer_1', isSuperAdmin: true, centerMemberships: [] });
+    loadBookingCardsMock.mockResolvedValue(new Map([['bk_1', { id: 'bk_1', centerId: 'ctr_other' }]]));
+    notificationFindManyMock.mockResolvedValue([notification()]);
+    bookingFindManyMock.mockResolvedValue([{ id: 'bk_1', userId: 'customer_1' }]);
+
+    const res = await GET(req);
+    const body = await res.json();
+
+    expect(body[0].booking).toEqual({ id: 'bk_1', centerId: 'ctr_other' });
   });
 });

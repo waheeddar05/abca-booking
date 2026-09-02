@@ -46,17 +46,30 @@ export function BookingNotificationsEditor({
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<{ text: string; ok: boolean } | null>(null);
+  // Whether the stored config was actually read back. Without this, a
+  // failed GET would leave `config` at the shipped defaults while the card
+  // rendered as if it had loaded — and since the page's single Save button
+  // fires every trigger-based editor, saving an unrelated field would
+  // silently overwrite the center's real subscriptions with those
+  // defaults. Nothing is editable or saveable until the load succeeds.
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
+    setLoadError(null);
     (async () => {
       try {
         const res = await fetch(`/api/admin/policies?scope=${scope}`);
-        if (!res.ok) return;
-        const rows: Array<{ key: string; value: string }> = await res.json();
-        const row = rows.find((r) => r.key === BOOKING_NOTIFICATION_POLICY_KEY);
         if (cancelled) return;
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}));
+          setLoadError(body?.error || `Couldn't load settings (HTTP ${res.status})`);
+          return;
+        }
+        const rows: Array<{ key: string; value: string }> = await res.json();
+        if (cancelled) return;
+        const row = rows.find((r) => r.key === BOOKING_NOTIFICATION_POLICY_KEY);
         let parsed: unknown = null;
         if (row) {
           try {
@@ -68,6 +81,10 @@ export function BookingNotificationsEditor({
         // Always run the stored value through the shared normalizer so the
         // form shows exactly what the server will resolve at send time.
         setConfig(normalizeBookingNotificationConfig(parsed));
+      } catch (err) {
+        if (!cancelled) {
+          setLoadError(err instanceof Error ? err.message : "Couldn't load settings");
+        }
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -97,6 +114,12 @@ export function BookingNotificationsEditor({
   }, [saving, message, onSaveStatus]);
 
   const save = async () => {
+    // Never write a config we never read — that would clobber the center's
+    // real subscriptions with the shipped defaults.
+    if (loadError) {
+      setMessage({ text: 'Booking notifications not saved — settings never loaded', ok: false });
+      return;
+    }
     setSaving(true);
     setMessage(null);
     try {
@@ -124,6 +147,21 @@ export function BookingNotificationsEditor({
     return (
       <div className="flex items-center gap-2 text-slate-400 py-6 justify-center text-sm">
         <Loader2 className="w-4 h-4 animate-spin" /> Loading…
+      </div>
+    );
+  }
+
+  if (loadError) {
+    // Show the failure instead of an editable form seeded with defaults —
+    // editing on top of the wrong baseline is how a center loses its
+    // configuration.
+    return (
+      <div className="px-3 py-3 rounded-xl bg-red-500/[0.08] border border-red-500/30 space-y-1">
+        <p className="text-xs font-semibold text-red-300">{loadError}</p>
+        <p className="text-[11px] text-slate-400 leading-relaxed">
+          Current settings are unchanged and won&apos;t be overwritten by Save.
+          Reload the page to try again.
+        </p>
       </div>
     );
   }
@@ -189,7 +227,7 @@ export function BookingNotificationsEditor({
         {(
           [
             { key: 'created' as const, label: 'New bookings', sub: 'Someone books a slot' },
-            { key: 'cancelled' as const, label: 'Cancellations', sub: 'A booking is cancelled or refunded' },
+            { key: 'cancelled' as const, label: 'Cancellations', sub: 'A booking is cancelled' },
           ]
         ).map((e) => {
           const on = config.events[e.key];

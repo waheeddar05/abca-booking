@@ -240,19 +240,16 @@ export default function NotificationsPage() {
                     // what happened without opening the booking page.
                     //
                     // Someone else's booking means this is a staff / center-role
-                    // alert. Two things then differ, and both matter on the
-                    // floor: the card renders in the `operator` role so the
-                    // booker's phone and its tel: link are visible (the `user`
-                    // role hides them), and the stored detail text is shown
-                    // underneath, because the card is a snapshot of the FIRST
-                    // row only — the message is where the whole-batch time
-                    // window, the batch total and the cancelled-by / reason
-                    // lines live.
+                    // alert, and the card alone is not enough for it: the card
+                    // is a snapshot of the FIRST row and carries no customer
+                    // contact at all (mapBookingForCard never emits one), while
+                    // the stored message holds the booker's phone, the
+                    // whole-batch time window and the batch total. So staff get
+                    // the card AND the detail text. The role stays `user`:
+                    // `operator` would not surface the phone either (the field
+                    // isn't in the payload) and would drop the refund block.
                     <div className="mt-2">
-                      <BookingCard
-                        booking={toBookingCardShape(n.booking)}
-                        role={n.isOwnBooking === false ? 'operator' : 'user'}
-                      />
+                      <BookingCard booking={toBookingCardShape(n.booking)} role="user" />
                       {n.isOwnBooking === false && (
                         <AlertMessage message={n.message} isRead={n.isRead} />
                       )}
