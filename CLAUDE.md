@@ -65,6 +65,8 @@ npx tsx scripts/seed-centers.ts --check        # Verify only, no writes
 
 `signToken`/`verifyToken` in `src/lib/jwt.ts` are **async** and built on `jose`, not `jsonwebtoken` — see the Edge Runtime note under Middleware for why that is not interchangeable. The token format is unchanged (HS256 over `JWT_SECRET`).
 
+The cookie's attributes live in `src/lib/session-cookie.ts` — `setSessionCookie` / `clearSessionCookie` — so the route that issues it and the route that clears it cannot drift. It is **SameSite=Lax on purpose**: Strict withholds the cookie on any top-level navigation that started on another site (a link tapped in WhatsApp, an Instagram bio link, a QR code, a search result, a PWA launch), so `src/app/page.tsx` rendered for a signed-out visitor and a signed-in user was shown the landing page instead of their booking screen. Lax still withholds it from cross-site POSTs, which is the CSRF protection that matters. Do not tighten it back.
+
 `POST /api/auth/logout` clears that cookie. It has to be server-side: the cookie is `httpOnly`, so the `document.cookie = 'token=…'` that the navbar and staff layout used to run never removed anything and left users signed in through a "Sign out" they'd already been shown.
 
 **Delivery** lives in `src/lib/otp-delivery.ts` (`issueAndSendOtp`), shared with `/api/auth/whatsapp/send-otp`: an approved WhatsApp auth template first, then the `playorbit_account_pin` utility template, then SMS as a backstop — a BSP outage must not lock everyone out of the only login. A send that reached nobody deletes its own OTP row so an outage can't burn the user's budget.
@@ -79,6 +81,8 @@ npx tsx scripts/seed-centers.ts --check        # Verify only, no writes
 > **Migration risk, know this before touching it:** a Google account is keyed on **email**, a WhatsApp login on **mobileNumber**. An account created by Google that never linked a number is unreachable by phone — its owner signing in with WhatsApp lands on a *fresh* account, leaving bookings, wallet, packages and center memberships on the orphaned row. Admins can't set another user's `mobileNumber` (`PATCH /api/admin/users` doesn't accept it), so the only recovery is `GOOGLE_LOGIN_ENABLED=true` → sign in → link the number on `/verify-mobile`.
 
 **Client-side session: use `useCurrentUser()`, never `useSession()`.** `src/lib/current-user.tsx` reads `GET /api/user/profile`, which goes through `getAuthenticatedUser` and therefore sees both mechanisms. `useSession()` only ever sees NextAuth, so every gate written against it reports "signed out" for a WhatsApp user — i.e. for everyone. That was not hypothetical: it collapsed the admin sidebar to zero links, hid the super-admin pages from super admins, locked `/admin/maintenance` and `/admin/db-cleanup` behind an email match that a phone-only account doesn't have, and silently charged free users and super admins on the slots page. `useAdminRole()` reads it too. `useSession()` is now legitimate in exactly two places — `MobileNumberCheck` and `/verify-mobile`, both NextAuth-specific — plus deciding *which* sign-out to run.
+
+**Every account needs a name asked for, because WhatsApp does not supply one.** Google sign-in used to; `/api/auth/otp/request` creates accounts with `name: null`, and `BookingCard` then renders "Unknown" — which is what centre staff read off the floor list. `src/components/NamePrompt.tsx` is mounted once in the root layout, reads `useCurrentUser()`, and blocks with a single field whenever a signed-in account has no name. It lives there rather than as a step inside `LoginModal` so that one implementation catches both new signups and every nameless account created since the cutover. It writes through `PATCH /api/user/profile`, and both ends validate with `normalizeDisplayName` (`src/lib/display-name.ts`) so the form and the API cannot disagree.
 
 `getAuthenticatedUser(req)` in `src/lib/auth.ts` is the universal auth helper for API routes — checks NextAuth first, falls back to OTP token, returns `{ id, name, role, email, isSuperAdmin, isFreeUser, isSpecialUser, mobileVerified, centerIds, centerMemberships }` or `null`. `centerMemberships` is the list of `{ centerId, role }` rows for the user; use it (or the helpers `canAccessCenter`, `hasMembershipRole`, `adminCenterIds`) to enforce per-center access in API routes.
 
@@ -154,6 +158,12 @@ if (!hasMembershipRole(user, center.id, 'ADMIN')) {
 - `prisma/` — Schema and migrations
 - `scripts/` — Admin utilities
 - `public/` — PWA assets (sw.js, manifest.json, icons/)
+
+## PWA (`public/manifest.json`, `public/sw.js`)
+
+`start_url` is **`/slots`**, not `/` — reopening the installed app should land on the booking screen, and a signed-out launch is bounced to `/` by the middleware anyway. `id` stays `/` so existing installs update in place instead of being treated as a new app.
+
+**The service worker must never handle navigations** (`if (request.mode === 'navigate') return;`). Every HTML document here depends on who is asking — `/` redirects a signed-in user to `/slots` and renders the landing page for everyone else — so a cached document replayed to the same browser in a different auth state shows a signed-in user the marketing page, and it also outlives the deploy whose JS bundles it references. The browser's own offline page is a better failure than a stale, wrong-session one. Only `/_next/static/`, `/icons/`, `/images/` and `/manifest.json` are cached; bump `CACHE_NAME` whenever the caching rules change, since the activate handler evicts by name.
 
 ## Timezone Handling
 

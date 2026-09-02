@@ -5,6 +5,7 @@ import Navbar from "@/components/Navbar";
 import BottomNav from "@/components/BottomNav";
 import { MultiCenterBanner } from "@/components/MultiCenterBanner";
 import { Providers } from "@/components/Providers";
+import { NamePrompt } from "@/components/NamePrompt";
 import { ErrorBoundary } from "@/components/ui/ErrorBoundary";
 import { ToastProvider } from "@/components/ui/Toast";
 
@@ -66,6 +67,9 @@ export default function RootLayout({
               <MultiCenterBanner />
               <main className="pb-20 md:pb-0">{children}</main>
               <BottomNav />
+              {/* Signed-in accounts with no name (every WhatsApp signup) get
+                  asked for one here, once, wherever they happen to be. */}
+              <NamePrompt />
             </ErrorBoundary>
           </ToastProvider>
           <PWARegister />

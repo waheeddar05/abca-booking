@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { clearSessionCookie } from '@/lib/session-cookie';
 
 /**
  * POST /api/auth/logout — end a WhatsApp (OTP JWT) session.
@@ -14,14 +15,6 @@ import { NextResponse } from 'next/server';
  */
 export async function POST() {
   const response = NextResponse.json({ message: 'Signed out' });
-  // Same attributes the cookie was set with in /api/auth/otp/verify —
-  // a Set-Cookie that differs on path or sameSite may not replace it.
-  response.cookies.set('token', '', {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
-    sameSite: 'strict',
-    maxAge: 0,
-    path: '/',
-  });
+  clearSessionCookie(response);
   return response;
 }
