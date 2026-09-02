@@ -19,7 +19,20 @@ import {
 } from '@/lib/whatsapp';
 import { formatIST } from '@/lib/time';
 import { MACHINES } from '@/lib/constants';
-import type { BookingCategory, NotificationChannel, WhatsAppMessageStatus } from '@prisma/client';
+import { getPolicyJson } from '@/lib/policy';
+import {
+  BOOKING_NOTIFICATION_POLICY_KEY,
+  MEMBERSHIP_ROLE_LABELS,
+  normalizeBookingNotificationConfig,
+  subscribedRolesFor,
+  type BookingNotificationEvent,
+} from '@/lib/booking-notifications';
+import type {
+  BookingCategory,
+  MembershipRole,
+  NotificationChannel,
+  WhatsAppMessageStatus,
+} from '@prisma/client';
 
 // ─── Types ──────────────────────────────────────────────────────────
 
@@ -999,13 +1012,13 @@ export async function notifyAdminPaymentIssue(opts: {
 //   - All failures are swallowed — staff notifications must never block or
 //     fail a booking/cancellation.
 
-/** Friendly role labels used in staff-facing messages. */
-const STAFF_ROLE_LABELS = {
-  OPERATOR: 'Machine Operator',
-  COACH: 'Personal Coach',
-  SIDEARM_SPECIALIST: 'Trainer Specialist',
-  GROUND_STAFF: 'Ground Staff',
-} as const;
+/**
+ * Friendly role labels used in staff-facing messages. Shared with the
+ * admin "Booking Notifications" editor (`@/lib/booking-notifications`) so
+ * a role reads identically wherever it is named, and typed exhaustively
+ * over `MembershipRole` so a new role can't slip through unlabelled.
+ */
+const STAFF_ROLE_LABELS: Record<MembershipRole, string> = MEMBERSHIP_ROLE_LABELS;
 
 // Categories whose on-ground handling falls to the center's ground staff
 // (they have no per-booking operator/coach/specialist that already
@@ -1025,18 +1038,41 @@ const CATEGORY_LABELS: Record<BookingCategory, string> = {
   MATCH_SIMULATION: 'Match Simulation',
 };
 
-type StaffRoleKey = keyof typeof STAFF_ROLE_LABELS;
+type StaffRoleKey = MembershipRole;
+
+/**
+ * Why this person is being told about the booking:
+ *   ASSIGNED   — they are pinned to it (operator / coach / specialist /
+ *                ground staff). "Assigned to you" wording.
+ *   SUBSCRIBED — they hold a CenterMembership role that the center has
+ *                switched on in BOOKING_NOTIFICATION_CONFIG (a moderator
+ *                watching the floor, an admin who wants every booking).
+ *                "At your center" wording — nothing is assigned to them.
+ */
+type StaffRecipientKind = 'ASSIGNED' | 'SUBSCRIBED';
 
 interface StaffRecipient {
   userId: string;
   name: string;
   mobileNumber: string | null;
   roleKey: StaffRoleKey;
+  kind: StaffRecipientKind;
+  /**
+   * Whether this recipient may be messaged on WhatsApp at all (in-app is
+   * always created). Assigned staff always may; role subscribers follow
+   * the center's `whatsapp` switch, since a template message per admin
+   * per booking is billed by the BSP.
+   */
+  whatsapp: boolean;
 }
 
 /** Shape returned by the booking lookup used for staff notifications. */
 type StaffNotifyBooking = {
   id: string;
+  // The booker. Used to keep a role subscriber who booked their own
+  // session from receiving the staff-style alert on top of their
+  // customer confirmation.
+  userId: string | null;
   playerName: string;
   date: Date;
   startTime: Date;
@@ -1071,6 +1107,7 @@ type StaffNotifyBooking = {
 
 const STAFF_NOTIFY_SELECT = {
   id: true,
+  userId: true,
   playerName: true,
   date: true,
   startTime: true,
@@ -1112,6 +1149,8 @@ function collectStaffRecipients(bookings: StaffNotifyBooking[]): StaffRecipient[
       name: person.name || STAFF_ROLE_LABELS[roleKey],
       mobileNumber: person.mobileNumber || null,
       roleKey,
+      kind: 'ASSIGNED',
+      whatsapp: true,
     });
   };
   for (const b of bookings) {
@@ -1145,6 +1184,8 @@ async function loadGroundStaffRecipient(centerId: string): Promise<StaffRecipien
       name: membership.user.name || STAFF_ROLE_LABELS.GROUND_STAFF,
       mobileNumber: membership.user.mobileNumber || null,
       roleKey: 'GROUND_STAFF',
+      kind: 'ASSIGNED',
+      whatsapp: true,
     };
   } catch (err) {
     console.error('[Notifications] Failed to load ground staff recipient:', {
@@ -1176,6 +1217,98 @@ async function withGroundStaff(
   if (!ground) return recipients;
   if (recipients.some((r) => r.userId === ground.userId)) return recipients;
   return [...recipients, ground];
+}
+
+// ─── Center-wide role subscribers ───────────────────────────────────
+//
+// Beyond the people pinned to a booking, a center can broadcast every
+// booking to whole MembershipRoles — a moderator running the floor, an
+// admin who wants every confirmation, an operator pool that self-serves.
+// Which roles receive them is the per-center BOOKING_NOTIFICATION_CONFIG
+// policy (see @/lib/booking-notifications); moderators are on by default.
+
+/**
+ * Resolve the center's role subscribers for one booking event.
+ *
+ * `exclude` carries everyone already receiving a message for this booking
+ * — the assigned staff (who get the richer "assigned to you" wording) and
+ * the customer (who gets their own confirmation) — so nobody is paged
+ * twice. A user holding two enabled roles is likewise paged once, under
+ * the first matching role in canonical order.
+ *
+ * Never throws: a policy or membership lookup failure returns an empty
+ * list so the assigned-staff alerts, which are the load-bearing ones,
+ * still go out.
+ */
+async function loadRoleSubscribers(opts: {
+  centerId: string;
+  event: BookingNotificationEvent;
+  exclude: Set<string>;
+}): Promise<StaffRecipient[]> {
+  const { centerId, event, exclude } = opts;
+  try {
+    const config = normalizeBookingNotificationConfig(
+      await getPolicyJson<unknown>(BOOKING_NOTIFICATION_POLICY_KEY, centerId, null),
+    );
+    const roles = subscribedRolesFor(config, event);
+    if (roles.length === 0) return [];
+
+    const memberships = await prisma.centerMembership.findMany({
+      where: { centerId, role: { in: roles }, isActive: true },
+      orderBy: [{ priority: 'asc' }, { createdAt: 'asc' }],
+      select: { role: true, user: { select: { id: true, name: true, mobileNumber: true } } },
+    });
+
+    // Canonical role order (not membership order) decides which label a
+    // multi-role user is addressed by, so the message is stable run to run.
+    const rank = new Map(roles.map((r, i) => [r, i]));
+    const byUser = new Map<string, StaffRecipient>();
+    for (const m of memberships) {
+      if (!m.user || exclude.has(m.user.id)) continue;
+      const existing = byUser.get(m.user.id);
+      if (existing && (rank.get(existing.roleKey) ?? 0) <= (rank.get(m.role) ?? 0)) continue;
+      byUser.set(m.user.id, {
+        userId: m.user.id,
+        name: m.user.name || STAFF_ROLE_LABELS[m.role],
+        mobileNumber: m.user.mobileNumber || null,
+        roleKey: m.role,
+        kind: 'SUBSCRIBED',
+        whatsapp: config.whatsapp,
+      });
+    }
+    return [...byUser.values()];
+  } catch (err) {
+    console.error('[Notifications] Failed to load booking-notification role subscribers:', {
+      centerId,
+      event,
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return [];
+  }
+}
+
+/**
+ * Append the center's role subscribers to the assigned-staff recipients
+ * for a booking (or batch of booking rows from one submission). The
+ * booking's own customer is excluded — they already get the customer
+ * confirmation / cancellation notice.
+ */
+async function withRoleSubscribers(
+  recipients: StaffRecipient[],
+  bookings: StaffNotifyBooking[],
+  event: BookingNotificationEvent,
+): Promise<StaffRecipient[]> {
+  if (bookings.length === 0) return recipients;
+  const exclude = new Set(recipients.map((r) => r.userId));
+  for (const b of bookings) {
+    if (b.userId) exclude.add(b.userId);
+  }
+  const subscribers = await loadRoleSubscribers({
+    centerId: bookings[0].centerId,
+    event,
+    exclude,
+  });
+  return subscribers.length > 0 ? [...recipients, ...subscribers] : recipients;
 }
 
 /** Resolve the facility / resource name(s) for a booking. */
@@ -1223,13 +1356,18 @@ function formatDuration(totalMinutes: number): string {
 async function dispatchStaffNotifications(opts: {
   bookingId: string;
   recipients: StaffRecipient[];
-  title: string;
+  /**
+   * Title per recipient — assigned staff read "…Assigned", role
+   * subscribers read the neutral center-wide form (nothing was assigned
+   * to them).
+   */
+  titleFor: (recipient: StaffRecipient) => string;
   type: string;
   inAppMessage: string;
   buildWhatsApp: (recipient: StaffRecipient) => string;
   buildWhatsAppTemplate?: (recipient: StaffRecipient) => WhatsAppTemplatePayload | null;
 }): Promise<void> {
-  const { bookingId, recipients, title, type, inAppMessage, buildWhatsApp, buildWhatsAppTemplate } = opts;
+  const { bookingId, recipients, titleFor, type, inAppMessage, buildWhatsApp, buildWhatsAppTemplate } = opts;
   if (recipients.length === 0) return;
 
   const waEnabled = await isWhatsAppEnabled();
@@ -1239,9 +1377,14 @@ async function dispatchStaffNotifications(opts: {
     try {
       await notify({
         userId: recipient.userId,
-        title,
+        title: titleFor(recipient),
         message: inAppMessage,
         type,
+        // Link the alert to the booking so the Alerts view renders the
+        // full Bookings-page card snapshot, exactly as it does for the
+        // customer's own confirmation — a moderator watching the floor
+        // shouldn't have to read a pipe-separated summary.
+        bookingId,
       });
     } catch (err) {
       console.error('[Notifications] Staff in-app notification failed:', {
@@ -1252,7 +1395,17 @@ async function dispatchStaffNotifications(opts: {
       });
     }
 
-    // WhatsApp — only when enabled and the staff member has a mobile number.
+    // WhatsApp — only when enabled for this recipient and they have a
+    // mobile number. Role subscribers can be limited to in-app by the
+    // center's `whatsapp` switch; assigned staff always pass.
+    if (!recipient.whatsapp) {
+      console.log('[Notifications] WhatsApp off for role subscriber — in-app only:', {
+        bookingId,
+        userId: recipient.userId,
+        role: recipient.roleKey,
+      });
+      continue;
+    }
     if (!recipient.mobileNumber) {
       console.warn('[Notifications] Staff WhatsApp skipped — no mobile number:', {
         bookingId,
@@ -1361,8 +1514,13 @@ export async function notifyAssignedStaffNewBooking(bookingIds: string[]): Promi
 
     // Per-booking assigned staff (operator / coach / specialist) plus the
     // center's ground staff for floor-handled categories (Net / Full
-    // Court / Sidearm / Coaching).
-    const recipients = await withGroundStaff(collectStaffRecipients(bookings), bookings);
+    // Court / Sidearm / Coaching), plus the center's role subscribers
+    // (moderators by default) who watch every booking at the center.
+    const recipients = await withRoleSubscribers(
+      await withGroundStaff(collectStaffRecipients(bookings), bookings),
+      bookings,
+      'created',
+    );
     if (recipients.length === 0) return;
 
     const primary = bookings[0];
@@ -1448,7 +1606,9 @@ export async function notifyAssignedStaffNewBooking(bookingIds: string[]): Promi
         `🏏 *New Booking*`,
         `🏢 Center: ${centerName}`,
         `Hi ${recipient.name} (${STAFF_ROLE_LABELS[recipient.roleKey]}),`,
-        `A new booking has been assigned to you.`,
+        recipient.kind === 'ASSIGNED'
+          ? `A new booking has been assigned to you.`
+          : `A new booking has been made at your center.`,
         ``,
         `👤 Customer: ${primary.playerName}`,
         ...(customerPhone !== 'N/A' ? [`📞 Phone: ${customerPhone}`] : []),
@@ -1537,7 +1697,7 @@ export async function notifyAssignedStaffNewBooking(bookingIds: string[]): Promi
     await dispatchStaffNotifications({
       bookingId: primary.id,
       recipients,
-      title: 'New Booking Assigned',
+      titleFor: (r) => (r.kind === 'ASSIGNED' ? 'New Booking Assigned' : 'New Booking'),
       type: 'SUCCESS',
       inAppMessage,
       buildWhatsApp,
@@ -1566,7 +1726,11 @@ export async function notifyAssignedStaffBookingCancelled(
     })) as StaffNotifyBooking | null;
     if (!booking) return;
 
-    const recipients = await withGroundStaff(collectStaffRecipients([booking]), [booking]);
+    const recipients = await withRoleSubscribers(
+      await withGroundStaff(collectStaffRecipients([booking]), [booking]),
+      [booking],
+      'cancelled',
+    );
     if (recipients.length === 0) return;
 
     const dateStr = formatIST(new Date(booking.date), 'EEE, dd MMM yyyy');
@@ -1595,7 +1759,9 @@ export async function notifyAssignedStaffBookingCancelled(
         `❌ *Booking Cancelled*`,
         `🏢 Center: ${centerName}`,
         `Hi ${recipient.name} (${STAFF_ROLE_LABELS[recipient.roleKey]}),`,
-        `A booking assigned to you has been cancelled.`,
+        recipient.kind === 'ASSIGNED'
+          ? `A booking assigned to you has been cancelled.`
+          : `A booking at your center has been cancelled.`,
         ``,
         `👤 Customer: ${booking.playerName}`,
         ...(customerPhone !== 'N/A' ? [`📞 Phone: ${customerPhone}`] : []),
@@ -1654,7 +1820,9 @@ export async function notifyAssignedStaffBookingCancelled(
       // the detail string is flattened the same way the customer cancel
       // alert is.
       const detail = [
-        `${centerName} • ${STAFF_ROLE_LABELS[recipient.roleKey]} session cancelled`,
+        recipient.kind === 'ASSIGNED'
+          ? `${centerName} • ${STAFF_ROLE_LABELS[recipient.roleKey]} session cancelled`
+          : `${centerName} • ${bookingType} booking cancelled`,
         `Customer: ${booking.playerName}`,
         ...(customerPhone !== 'N/A' ? [`Phone: ${customerPhone}`] : []),
         `${dateStr}, ${timeStr}`,
@@ -1675,7 +1843,7 @@ export async function notifyAssignedStaffBookingCancelled(
     await dispatchStaffNotifications({
       bookingId: booking.id,
       recipients,
-      title: 'Booking Cancelled',
+      titleFor: () => 'Booking Cancelled',
       type: 'CANCELLATION',
       inAppMessage,
       buildWhatsApp,

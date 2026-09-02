@@ -256,6 +256,38 @@ Seat-based booking category for RESOURCE_BASED centers — no machine, ball type
 
 **Key files**: `src/lib/match-practice.ts` (config normalization, session/occurrence generation, `resolveMatchPracticePlans`, in-tx `assertMatchPracticeSeat` capacity + duplicate guards), `/api/match-practice/availability` (months with enrollment counts + upcoming sessions with seat counts), `/api/slots/book-resource` (dispatches both categories through the same payment/wallet/refund machinery; capacity re-checked inside the serializable tx), `src/components/admin/MatchPracticeConfigEditor.tsx` (Admin → Settings → Match Practice card). Fees are flat admin-set amounts — recurring/promotional discounts and packages don't apply; admin blocks (`BlockedSlot.categories`) do.
 
+### Booking notifications by role (`BOOKING_NOTIFICATION_CONFIG`)
+
+Who, beyond the customer, hears about a booking. Two disjoint kinds of recipient, both delivered by the same pair of helpers in `src/lib/notifications.ts` (`notifyAssignedStaffNewBooking` / `notifyAssignedStaffBookingCancelled`):
+
+- **Assigned** (`StaffRecipient.kind = 'ASSIGNED'`) — the people pinned to *that* booking: its operator / coach / sidearm specialist / ground staff. Unchanged, always on, worded "assigned to you".
+- **Subscribed** (`kind = 'SUBSCRIBED'`) — everyone holding a `CenterMembership` role the center has switched on. They get the same alert for **every** booking at the center, worded "at your center" (nothing is assigned to them). This is how a moderator running the floor sees every booking.
+
+Config is the per-center `BOOKING_NOTIFICATION_CONFIG` policy, resolved center → global → code default by `getPolicyJson` and coerced by `normalizeBookingNotificationConfig` (`src/lib/booking-notifications.ts` — a **pure module with no Prisma import**, so the admin editor and the server share one normalizer):
+
+```json
+{
+  "roles": { "ADMIN": false, "MODERATOR": true, "OPERATOR": false,
+             "COACH": false, "SIDEARM_SPECIALIST": false, "GROUND_STAFF": false },
+  "events": { "created": true, "cancelled": true },
+  "whatsapp": true
+}
+```
+
+**`MODERATOR` is the only role on by default** — moderators get every booking with zero configuration, and turning the feature up can never silently start messaging a center's whole roster. Every `MembershipRole` is configurable; `MEMBERSHIP_ROLE_LABELS` is typed `Record<MembershipRole, string>` so adding a role to the enum is a compile error until it's labelled (a parity test asserts it too). The normalizer is tolerant by design (the row is hand-editable on `/admin/policies`): per-field fallback, string booleans accepted, unknown keys dropped, and a bare `["MODERATOR","ADMIN"]` array read as "these on, all others off".
+
+**Dedup, in `withRoleSubscribers`**: the exclude set is seeded from the already-collected assigned recipients **and** every booking row's `userId`. So an assigned coach who also holds a `COACH` membership is paged once (keeping the richer "assigned" copy), a user holding two enabled roles is paged once under the earlier canonical role, and a moderator who books their own slot gets only the customer confirmation.
+
+**Delivery**: in-app is always created and now carries `bookingId`, so a subscriber's alert renders the full Bookings-page card, not a pipe-separated summary. WhatsApp goes through an **approved template** (`WHATSAPP_STAFF_BOOKING_TEMPLATE` / `_CANCEL_TEMPLATE` when set, else the approved customer `booking_detail` / `booking_cancelled`) — free-form text only delivers inside the 24h service window and a subscriber has almost certainly never messaged the business. `config.whatsapp: false` keeps subscribers in-app only *without* muting assigned staff; it exists because the BSP bills per template message, so a center with five admins pays 5× per booking.
+
+**Never throws**: `loadRoleSubscribers` catches everything and returns `[]`, so a policy or membership failure can't strand the assigned-staff alerts, which are the load-bearing ones.
+
+**Volume**: creation batches a multi-slot submission into **one** message per recipient; cancellation is per booking row, so an admin block that cancels N bookings sends N alerts per recipient (pre-existing for assigned staff, amplified across a role by subscribers). Batch it there if it becomes a problem.
+
+**Edited on Admin → Configuration → "Booking Notifications"** (`src/components/admin/BookingNotificationsEditor.tsx`, saved by the page's single Save button via `POST /api/admin/policies`). That page is **admin-only** — moderators *receive* these notifications but cannot configure them, and `/admin/configuration` stays in the middleware moderator blocklist.
+
+**Reading them**: `/notifications` is the inbox, linked from the admin sidebar and admin bottom nav ("Alerts") so a recipient doesn't have to leave the panel. That page's auth gate is driven by the API's 401, **not** `useSession()` — PlayOrbit has two login paths and gating on the NextAuth session alone locked every mobile-OTP user (i.e. most staff) out of their own alerts.
+
 ### Ledger (manual revenue & expenses)
 
 Admin → **Ledger** (`/admin/ledger`) records money the booking engine never sees. Two tabs over one `LedgerEntry` table, discriminated by `kind`:

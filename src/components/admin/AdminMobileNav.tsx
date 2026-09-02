@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useSession } from 'next-auth/react';
-import { LayoutDashboard, CalendarCheck, Clock, Users, UserCog, SlidersHorizontal, Package, Tag, Building2, HardHat, BookOpenCheck } from 'lucide-react';
+import { LayoutDashboard, CalendarCheck, Clock, Users, UserCog, SlidersHorizontal, Package, Tag, Building2, HardHat, BookOpenCheck, Bell } from 'lucide-react';
 import { useCenter } from '@/lib/center-context';
 
 type BookingModel = 'MACHINE_PITCH' | 'RESOURCE_BASED';
@@ -65,6 +65,10 @@ export function AdminMobileNav() {
         { href: '/admin/offers', label: 'Offers', icon: Tag, hidden: !isAdmin },
         // Ledger — manual revenue + expenses. Admins and moderators.
         { href: '/admin/ledger', label: 'Ledger', icon: BookOpenCheck, hidden: !isAdminLevel },
+        // Alerts — the in-app inbox at /notifications, where center-wide
+        // booking notifications land. Everyone who reaches /admin can
+        // receive one, so everyone gets the tab.
+        { href: '/notifications', label: 'Alerts', icon: Bell },
         // Settings — full admins only. Restricted for moderators.
         { href: '/admin/configuration', label: 'Settings', icon: SlidersHorizontal, hidden: !isAdmin },
         // Super admin → cross-center management. Center admin → deep

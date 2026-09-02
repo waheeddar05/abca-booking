@@ -83,15 +83,30 @@ function AlertMessage({ message, isRead }: { message: string; isRead: boolean })
 }
 
 export default function NotificationsPage() {
-  const { data: session } = useSession();
+  // Auth is decided by the API, not by the NextAuth session alone.
+  // PlayOrbit has two login paths (NextAuth/Google and the custom OTP JWT)
+  // and `GET /api/notifications` authenticates both via
+  // getAuthenticatedUser(). Gating this page on `useSession()` locked every
+  // mobile-OTP user out of their own alerts — which is most staff, and so
+  // every operator / coach / specialist / moderator who receives a
+  // center-wide booking notification. We wait for NextAuth to settle (so a
+  // Google session's cookie is in flight before we fetch), then let the
+  // 401 tell us whether the visitor is signed in.
+  const { status } = useSession();
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [loading, setLoading] = useState(true);
+  const [authorized, setAuthorized] = useState(true);
 
   const fetchNotifications = async () => {
     try {
       const res = await fetch('/api/notifications');
+      if (res.status === 401) {
+        setAuthorized(false);
+        return;
+      }
       if (res.ok) {
         const data = await res.json();
+        setAuthorized(true);
         setNotifications(data);
       }
     } catch (error) {
@@ -102,10 +117,9 @@ export default function NotificationsPage() {
   };
 
   useEffect(() => {
-    if (session) {
-      fetchNotifications();
-    }
-  }, [session]);
+    if (status === 'loading') return;
+    fetchNotifications();
+  }, [status]);
 
   const markAsRead = async (id?: string) => {
     try {
@@ -130,7 +144,7 @@ export default function NotificationsPage() {
 
   const unreadCount = notifications.filter(n => !n.isRead).length;
 
-  if (!session) {
+  if (!authorized) {
     return (
       <div className="flex flex-col items-center justify-center py-20 text-slate-400">
         <BellOff className="w-12 h-12 mb-4 opacity-20" />

@@ -32,6 +32,11 @@ const COMMON_KEYS = [
   'NUMBER_OF_OPERATORS',
   'BALL_TYPE_SELECTION_ENABLED',
   'PITCH_TYPE_SELECTION_ENABLED',
+  // Which CenterMembership roles are told about every booking at the
+  // center, and on which events. Edited with the toggles on Admin ->
+  // Configuration -> Booking Notifications; see src/lib/booking-notifications.ts
+  // for the JSON shape. Unset = moderators only.
+  'BOOKING_NOTIFICATION_CONFIG',
 ];
 
 export function CenterPoliciesTab({ centerId }: { centerId: string }) {

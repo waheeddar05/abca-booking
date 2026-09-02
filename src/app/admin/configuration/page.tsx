@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useSession } from 'next-auth/react';
-import { Settings, IndianRupee, Save, Loader2, Zap, Check, CreditCard, Banknote, Wallet, ShoppingBag, AlertTriangle } from 'lucide-react';
+import { Settings, IndianRupee, Save, Loader2, Zap, Check, CreditCard, Banknote, Wallet, ShoppingBag, AlertTriangle, Bell } from 'lucide-react';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { AdminPageHeader } from '@/components/admin/AdminPageHeader';
 import { AdminCard } from '@/components/admin/AdminCard';
@@ -12,6 +12,7 @@ import { ResourcePricingEditor } from '@/components/admin/ResourcePricingEditor'
 import { EnabledCategoriesEditor } from '@/components/admin/EnabledCategoriesEditor';
 import { MatchPracticeConfigEditor } from '@/components/admin/MatchPracticeConfigEditor';
 import { EnabledPitchTypesEditor } from '@/components/admin/EnabledPitchTypesEditor';
+import { BookingNotificationsEditor } from '@/components/admin/BookingNotificationsEditor';
 import { DEFAULT_BOOKING_NOTICE } from '@/lib/client-constants';
 import { Ticket } from 'lucide-react';
 
@@ -207,9 +208,10 @@ export default function ConfigurationPage() {
   const [pitchTypesSaveStatus, setPitchTypesSaveStatus] = useState<{ saving: boolean; message: { text: string; ok: boolean } | null }>({ saving: false, message: null });
   const [resourcePricingSaveStatus, setResourcePricingSaveStatus] = useState<{ saving: boolean; message: { text: string; ok: boolean } | null }>({ saving: false, message: null });
   const [matchPracticeSaveStatus, setMatchPracticeSaveStatus] = useState<{ saving: boolean; message: { text: string; ok: boolean } | null }>({ saving: false, message: null });
-  const isSettingsSaving = categoriesSaveStatus.saving || pitchTypesSaveStatus.saving || resourcePricingSaveStatus.saving || matchPracticeSaveStatus.saving;
+  const [bookingNotificationsSaveStatus, setBookingNotificationsSaveStatus] = useState<{ saving: boolean; message: { text: string; ok: boolean } | null }>({ saving: false, message: null });
+  const isSettingsSaving = categoriesSaveStatus.saving || pitchTypesSaveStatus.saving || resourcePricingSaveStatus.saving || matchPracticeSaveStatus.saving || bookingNotificationsSaveStatus.saving;
   const settingsError =
-    [categoriesSaveStatus, pitchTypesSaveStatus, resourcePricingSaveStatus, matchPracticeSaveStatus]
+    [categoriesSaveStatus, pitchTypesSaveStatus, resourcePricingSaveStatus, matchPracticeSaveStatus, bookingNotificationsSaveStatus]
       .map((s) => s.message)
       .find((m) => m && !m.ok) ?? null;
 
@@ -1231,6 +1233,26 @@ export default function ConfigurationPage() {
           />
         </AdminCard>
       )}
+
+      {/* ─── Booking Notifications ───────────────────
+          Who, beyond the customer and the staff assigned to a booking,
+          hears about every booking at this center. Roles are opt-in
+          (moderators default on) so turning the feature up can never
+          silently start messaging the whole roster. Saved by the single
+          Save button at the bottom of this page. */}
+      <AdminCard
+        title="Booking Notifications"
+        icon={<Bell className="w-4 h-4 text-accent" />}
+        collapsible
+        defaultOpen={false}
+      >
+        <BookingNotificationsEditor
+          scope={scope}
+          centerLabel={currentCenter?.shortName ?? currentCenter?.name ?? 'this center'}
+          externalSaveTrigger={settingsSaveTrigger}
+          onSaveStatus={setBookingNotificationsSaveStatus}
+        />
+      </AdminCard>
 
       {/* Slot picker — user-facing toggles for ball / pitch selectors.
           On RESOURCE_BASED centers each Machine row already declares

@@ -8,6 +8,7 @@ const findManyMock = vi.fn();
 const findUniqueMock = vi.fn();
 const createMock = vi.fn();
 const membershipFindFirstMock = vi.fn();
+const membershipFindManyMock = vi.fn();
 
 vi.mock('@/lib/prisma', () => ({
   prisma: {
@@ -20,6 +21,7 @@ vi.mock('@/lib/prisma', () => ({
     },
     centerMembership: {
       findFirst: (args: unknown) => membershipFindFirstMock(args),
+      findMany: (args: unknown) => membershipFindManyMock(args),
     },
   },
 }));
@@ -27,6 +29,16 @@ vi.mock('@/lib/prisma', () => ({
 const getCachedPolicyMock = vi.fn();
 vi.mock('@/lib/policy-cache', () => ({
   getCachedPolicy: (key: string) => getCachedPolicyMock(key),
+}));
+
+// Center-wide booking-notification config (BOOKING_NOTIFICATION_CONFIG).
+// Defaults to "no role subscribers" here so these tests keep asserting the
+// assigned-staff path in isolation; the role-subscriber behaviour has its
+// own suite (notifications-role-subscribers.test.ts).
+const getPolicyJsonMock = vi.fn();
+vi.mock('@/lib/policy', () => ({
+  getPolicyJson: (key: string, centerId: string | null, fallback: unknown) =>
+    getPolicyJsonMock(key, centerId, fallback),
 }));
 
 const sendWhatsAppTextMock = vi.fn();
@@ -105,6 +117,18 @@ beforeEach(() => {
   // Default: no ground staff configured at the center. Tests that
   // exercise the ground-staff path override this per-case.
   membershipFindFirstMock.mockResolvedValue(null);
+  // Default: every role switched off, so only assigned staff are paged.
+  getPolicyJsonMock.mockResolvedValue({
+    roles: {
+      ADMIN: false,
+      MODERATOR: false,
+      OPERATOR: false,
+      COACH: false,
+      SIDEARM_SPECIALIST: false,
+      GROUND_STAFF: false,
+    },
+  });
+  membershipFindManyMock.mockResolvedValue([]);
   delete process.env.WHATSAPP_STAFF_BOOKING_TEMPLATE;
   delete process.env.WHATSAPP_STAFF_CANCEL_TEMPLATE;
   delete process.env.WHATSAPP_BOOKING_DETAIL_LOCATION_ENABLED;

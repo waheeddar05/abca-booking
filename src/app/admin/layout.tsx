@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useSession } from 'next-auth/react';
-import { LayoutDashboard, CalendarCheck, Users, Clock, Wrench, Package, Zap, SlidersHorizontal, ArrowLeft, Power, DatabaseZap, UserCog, Tag, Building2, AlertTriangle, HardHat, BookOpenCheck } from 'lucide-react';
+import { LayoutDashboard, CalendarCheck, Users, Clock, Wrench, Package, Zap, SlidersHorizontal, ArrowLeft, Power, DatabaseZap, UserCog, Tag, Building2, AlertTriangle, HardHat, BookOpenCheck, Bell } from 'lucide-react';
 import { signOut } from 'next-auth/react';
 import { AdminMobileNav } from '@/components/admin/AdminMobileNav';
 import { CenterSwitcher } from '@/components/admin/CenterSwitcher';
@@ -94,6 +94,11 @@ export default function AdminLayout({
     // both get it: moderators can add and edit entries, only full
     // admins can delete them (enforced in the API, hidden in the UI).
     { href: '/admin/ledger', label: 'Ledger', icon: BookOpenCheck, hidden: !isAdminLevel },
+    // Alerts — the in-app inbox at /notifications. Center-wide booking
+    // notifications (Settings -> Booking Notifications) deliver here, so
+    // anyone who can receive one needs a way to read it without leaving
+    // the admin panel. Shown to every role that reaches /admin.
+    { href: '/notifications', label: 'Alerts', icon: Bell },
     // Settings — full admins only. Restricted for moderators.
     { href: '/admin/configuration', label: 'Settings', icon: SlidersHorizontal, hidden: !isAdmin },
     // /admin/policies removed — its raw key/value editor was confusing
