@@ -39,7 +39,8 @@ npx vitest run src/lib/__tests__/pricing.test.ts
 npm run lint               # ESLint (flat config, eslint.config.mjs)
 
 # Scripts
-npx tsx scripts/make-admin.ts <email|mobile>   # Promote user to ADMIN
+npx tsx scripts/make-admin.ts <email|mobile> [--super] [--center <slug>]
+                           # Grant ADMIN / super admin / center-admin membership
 npx tsx scripts/check-migrations.ts            # Verify DB tables
 npx tsx scripts/seed-centers.ts                # Verify/seed centers, ABCA machines, super admin
 npx tsx scripts/seed-centers.ts --check        # Verify only, no writes
@@ -172,7 +173,19 @@ Tests use Vitest with jsdom environment. Path alias `@` maps to `./src`. Setup f
 Order (first match wins): `?center=<slug>` query → `selectedCenterId` cookie → user's first membership → first active center. Implemented in `src/lib/centers.ts → resolveCurrentCenter()`. **No subdomain, no path prefix** — keeps URLs stable for TWA/PWA installs and existing bookmarks.
 
 ### Super admin
-The `User.isSuperAdmin` boolean column is the source of truth. The `SUPER_ADMIN_EMAIL` env var (default `waheeddar8@gmail.com`) is used as a bootstrap fallback in `auth.ts` and is auto-applied to the User row on next Google sign-in. Super admins bypass center scoping (`canAccessCenter` returns true for any centerId).
+The `User.isSuperAdmin` boolean column is the source of truth. Super admins bypass center scoping (`canAccessCenter` returns true for any centerId).
+
+**Granting it is three separate things**, and you usually need more than one:
+
+| Grant | Unlocks |
+|---|---|
+| `User.role = 'ADMIN'` | past the middleware into `/admin` |
+| `User.isSuperAdmin = true` | cross-center pages (Centers, Orphan Payments, Maintenance, DB Cleanup) and a bypass of every center scope check |
+| `CenterMembership(role='ADMIN')` | center-scoped **writes** — without it you can open Configuration but `POST /api/admin/policies` 403s on Save |
+
+`npx tsx scripts/make-admin.ts <email|mobile> [--super] [--center <slug>]` does all three. **No admin UI writes `isSuperAdmin`** — `PATCH /api/admin/users` accepts `role` but not that column, by design.
+
+> **The env fallback does not work for a WhatsApp account.** `SUPER_ADMIN_EMAIL` is matched against `dbUser.email` in `auth.ts`, and `scripts/seed-centers.ts` looks the user up by email too — but login is WhatsApp OTP, so accounts are keyed on `mobileNumber` and typically have **no email at all**. Both paths silently no-op for a phone-only account. Bootstrap by mobile with `make-admin.ts` instead; the account must exist first, so sign in once before running it.
 
 `requireSuperAdmin(req)` from `src/lib/adminAuth.ts` is the API-route guard for cross-center operations (managing centers, the machine-type catalog, etc.). Use `requireAdmin(req)` for center-scoped admin actions and combine with `hasMembershipRole(user, centerId, 'ADMIN')` to enforce the user is admin at *this* center.
 
