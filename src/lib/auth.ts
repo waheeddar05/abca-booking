@@ -2,6 +2,7 @@ import { NextRequest } from 'next/server';
 import { getToken } from 'next-auth/jwt';
 import { prisma } from '@/lib/prisma';
 import { verifyToken } from '@/lib/jwt';
+import { NEXTAUTH_SECRET } from '@/lib/auth-secret';
 import type { MembershipRole } from '@prisma/client';
 
 // Bootstrap super-admin email — used as a fallback if the User row
@@ -99,7 +100,7 @@ function toAuthenticatedUser(dbUser: DbAuthUser): AuthenticatedUser {
 
 export async function getAuthenticatedUser(req: NextRequest): Promise<AuthenticatedUser | null> {
   // 1. Try NextAuth JWT first (local decode, no HTTP request — ~1ms vs ~500ms for getServerSession)
-  const nextAuthToken = await getToken({ req, secret: process.env.NEXTAUTH_SECRET });
+  const nextAuthToken = await getToken({ req, secret: NEXTAUTH_SECRET });
   if (nextAuthToken?.email) {
     const dbUser = await prisma.user.findUnique({
       where: { email: nextAuthToken.email },
@@ -111,7 +112,7 @@ export async function getAuthenticatedUser(req: NextRequest): Promise<Authentica
   // 2. Fallback to custom OTP JWT
   const otpTokenStr = req.cookies.get('token')?.value;
   if (otpTokenStr) {
-    const decoded = verifyToken(otpTokenStr) as any;
+    const decoded = await verifyToken(otpTokenStr);
     if (decoded?.userId) {
       const dbUser = await prisma.user.findUnique({
         where: { id: decoded.userId },

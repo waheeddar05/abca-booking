@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { getToken } from "next-auth/jwt";
 import { verifyToken } from "@/lib/jwt";
+import { NEXTAUTH_SECRET } from "@/lib/auth-secret";
 
 export async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
@@ -88,9 +89,9 @@ export async function middleware(req: NextRequest) {
   if (isPublicPath) {
     // If the user is logged in and tries to access login or otp page, redirect
     if (pathname === "/login" || pathname === "/otp") {
-      const token = await getToken({ req, secret: process.env.NEXTAUTH_SECRET });
+      const token = await getToken({ req, secret: NEXTAUTH_SECRET });
       const otpTokenStr = req.cookies.get("token")?.value;
-      const otpToken = otpTokenStr ? verifyToken(otpTokenStr) as any : null;
+      const otpToken = otpTokenStr ? await verifyToken(otpTokenStr) : null;
 
       if (token || otpToken) {
         const role = (token?.role || otpToken?.role) as string | undefined;
@@ -112,11 +113,11 @@ export async function middleware(req: NextRequest) {
   }
 
   // Check for NextAuth session
-  const token = await getToken({ req, secret: process.env.NEXTAUTH_SECRET });
+  const token = await getToken({ req, secret: NEXTAUTH_SECRET });
 
   // Check for custom OTP token in cookies
   const otpTokenStr = req.cookies.get("token")?.value;
-  const otpToken = otpTokenStr ? verifyToken(otpTokenStr) as any : null;
+  const otpToken = otpTokenStr ? await verifyToken(otpTokenStr) : null;
 
   if (!token && !otpToken) {
     const loginUrl = new URL("/", req.url);

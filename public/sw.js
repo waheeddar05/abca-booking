@@ -1,4 +1,4 @@
-const CACHE_NAME = 'playorbit-v7';
+const CACHE_NAME = 'playorbit-v8';
 
 // Only precache truly static/public assets (no auth-protected pages)
 const PRECACHE_ASSETS = [
@@ -40,6 +40,15 @@ self.addEventListener('fetch', (event) => {
 
   // Skip auth-related requests
   if (url.pathname.startsWith('/api/auth')) return;
+
+  // Never touch navigations. Every HTML document this app serves depends on
+  // who is asking: `/` redirects a signed-in user to /slots and renders the
+  // landing page for everyone else. Caching one and replaying it to the same
+  // browser in a different auth state is how a signed-in user ends up staring
+  // at the landing page — and a cached document also outlives the deploy whose
+  // JS bundles it references. Let the browser fetch documents itself; its own
+  // offline page is a better failure than a stale, wrong-session one.
+  if (request.mode === 'navigate') return;
 
   // API calls: network-first with cache fallback
   if (url.pathname.startsWith('/api/')) {
@@ -88,17 +97,7 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Pages: network-first (don't cache redirects or auth pages)
-  event.respondWith(
-    fetch(request)
-      .then((response) => {
-        // Only cache successful, non-redirect responses
-        if (response.ok && !response.redirected) {
-          const clone = response.clone();
-          caches.open(CACHE_NAME).then((cache) => cache.put(request, clone));
-        }
-        return response;
-      })
-      .catch(() => caches.match(request))
-  );
+  // Anything else (including any non-navigation document request): straight
+  // to the network, uncached. Only the asset branches above may serve from
+  // the cache, and none of them is session-dependent.
 });

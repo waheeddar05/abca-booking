@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { getAuthenticatedUser } from '@/lib/auth';
+import { normalizeDisplayName } from '@/lib/display-name';
 
 export async function GET(req: NextRequest) {
   try {
@@ -51,7 +52,19 @@ export async function PATCH(req: NextRequest) {
     }
 
     const body = await req.json();
-    const data: any = {};
+    const data: { name?: string; mobileNumber?: string; phonePromptDismissed?: boolean } = {};
+
+    // WhatsApp login supplies no name, so this is where a nameless account
+    // gets one (see `src/components/NamePrompt.tsx`). Same validator the form
+    // uses, so the client can never talk the server into storing something
+    // the client would itself reject.
+    if (body.name !== undefined) {
+      const name = normalizeDisplayName(body.name);
+      if (!name.ok) {
+        return NextResponse.json({ error: name.error }, { status: 400 });
+      }
+      data.name = name.value;
+    }
 
     if (body.mobileNumber) {
       // Validate Indian mobile number
@@ -75,6 +88,12 @@ export async function PATCH(req: NextRequest) {
       data.phonePromptDismissed = Boolean(body.phonePromptDismissed);
     }
 
+    // An unrecognised body used to fall through to an empty update and
+    // return 200, so a typo'd field looked like it had been saved.
+    if (Object.keys(data).length === 0) {
+      return NextResponse.json({ error: 'Nothing to update' }, { status: 400 });
+    }
+
     const updated = await prisma.user.update({
       where: { id: user.id },
       data,
@@ -88,8 +107,9 @@ export async function PATCH(req: NextRequest) {
     });
 
     return NextResponse.json(updated);
-  } catch (error: any) {
+  } catch (error) {
     console.error('Update user profile error:', error);
-    return NextResponse.json({ error: error?.message || 'Internal server error' }, { status: 500 });
+    const message = error instanceof Error ? error.message : 'Internal server error';
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }

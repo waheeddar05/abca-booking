@@ -63,6 +63,10 @@ npx tsx scripts/seed-centers.ts --check        # Verify only, no writes
 1. `POST /api/auth/otp/request` — validates the number, finds-or-creates the account keyed on `mobileNumber`, issues a 6-digit code and sends it.
 2. `POST /api/auth/otp/verify` — checks the code, flips `mobileVerified`, and sets the `token` cookie (custom JWT, `src/lib/jwt.ts`). Receiving the code **is** proof of the number, so a WhatsApp login is verified by construction and never meets the `/verify-mobile` gate.
 
+`signToken`/`verifyToken` in `src/lib/jwt.ts` are **async** and built on `jose`, not `jsonwebtoken` — see the Edge Runtime note under Middleware for why that is not interchangeable. The token format is unchanged (HS256 over `JWT_SECRET`).
+
+The cookie's attributes live in `src/lib/session-cookie.ts` — `setSessionCookie` / `clearSessionCookie` — so the route that issues it and the route that clears it cannot drift. It is **SameSite=Lax on purpose**: Strict withholds the cookie on any top-level navigation that started on another site (a link tapped in WhatsApp, an Instagram bio link, a QR code, a search result, a PWA launch), so `src/app/page.tsx` rendered for a signed-out visitor and a signed-in user was shown the landing page instead of their booking screen. Lax still withholds it from cross-site POSTs, which is the CSRF protection that matters. Do not tighten it back.
+
 `POST /api/auth/logout` clears that cookie. It has to be server-side: the cookie is `httpOnly`, so the `document.cookie = 'token=…'` that the navbar and staff layout used to run never removed anything and left users signed in through a "Sign out" they'd already been shown.
 
 **Delivery** lives in `src/lib/otp-delivery.ts` (`issueAndSendOtp`), shared with `/api/auth/whatsapp/send-otp`: an approved WhatsApp auth template first, then the `playorbit_account_pin` utility template, then SMS as a backstop — a BSP outage must not lock everyone out of the only login. A send that reached nobody deletes its own OTP row so an outage can't burn the user's budget.
@@ -78,6 +82,8 @@ npx tsx scripts/seed-centers.ts --check        # Verify only, no writes
 
 **Client-side session: use `useCurrentUser()`, never `useSession()`.** `src/lib/current-user.tsx` reads `GET /api/user/profile`, which goes through `getAuthenticatedUser` and therefore sees both mechanisms. `useSession()` only ever sees NextAuth, so every gate written against it reports "signed out" for a WhatsApp user — i.e. for everyone. That was not hypothetical: it collapsed the admin sidebar to zero links, hid the super-admin pages from super admins, locked `/admin/maintenance` and `/admin/db-cleanup` behind an email match that a phone-only account doesn't have, and silently charged free users and super admins on the slots page. `useAdminRole()` reads it too. `useSession()` is now legitimate in exactly two places — `MobileNumberCheck` and `/verify-mobile`, both NextAuth-specific — plus deciding *which* sign-out to run.
 
+**Every account needs a name asked for, because WhatsApp does not supply one.** Google sign-in used to; `/api/auth/otp/request` creates accounts with `name: null`, and `BookingCard` then renders "Unknown" — which is what centre staff read off the floor list. `src/components/NamePrompt.tsx` is mounted once in the root layout, reads `useCurrentUser()`, and blocks with a single field whenever a signed-in account has no name. It lives there rather than as a step inside `LoginModal` so that one implementation catches both new signups and every nameless account created since the cutover. It writes through `PATCH /api/user/profile`, and both ends validate with `normalizeDisplayName` (`src/lib/display-name.ts`) so the form and the API cannot disagree.
+
 `getAuthenticatedUser(req)` in `src/lib/auth.ts` is the universal auth helper for API routes — checks NextAuth first, falls back to OTP token, returns `{ id, name, role, email, isSuperAdmin, isFreeUser, isSpecialUser, mobileVerified, centerIds, centerMemberships }` or `null`. `centerMemberships` is the list of `{ centerId, role }` rows for the user; use it (or the helpers `canAccessCenter`, `hasMembershipRole`, `adminCenterIds`) to enforce per-center access in API routes.
 
 ### Middleware (`src/middleware.ts`)
@@ -86,6 +92,14 @@ npx tsx scripts/seed-centers.ts --check        # Verify only, no writes
 - The `/verify-mobile` gate keys off the **NextAuth** token only, so it catches legacy Google sessions with no linked number and never a WhatsApp login.
 - Enforces role-based access: `/admin/*` requires ADMIN, `/operator/*` requires OPERATOR or ADMIN
 - Checks maintenance mode via internal API call; super admin and allowlisted emails bypass
+
+> **Middleware runs in the Edge Runtime — no Node built-ins.** Everything it imports, transitively, must work on Web Crypto and `fetch` alone. Turbopack does **not** fail the build on a Node-only import: it swaps the module for a stub that throws only when touched, so the breakage ships and then fires per-request in production.
+>
+> That is precisely the 2026-09-02 login outage. `@/lib/jwt` used `jsonwebtoken` (→ `jws` → `crypto.createHmac`), so `verifyToken` threw on the edge and its `catch` returned `null`: middleware read every WhatsApp session as *signed out* and bounced it from `/slots` to `/`, while `src/app/page.tsx` — Node runtime, same helper, same cookie — read it fine and redirected back to `/slots`. An infinite redirect loop; nobody could log in. Unit tests run in Node, where the import works, so none of them caught it.
+>
+> `src/lib/jwt.ts` is `jose` (Web Crypto) and both `signToken` and `verifyToken` are **async**. `src/__tests__/middleware-edge-safety.test.ts` walks middleware's import graph and fails on any package not on its edge-safe list — extend that list only after confirming the package really runs on the edge.
+>
+> The same failure shape has a second source: two readers of one cookie disagreeing about the *secret*. `src/lib/auth-secret.ts` is the single place `NEXTAUTH_SECRET` is read; use it rather than reaching for `process.env` again.
 
 ### Pricing Engine (`src/lib/pricing.ts`)
 Dynamic pricing based on machine ID, pitch type, ball type, and time slab (morning/evening). Consecutive slot bookings get a discounted rate. Config stored in Policy table as `PRICING_CONFIG` JSON, with `DEFAULT_PRICING_CONFIG` as fallback. Yantra has premium pricing tiers. Key functions: `getSlotPrice()`, `getConsecutivePrice()`, `calculateNewPricing()`.
@@ -144,6 +158,12 @@ if (!hasMembershipRole(user, center.id, 'ADMIN')) {
 - `prisma/` — Schema and migrations
 - `scripts/` — Admin utilities
 - `public/` — PWA assets (sw.js, manifest.json, icons/)
+
+## PWA (`public/manifest.json`, `public/sw.js`)
+
+`start_url` is **`/slots`**, not `/` — reopening the installed app should land on the booking screen, and a signed-out launch is bounced to `/` by the middleware anyway. `id` stays `/` so existing installs update in place instead of being treated as a new app.
+
+**The service worker must never handle navigations** (`if (request.mode === 'navigate') return;`). Every HTML document here depends on who is asking — `/` redirects a signed-in user to `/slots` and renders the landing page for everyone else — so a cached document replayed to the same browser in a different auth state shows a signed-in user the marketing page, and it also outlives the deploy whose JS bundles it references. The browser's own offline page is a better failure than a stale, wrong-session one. Only `/_next/static/`, `/icons/`, `/images/` and `/manifest.json` are cached; bump `CACHE_NAME` whenever the caching rules change, since the activate handler evicts by name.
 
 ## Timezone Handling
 

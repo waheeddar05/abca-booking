@@ -3,7 +3,7 @@
   "name": "PlayOrbit",
   "short_name": "PlayOrbit",
   "description": "Book professional cricket practice sessions with advanced bowling machines",
-  "start_url": "/",
+  "start_url": "/slots",
   "display": "standalone",
   "background_color": "#0a1628",
   "theme_color": "#1e3a5f",

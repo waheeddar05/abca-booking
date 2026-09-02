@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import Image from 'next/image';
@@ -9,6 +9,15 @@ import LoginModal from './LoginModal';
 import { INSTAGRAM_URL } from '@/lib/client-constants';
 import { useCenter } from '@/lib/center-context';
 import { useCurrentUser } from '@/lib/current-user';
+
+/**
+ * One auto-redirect per document load, deliberately at module scope rather
+ * than in a ref: a ref resets when the component remounts, so if `/slots`
+ * ever bounced back here the two would trade redirects forever. A module
+ * flag survives remounts within the same page load, so the worst case is a
+ * single wasted hop and then the landing page stays put.
+ */
+let autoRedirected = false;
 
 export default function LandingPageClient() {
   const [loginOpen, setLoginOpen] = useState(false);
@@ -38,6 +47,21 @@ export default function LandingPageClient() {
     const single = (currentCenter?.contactPhone ?? '').trim();
     return single.length > 0 ? [{ name: null, number: single }] : [];
   })();
+
+  // A signed-in visitor should never be looking at this page.
+  //
+  // `src/app/page.tsx` already redirects them on the server, but that read
+  // depends on the session cookie reaching it, and a top-level navigation
+  // that started somewhere else — a link tapped in WhatsApp, a QR code, a
+  // search result — historically did not carry one. The cookie is SameSite
+  // Lax now, which fixes that at the source; this is the backstop, and it
+  // works because `useCurrentUser` learns the truth from a same-site fetch
+  // that always carries the cookie.
+  useEffect(() => {
+    if (userLoading || !currentUser || autoRedirected) return;
+    autoRedirected = true;
+    router.replace('/slots');
+  }, [userLoading, currentUser, router]);
 
   // Already signed in? Go straight to booking. Asking a returning user to
   // re-verify a number they already own is the wrong answer to "Book Now",

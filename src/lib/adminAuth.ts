@@ -1,44 +1,65 @@
 import { NextRequest } from 'next/server';
 import { getToken } from 'next-auth/jwt';
 import { verifyToken } from '@/lib/jwt';
+import { NEXTAUTH_SECRET } from '@/lib/auth-secret';
 import { prisma } from '@/lib/prisma';
 import { getAuthenticatedUser, hasMembershipRole, isCenterModerator } from '@/lib/auth';
 import { resolveCurrentCenter } from '@/lib/centers';
 
 const SUPER_ADMIN_EMAIL = process.env.SUPER_ADMIN_EMAIL || process.env.INITIAL_ADMIN_EMAIL || '';
 
-export async function getAdminSession(req: NextRequest) {
-  let email: string | null = null;
+const ADMIN_SESSION_SELECT = {
+  id: true,
+  email: true,
+  role: true,
+  isSuperAdmin: true,
+} as const;
 
-  const token = await getToken({ req, secret: process.env.NEXTAUTH_SECRET });
+/**
+ * Resolve the caller for the operator/admin guards below.
+ *
+ * Looks the account up by id for a WhatsApp session and by email for a
+ * legacy NextAuth one. It used to key on email in both cases, which stopped
+ * resolving anyone the moment WhatsApp OTP became the only login: those
+ * accounts are keyed on `mobileNumber` and typically carry no email at all,
+ * so every endpoint fronted by `requireAdmin` / `requireSuperAdmin` /
+ * `requireOperatorOrAdmin` / `getOperatorSession` 401'd for admins,
+ * moderators and operators who were, in fact, signed in.
+ */
+export async function getAdminSession(req: NextRequest) {
+  const token = await getToken({ req, secret: NEXTAUTH_SECRET });
+
+  let dbUser: {
+    id: string;
+    email: string | null;
+    role: string;
+    isSuperAdmin: boolean;
+  } | null = null;
+
   if (token?.email) {
-    email = token.email;
+    dbUser = await prisma.user.findUnique({
+      where: { email: token.email },
+      // Always fetch the current role from DB so admin-promoted roles take effect immediately
+      select: ADMIN_SESSION_SELECT,
+    });
   } else {
     const otpTokenStr = req.cookies.get('token')?.value;
-    if (otpTokenStr) {
-      try {
-        const otpToken = verifyToken(otpTokenStr) as any;
-        email = otpToken?.email || null;
-      } catch {
-        return null;
-      }
+    const otpToken = otpTokenStr ? await verifyToken(otpTokenStr) : null;
+    if (otpToken?.userId) {
+      dbUser = await prisma.user.findUnique({
+        where: { id: otpToken.userId },
+        select: ADMIN_SESSION_SELECT,
+      });
     }
   }
 
-  if (!email) return null;
-
-  // Always fetch the current role from DB so admin-promoted roles take effect immediately
-  const dbUser = await prisma.user.findUnique({
-    where: { email },
-    select: { id: true, role: true, isSuperAdmin: true },
-  });
   if (!dbUser) return null;
 
   // Compute super-admin from DB column with bootstrap email fallback.
   const isSuperAdmin =
-    dbUser.isSuperAdmin || (!!SUPER_ADMIN_EMAIL && email === SUPER_ADMIN_EMAIL);
+    dbUser.isSuperAdmin || (!!SUPER_ADMIN_EMAIL && dbUser.email === SUPER_ADMIN_EMAIL);
 
-  return { id: dbUser.id, role: dbUser.role, email, isSuperAdmin };
+  return { id: dbUser.id, role: dbUser.role, email: dbUser.email, isSuperAdmin };
 }
 
 export async function requireAdmin(req: NextRequest) {
@@ -161,10 +182,7 @@ export async function requireOperatorOrAdmin(req: NextRequest) {
 export async function getOperatorSession(req: NextRequest) {
   const session = await getAdminSession(req);
   if (!session || !(await hasOperatorAccess(session))) return null;
-  const user = await prisma.user.findUnique({
-    where: { email: session.email },
-    select: { id: true },
-  });
-  if (!user) return null;
-  return { ...session, userId: user.id, isAdmin: session.role === 'ADMIN' };
+  // `session.id` is already this user's row id — the extra lookup this used
+  // to do re-resolved it by email, which is null on a phone-only account.
+  return { ...session, userId: session.id, isAdmin: session.role === 'ADMIN' };
 }

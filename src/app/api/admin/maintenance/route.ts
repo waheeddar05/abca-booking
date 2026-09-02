@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getToken } from 'next-auth/jwt';
 import { verifyToken } from '@/lib/jwt';
+import { NEXTAUTH_SECRET } from '@/lib/auth-secret';
 import {
   SUPER_ADMIN_EMAIL,
   getMaintenanceSettings,
@@ -9,13 +10,13 @@ import {
 import { prisma } from '@/lib/prisma';
 
 async function getSuperAdminSession(req: NextRequest) {
-  const token = await getToken({ req, secret: process.env.NEXTAUTH_SECRET });
+  const token = await getToken({ req, secret: NEXTAUTH_SECRET });
   if (token) return { role: token.role as string, email: token.email as string };
 
   const otpTokenStr = req.cookies.get('token')?.value;
   if (otpTokenStr) {
     try {
-      const otpToken = verifyToken(otpTokenStr) as any;
+      const otpToken = await verifyToken(otpTokenStr);
       return { role: otpToken?.role, email: otpToken?.email };
     } catch {
       return null;
@@ -24,7 +25,10 @@ async function getSuperAdminSession(req: NextRequest) {
   return null;
 }
 
-function requireSuperAdmin(session: { role: string; email: string } | null) {
+// Both session shapes are loose: a NextAuth token may carry no role claim,
+// and a WhatsApp OTP account normally has no email at all — which is why the
+// SUPER_ADMIN_EMAIL match below only ever admits an email-bearing account.
+function requireSuperAdmin(session: { role?: string; email?: string | null } | null) {
   if (!session || session.role !== 'ADMIN' || session.email !== SUPER_ADMIN_EMAIL) {
     return false;
   }

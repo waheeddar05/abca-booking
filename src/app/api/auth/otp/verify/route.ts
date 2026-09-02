@@ -3,6 +3,7 @@ import { prisma } from '@/lib/prisma';
 import bcrypt from 'bcryptjs';
 import { signToken } from '@/lib/jwt';
 import { normalizeIndianMobile } from '@/lib/otp-delivery';
+import { setSessionCookie } from '@/lib/session-cookie';
 
 /**
  * POST /api/auth/otp/verify — step 2 of the WhatsApp login.
@@ -112,7 +113,7 @@ export async function POST(req: NextRequest) {
     // so it has to carry the same shape the NextAuth token does — and the
     // role it was just promoted to, not the one read before the update.
     // `mobileVerified` is always true here by construction (above).
-    const token = signToken({
+    const token = await signToken({
       userId: user.id,
       name: user.name,
       email: user.email,
@@ -122,14 +123,7 @@ export async function POST(req: NextRequest) {
     });
 
     const response = NextResponse.json({ message: 'Login successful' });
-    response.cookies.set('token', token, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'strict',
-      maxAge: 7 * 24 * 60 * 60, // 7 days
-      path: '/',
-    });
-
+    setSessionCookie(response, token);
     return response;
   } catch (error) {
     console.error('OTP verify error:', error);

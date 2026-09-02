@@ -1,7 +1,9 @@
 import { redirect } from "next/navigation";
 import { getToken } from "next-auth/jwt";
+import type { NextRequest } from "next/server";
 import { headers, cookies } from "next/headers";
 import { verifyToken } from "@/lib/jwt";
+import { NEXTAUTH_SECRET } from "@/lib/auth-secret";
 import LandingPageClient from "@/components/LandingPageClient";
 
 export default async function Home() {
@@ -10,12 +12,14 @@ export default async function Home() {
     req: {
       headers: await headers(),
       cookies: cookieStore,
-    } as any,
-    secret: process.env.NEXT_AUTH_SECRET || process.env.NEXTAUTH_SECRET
+      // App Router gives headers/cookies separately; getToken only reads
+      // those two off the request.
+    } as unknown as NextRequest,
+    secret: NEXTAUTH_SECRET
   });
 
   const otpTokenStr = cookieStore.get("token")?.value;
-  const otpToken = otpTokenStr ? verifyToken(otpTokenStr) as any : null;
+  const otpToken = otpTokenStr ? await verifyToken(otpTokenStr) : null;
 
   if (token || otpToken) {
     redirect("/slots");
