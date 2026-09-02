@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { useSession } from 'next-auth/react';
+import { useCurrentUser } from '@/lib/current-user';
 import { Save, Loader2, Plus, Trash2 } from 'lucide-react';
 import { Field, TextInput, TextArea, SelectInput, PrimaryButton, Banner } from './centerForms';
 
@@ -60,8 +60,9 @@ export function CenterGeneralTab({
   const [form, setForm] = useState<CenterDetail>(center);
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState<{ kind: 'error' | 'success'; text: string } | null>(null);
-  const { data: session } = useSession();
-  const isSuperAdmin = (session?.user as { isSuperAdmin?: boolean })?.isSuperAdmin === true;
+  // Profile, not NextAuth session — see @/lib/current-user.
+  const { user } = useCurrentUser();
+  const isSuperAdmin = user?.isSuperAdmin === true;
 
   const set = <K extends keyof CenterDetail>(k: K, v: CenterDetail[K]) =>
     setForm((f) => ({ ...f, [k]: v }));

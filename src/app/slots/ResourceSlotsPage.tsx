@@ -52,7 +52,7 @@ function formatMachineDisplayName(name: string, ballType: string | null | undefi
   return ballLabel ? `${displayName} (${ballLabel})` : displayName;
 }
 import { useRouter } from 'next/navigation';
-import { useSession } from 'next-auth/react';
+import { useCurrentUser } from '@/lib/current-user';
 import { useToast } from '@/components/ui/Toast';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { PageBackground } from '@/components/ui/PageBackground';
@@ -309,8 +309,10 @@ export default function ResourceSlotsPage() {
   const { currentCenter } = useCenter();
   const router = useRouter();
   const toast = useToast();
-  const { data: session } = useSession();
-  const isFreeBooking = !!session?.user?.isSuperAdmin || !!session?.user?.isFreeUser;
+  // Profile, not NextAuth session: a WhatsApp login has no session, so the
+  // session-based check silently charged super admins and free users.
+  const { user: currentUser } = useCurrentUser();
+  const isFreeBooking = !!currentUser?.isSuperAdmin || !!currentUser?.isFreeUser;
 
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
   const [category, setCategory] = useState<Category>('MACHINE');
@@ -764,7 +766,7 @@ export default function ResourceSlotsPage() {
   // package-redemption picker further down; gracefully no-ops on
   // unauthenticated users (the API returns 401).
   useEffect(() => {
-    if (!currentCenter || !session?.user) {
+    if (!currentCenter || !currentUser) {
       setMyPackages([]);
       return;
     }
@@ -776,7 +778,7 @@ export default function ResourceSlotsPage() {
       .catch(() => {/* non-critical; user simply can't redeem */});
     // We intentionally don't depend on MyPackageLite (it's a local interface)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentCenter?.id, session?.user]);
+  }, [currentCenter?.id, currentUser]);
 
   // Fetch availability whenever date / center changes
   useEffect(() => {
@@ -1369,7 +1371,7 @@ export default function ResourceSlotsPage() {
           endTime: s.endTime,
         })),
         category,
-        playerName: session?.user?.name || 'Player',
+        playerName: currentUser?.name || 'Player',
         machineId: category === 'MACHINE' ? machineId : undefined,
         pitchType: wantsPitch ? pitchType : undefined,
         ballType: category === 'MACHINE' ? ballType : undefined,
@@ -1429,8 +1431,8 @@ export default function ResourceSlotsPage() {
           bookingPayload: [body],
           description: `${selectedSlots.length} slot(s) · ${categoryLabel} · ${format(selectedDate, 'MMM d')}`,
           prefill: {
-            name: session?.user?.name || undefined,
-            email: session?.user?.email || undefined,
+            name: currentUser?.name || undefined,
+            email: currentUser?.email || undefined,
           },
         });
 
@@ -1571,8 +1573,8 @@ export default function ResourceSlotsPage() {
       {category === 'MATCH_PRACTICE' ? (
         <>
           <MatchPracticePanel
-            playerName={session?.user?.name || 'Player'}
-            userEmail={session?.user?.email}
+            playerName={currentUser?.name || 'Player'}
+            userEmail={currentUser?.email ?? undefined}
             isFreeBooking={isFreeBooking}
             paymentConfig={paymentConfig}
           />

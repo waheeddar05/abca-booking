@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { useSession } from 'next-auth/react';
+import { useCurrentUser } from '@/lib/current-user';
 import { useRouter } from 'next/navigation';
 import Image from 'next/image';
 import {
@@ -34,9 +34,12 @@ interface MaintenanceSettings {
 const SUPER_ADMIN_EMAIL = 'waheeddar8@gmail.com';
 
 export default function MaintenanceManagement() {
-  const { data: session } = useSession();
+  // Profile, not NextAuth session — a WhatsApp login has no session, and
+  // may have no email at all, so the old email match locked out the owner.
+  const { user: session, loading: userLoading } = useCurrentUser();
   const router = useRouter();
-  const isSuperAdmin = session?.user?.email === SUPER_ADMIN_EMAIL;
+  const isSuperAdmin =
+    session?.isSuperAdmin === true || (!!session?.email && session.email === SUPER_ADMIN_EMAIL);
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -55,10 +58,10 @@ export default function MaintenanceManagement() {
   const [userSearch, setUserSearch] = useState('');
 
   useEffect(() => {
-    if (session && !isSuperAdmin) {
+    if (!userLoading && session && !isSuperAdmin) {
       router.push('/admin');
     }
-  }, [session, isSuperAdmin, router]);
+  }, [session, userLoading, isSuperAdmin, router]);
 
   useEffect(() => {
     if (isSuperAdmin) {

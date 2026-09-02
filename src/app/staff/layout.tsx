@@ -10,19 +10,29 @@
 import Link from 'next/link';
 import { useSession, signOut } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
+import { useCurrentUser } from '@/lib/current-user';
 import { Wrench, ArrowLeft, Power } from 'lucide-react';
 
 export default function StaffLayout({ children }: { children: React.ReactNode }) {
+  // `session` only decides which sign-out to run — see Navbar.
   const { data: session } = useSession();
+  const { refresh: refreshCurrentUser } = useCurrentUser();
   const router = useRouter();
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
     if (session) {
-      signOut({ callbackUrl: '/login' });
-    } else {
-      document.cookie = 'token=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT';
-      router.push('/login');
+      signOut({ callbackUrl: '/' });
+      return;
     }
+    // WhatsApp (OTP JWT) sign-out — the cookie is httpOnly, so only the
+    // server can clear it. See /api/auth/logout.
+    try {
+      await fetch('/api/auth/logout', { method: 'POST' });
+    } catch {
+      // Fall through — still leave the panel.
+    }
+    await refreshCurrentUser();
+    router.push('/');
   };
 
   return (

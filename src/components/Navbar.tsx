@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import Image from 'next/image';
 import { useSession, signOut } from 'next-auth/react';
+import { useCurrentUser } from '@/lib/current-user';
 import { usePathname, useRouter } from 'next/navigation';
 import { useState, useEffect } from 'react';
 import { Shield, Power, LogIn, ArrowLeft, Calendar, ClipboardList, Package, Wallet, Bell, Headset } from 'lucide-react';
@@ -10,13 +11,15 @@ import { CenterSelector } from './CenterSelector';
 import { useCenter } from '@/lib/center-context';
 
 export default function Navbar() {
-  const { data: session, status } = useSession();
+  // `session` is only consulted to decide which sign-out to run — a
+  // legacy Google session needs NextAuth's. Everything else reads
+  // `useCurrentUser()`, which sees WhatsApp logins too.
+  const { data: session } = useSession();
+  const { user: currentUser, refresh: refreshCurrentUser } = useCurrentUser();
   const pathname = usePathname();
   const router = useRouter();
   const { canAccessAdminPanelAtCurrentCenter, isStaffAtCurrentCenter, loading: centerLoading } = useCenter();
   const [scrolled, setScrolled] = useState(false);
-  // For OTP-logged-in users who don't have a NextAuth session
-  const [otpUserRole, setOtpUserRole] = useState<string | null>(null);
 
   useEffect(() => {
     const handleScroll = () => setScrolled(window.scrollY > 10);
@@ -24,19 +27,7 @@ export default function Navbar() {
     return () => window.removeEventListener('scroll', handleScroll);
   }, []);
 
-  // Fetch role from API for OTP users (no NextAuth session)
-  useEffect(() => {
-    if (status === 'loading') return;
-    if (session) return; // NextAuth session exists, no need to fetch
-    fetch('/api/user/profile')
-      .then(res => res.ok ? res.json() : null)
-      .then(data => {
-        if (data?.role) setOtpUserRole(data.role);
-      })
-      .catch(() => {});
-  }, [session, status]);
-
-  const isLoggedIn = !!session || !!otpUserRole;
+  const isLoggedIn = !!currentUser;
   // Admin / staff buttons are gated by membership at the *currently selected* center,
   // not by the global User.role. A user who is ADMIN at Toplay but not at ABCA must
   // see the Admin button on Toplay and not on ABCA. Super admin bypass is folded
@@ -65,14 +56,20 @@ export default function Navbar() {
 
   const handleLogout = async () => {
     if (session) {
-      // NextAuth (Google OAuth) logout
-      signOut({ callbackUrl: '/login' });
-    } else {
-      // OTP logout — delete the token cookie and redirect
-      document.cookie = 'token=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT';
-      setOtpUserRole(null);
-      router.push('/login');
+      // Legacy Google session — NextAuth owns that cookie.
+      signOut({ callbackUrl: '/' });
+      return;
     }
+    // WhatsApp (OTP JWT) sign-out. The `token` cookie is httpOnly, so it
+    // can only be cleared server-side — clearing it from document.cookie
+    // silently did nothing and left the user signed in.
+    try {
+      await fetch('/api/auth/logout', { method: 'POST' });
+    } catch {
+      // Fall through — still drop local state and leave the page.
+    }
+    await refreshCurrentUser();
+    router.push('/');
   };
 
   return (

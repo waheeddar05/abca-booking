@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { useSession } from 'next-auth/react';
+import { useCurrentUser } from '@/lib/current-user';
 import { Bell, BellOff, CheckCircle, Clock, Loader2, Info, AlertCircle, Hash } from 'lucide-react';
 import { format } from 'date-fns';
 import { BookingCard } from '@/components/BookingCard';
@@ -88,16 +88,13 @@ function AlertMessage({ message, isRead }: { message: string; isRead: boolean })
 }
 
 export default function NotificationsPage() {
-  // Auth is decided by the API, not by the NextAuth session alone.
-  // PlayOrbit has two login paths (NextAuth/Google and the custom OTP JWT)
-  // and `GET /api/notifications` authenticates both via
-  // getAuthenticatedUser(). Gating this page on `useSession()` locked every
-  // mobile-OTP user out of their own alerts — which is most staff, and so
-  // every operator / coach / specialist / moderator who receives a
-  // center-wide booking notification. We wait for NextAuth to settle (so a
-  // Google session's cookie is in flight before we fetch), then let the
-  // 401 tell us whether the visitor is signed in.
-  const { status } = useSession();
+  // Auth is decided by the API, not by a NextAuth session. PlayOrbit's
+  // only login is WhatsApp (a custom OTP JWT), which `useSession()` cannot
+  // see — gating on it locked every WhatsApp user out of their own alerts,
+  // i.e. everyone. `useCurrentUser()` reads the profile through
+  // getAuthenticatedUser, so it sees both mechanisms; the fetch below then
+  // confirms with the API itself.
+  const { loading: userLoading } = useCurrentUser();
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [loading, setLoading] = useState(true);
   const [authorized, setAuthorized] = useState(true);
@@ -131,9 +128,9 @@ export default function NotificationsPage() {
   };
 
   useEffect(() => {
-    if (status === 'loading') return;
+    if (userLoading) return;
     fetchNotifications();
-  }, [status]);
+  }, [userLoading]);
 
   const markAsRead = async (id?: string) => {
     try {

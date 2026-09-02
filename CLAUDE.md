@@ -50,21 +50,39 @@ npx tsx scripts/seed-centers.ts --check        # Verify only, no writes
 ### Tech Stack
 - **Next.js 16.1.4** (App Router, React 19, Turbopack)
 - **Prisma 6** + PostgreSQL (Supabase/Vercel Postgres)
-- **NextAuth 4** (Google OAuth) + custom JWT (OTP via Fast2SMS)
+- **NextAuth 4** (mounted for legacy sessions only, no provider registered) + custom JWT — login is WhatsApp OTP
 - **Razorpay** for payments, **Zod** for validation
 - **Tailwind CSS v4**, **Lucide React** icons
 - **Vitest** + React Testing Library + jsdom
 
-### Dual Auth System
-Two parallel auth mechanisms checked in `src/middleware.ts` and `src/lib/auth.ts`:
-1. **NextAuth** (Google OAuth) — session via `getToken()`, configured in `src/lib/authOptions.ts`
-2. **Custom OTP JWT** — stored in `token` cookie, verified via `verifyToken()` from `src/lib/jwt.ts`
+### Auth — WhatsApp OTP only
+
+**Login is WhatsApp OTP. There is no other way in.** Two steps, both public because they *are* the front door:
+
+1. `POST /api/auth/otp/request` — validates the number, finds-or-creates the account keyed on `mobileNumber`, issues a 6-digit code and sends it.
+2. `POST /api/auth/otp/verify` — checks the code, flips `mobileVerified`, and sets the `token` cookie (custom JWT, `src/lib/jwt.ts`). Receiving the code **is** proof of the number, so a WhatsApp login is verified by construction and never meets the `/verify-mobile` gate.
+
+`POST /api/auth/logout` clears that cookie. It has to be server-side: the cookie is `httpOnly`, so the `document.cookie = 'token=…'` that the navbar and staff layout used to run never removed anything and left users signed in through a "Sign out" they'd already been shown.
+
+**Delivery** lives in `src/lib/otp-delivery.ts` (`issueAndSendOtp`), shared with `/api/auth/whatsapp/send-otp`: an approved WhatsApp auth template first, then the `playorbit_account_pin` utility template, then SMS as a backstop — a BSP outage must not lock everyone out of the only login. A send that reached nobody deletes its own OTP row so an outage can't burn the user's budget.
+
+**Three limits guard the front door**, and all of them matter because `/api/auth/otp/request` is public, creates accounts, and spends money per call:
+- **3 codes / 10 min per account** — the ordinary abuse case.
+- **`OTP_GLOBAL_PER_MINUTE` (default 30) platform-wide** — the per-account limit is keyed on the account, so an attacker cycling fresh numbers never trips it while every call bills a WhatsApp template or an SMS. This is the spend circuit breaker.
+- **`OTP_MAX_ATTEMPTS` (default 5) wrong guesses per code**, counted on `Otp.attempts`; the code is burned on the last allowed miss. A 6-digit code with no attempt cap is fully guessable inside its TTL.
+
+**Google is off.** `authOptions` registers no provider unless `GOOGLE_LOGIN_ENABLED=true`, so no new Google session can be created (including via `/api/auth/signin/google`). NextAuth stays mounted so sessions issued before the cutover keep working until they expire instead of logging everyone out mid-booking, and `getAuthenticatedUser` still reads them.
+
+> **Migration risk, know this before touching it:** a Google account is keyed on **email**, a WhatsApp login on **mobileNumber**. An account created by Google that never linked a number is unreachable by phone — its owner signing in with WhatsApp lands on a *fresh* account, leaving bookings, wallet, packages and center memberships on the orphaned row. Admins can't set another user's `mobileNumber` (`PATCH /api/admin/users` doesn't accept it), so the only recovery is `GOOGLE_LOGIN_ENABLED=true` → sign in → link the number on `/verify-mobile`.
+
+**Client-side session: use `useCurrentUser()`, never `useSession()`.** `src/lib/current-user.tsx` reads `GET /api/user/profile`, which goes through `getAuthenticatedUser` and therefore sees both mechanisms. `useSession()` only ever sees NextAuth, so every gate written against it reports "signed out" for a WhatsApp user — i.e. for everyone. That was not hypothetical: it collapsed the admin sidebar to zero links, hid the super-admin pages from super admins, locked `/admin/maintenance` and `/admin/db-cleanup` behind an email match that a phone-only account doesn't have, and silently charged free users and super admins on the slots page. `useAdminRole()` reads it too. `useSession()` is now legitimate in exactly two places — `MobileNumberCheck` and `/verify-mobile`, both NextAuth-specific — plus deciding *which* sign-out to run.
 
 `getAuthenticatedUser(req)` in `src/lib/auth.ts` is the universal auth helper for API routes — checks NextAuth first, falls back to OTP token, returns `{ id, name, role, email, isSuperAdmin, isFreeUser, isSpecialUser, mobileVerified, centerIds, centerMemberships }` or `null`. `centerMemberships` is the list of `{ centerId, role }` rows for the user; use it (or the helpers `canAccessCenter`, `hasMembershipRole`, `adminCenterIds`) to enforce per-center access in API routes.
 
 ### Middleware (`src/middleware.ts`)
-- Protects all routes except explicit public paths (/, /login, /otp, /api/auth, static assets)
+- Protects all routes except explicit public paths (/, /login, /otp, /api/auth, static assets). `/login` is a bare redirect to `/`; the login form is the modal on the landing page (`src/components/LoginModal.tsx`).
 - Redirects logged-in users from /login, /otp to /slots (or /operator for OPERATOR role)
+- The `/verify-mobile` gate keys off the **NextAuth** token only, so it catches legacy Google sessions with no linked number and never a WhatsApp login.
 - Enforces role-based access: `/admin/*` requires ADMIN, `/operator/*` requires OPERATOR or ADMIN
 - Checks maintenance mode via internal API call; super admin and allowlisted emails bypass
 

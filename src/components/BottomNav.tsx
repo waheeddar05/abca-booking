@@ -2,8 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { useSession } from 'next-auth/react';
-import { useState, useEffect } from 'react';
+import { useCurrentUser } from '@/lib/current-user';
 import { Calendar, ClipboardList, Package, Wallet, Bell, Zap, UserCog } from 'lucide-react';
 import { useCenter } from '@/lib/center-context';
 
@@ -21,24 +20,13 @@ const sidearmTab = { href: '/sidearm', label: 'Sidearm', icon: Zap };
 const coachTab = { href: '/coach', label: 'Coach', icon: UserCog };
 
 export default function BottomNav() {
-  const { data: session, status } = useSession();
+  // One shared profile read instead of this component's own
+  // /api/user/profile fetch — see @/lib/current-user.
+  const { user } = useCurrentUser();
   const { isSidearmSpecialistAtCurrentCenter, isCoachAtCurrentCenter } = useCenter();
   const pathname = usePathname();
-  const [otpUserRole, setOtpUserRole] = useState<string | null>(null);
 
-  // Fetch role from API for OTP users (no NextAuth session)
-  useEffect(() => {
-    if (status === 'loading') return;
-    if (session) return;
-    fetch('/api/user/profile')
-      .then(res => res.ok ? res.json() : null)
-      .then(data => {
-        if (data?.role) setOtpUserRole(data.role);
-      })
-      .catch(() => {});
-  }, [session, status]);
-
-  const isLoggedIn = !!session || !!otpUserRole;
+  const isLoggedIn = !!user;
 
   // Only show for logged-in users, hide on landing/login/admin pages
   if (!isLoggedIn) return null;

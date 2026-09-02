@@ -3,7 +3,7 @@
 import { useEffect, useState, use } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useSession } from 'next-auth/react';
+import { useCurrentUser } from '@/lib/current-user';
 import { Building2, ArrowLeft, Loader2, Trash2, MapPin, CreditCard, Users, Settings2 } from 'lucide-react';
 import { AdminPageHeader } from '@/components/admin/AdminPageHeader';
 import { AdminCard } from '@/components/admin/AdminCard';
@@ -46,10 +46,8 @@ type DetailWithCounts = CenterDetail & {
 export default function CenterEditPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
   const router = useRouter();
-  const { data: session } = useSession();
-  const sessionUser = session?.user as
-    | { isSuperAdmin?: boolean; role?: string; centerMemberships?: Array<{ centerId: string; role: string }> }
-    | undefined;
+  // Profile, not NextAuth session — see @/lib/current-user.
+  const { user: sessionUser } = useCurrentUser();
   const isSuperAdmin = sessionUser?.isSuperAdmin === true;
 
   const [center, setCenter] = useState<DetailWithCounts | null>(null);

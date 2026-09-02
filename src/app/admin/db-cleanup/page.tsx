@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { useSession } from 'next-auth/react';
+import { useCurrentUser } from '@/lib/current-user';
 import { useRouter } from 'next/navigation';
 import {
   DatabaseZap,
@@ -36,9 +36,11 @@ interface CleanupResult {
 }
 
 export default function DbCleanupPage() {
-  const { data: session } = useSession();
+  // See the note in /admin/maintenance — profile, not NextAuth session.
+  const { user: session, loading: userLoading } = useCurrentUser();
   const router = useRouter();
-  const isSuperAdmin = session?.user?.email === SUPER_ADMIN_EMAIL;
+  const isSuperAdmin =
+    session?.isSuperAdmin === true || (!!session?.email && session.email === SUPER_ADMIN_EMAIL);
 
   const [groups, setGroups] = useState<Record<string, CleanupGroup>>({});
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -50,12 +52,12 @@ export default function DbCleanupPage() {
   const [confirmText, setConfirmText] = useState('');
 
   useEffect(() => {
-    if (session && !isSuperAdmin) {
+    if (!userLoading && session && !isSuperAdmin) {
       router.replace('/admin');
       return;
     }
     if (session) fetchGroups();
-  }, [session]);
+  }, [session, userLoading]);
 
   async function fetchGroups() {
     setLoading(true);

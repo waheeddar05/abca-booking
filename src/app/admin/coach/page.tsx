@@ -19,14 +19,15 @@
  */
 
 import { useEffect, useState } from 'react';
-import { useSession } from 'next-auth/react';
+import { useCurrentUser } from '@/lib/current-user';
 import { useCenter } from '@/lib/center-context';
 import { Loader2, ArrowUp, ArrowDown, UserCog } from 'lucide-react';
 import { AdminPageHeader } from '@/components/admin/AdminPageHeader';
 import { SpecialistAvailabilityCard, type Specialist } from '@/components/sidearm/AvailabilityEditors';
 
 export default function AdminCoachPage() {
-  const { data: session } = useSession();
+  // Profile, not NextAuth session — see @/lib/current-user.
+  const { user: currentUser } = useCurrentUser();
   const { currentCenter, loading: centerLoading } = useCenter();
   const [coaches, setCoaches] = useState<Specialist[]>([]);
   const [loading, setLoading] = useState(true);
@@ -38,9 +39,9 @@ export default function AdminCoachPage() {
     setLoading(true);
     setError(null);
     try {
-      const userRole = (session?.user as any)?.role;
+      const userRole = currentUser?.role;
       const isCoach = userRole === 'COACH';
-      const userId = (session?.user as any)?.id;
+      const userId = currentUser?.id;
 
       const r = await fetch(
         `/api/admin/centers/${currentCenter.id}/members?role=COACH`,

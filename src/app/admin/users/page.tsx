@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import Image from 'next/image';
-import { useSession } from 'next-auth/react';
+import { useCurrentUser } from '@/lib/current-user';
 import { UserPlus, Trash2, Loader2, Search, Users, ChevronDown, ChevronUp, CalendarCheck, Mail, Phone, Clock, X, XCircle, Check, CalendarPlus, History, Wallet } from 'lucide-react';
 import Link from 'next/link';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
@@ -39,7 +39,8 @@ interface UserData {
 }
 
 export default function AdminUsers() {
-  const { data: session } = useSession();
+  // Profile, not NextAuth session — see @/lib/current-user.
+  const { user: currentUser } = useCurrentUser();
   const toast = useToast();
   const [users, setUsers] = useState<UserData[]>([]);
   const [loading, setLoading] = useState(true);
@@ -66,7 +67,7 @@ export default function AdminUsers() {
   const [historyLoading, setHistoryLoading] = useState(false);
   const [cancellingId, setCancellingId] = useState<string | null>(null);
 
-  const isSuperAdmin = (session?.user as { isSuperAdmin?: boolean })?.isSuperAdmin === true;
+  const isSuperAdmin = currentUser?.isSuperAdmin === true;
   const { currentCenter } = useCenter();
   // Every admin gets an "all users" toggle so they can flip between the
   // users scoped to their current center and the full cross-center list

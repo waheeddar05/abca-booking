@@ -15,7 +15,7 @@ export default function OtpPage() {
   useEffect(() => {
     const mobile = localStorage.getItem('temp_mobile');
     if (!mobile) {
-      router.push('/login');
+      router.push('/');
     } else {
       setMobileNumber(mobile);
     }
@@ -112,11 +112,11 @@ export default function OtpPage() {
             </form>
 
             <button
-              onClick={() => router.push('/login')}
+              onClick={() => router.push('/')}
               className="flex items-center justify-center gap-1.5 w-full mt-4 py-2 text-sm text-slate-400 hover:text-accent transition-colors cursor-pointer"
             >
               <ArrowLeft className="w-3.5 h-3.5" />
-              Back to Login
+              Back to Sign In
             </button>
           </div>
         </div>

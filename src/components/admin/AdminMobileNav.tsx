@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { useSession } from 'next-auth/react';
+import { useCurrentUser } from '@/lib/current-user';
 import { LayoutDashboard, CalendarCheck, Clock, Users, UserCog, SlidersHorizontal, Package, Tag, Building2, HardHat, BookOpenCheck, Bell } from 'lucide-react';
 import { useCenter } from '@/lib/center-context';
 
@@ -13,14 +13,13 @@ const SUPER_ADMIN_EMAIL = 'waheeddar8@gmail.com';
 export function AdminMobileNav() {
     const pathname = usePathname();
     const { currentCenter } = useCenter();
-    const { data: session } = useSession();
+    // Same source as the desktop sidebar — see the note there on why this
+    // is the profile and not the NextAuth session.
+    const { user: sessionUser } = useCurrentUser();
     const currentModel: BookingModel | null = currentCenter?.bookingModel ?? null;
 
     // Role gating mirrors the desktop sidebar so a center admin on a
     // phone gets the same surfaces (My Center, etc.) as on desktop.
-    const sessionUser = session?.user as
-      | { email?: string | null; role?: string; isSuperAdmin?: boolean }
-      | undefined;
     const isSuperAdmin =
       sessionUser?.isSuperAdmin === true || sessionUser?.email === SUPER_ADMIN_EMAIL;
     const isAdmin = sessionUser?.role === 'ADMIN';

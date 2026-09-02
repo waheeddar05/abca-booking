@@ -5,13 +5,34 @@ import { getCachedPolicy } from "@/lib/policy-cache";
 
 const SUPER_ADMIN_EMAIL = process.env.SUPER_ADMIN_EMAIL || process.env.INITIAL_ADMIN_EMAIL || '';
 
+/**
+ * Google sign-in is OFF.
+ *
+ * WhatsApp OTP (`/api/auth/otp/request` + `/verify`) is the only login —
+ * see `src/components/LoginModal.tsx`. NextAuth itself stays mounted so
+ * sessions issued before the cutover keep working until they expire
+ * rather than logging everyone out mid-booking; with no provider
+ * registered, no NEW Google session can be created, including by hitting
+ * `/api/auth/signin/google` directly.
+ *
+ * `GOOGLE_LOGIN_ENABLED=true` puts the provider back without a code
+ * change. That is the rollback for the one migration risk here: accounts
+ * created by Google that never linked a mobile number are reachable only
+ * by email, so their owner signing in by WhatsApp lands on a fresh
+ * account. Re-enabling lets them sign in the old way and link their
+ * number on /verify-mobile.
+ */
+const googleLoginEnabled = process.env.GOOGLE_LOGIN_ENABLED === 'true';
+
 export const authOptions: NextAuthOptions = {
-  providers: [
-    GoogleProvider({
-      clientId: process.env.GOOGLE_CLIENT_ID || "",
-      clientSecret: process.env.GOOGLE_CLIENT_SECRET || "",
-    }),
-  ],
+  providers: googleLoginEnabled
+    ? [
+        GoogleProvider({
+          clientId: process.env.GOOGLE_CLIENT_ID || "",
+          clientSecret: process.env.GOOGLE_CLIENT_SECRET || "",
+        }),
+      ]
+    : [],
   secret: process.env.NEXTAUTH_SECRET,
   callbacks: {
     async jwt({ token, user, trigger }) {

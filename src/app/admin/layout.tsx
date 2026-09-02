@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { useSession } from 'next-auth/react';
+import { useCurrentUser } from '@/lib/current-user';
 import { LayoutDashboard, CalendarCheck, Users, Clock, Wrench, Package, Zap, SlidersHorizontal, ArrowLeft, Power, DatabaseZap, UserCog, Tag, Building2, AlertTriangle, HardHat, BookOpenCheck, Bell } from 'lucide-react';
 import { signOut } from 'next-auth/react';
 import { AdminMobileNav } from '@/components/admin/AdminMobileNav';
@@ -19,16 +19,14 @@ export default function AdminLayout({
   children: React.ReactNode;
 }) {
   const pathname = usePathname();
-  const { data: session } = useSession();
+  // Roles come from /api/user/profile, not the NextAuth session: WhatsApp
+  // is the only login and it creates no NextAuth session, so a
+  // useSession() check would render an empty sidebar for every admin.
+  const { user: sessionUser } = useCurrentUser();
   const { currentCenter } = useCenter();
-  // Source of truth for super admin is now the DB column, exposed on the
-  // session as `user.isSuperAdmin`. Email match kept as a defensive fallback
-  // so a stale token doesn't lock the project owner out of admin pages.
-  const sessionUser = session?.user as {
-    email?: string | null;
-    role?: string;
-    isSuperAdmin?: boolean;
-  } | undefined;
+  // Source of truth for super admin is the DB column, surfaced on the
+  // profile as `isSuperAdmin`. Email match kept as a defensive fallback
+  // so a stale record doesn't lock the project owner out of admin pages.
   const isSuperAdmin = sessionUser?.isSuperAdmin === true || sessionUser?.email === SUPER_ADMIN_EMAIL;
   // Anyone past the middleware /admin/* gate has User.role = 'ADMIN' —
   // either as a super admin OR as a center-admin with a CenterMembership

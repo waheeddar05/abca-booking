@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { useSession } from 'next-auth/react';
+import { useCurrentUser } from '@/lib/current-user';
 import { Plus, Loader2, Trash2, X, UserPlus, Mail, Phone, CalendarClock, Save, Pencil } from 'lucide-react';
 import { Field, TextInput, SelectInput, PrimaryButton, SecondaryButton, Banner } from './centerForms';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
@@ -54,8 +54,9 @@ export function CenterMembersTab({ centerId }: { centerId: string }) {
     onConfirm: () => Promise<void> | void;
   } | null>(null);
   const [confirmLoading, setConfirmLoading] = useState(false);
-  const { data: session } = useSession();
-  const isSuperAdmin = (session?.user as { isSuperAdmin?: boolean })?.isSuperAdmin === true;
+  // Profile, not NextAuth session — see @/lib/current-user.
+  const { user } = useCurrentUser();
+  const isSuperAdmin = user?.isSuperAdmin === true;
 
   const refresh = async () => {
     setLoading(true);

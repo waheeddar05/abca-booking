@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useMemo } from 'react';
-import { useSession } from 'next-auth/react';
+import { useCurrentUser } from '@/lib/current-user';
 import {
   Package,
   Loader2,
@@ -152,7 +152,8 @@ function packageCategory(pkg: { category?: string | null }): BookingCategory {
 }
 
 export default function PackagesPage() {
-  const { data: session } = useSession();
+  // Profile, not NextAuth session — see @/lib/current-user.
+  const { user: currentUser } = useCurrentUser();
   const [tab, setTab] = useState<'browse' | 'my'>('my');
   const [packages, setPackages] = useState<PackageInfo[]>([]);
   const [enabledCategories, setEnabledCategories] = useState<BookingCategory[] | null>(null);
@@ -231,7 +232,7 @@ export default function PackagesPage() {
   };
 
   useEffect(() => {
-    if (session) {
+    if (currentUser) {
       fetchPackages();
       fetchMyPackages();
       // Fetch wallet balance
@@ -244,12 +245,12 @@ export default function PackagesPage() {
     } else {
       fetchPackages();
     }
-  }, [session, paymentConfig?.walletEnabled]);
+  }, [currentUser, paymentConfig?.walletEnabled]);
 
   useEffect(() => {
-    if (tab === 'my' && session) fetchMyPackages();
+    if (tab === 'my' && currentUser) fetchMyPackages();
     if (tab === 'browse') fetchPackages();
-  }, [tab, session]);
+  }, [tab, currentUser]);
 
   // Fetch the center's active machines once (and on center switch). Used
   // to power the Bowling Machine sub-filter chip row. Same public endpoint
@@ -285,7 +286,7 @@ export default function PackagesPage() {
   }, [categoryFilter, machineFilter]);
 
   const handlePurchase = async (packageId: string) => {
-    if (!session) {
+    if (!currentUser) {
       setMessage({ text: 'Please login to purchase a package', type: 'error' });
       return;
     }
@@ -336,8 +337,8 @@ export default function PackagesPage() {
         packageId,
         description: `Package: ${pkg.name} (${pkg.totalSessions} sessions)${walletDeduction > 0 ? ` | ₹${walletDeduction} from wallet` : ''}`,
         prefill: {
-          name: session.user?.name || undefined,
-          email: session.user?.email || undefined,
+          name: currentUser?.name || undefined,
+          email: currentUser?.email || undefined,
         },
         walletDeduction: walletDeduction > 0 ? walletDeduction : undefined,
       });
@@ -447,7 +448,7 @@ export default function PackagesPage() {
       <div className="max-w-5xl mx-auto px-4 py-6">
         <div className="flex items-center justify-between mb-5">
           <h1 className="text-xl font-bold text-white">Packages</h1>
-          {session && (
+          {currentUser && (
             <div className="flex gap-2">
               <button
                 onClick={() => setTab('my')}

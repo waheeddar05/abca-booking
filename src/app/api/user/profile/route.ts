@@ -23,10 +23,16 @@ export async function GET(req: NextRequest) {
         phonePromptDismissed: true,
         authProvider: true,
         image: true,
+        isFreeUser: true,
+        isSpecialUser: true,
       },
     });
 
-    return NextResponse.json(dbUser, {
+    // `isSuperAdmin` comes from the auth object, not the row: it folds in
+    // the SUPER_ADMIN_EMAIL bootstrap fallback that the raw column misses.
+    // This is what lets client gating work for WhatsApp logins, which have
+    // no NextAuth session to read a role off.
+    return NextResponse.json(dbUser ? { ...dbUser, isSuperAdmin: user.isSuperAdmin } : null, {
       headers: {
         'Cache-Control': 'private, s-maxage=30, stale-while-revalidate=60',
       },

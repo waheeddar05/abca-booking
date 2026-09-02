@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { AlertTriangle, Loader2, RefreshCcw, RotateCcw, IndianRupee } from 'lucide-react';
-import { useSession } from 'next-auth/react';
+import { useCurrentUser } from '@/lib/current-user';
 import { useRouter } from 'next/navigation';
 import { AdminPageHeader } from '@/components/admin/AdminPageHeader';
 import { AdminCard } from '@/components/admin/AdminCard';
@@ -35,9 +35,10 @@ interface OrphanRow {
 }
 
 export default function OrphanedPaymentsPage() {
-  const { data: session, status } = useSession();
+  // Profile, not NextAuth session — see @/lib/current-user.
+  const { user, loading: userLoading } = useCurrentUser();
   const router = useRouter();
-  const isSuperAdmin = (session?.user as { isSuperAdmin?: boolean })?.isSuperAdmin === true;
+  const isSuperAdmin = user?.isSuperAdmin === true;
 
   const [rows, setRows] = useState<OrphanRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -46,8 +47,8 @@ export default function OrphanedPaymentsPage() {
   const [toast, setToast] = useState<{ ok: boolean; text: string } | null>(null);
 
   useEffect(() => {
-    if (status === 'authenticated' && !isSuperAdmin) router.replace('/admin');
-  }, [status, isSuperAdmin, router]);
+    if (!userLoading && user && !isSuperAdmin) router.replace('/admin');
+  }, [userLoading, user, isSuperAdmin, router]);
 
   const refresh = async () => {
     setLoading(true);

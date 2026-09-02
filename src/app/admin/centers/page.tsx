@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useSession } from 'next-auth/react';
+import { useCurrentUser } from '@/lib/current-user';
 import { Building2, Plus, Loader2, MapPin, Users, Settings2, ArrowRight, X } from 'lucide-react';
 import { AdminPageHeader } from '@/components/admin/AdminPageHeader';
 import { AdminCard } from '@/components/admin/AdminCard';
@@ -29,16 +29,17 @@ type CenterRow = {
 
 export default function CentersListPage() {
   const router = useRouter();
-  const { data: session, status } = useSession();
-  const isSuperAdmin = (session?.user as { isSuperAdmin?: boolean })?.isSuperAdmin === true;
+  // Profile, not NextAuth session — see @/lib/current-user.
+  const { user, loading: userLoading } = useCurrentUser();
+  const isSuperAdmin = user?.isSuperAdmin === true;
 
   const [centers, setCenters] = useState<CenterRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [showNew, setShowNew] = useState(false);
 
   useEffect(() => {
-    if (status === 'authenticated' && !isSuperAdmin) router.replace('/admin');
-  }, [status, isSuperAdmin, router]);
+    if (!userLoading && user && !isSuperAdmin) router.replace('/admin');
+  }, [userLoading, user, isSuperAdmin, router]);
 
   const fetchCenters = async () => {
     setLoading(true);

@@ -1,21 +1,43 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
-import { signIn } from 'next-auth/react';
+import { useState, useEffect, useCallback, useRef } from 'react';
+
+/**
+ * WhatsApp login — the only way into PlayOrbit.
+ *
+ * Two steps against the OTP endpoints:
+ *   1. `POST /api/auth/otp/request` — sends a code to the number
+ *      (WhatsApp first, SMS as the backstop).
+ *   2. `POST /api/auth/otp/verify`  — checks it and sets the session cookie.
+ *
+ * On success we hard-navigate rather than router.push: the session lives in
+ * an httpOnly cookie that every provider reads on mount, so a full load is
+ * what guarantees the whole tree sees the signed-in user.
+ */
 
 interface LoginModalProps {
   isOpen: boolean;
   onClose: () => void;
 }
 
+type Step = 'mobile' | 'otp';
+
+const OTP_LENGTH = 6;
+const RESEND_SECONDS = 30;
+
 export default function LoginModal({ isOpen, onClose }: LoginModalProps) {
+  const [step, setStep] = useState<Step>('mobile');
+  const [mobile, setMobile] = useState('');
+  const [otp, setOtp] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [notice, setNotice] = useState('');
+  const [resendIn, setResendIn] = useState(0);
   const [visible, setVisible] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (isOpen) {
-      // Small delay to trigger CSS transition
       requestAnimationFrame(() => setVisible(true));
       document.body.style.overflow = 'hidden';
     } else {
@@ -27,12 +49,32 @@ export default function LoginModal({ isOpen, onClose }: LoginModalProps) {
     };
   }, [isOpen]);
 
+  // Reset to a clean form each time the modal is opened, so a previous
+  // failed attempt isn't still on screen.
+  useEffect(() => {
+    if (!isOpen) return;
+    setStep('mobile');
+    setOtp('');
+    setError('');
+    setNotice('');
+    setLoading(false);
+  }, [isOpen]);
+
+  useEffect(() => {
+    if (resendIn <= 0) return;
+    const t = setTimeout(() => setResendIn((s) => s - 1), 1000);
+    return () => clearTimeout(t);
+  }, [resendIn]);
+
+  useEffect(() => {
+    if (isOpen) inputRef.current?.focus();
+  }, [isOpen, step]);
+
   const handleClose = useCallback(() => {
     setVisible(false);
     setTimeout(onClose, 250);
   }, [onClose]);
 
-  // Close on Escape key
   useEffect(() => {
     const handleKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') handleClose();
@@ -40,6 +82,60 @@ export default function LoginModal({ isOpen, onClose }: LoginModalProps) {
     if (isOpen) window.addEventListener('keydown', handleKey);
     return () => window.removeEventListener('keydown', handleKey);
   }, [isOpen, handleClose]);
+
+  const isValidMobile = /^[6-9]\d{9}$/.test(mobile);
+
+  const sendCode = async () => {
+    if (!isValidMobile || loading) return;
+    setLoading(true);
+    setError('');
+    setNotice('');
+    try {
+      const res = await fetch('/api/auth/otp/request', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mobileNumber: mobile }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setError(data?.error || "We couldn't send your code. Please try again.");
+        return;
+      }
+      setStep('otp');
+      setOtp('');
+      setResendIn(RESEND_SECONDS);
+      // A deliverability caveat is advisory — the code may still arrive.
+      if (data?.warning) setNotice(data.warning);
+    } catch {
+      setError('Network error. Please check your connection and try again.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const verifyCode = async () => {
+    if (otp.length < OTP_LENGTH || loading) return;
+    setLoading(true);
+    setError('');
+    try {
+      const res = await fetch('/api/auth/otp/verify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mobileNumber: mobile, otp }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setError(data?.error || 'That code is not right. Please try again.');
+        setLoading(false);
+        return;
+      }
+      // Full load so every provider picks up the new session cookie.
+      window.location.href = '/slots';
+    } catch {
+      setError('Network error. Please check your connection and try again.');
+      setLoading(false);
+    }
+  };
 
   if (!isOpen) return null;
 
@@ -54,7 +150,11 @@ export default function LoginModal({ isOpen, onClose }: LoginModalProps) {
       <div className="absolute inset-0 bg-black/70 backdrop-blur-md" />
 
       {/* Decorative floating cricket seam */}
-      <div className={`absolute top-[12%] right-[8%] transition-all duration-700 delay-200 ${visible ? 'opacity-[0.06] scale-100' : 'opacity-0 scale-75'}`}>
+      <div
+        className={`absolute top-[12%] right-[8%] transition-all duration-700 delay-200 ${
+          visible ? 'opacity-[0.06] scale-100' : 'opacity-0 scale-75'
+        }`}
+      >
         <svg width="90" height="90" viewBox="0 0 120 120" fill="none">
           <circle cx="60" cy="60" r="55" stroke="#38bdf8" strokeWidth="1.5" fill="none" />
           <path d="M25 60 C35 30, 85 30, 95 60" stroke="#38bdf8" strokeWidth="1.2" fill="none" strokeDasharray="4 3" />
@@ -97,10 +197,16 @@ export default function LoginModal({ isOpen, onClose }: LoginModalProps) {
                 className="h-14 md:h-16 w-auto object-contain mx-auto mb-3 drop-shadow-[0_0_20px_rgba(56,189,248,0.3)]"
               />
               <h2 className="text-base md:text-lg font-black text-white tracking-tight">
-                SIGN IN TO PLAY
+                {step === 'mobile' ? 'SIGN IN TO PLAY' : 'ENTER YOUR CODE'}
               </h2>
               <p className="text-[11px] md:text-xs text-slate-500 mt-0.5">
-                Book your next practice session
+                {step === 'mobile' ? (
+                  'We’ll send a code to your WhatsApp'
+                ) : (
+                  <>
+                    Sent to <span className="font-semibold text-accent">+91 {mobile}</span>
+                  </>
+                )}
               </p>
             </div>
 
@@ -108,58 +214,121 @@ export default function LoginModal({ isOpen, onClose }: LoginModalProps) {
             {error && (
               <div className="flex items-center gap-2 p-2.5 bg-red-500/10 border border-red-500/20 text-red-400 rounded-lg text-xs">
                 <svg className="w-3.5 h-3.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
-                  <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
+                  <path
+                    fillRule="evenodd"
+                    d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z"
+                    clipRule="evenodd"
+                  />
                 </svg>
                 {error}
               </div>
             )}
 
-            {/* Google Sign In Button */}
-            <button
-              onClick={async () => {
-                setLoading(true);
-                setError('');
-                try {
-                  await signIn('google', { callbackUrl: '/verify-mobile' });
-                } catch {
-                  setError('Sign-in failed. Please try again.');
-                  setLoading(false);
-                }
-              }}
-              disabled={loading}
-              className="w-full flex items-center justify-center gap-3 py-3 px-4 rounded-xl font-bold text-sm text-white transition-all active:scale-[0.97] disabled:opacity-50 cursor-pointer bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.1] hover:border-white/[0.15] hover:shadow-[0_0_20px_rgba(255,255,255,0.04)]"
-            >
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg"
-                alt="Google"
-                className="w-5 h-5"
-              />
-              <span>{loading ? 'Signing in...' : 'Continue with Google'}</span>
-            </button>
+            {/* Deliverability caveat — advisory, the code may still arrive */}
+            {notice && !error && (
+              <div className="p-2.5 bg-amber-500/10 border border-amber-500/20 text-amber-300 rounded-lg text-[11px] leading-relaxed">
+                {notice}
+              </div>
+            )}
 
-            {/* Divider */}
-            <div className="flex items-center gap-3">
-              <div className="flex-1 h-px bg-white/[0.06]" />
-              <span className="text-[10px] font-bold uppercase tracking-[0.2em] text-slate-600">Stats</span>
-              <div className="flex-1 h-px bg-white/[0.06]" />
-            </div>
+            {step === 'mobile' ? (
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  sendCode();
+                }}
+                className="space-y-3"
+              >
+                <div className="flex items-stretch gap-2">
+                  <span className="flex items-center px-3 rounded-xl bg-white/[0.04] border border-white/[0.1] text-sm font-semibold text-slate-400">
+                    +91
+                  </span>
+                  <input
+                    ref={inputRef}
+                    type="tel"
+                    inputMode="numeric"
+                    autoComplete="tel-national"
+                    required
+                    maxLength={10}
+                    value={mobile}
+                    onChange={(e) => setMobile(e.target.value.replace(/\D/g, '').slice(0, 10))}
+                    placeholder="10-digit mobile number"
+                    disabled={loading}
+                    // 16px stops iOS Safari zooming the page on focus.
+                    className="flex-1 min-w-0 px-3 py-3 bg-white/[0.04] border border-white/[0.1] rounded-xl text-[16px] text-white outline-none transition-all focus:border-accent focus:ring-2 focus:ring-accent/10 placeholder:text-slate-600"
+                  />
+                </div>
 
-            {/* Quick stats */}
-            <div className="grid grid-cols-3 gap-1">
-              <div className="text-center py-1.5 rounded-lg bg-white/[0.02]">
-                <p className="text-sm font-black text-accent tabular-nums">4</p>
-                <p className="text-[9px] font-bold text-slate-500 uppercase tracking-widest">Machines</p>
-              </div>
-              <div className="text-center py-1.5 rounded-lg bg-white/[0.02]">
-                <p className="text-sm font-black text-accent tabular-nums">3</p>
-                <p className="text-[9px] font-bold text-slate-500 uppercase tracking-widest">Pitches</p>
-              </div>
-              <div className="text-center py-1.5 rounded-lg bg-white/[0.02]">
-                <p className="text-sm font-black text-accent tabular-nums">30m</p>
-                <p className="text-[9px] font-bold text-slate-500 uppercase tracking-widest">Sessions</p>
-              </div>
-            </div>
+                <button
+                  type="submit"
+                  disabled={loading || !isValidMobile}
+                  className="w-full flex items-center justify-center gap-2.5 py-3 px-4 rounded-xl font-bold text-sm text-white transition-all active:scale-[0.97] disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer bg-[#25D366]/[0.14] hover:bg-[#25D366]/[0.22] border border-[#25D366]/30 hover:border-[#25D366]/50"
+                >
+                  <svg className="w-[18px] h-[18px] flex-shrink-0" viewBox="0 0 24 24" fill="#25D366" aria-hidden="true">
+                    <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z" />
+                  </svg>
+                  <span>{loading ? 'Sending code…' : 'Continue with WhatsApp'}</span>
+                </button>
+
+                <p className="text-center text-[10px] text-slate-600 leading-relaxed">
+                  We send a one-time code to your WhatsApp. If WhatsApp
+                  can&apos;t reach you, we&apos;ll text it instead.
+                </p>
+              </form>
+            ) : (
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  verifyCode();
+                }}
+                className="space-y-3"
+              >
+                <input
+                  ref={inputRef}
+                  type="text"
+                  inputMode="numeric"
+                  autoComplete="one-time-code"
+                  required
+                  maxLength={OTP_LENGTH}
+                  value={otp}
+                  onChange={(e) => setOtp(e.target.value.replace(/\D/g, '').slice(0, OTP_LENGTH))}
+                  placeholder="------"
+                  disabled={loading}
+                  className="w-full px-4 py-3.5 bg-white/[0.04] border-2 border-white/[0.1] rounded-xl text-center text-2xl tracking-[0.4em] font-mono text-white outline-none transition-all focus:border-accent focus:ring-2 focus:ring-accent/10 placeholder:text-slate-600"
+                />
+
+                <button
+                  type="submit"
+                  disabled={loading || otp.length < OTP_LENGTH}
+                  className="w-full py-3 bg-accent hover:bg-accent-light text-primary rounded-xl font-bold text-sm transition-all active:scale-[0.97] disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+                >
+                  {loading ? 'Verifying…' : 'Verify & Continue'}
+                </button>
+
+                <div className="flex items-center justify-between pt-0.5">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setStep('mobile');
+                      setError('');
+                      setNotice('');
+                    }}
+                    disabled={loading}
+                    className="text-[11px] text-slate-400 hover:text-accent transition-colors cursor-pointer disabled:opacity-50"
+                  >
+                    Change number
+                  </button>
+                  <button
+                    type="button"
+                    onClick={sendCode}
+                    disabled={loading || resendIn > 0}
+                    className="text-[11px] text-slate-400 hover:text-accent transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                  >
+                    {resendIn > 0 ? `Resend in ${resendIn}s` : 'Resend code'}
+                  </button>
+                </div>
+              </form>
+            )}
           </div>
 
           {/* Bottom strip */}

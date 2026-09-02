@@ -2,14 +2,18 @@
 
 import React, { useState } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import Image from 'next/image';
 import { Calendar, Zap, Instagram, Phone, Target, Shield, Users, Star, ArrowRight, MapPin, Building2, Mail, Crosshair, GraduationCap, LayoutGrid, Maximize2, Wallet } from 'lucide-react';
 import LoginModal from './LoginModal';
 import { INSTAGRAM_URL } from '@/lib/client-constants';
 import { useCenter } from '@/lib/center-context';
+import { useCurrentUser } from '@/lib/current-user';
 
 export default function LandingPageClient() {
   const [loginOpen, setLoginOpen] = useState(false);
+  const router = useRouter();
+  const { user: currentUser, loading: userLoading } = useCurrentUser();
   const { centers, currentCenter } = useCenter();
   const hasMultipleCenters = centers.length >= 2;
 
@@ -35,7 +39,18 @@ export default function LandingPageClient() {
     return single.length > 0 ? [{ name: null, number: single }] : [];
   })();
 
-  const openLogin = () => setLoginOpen(true);
+  // Already signed in? Go straight to booking. Asking a returning user to
+  // re-verify a number they already own is the wrong answer to "Book Now",
+  // and now that login is a phone + code rather than a one-tap OAuth bounce
+  // it is a dead end rather than a blink.
+  const openLogin = () => {
+    if (currentUser) {
+      router.push('/slots');
+      return;
+    }
+    if (userLoading) return; // don't flash the form before we know
+    setLoginOpen(true);
+  };
   const closeLogin = () => setLoginOpen(false);
 
   return (

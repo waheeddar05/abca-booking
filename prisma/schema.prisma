@@ -399,6 +399,11 @@ model Otp {
   codeHash  String
   expiresAt DateTime
   used      Boolean  @default(false)
+  // Wrong guesses against this code. The WhatsApp login is the only way
+  // in and the code is only 6 digits, so /api/auth/otp/verify burns the
+  // code once this passes OTP_MAX_ATTEMPTS — otherwise the whole keyspace
+  // is guessable inside the TTL.
+  attempts  Int      @default(0)
   createdAt DateTime @default(now())
   user      User     @relation(fields: [userId], references: [id])
 }

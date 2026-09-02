@@ -21,14 +21,15 @@
  */
 
 import { useEffect, useState } from 'react';
-import { useSession } from 'next-auth/react';
+import { useCurrentUser } from '@/lib/current-user';
 import { useCenter } from '@/lib/center-context';
 import { Loader2, ArrowUp, ArrowDown, Users } from 'lucide-react';
 import { AdminPageHeader } from '@/components/admin/AdminPageHeader';
 import { SpecialistAvailabilityCard, type Specialist } from '@/components/sidearm/AvailabilityEditors';
 
 export default function AdminSidearmPage() {
-  const { data: session } = useSession();
+  // Profile, not NextAuth session — see @/lib/current-user.
+  const { user: currentUser } = useCurrentUser();
   const { currentCenter, loading: centerLoading } = useCenter();
   const [specialists, setSpecialists] = useState<Specialist[]>([]);
   const [loading, setLoading] = useState(true);
@@ -40,9 +41,9 @@ export default function AdminSidearmPage() {
     setLoading(true);
     setError(null);
     try {
-      const userRole = (session?.user as any)?.role;
+      const userRole = currentUser?.role;
       const isSidearmSpecialist = userRole === 'SIDEARM_SPECIALIST';
-      const userId = (session?.user as any)?.id;
+      const userId = currentUser?.id;
 
       const r = await fetch(
         `/api/admin/centers/${currentCenter.id}/members?role=SIDEARM_SPECIALIST`,

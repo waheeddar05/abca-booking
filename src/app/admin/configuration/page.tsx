@@ -1,7 +1,6 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { useSession } from 'next-auth/react';
 import { Settings, IndianRupee, Save, Loader2, Zap, Check, CreditCard, Banknote, Wallet, ShoppingBag, AlertTriangle, Bell } from 'lucide-react';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { AdminPageHeader } from '@/components/admin/AdminPageHeader';
@@ -176,7 +175,6 @@ function PriceField({ label, value, onChange }: { label: string; value: number; 
 }
 
 export default function ConfigurationPage() {
-  useSession(); // ensure auth context is available
   const { currentCenter } = useCenter();
   // Settings are always edited at the center scope. The global-defaults
   // toggle was removed because it confused admins more than it helped —

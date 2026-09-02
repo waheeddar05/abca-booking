@@ -13,9 +13,15 @@ import {
 /**
  * POST /api/auth/whatsapp/send-otp
  *
- * Requires an authenticated Google session. Sends an OTP
- * to the provided mobile number so the user can verify ownership
- * and link the number to their account.
+ * Requires an existing session. Sends an OTP to the provided mobile
+ * number so the user can verify ownership and link the number to their
+ * account.
+ *
+ * NOT the login route — that is `/api/auth/otp/request` (public, no
+ * session). This one exists for the legacy Google flow, where sign-in
+ * yields an account with no phone number and /verify-mobile collects one.
+ * A WhatsApp login is already verified by construction and never lands
+ * here.
  *
  * Delivery strategy:
  *   1. Try WhatsApp first (if configured)
@@ -37,7 +43,7 @@ export async function POST(req: NextRequest) {
     // Must be logged in via Google first
     const user = await getAuthenticatedUser(req);
     if (!user) {
-      return NextResponse.json({ error: 'Unauthorized — please sign in with Google first' }, { status: 401 });
+      return NextResponse.json({ error: 'Please sign in first' }, { status: 401 });
     }
 
     const { mobileNumber } = await req.json();

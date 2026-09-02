@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { useSession } from 'next-auth/react';
+import { useCurrentUser } from '@/lib/current-user';
 import { useRouter } from 'next/navigation';
 import {
   UserCog, Search, Loader2, Trash2, Wallet, CreditCard,
@@ -55,21 +55,18 @@ interface SelectedUser {
 }
 
 export default function UserManagementPage() {
-  const { data: session } = useSession();
+  // Profile, not NextAuth session — see @/lib/current-user.
+  const { user: sessionUser, loading: userLoading } = useCurrentUser();
   const router = useRouter();
   const toast = useToast();
   const { currentCenter } = useCenter();
 
-  // Session is typed loosely (`as any`-ish on the auth side). Read both
-  // the boolean column AND the email fallback so a stale token doesn't
-  // lock the project owner out. Center admins land here too — they
+  // Read both the boolean column AND the email fallback so a stale record
+  // doesn't lock the project owner out. Center admins land here too — they
   // see the same UI minus the destructive sections.
-  const sessionUser = session?.user as {
-    email?: string | null;
-    isSuperAdmin?: boolean;
-    role?: string;
-  } | undefined;
-  const isSuperAdmin = sessionUser?.isSuperAdmin === true || sessionUser?.email === SUPER_ADMIN_EMAIL;
+  const isSuperAdmin =
+    sessionUser?.isSuperAdmin === true ||
+    (!!sessionUser?.email && sessionUser.email === SUPER_ADMIN_EMAIL);
   const isAdmin = isSuperAdmin || sessionUser?.role === 'ADMIN';
 
   // Search state
@@ -101,10 +98,10 @@ export default function UserManagementPage() {
   // admins stay — they get a trimmed view with wallet ops but without
   // destructive cleanup.
   useEffect(() => {
-    if (session && !isAdmin) {
+    if (!userLoading && sessionUser && !isAdmin) {
       router.push('/admin');
     }
-  }, [session, isAdmin, router]);
+  }, [sessionUser, userLoading, isAdmin, router]);
 
   // Search users. When the search field is empty we still pull the
   // full user list so admins can see wallet balances at a glance — the
