@@ -70,6 +70,21 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Invalid OTP' }, { status: 400 });
     }
 
+    // Super-admin bootstrap, phone-keyed. The Google path already does
+    // exactly this for SUPER_ADMIN_EMAIL in authOptions.signIn ("promote
+    // now, never demote"); without the mobile twin there is no way to
+    // bootstrap the first super admin on a WhatsApp-only install, because
+    // every other path matches on an email these accounts don't have.
+    // `role` has to move too, not just the flag: the middleware gates
+    // /admin on the role in this token, so an isSuperAdmin with role=USER
+    // would still be bounced at the door.
+    const superAdminMobile = (process.env.SUPER_ADMIN_MOBILE || '').replace(/\D/g, '').slice(-10);
+    const isBootstrapSuperAdmin = !!superAdminMobile && cleaned === superAdminMobile;
+    const promote = isBootstrapSuperAdmin && (!user.isSuperAdmin || user.role !== 'ADMIN');
+    if (promote) {
+      console.log('[otp.login] Bootstrapping super admin from SUPER_ADMIN_MOBILE:', { userId: user.id });
+    }
+
     // Mark the code used and stamp the login. Receiving the code IS proof
     // of the number, so the account is mobile-verified from here on — that
     // is what keeps a WhatsApp user out of the /verify-mobile gate, which
@@ -86,19 +101,23 @@ export async function POST(req: NextRequest) {
           lastSeen: new Date(),
           mobileVerified: true,
           phonePromptDismissed: true,
+          // Only ever an upgrade — the fields are omitted entirely when
+          // the number isn't the configured one, so this can't demote.
+          ...(promote ? { role: 'ADMIN' as const, isSuperAdmin: true } : {}),
         },
       }),
     ]);
 
     // The middleware reads `role` off this token to gate /admin and /staff,
-    // so it has to carry the same shape the NextAuth token does.
+    // so it has to carry the same shape the NextAuth token does — and the
+    // role it was just promoted to, not the one read before the update.
     // `mobileVerified` is always true here by construction (above).
     const token = signToken({
       userId: user.id,
       name: user.name,
       email: user.email,
       mobileNumber: user.mobileNumber,
-      role: user.role,
+      role: promote ? 'ADMIN' : user.role,
       mobileVerified: true,
     });
 

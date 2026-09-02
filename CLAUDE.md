@@ -155,7 +155,7 @@ Tests use Vitest with jsdom environment. Path alias `@` maps to `./src`. Setup f
 
 ## Key Environment Variables
 
-`DATABASE_URL`, `NEXTAUTH_SECRET`, `NEXTAUTH_URL`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `JWT_SECRET`, `FAST2SMS_API_KEY`, `RAZORPAY_KEY_ID`, `RAZORPAY_KEY_SECRET`, `INITIAL_ADMIN_EMAIL`, `SUPER_ADMIN_EMAIL`. See `.env.example` for full list.
+`DATABASE_URL`, `NEXTAUTH_SECRET`, `NEXTAUTH_URL`, `JWT_SECRET`, `FAST2SMS_API_KEY`, `RAZORPAY_KEY_ID`, `RAZORPAY_KEY_SECRET`, `SUPER_ADMIN_MOBILE` (super-admin bootstrap — the phone-keyed one that actually works), `SUPER_ADMIN_EMAIL`, `INITIAL_ADMIN_MOBILE`, `OTP_MAX_ATTEMPTS`, `OTP_GLOBAL_PER_MINUTE`, `GOOGLE_LOGIN_ENABLED` (off). See `.env.example` for full list.
 
 `RAZORPAY_KEY_ID` / `RAZORPAY_KEY_SECRET` are now treated as the **fallback** for any center that hasn't configured its own keys. Each `Center` row may store `razorpayKeyId` / `razorpayKeySecret` / `razorpayWebhookSecret`; the payment helper picks center-specific keys when present (phase 6 — pending).
 
@@ -183,9 +183,11 @@ The `User.isSuperAdmin` boolean column is the source of truth. Super admins bypa
 | `User.isSuperAdmin = true` | cross-center pages (Centers, Orphan Payments, Maintenance, DB Cleanup) and a bypass of every center scope check |
 | `CenterMembership(role='ADMIN')` | center-scoped **writes** — without it you can open Configuration but `POST /api/admin/policies` 403s on Save |
 
-`npx tsx scripts/make-admin.ts <email|mobile> [--super] [--center <slug>]` does all three. **No admin UI writes `isSuperAdmin`** — `PATCH /api/admin/users` accepts `role` but not that column, by design.
+`npx tsx scripts/make-admin.ts <email|mobile> [--super] [--center <slug>]` does all three. **No admin UI writes `isSuperAdmin`** — `PATCH /api/admin/users` accepts `role` but not that column, by design. Note a super admin needs no `CenterMembership`: `canAccessCenter` / `hasMembershipRole` return true for any center, so the third row only matters for a plain center admin.
 
-> **The env fallback does not work for a WhatsApp account.** `SUPER_ADMIN_EMAIL` is matched against `dbUser.email` in `auth.ts`, and `scripts/seed-centers.ts` looks the user up by email too — but login is WhatsApp OTP, so accounts are keyed on `mobileNumber` and typically have **no email at all**. Both paths silently no-op for a phone-only account. Bootstrap by mobile with `make-admin.ts` instead; the account must exist first, so sign in once before running it.
+**Bootstrapping the first super admin: `SUPER_ADMIN_MOBILE`.** Set it to the number, redeploy, sign in — `/api/auth/otp/verify` promotes that account to `role=ADMIN` + `isSuperAdmin=true` on login. It is the phone-keyed twin of what `authOptions.signIn` already does for `SUPER_ADMIN_EMAIL` on the Google path, and follows the same rule: **upgrade only, never a demotion** (the fields are omitted from the update entirely when the number doesn't match, so clearing the env var later doesn't take the rights away). `role` moves along with the flag because the middleware gates `/admin` on the role in the JWT — `isSuperAdmin` with `role=USER` would still be bounced at the door. `auth.ts` also matches it as a read-side fallback in `toAuthenticatedUser`, so an already-open session picks up super-admin on its next request without re-login.
+
+> **`SUPER_ADMIN_EMAIL` does not work for a WhatsApp account.** It is matched against `dbUser.email` in `auth.ts`, and `scripts/seed-centers.ts` looks the user up by email too — but accounts are keyed on `mobileNumber` and typically have **no email at all**, so both silently no-op. Use `SUPER_ADMIN_MOBILE` (needs only a Vercel env var + a login) or `make-admin.ts` (needs DB access, but grants center memberships too).
 
 `requireSuperAdmin(req)` from `src/lib/adminAuth.ts` is the API-route guard for cross-center operations (managing centers, the machine-type catalog, etc.). Use `requireAdmin(req)` for center-scoped admin actions and combine with `hasMembershipRole(user, centerId, 'ADMIN')` to enforce the user is admin at *this* center.
 

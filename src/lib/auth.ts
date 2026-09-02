@@ -9,6 +9,13 @@ import type { MembershipRole } from '@prisma/client';
 // The DB column is the source of truth from now on.
 const SUPER_ADMIN_EMAIL = process.env.SUPER_ADMIN_EMAIL || process.env.INITIAL_ADMIN_EMAIL || '';
 
+// Phone-keyed twin of SUPER_ADMIN_EMAIL. Login is WhatsApp OTP, so accounts
+// are keyed on mobileNumber and usually have no email at all — the email
+// fallback above silently never fires for them, which left no way to
+// bootstrap the first super admin. Compared on bare 10 digits so a value
+// written as +919860106704 still matches the stored 9860106704.
+const SUPER_ADMIN_MOBILE = (process.env.SUPER_ADMIN_MOBILE || '').replace(/\D/g, '').slice(-10);
+
 // Minimal select for auth — only fetch the fields we actually return.
 const AUTH_USER_SELECT = {
   id: true,
@@ -19,6 +26,7 @@ const AUTH_USER_SELECT = {
   isFreeUser: true,
   isSpecialUser: true,
   mobileVerified: true,
+  mobileNumber: true,
   centerMemberships: {
     where: { isActive: true },
     select: {
@@ -57,15 +65,19 @@ type DbAuthUser = {
   isFreeUser: boolean;
   isSpecialUser: boolean;
   mobileVerified: boolean;
+  mobileNumber: string | null;
   centerMemberships: CenterMembershipSummary[];
 };
 
 function toAuthenticatedUser(dbUser: DbAuthUser): AuthenticatedUser {
-  // Compute super-admin from DB column, with email fallback for the
+  // Compute super-admin from DB column, with env fallbacks for the
   // bootstrap case (DB column not yet flipped, but env identifies them).
+  // Either identifier promotes; the mobile one is what works for a
+  // WhatsApp account, which has no email.
   const isSuperAdmin =
     dbUser.isSuperAdmin ||
-    !!(dbUser.email && SUPER_ADMIN_EMAIL && dbUser.email === SUPER_ADMIN_EMAIL);
+    !!(dbUser.email && SUPER_ADMIN_EMAIL && dbUser.email === SUPER_ADMIN_EMAIL) ||
+    !!(dbUser.mobileNumber && SUPER_ADMIN_MOBILE && dbUser.mobileNumber === SUPER_ADMIN_MOBILE);
 
   const centerIds = Array.from(
     new Set(dbUser.centerMemberships.map((m) => m.centerId)),

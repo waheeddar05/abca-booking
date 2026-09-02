@@ -85,6 +85,7 @@ beforeEach(() => {
   compareMock.mockResolvedValue(true);
   process.env.WHATSAPP_OTP_TEMPLATE = 'playorbit_otp';
   delete process.env.INITIAL_ADMIN_MOBILE;
+  delete process.env.SUPER_ADMIN_MOBILE;
 });
 
 describe('POST /api/auth/otp/request — step 1', () => {
@@ -310,6 +311,60 @@ describe('POST /api/auth/otp/verify — step 2', () => {
     const res = await verifyOtp(req({ mobileNumber: '9876543210', otp: '123456' }));
 
     expect(res.status).toBe(400);
+  });
+
+  it('bootstraps the configured SUPER_ADMIN_MOBILE to super admin on login', async () => {
+    // The only way to make the first super admin on a WhatsApp-only
+    // install: every other path matches on an email these accounts
+    // don't have.
+    process.env.SUPER_ADMIN_MOBILE = '9860106704';
+    userFindUniqueMock.mockResolvedValue(
+      loginUser({ mobileNumber: '9860106704', role: 'USER', isSuperAdmin: false }),
+    );
+
+    const res = await verifyOtp(req({ mobileNumber: '9860106704', otp: '123456' }));
+
+    const data = (userUpdateMock.mock.calls[0][0] as { data: Record<string, unknown> }).data;
+    expect(data).toMatchObject({ role: 'ADMIN', isSuperAdmin: true });
+    // The token must carry the PROMOTED role — middleware gates /admin on
+    // it, so signing the pre-update role would bounce them at the door.
+    expect(res.cookies.get('token')?.value).toContain('"role":"ADMIN"');
+  });
+
+  it('accepts a +91-prefixed SUPER_ADMIN_MOBILE', async () => {
+    process.env.SUPER_ADMIN_MOBILE = '+91 98601 06704';
+    userFindUniqueMock.mockResolvedValue(
+      loginUser({ mobileNumber: '9860106704', role: 'USER', isSuperAdmin: false }),
+    );
+
+    await verifyOtp(req({ mobileNumber: '9860106704', otp: '123456' }));
+
+    expect((userUpdateMock.mock.calls[0][0] as { data: Record<string, unknown> }).data)
+      .toMatchObject({ role: 'ADMIN', isSuperAdmin: true });
+  });
+
+  it('never promotes a number that is not the configured one', async () => {
+    process.env.SUPER_ADMIN_MOBILE = '9860106704';
+    userFindUniqueMock.mockResolvedValue(loginUser({ role: 'USER', isSuperAdmin: false }));
+
+    const res = await verifyOtp(req({ mobileNumber: '9876543210', otp: '123456' }));
+
+    const data = (userUpdateMock.mock.calls[0][0] as { data: Record<string, unknown> }).data;
+    expect(data).not.toHaveProperty('role');
+    expect(data).not.toHaveProperty('isSuperAdmin');
+    expect(res.cookies.get('token')?.value).toContain('"role":"USER"');
+  });
+
+  it('never demotes when SUPER_ADMIN_MOBILE is unset', async () => {
+    // An existing super admin signing in with the env var absent must not
+    // lose anything — the fields are omitted, not written false.
+    userFindUniqueMock.mockResolvedValue(loginUser({ role: 'ADMIN', isSuperAdmin: true }));
+
+    await verifyOtp(req({ mobileNumber: '9876543210', otp: '123456' }));
+
+    const data = (userUpdateMock.mock.calls[0][0] as { data: Record<string, unknown> }).data;
+    expect(data).not.toHaveProperty('isSuperAdmin');
+    expect(data).not.toHaveProperty('role');
   });
 
   it('only considers codes that are unused and unexpired', async () => {
