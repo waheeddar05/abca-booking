@@ -18,6 +18,11 @@ interface Notification {
   // card snapshot so the alert shows the same detail without leaving the page.
   bookingId?: string | null;
   booking?: BookingCardData | null;
+  // False when the linked booking belongs to someone else — i.e. this is a
+  // staff / center-role alert about a customer's booking, not the viewer's
+  // own confirmation. Drives the card's role and whether the detail text is
+  // shown alongside it (see the render below).
+  isOwnBooking?: boolean;
 }
 
 /**
@@ -224,8 +229,24 @@ export default function NotificationsPage() {
                     // card as a snapshot (status, refund, payment, center,
                     // assigned staff, etc.) so the user understands exactly
                     // what happened without opening the booking page.
+                    //
+                    // Someone else's booking means this is a staff / center-role
+                    // alert. Two things then differ, and both matter on the
+                    // floor: the card renders in the `operator` role so the
+                    // booker's phone and its tel: link are visible (the `user`
+                    // role hides them), and the stored detail text is shown
+                    // underneath, because the card is a snapshot of the FIRST
+                    // row only — the message is where the whole-batch time
+                    // window, the batch total and the cancelled-by / reason
+                    // lines live.
                     <div className="mt-2">
-                      <BookingCard booking={toBookingCardShape(n.booking)} role="user" />
+                      <BookingCard
+                        booking={toBookingCardShape(n.booking)}
+                        role={n.isOwnBooking === false ? 'operator' : 'user'}
+                      />
+                      {n.isOwnBooking === false && (
+                        <AlertMessage message={n.message} isRead={n.isRead} />
+                      )}
                       <div className="flex items-center gap-1 mt-1.5 text-[10px] text-slate-500">
                         <Hash className="w-3 h-3" />
                         <span>Booking ID: {n.booking.id}</span>

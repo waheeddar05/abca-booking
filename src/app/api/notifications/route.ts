@@ -24,13 +24,29 @@ export async function GET(req: NextRequest) {
     const bookingIds = notifications
       .map((n) => (n as { bookingId?: string | null }).bookingId)
       .filter((id): id is string => !!id);
-    const cards = await loadBookingCards(bookingIds);
+    // Who booked each linked booking. Staff and center-wide role
+    // subscribers get alerts about OTHER people's bookings, and the card
+    // has to render differently for them: a customer-facing card hides
+    // the booker's phone (the one thing floor staff need) and, being a
+    // snapshot of the first row, drops the batch window/total that the
+    // message text carries. `isOwnBooking` lets the client pick.
+    // Best-effort — a failure just renders every card as the viewer's own.
+    const [cards, owners] = await Promise.all([
+      loadBookingCards(bookingIds),
+      bookingIds.length > 0
+        ? prisma.booking
+            .findMany({ where: { id: { in: bookingIds } }, select: { id: true, userId: true } })
+            .catch(() => [] as { id: string; userId: string | null }[])
+        : Promise.resolve([] as { id: string; userId: string | null }[]),
+    ]);
+    const ownerById = new Map(owners.map((b) => [b.id, b.userId]));
 
     const withBookings = notifications.map((n) => {
       const bookingId = (n as { bookingId?: string | null }).bookingId ?? null;
       return {
         ...n,
         booking: bookingId ? cards.get(bookingId) ?? null : null,
+        isOwnBooking: bookingId ? (ownerById.get(bookingId) ?? user.id) === user.id : true,
       };
     });
 
