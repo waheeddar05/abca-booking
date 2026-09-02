@@ -93,7 +93,7 @@ export async function POST(req: NextRequest) {
     // The middleware reads `role` off this token to gate /admin and /staff,
     // so it has to carry the same shape the NextAuth token does.
     // `mobileVerified` is always true here by construction (above).
-    const token = signToken({
+    const token = await signToken({
       userId: user.id,
       name: user.name,
       email: user.email,

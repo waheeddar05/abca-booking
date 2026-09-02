@@ -63,6 +63,8 @@ npx tsx scripts/seed-centers.ts --check        # Verify only, no writes
 1. `POST /api/auth/otp/request` — validates the number, finds-or-creates the account keyed on `mobileNumber`, issues a 6-digit code and sends it.
 2. `POST /api/auth/otp/verify` — checks the code, flips `mobileVerified`, and sets the `token` cookie (custom JWT, `src/lib/jwt.ts`). Receiving the code **is** proof of the number, so a WhatsApp login is verified by construction and never meets the `/verify-mobile` gate.
 
+`signToken`/`verifyToken` in `src/lib/jwt.ts` are **async** and built on `jose`, not `jsonwebtoken` — see the Edge Runtime note under Middleware for why that is not interchangeable. The token format is unchanged (HS256 over `JWT_SECRET`).
+
 `POST /api/auth/logout` clears that cookie. It has to be server-side: the cookie is `httpOnly`, so the `document.cookie = 'token=…'` that the navbar and staff layout used to run never removed anything and left users signed in through a "Sign out" they'd already been shown.
 
 **Delivery** lives in `src/lib/otp-delivery.ts` (`issueAndSendOtp`), shared with `/api/auth/whatsapp/send-otp`: an approved WhatsApp auth template first, then the `playorbit_account_pin` utility template, then SMS as a backstop — a BSP outage must not lock everyone out of the only login. A send that reached nobody deletes its own OTP row so an outage can't burn the user's budget.
@@ -86,6 +88,14 @@ npx tsx scripts/seed-centers.ts --check        # Verify only, no writes
 - The `/verify-mobile` gate keys off the **NextAuth** token only, so it catches legacy Google sessions with no linked number and never a WhatsApp login.
 - Enforces role-based access: `/admin/*` requires ADMIN, `/operator/*` requires OPERATOR or ADMIN
 - Checks maintenance mode via internal API call; super admin and allowlisted emails bypass
+
+> **Middleware runs in the Edge Runtime — no Node built-ins.** Everything it imports, transitively, must work on Web Crypto and `fetch` alone. Turbopack does **not** fail the build on a Node-only import: it swaps the module for a stub that throws only when touched, so the breakage ships and then fires per-request in production.
+>
+> That is precisely the 2026-09-02 login outage. `@/lib/jwt` used `jsonwebtoken` (→ `jws` → `crypto.createHmac`), so `verifyToken` threw on the edge and its `catch` returned `null`: middleware read every WhatsApp session as *signed out* and bounced it from `/slots` to `/`, while `src/app/page.tsx` — Node runtime, same helper, same cookie — read it fine and redirected back to `/slots`. An infinite redirect loop; nobody could log in. Unit tests run in Node, where the import works, so none of them caught it.
+>
+> `src/lib/jwt.ts` is `jose` (Web Crypto) and both `signToken` and `verifyToken` are **async**. `src/__tests__/middleware-edge-safety.test.ts` walks middleware's import graph and fails on any package not on its edge-safe list — extend that list only after confirming the package really runs on the edge.
+>
+> The same failure shape has a second source: two readers of one cookie disagreeing about the *secret*. `src/lib/auth-secret.ts` is the single place `NEXTAUTH_SECRET` is read; use it rather than reaching for `process.env` again.
 
 ### Pricing Engine (`src/lib/pricing.ts`)
 Dynamic pricing based on machine ID, pitch type, ball type, and time slab (morning/evening). Consecutive slot bookings get a discounted rate. Config stored in Policy table as `PRICING_CONFIG` JSON, with `DEFAULT_PRICING_CONFIG` as fallback. Yantra has premium pricing tiers. Key functions: `getSlotPrice()`, `getConsecutivePrice()`, `calculateNewPricing()`.
