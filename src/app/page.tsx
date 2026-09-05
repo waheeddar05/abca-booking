@@ -5,8 +5,13 @@ import { headers, cookies } from "next/headers";
 import { verifyToken } from "@/lib/jwt";
 import { NEXTAUTH_SECRET } from "@/lib/auth-secret";
 import LandingPageClient from "@/components/LandingPageClient";
+import { DEFAULT_POST_LOGIN_PATH, safeNextPath } from "@/lib/login-href";
 
-export default async function Home() {
+export default async function Home({
+  searchParams,
+}: {
+  searchParams: Promise<{ next?: string | string[] }>;
+}) {
   const cookieStore = await cookies();
   const token = await getToken({
     req: {
@@ -22,7 +27,11 @@ export default async function Home() {
   const otpToken = otpTokenStr ? await verifyToken(otpTokenStr) : null;
 
   if (token || otpToken) {
-    redirect("/slots");
+    // `/?login=1&next=/shop/abc` from a page that needed a sign-in: an
+    // already signed-in visitor goes straight back there. Same-origin
+    // paths only (see `safeNextPath`).
+    const { next } = await searchParams;
+    redirect(safeNextPath(Array.isArray(next) ? next[0] : next) ?? DEFAULT_POST_LOGIN_PATH);
   }
 
   return <LandingPageClient />;

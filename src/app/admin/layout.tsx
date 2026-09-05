@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useCurrentUser } from '@/lib/current-user';
-import { LayoutDashboard, CalendarCheck, Users, Clock, Wrench, Package, Zap, SlidersHorizontal, ArrowLeft, Power, DatabaseZap, UserCog, Tag, Building2, AlertTriangle, HardHat, BookOpenCheck, Bell } from 'lucide-react';
+import { LayoutDashboard, CalendarCheck, Users, Clock, Wrench, Package, Zap, SlidersHorizontal, ArrowLeft, Power, DatabaseZap, UserCog, Tag, Building2, AlertTriangle, HardHat, BookOpenCheck, Bell, Store } from 'lucide-react';
 import { signOut } from 'next-auth/react';
 import { AdminMobileNav } from '@/components/admin/AdminMobileNav';
 import { CenterSwitcher } from '@/components/admin/CenterSwitcher';
@@ -87,6 +87,9 @@ export default function AdminLayout({
     { href: '/admin/ground-staff', label: 'Ground Staff', icon: HardHat, models: ['RESOURCE_BASED'], hidden: !isAdmin },
     // Offers — full admins only. Restricted for moderators.
     { href: '/admin/offers', label: 'Offers', icon: Tag, hidden: !isAdmin },
+    // Marketplace — the in-app store's back office. Full admins only,
+    // like Offers: moderators are blocked in the middleware and the API.
+    { href: '/admin/shop', label: 'Marketplace', icon: Store, hidden: !isAdmin },
     { href: '/admin/packages', label: 'Packages', icon: Package, hidden: !isAdminLevel },
     // Ledger — hand-entered revenue + expenses. Admins and moderators
     // both get it: moderators can add and edit entries, only full

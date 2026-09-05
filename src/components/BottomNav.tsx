@@ -3,13 +3,22 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useCurrentUser } from '@/lib/current-user';
-import { Calendar, ClipboardList, Package, Wallet, Bell, Zap, UserCog } from 'lucide-react';
+import { Calendar, ClipboardList, Package, Wallet, Bell, Zap, UserCog, ShoppingBag } from 'lucide-react';
 import { useCenter } from '@/lib/center-context';
+import { useMarketplaceStatus } from '@/lib/marketplace-status';
+import { SHOP_PATH } from '@/lib/marketplace';
 
 const baseTabs = [
   { href: '/slots', label: 'Book Slot', icon: Calendar },
   { href: '/bookings', label: 'Bookings', icon: ClipboardList },
   { href: '/packages', label: 'Packages', icon: Package },
+];
+
+// The store sits after Packages. It is per center, so a center that has it
+// switched off shows no tab at all.
+const shopTab = { href: SHOP_PATH, label: 'Shop', icon: ShoppingBag };
+
+const accountTabs = [
   { href: '/wallet', label: 'Wallet', icon: Wallet },
   { href: '/notifications', label: 'Alerts', icon: Bell },
 ];
@@ -24,6 +33,7 @@ export default function BottomNav() {
   // /api/user/profile fetch — see @/lib/current-user.
   const { user } = useCurrentUser();
   const { isSidearmSpecialistAtCurrentCenter, isCoachAtCurrentCenter } = useCenter();
+  const { enabled: shopEnabled } = useMarketplaceStatus();
   const pathname = usePathname();
 
   const isLoggedIn = !!user;
@@ -39,9 +49,15 @@ export default function BottomNav() {
   // role at the current center. A user who is both gets both tabs.
   const tabs = [
     ...baseTabs,
+    ...(shopEnabled ? [shopTab] : []),
+    ...accountTabs,
     ...(isSidearmSpecialistAtCurrentCenter ? [sidearmTab] : []),
     ...(isCoachAtCurrentCenter ? [coachTab] : []),
   ];
+
+  // Six tabs fit a 360px phone at 10px; a staff member with both extra
+  // tabs (7–8) needs the smaller label so nothing overflows its tab.
+  const labelSize = tabs.length >= 7 ? 'text-[9px]' : 'text-[10px]';
 
   return (
     <nav className="fixed bottom-0 left-0 right-0 z-50 md:hidden">
@@ -53,7 +69,7 @@ export default function BottomNav() {
               <Link
                 key={href}
                 href={href}
-                className={`flex flex-col items-center justify-center flex-1 h-full relative transition-colors ${
+                className={`flex flex-col items-center justify-center flex-1 min-w-0 px-0.5 h-full relative overflow-hidden transition-colors ${
                   active ? 'text-accent' : 'text-slate-400'
                 }`}
               >
@@ -61,7 +77,7 @@ export default function BottomNav() {
                   <span className="absolute top-1 w-1 h-1 rounded-full bg-accent" />
                 )}
                 <Icon className={`w-5 h-5 ${active ? 'text-accent' : 'text-slate-400'}`} />
-                <span className={`text-[10px] mt-0.5 font-medium whitespace-nowrap ${active ? 'text-accent' : 'text-slate-400'}`}>
+                <span className={`${labelSize} mt-0.5 font-medium whitespace-nowrap ${active ? 'text-accent' : 'text-slate-400'}`}>
                   {label}
                 </span>
               </Link>

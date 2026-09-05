@@ -365,6 +365,9 @@ export function toWhatsAppDigits(raw: string | null | undefined): string | null 
   if (!raw) return null;
   const digits = String(raw).replace(/\D/g, '');
   if (/^[6-9]\d{9}$/.test(digits)) return `91${digits}`;
+  // Trunk-prefixed "09876543210" — the same form `normalizeIndianMobile`
+  // accepts for addresses, so an admin can type the number either way.
+  if (/^0[6-9]\d{9}$/.test(digits)) return `91${digits.slice(1)}`;
   if (/^91[6-9]\d{9}$/.test(digits)) return digits;
   if (/^091[6-9]\d{9}$/.test(digits)) return digits.slice(1);
   return null;

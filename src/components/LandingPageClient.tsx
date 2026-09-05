@@ -1,12 +1,16 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useSyncExternalStore } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import Image from 'next/image';
-import { Calendar, Zap, Instagram, Phone, Target, Shield, Users, Star, ArrowRight, MapPin, Building2, Mail, Crosshair, GraduationCap, LayoutGrid, Maximize2, Wallet } from 'lucide-react';
+import { Calendar, Zap, Instagram, Phone, Target, Shield, Users, Star, ArrowRight, MapPin, Building2, Mail, Crosshair, GraduationCap, LayoutGrid, Maximize2, Wallet, ShoppingBag } from 'lucide-react';
 import LoginModal from './LoginModal';
+import { LandingShopSection } from './shop/LandingShopSection';
 import { INSTAGRAM_URL } from '@/lib/client-constants';
+import { SHOP_PATH } from '@/lib/marketplace';
+import { DEFAULT_POST_LOGIN_PATH, safeNextPath } from '@/lib/login-href';
+import { useMarketplaceStatus } from '@/lib/marketplace-status';
 import { useCenter } from '@/lib/center-context';
 import { useCurrentUser } from '@/lib/current-user';
 
@@ -19,12 +23,72 @@ import { useCurrentUser } from '@/lib/current-user';
  */
 let autoRedirected = false;
 
+/**
+ * `/shop` sends a signed-out visitor here as `/?login=1` so the login modal
+ * opens on arrival. The flag is read straight off `window.location` through
+ * a tiny external store rather than `useSearchParams` (which would force a
+ * Suspense boundary around the whole page) or a mount effect with setState
+ * (which the react-hooks lint rules reject). The server snapshot is false,
+ * so the modal never renders during SSR/hydration.
+ */
+function subscribeToLocation(cb: () => void): () => void {
+  window.addEventListener('popstate', cb);
+  return () => window.removeEventListener('popstate', cb);
+}
+
+function getLoginRequestedSnapshot(): boolean {
+  try {
+    return new URLSearchParams(window.location.search).get('login') === '1';
+  } catch {
+    return false;
+  }
+}
+
+function getLoginRequestedServerSnapshot(): boolean {
+  return false;
+}
+
+/**
+ * `/?login=1&next=/shop/abc` — where to go once signed in. Validated by
+ * `safeNextPath` so only a same-origin path ever gets through. A string
+ * snapshot (not an object) keeps useSyncExternalStore stable.
+ */
+function getNextPathSnapshot(): string {
+  try {
+    return safeNextPath(new URLSearchParams(window.location.search).get('next')) ?? DEFAULT_POST_LOGIN_PATH;
+  } catch {
+    return DEFAULT_POST_LOGIN_PATH;
+  }
+}
+
+function getNextPathServerSnapshot(): string {
+  return DEFAULT_POST_LOGIN_PATH;
+}
+
 export default function LandingPageClient() {
   const [loginOpen, setLoginOpen] = useState(false);
+  // Once the visitor closes a `?login=1` modal it stays closed; the Login
+  // button still opens it through `loginOpen` as before.
+  const [loginRequestDismissed, setLoginRequestDismissed] = useState(false);
+  const loginRequested = useSyncExternalStore(
+    subscribeToLocation,
+    getLoginRequestedSnapshot,
+    getLoginRequestedServerSnapshot,
+  );
+  const postLoginPath = useSyncExternalStore(
+    subscribeToLocation,
+    getNextPathSnapshot,
+    getNextPathServerSnapshot,
+  );
   const router = useRouter();
   const { user: currentUser, loading: userLoading } = useCurrentUser();
   const { centers, currentCenter } = useCenter();
   const hasMultipleCenters = centers.length >= 2;
+  // The store is per center: hidden when switched off, amber while pre-launch.
+  // "Soon" is only shown once the status is known so a live store never
+  // flashes the label for a beat.
+  const { loading: shopLoading, enabled: shopEnabled, comingSoon: shopComingSoon } = useMarketplaceStatus();
+  const shopSoon = !shopLoading && shopComingSoon;
 
   // "Ready to play?" contacts come from the selected center only —
   // not the platform-wide CONTACT_NUMBERS allowlist. Phones come from
@@ -60,8 +124,8 @@ export default function LandingPageClient() {
   useEffect(() => {
     if (userLoading || !currentUser || autoRedirected) return;
     autoRedirected = true;
-    router.replace('/slots');
-  }, [userLoading, currentUser, router]);
+    router.replace(postLoginPath);
+  }, [userLoading, currentUser, router, postLoginPath]);
 
   // Already signed in? Go straight to booking. Asking a returning user to
   // re-verify a number they already own is the wrong answer to "Book Now",
@@ -69,13 +133,20 @@ export default function LandingPageClient() {
   // it is a dead end rather than a blink.
   const openLogin = () => {
     if (currentUser) {
-      router.push('/slots');
+      router.push(postLoginPath);
       return;
     }
     if (userLoading) return; // don't flash the form before we know
     setLoginOpen(true);
   };
-  const closeLogin = () => setLoginOpen(false);
+  const closeLogin = () => {
+    setLoginOpen(false);
+    setLoginRequestDismissed(true);
+  };
+  // A `?login=1` arrival opens the modal only for a signed-out visitor — a
+  // signed-in one is already being redirected to /slots above.
+  const loginModalOpen =
+    loginOpen || (loginRequested && !loginRequestDismissed && !userLoading && !currentUser);
 
   return (
     <div className="flex flex-col min-h-screen bg-[#030712] text-slate-200 selection:bg-accent/30 selection:text-white">
@@ -111,6 +182,23 @@ export default function LandingPageClient() {
               >
                 <MapPin className="w-3.5 h-3.5" />
                 {centers.length} Locations
+              </Link>
+            )}
+            {/* Store entry point — on every size, since a visitor can browse
+                the shop signed out. Compact on phones; the pre-launch cue is
+                the amber tint there and "· Soon" from sm up. */}
+            {shopEnabled && (
+              <Link
+                href={SHOP_PATH}
+                className={`flex items-center gap-1.5 text-xs md:text-sm font-bold px-3 md:px-4 py-2 rounded-full border transition-all active:scale-95 cursor-pointer whitespace-nowrap ${
+                  shopSoon
+                    ? 'text-amber-300 bg-amber-500/10 hover:bg-amber-500/20 border-amber-500/30'
+                    : 'text-accent bg-accent/10 hover:bg-accent/20 border-accent/25'
+                }`}
+              >
+                <ShoppingBag className="w-3.5 h-3.5" />
+                Shop
+                {shopSoon && <span className="hidden sm:inline">&middot; Soon</span>}
               </Link>
             )}
             <button
@@ -390,6 +478,9 @@ export default function LandingPageClient() {
         </div>
       </section>
 
+      {/* Shop — featured gear, or the launch line-up until products exist */}
+      <LandingShopSection />
+
       {/* Features Grid */}
       <section className="relative z-10 px-4 md:px-6 py-4 md:py-10 overflow-hidden">
         <div className="absolute inset-0 bg-gradient-to-b from-transparent via-accent/[0.02] to-transparent -z-10"></div>
@@ -539,7 +630,7 @@ export default function LandingPageClient() {
       </footer>
 
       {/* Login Modal */}
-      <LoginModal isOpen={loginOpen} onClose={closeLogin} />
+      <LoginModal isOpen={loginModalOpen} onClose={closeLogin} redirectTo={postLoginPath} />
     </div>
   );
 }
