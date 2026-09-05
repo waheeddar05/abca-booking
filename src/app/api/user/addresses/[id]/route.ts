@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
+import { runSerializable } from '@/lib/serializable-tx';
 import { getAuthenticatedUser } from '@/lib/auth';
 import { sanitizeApiError } from '@/lib/api-errors';
 import { AddressInputSchema } from '@/lib/addresses';
@@ -51,7 +52,7 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<Params> }) 
     const { isDefault, ...fields } = parsed.data;
     const makeDefault = existing.isDefault || isDefault;
 
-    const updated = await prisma.$transaction(async (tx) => {
+    const updated = await runSerializable(async (tx) => {
       if (makeDefault && !existing.isDefault) {
         await tx.userAddress.updateMany({
           where: { userId: user.id, isDefault: true },
@@ -86,7 +87,7 @@ export async function DELETE(req: NextRequest, ctx: { params: Promise<Params> })
       return NextResponse.json({ error: 'Address not found' }, { status: 404 });
     }
 
-    await prisma.$transaction(async (tx) => {
+    await runSerializable(async (tx) => {
       await tx.userAddress.delete({ where: { id } });
       if (existing.isDefault) {
         const next = await tx.userAddress.findFirst({

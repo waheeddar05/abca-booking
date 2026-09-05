@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { prisma } from '@/lib/prisma';
+import { runSerializable } from '@/lib/serializable-tx';
 import { getAuthenticatedUser } from '@/lib/auth';
 import { sanitizeApiError } from '@/lib/api-errors';
 import { AddressInputSchema, MAX_ADDRESSES_PER_USER } from '@/lib/addresses';
@@ -47,7 +47,10 @@ export async function POST(req: NextRequest) {
     }
     const { isDefault, ...fields } = parsed.data;
 
-    const created = await prisma.$transaction(async (tx) => {
+    // Serializable: the cap and the single-default rule are count/update-
+    // then-write checks that two concurrent submits could otherwise both
+    // pass (six addresses, or two defaults).
+    const created = await runSerializable(async (tx) => {
       const count = await tx.userAddress.count({ where: { userId: user.id } });
       if (count >= MAX_ADDRESSES_PER_USER) {
         throw new AddressLimitError();

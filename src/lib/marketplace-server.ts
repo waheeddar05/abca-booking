@@ -16,6 +16,7 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
+import { runSerializable } from '@/lib/serializable-tx';
 import { getPolicyJson } from '@/lib/policy';
 import type { CenterSummary } from '@/lib/centers';
 import {
@@ -211,9 +212,13 @@ export async function readImageUpload(req: NextRequest): Promise<ImageUpload> {
   };
 }
 
-/** Persist an upload as the last image of a product. */
+/**
+ * Persist an upload as the last image of a product. The per-product cap
+ * is a count-then-insert, so it runs serializably: two uploads racing
+ * for the last slot can't both get in.
+ */
 export async function storeProductImage(productId: string, upload: Extract<ImageUpload, { ok: true }>) {
-  return prisma.$transaction(async (tx) => {
+  return runSerializable(async (tx) => {
     const count = await tx.marketplaceProductImage.count({ where: { productId } });
     if (count >= MARKETPLACE_LIMITS.maxImages) {
       throw new ImageLimitError();

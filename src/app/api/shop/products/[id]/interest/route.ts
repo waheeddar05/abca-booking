@@ -2,7 +2,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 import { getAuthenticatedUser } from '@/lib/auth';
+import { findCenterById } from '@/lib/centers';
 import { sanitizeApiError } from '@/lib/api-errors';
+import { getMarketplaceConfig } from '@/lib/marketplace-server';
 
 type Params = { id: string };
 
@@ -25,9 +27,19 @@ export async function POST(req: NextRequest, ctx: { params: Promise<Params> }) {
     const { id } = await ctx.params;
     const product = await prisma.marketplaceProduct.findUnique({
       where: { id },
-      select: { id: true, isActive: true },
+      select: { id: true, isActive: true, centerId: true },
     });
     if (!product || !product.isActive) {
+      return NextResponse.json({ error: 'Product not found' }, { status: 404 });
+    }
+    // Same visibility gate as the product page: a product whose center is
+    // inactive or whose store is switched off isn't on offer, so it can't
+    // collect interest either.
+    const [center, config] = await Promise.all([
+      findCenterById(product.centerId),
+      getMarketplaceConfig(product.centerId),
+    ]);
+    if (!center || !center.isActive || !config.enabled) {
       return NextResponse.json({ error: 'Product not found' }, { status: 404 });
     }
 

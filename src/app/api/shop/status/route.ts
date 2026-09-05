@@ -63,8 +63,11 @@ export async function GET(req: NextRequest) {
   }
 }
 
-// Per-viewer (the center cookie picks the catalog), briefly cacheable so a
-// page with three highlights doesn't hit the DB three times per load.
+// Not browser-cached: the payload depends on the center cookie, so a
+// cached copy would replay the previous center's store for half a minute
+// after a switch, and an admin's own settings save would read back stale
+// through `invalidateMarketplaceStatus()`. De-duplication within a page
+// load is the job of the module-level cache in `marketplace-status.tsx`.
 const CACHE_HEADERS = {
-  'Cache-Control': 'private, max-age=30, stale-while-revalidate=120',
+  'Cache-Control': 'private, no-store',
 };
