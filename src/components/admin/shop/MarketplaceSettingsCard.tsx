@@ -129,11 +129,10 @@ export function MarketplaceSettingsCard({ onSaved }: Props) {
   // say so here rather than after the save.
   const typedPhone = form?.enquiryPhone.trim() ?? '';
   const typedDigits = typedPhone ? toWhatsAppDigits(typedPhone) : null;
-  const fallbackDigits = saved
-    ? saved.config.enquiryPhone.trim()
-      ? toWhatsAppDigits(saved.centerContactPhone)
-      : saved.enquiryPhone
-    : null;
+  // The server resolves the blank-number fallback from the center's whole
+  // contact list, exactly as the shop does, so the preview is what will
+  // actually be dialled.
+  const fallbackDigits = saved?.fallbackEnquiryPhone ?? null;
   const resolvedDigits = typedPhone ? typedDigits : fallbackDigits;
 
   return (

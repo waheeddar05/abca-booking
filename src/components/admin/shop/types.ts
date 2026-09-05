@@ -20,6 +20,8 @@ export interface ShopSettingsResponse {
   config: MarketplaceConfig;
   /** Resolved WhatsApp digits (typed number → center contact), or null. */
   enquiryPhone: string | null;
+  /** The center-contact digits the shop falls back to when the typed number is blank. */
+  fallbackEnquiryPhone: string | null;
   centerContactPhone: string | null;
 }
 

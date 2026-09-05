@@ -26,6 +26,11 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({
       config,
       enquiryPhone: resolveEnquiryPhone(config, auth.center),
+      // What the shop uses when the store's own number is blank — the
+      // center's contact list, resolved the same way the shop does it, so
+      // the settings card previews the real fallback rather than guessing
+      // from the single legacy contactPhone column.
+      fallbackEnquiryPhone: resolveEnquiryPhone({ ...config, enquiryPhone: '' }, auth.center),
       centerContactPhone: auth.center.contactPhone,
     });
   } catch (error) {
