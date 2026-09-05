@@ -61,6 +61,13 @@ export async function middleware(req: NextRequest) {
     // public surface so a brand-new visitor can pick a center before sign-in.
     pathname === "/centers" ||
     pathname.startsWith("/api/centers") ||
+    // The store is a marketing surface too: anyone can browse /shop and
+    // its catalog API before signing in. Routes under /api/shop that need
+    // a user ("Notify me") check the session themselves and answer a JSON
+    // 401 instead of the HTML redirect a protected path would get.
+    pathname === "/shop" ||
+    pathname.startsWith("/shop/") ||
+    pathname.startsWith("/api/shop") ||
     // /loc/[slug] → per-center map redirect for the booking template's
     // "View Location" button; must be reachable without auth.
     pathname.startsWith("/loc/") ||
@@ -187,6 +194,9 @@ export async function middleware(req: NextRequest) {
         "/admin/coach",
         "/admin/ground-staff",
         "/admin/offers",
+        // Marketplace (store catalog, prices, images) is pricing — full
+        // admins only, same as Offers.
+        "/admin/shop",
       ];
       if (moderatorBlockedPrefixes.some((p) => pathname === p || pathname.startsWith(p + "/"))) {
         return NextResponse.redirect(new URL("/admin", req.url));

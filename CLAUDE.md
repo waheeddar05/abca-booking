@@ -150,7 +150,7 @@ if (!hasMembershipRole(user, center.id, 'ADMIN')) {
 - `src/app/api/` — API routes (auth, bookings, slots, packages, payments, admin/*, operator/*)
 - `src/app/admin/` — Admin dashboard pages
 - `src/app/operator/` — Operator dashboard
-- `src/app/slots/`, `src/app/bookings/`, `src/app/packages/` — User-facing pages
+- `src/app/slots/`, `src/app/bookings/`, `src/app/packages/`, `src/app/shop/`, `src/app/profile/` — User-facing pages
 - `src/components/` — React components (Navbar, BookingForm, slots/, ui/)
 - `src/hooks/` — Custom hooks (useSlots, usePackages, usePricing)
 - `src/lib/` — Core business logic (auth, pricing, prisma, razorpay, constants, schemas, sms, time, jwt, api-client)
@@ -403,6 +403,35 @@ Consequences worth knowing:
 
 **Operator Sessions card**: all four numbers count the same universe — non-cancelled `category = MACHINE` bookings in range — partitioned into three disjoint, exhaustive buckets so `Total = Σ(per-operator) + Self-Operate + Unassigned` always holds: `operatorId` set / no operator + `SELF_OPERATE` / no operator + `WITH_OPERATOR`. The `category: MACHINE` scope is what makes the identity true: `operationMode` is a non-null column defaulting to `WITH_OPERATOR` and the resource engine stamps every non-machine row `SELF_OPERATE`, so counting across all categories dumped every net / sidearm / coaching / match-practice booking into the Self-Operate and Unassigned buckets.
 
+### Marketplace (Shop) — bats, gloves, thigh guards & gear
+
+The in-app store. User-facing label **Shop** at **`/shop`** (public — browsable signed-out, like `/centers`), admin label **Marketplace** at **`/admin/shop`**. Center-scoped like every other domain table: an admin manages the current center's catalog through the center switcher, and `/shop` shows the current center's products (query → cookie → default). A product *link* (`/shop/[id]`) opens for whoever taps it regardless of their center cookie — the detail route looks the product up by id and takes its config from the product's own center.
+
+**Launch state is the per-center `MARKETPLACE_CONFIG` policy** (center → global → `DEFAULT_MARKETPLACE_CONFIG`), normalised by `normalizeMarketplaceConfig` in `src/lib/marketplace.ts` (a **pure module** shared by the admin editor and the routes):
+
+```json
+{ "enabled": true, "comingSoon": true, "launchNote": "", "enquiryPhone": "" }
+```
+
+- `comingSoon: true` (the default) is the pre-launch mode the store ships in: every card wears a red-amber **Coming soon** ribbon, the product page offers **Notify me when available** (a `MarketplaceInterest` row — admins see the count per product and the list of users as launch leads) plus **Ask on WhatsApp**. There is no cart or checkout.
+- `comingSoon: false` opens ordering **over WhatsApp**: the product page's **Order on WhatsApp** button deep-links `wa.me` with a prefilled message (product, size, quantity, the user's default delivery address, product URL — `buildEnquiryMessage`). Online checkout/Razorpay for the store is deliberately not built yet.
+- `enabled: false` hides the store everywhere (nav entries, landing section, promo strip; `/shop` renders "not available").
+- `enquiryPhone` blank falls back to the center's `contactPhones` / `contactPhone` (`resolveEnquiryPhone`). Edited on Admin → Marketplace → Store settings (`PUT /api/admin/shop/settings`, writes `CenterPolicy`).
+
+**Where it is highlighted**: Navbar desktop link + BottomNav tab "Shop" (with a "Soon" pill while `comingSoon`), the landing page's **GEAR UP.** section (`LandingShopSection` — up to four featured products via `GET /api/shop/status`, or category teaser tiles when the catalog is empty) and a "Shop" pill in the landing nav, and a dismissible `MarketplacePromoBanner` strip at the top of `/slots`. All of them read one cached client fetch of `/api/shop/status` through `useMarketplaceStatus()` (`src/lib/marketplace-status.tsx`); the admin settings card calls `invalidateMarketplaceStatus()` after a save.
+
+**Schema** (`prisma/schema.prisma`, migration `20260905120000_marketplace_and_addresses`):
+- `MarketplaceProduct` — `centerId`, `name`, `category` (TEXT code validated against `MARKETPLACE_CATEGORIES` — `BAT`, `GLOVES`, `THIGH_GUARD`, `PADS`, `HELMET`, `PROTECTION`, `BALL`, `KIT_BAG`, `SHOES`, `ACCESSORY` — so a new category is a code change, not a migration), `brand`, `sku`, `description`, `price`, `mrp` (strike-through; must be ≥ price), `stockQty` (null = untracked), `inStock`, `isActive` (**published**; new products start hidden so photos can be added first), `isFeatured`, `displayOrder`, `sizes String[]` (chips — "SH", "Harrow"), `specs Json` (`[{label, value}]`). Validated by `ProductInputSchema`; PATCH takes the **complete** product like the ledger.
+- `MarketplaceProductImage` — the photo **bytes in Postgres** (`Bytes`), plus sniffed `contentType`, `sizeBytes`, `width`/`height` (read from the container headers, no image library), `sortOrder` (0 = primary). Served by `GET /api/shop/images/[id]` with `Cache-Control: public, max-age=31536000, immutable` — a row is never edited, only replaced (delete + upload = new id), so the id is a safe forever-cache key. **Never select `data` in a list query**; `PRODUCT_IMAGE_META_SELECT` in `src/lib/marketplace-server.ts` is the metadata-only select. Uploads go through `readImageUpload` (multipart `file`, type decided by magic bytes not the declared header, ≤ `MARKETPLACE_LIMITS.maxImageBytes` = 3 MB, ≤ 8 per product) after the browser has downsized them with `prepareImageForUpload` (`src/lib/image-resize.ts`, longest edge 1600px, EXIF orientation baked in). All storage access sits in `marketplace-server.ts` so a move to an object store (Vercel Blob) is a change there, not in the routes.
+- `MarketplaceInterest` — unique `(productId, userId)`, cascade-deleted with the product.
+- `UserAddress` — **global**, not center-scoped (a home address doesn't change with the center): `label`, `fullName`, `phone` (normalised 10-digit), `line1`/`line2`/`landmark`, `city`, `state`, `pincode`, `isDefault`. Up to `MAX_ADDRESSES_PER_USER` (5); the first one is the default automatically, the default can only be *moved* (never unset) and deleting it promotes the oldest remaining. Managed on **`/profile`** (`src/app/profile/page.tsx`, reachable from the Navbar's profile icon) through `/api/user/addresses` (+`/[id]`); the schema is `AddressInputSchema` in `src/lib/addresses.ts` (pure).
+
+**Routes**: public `GET /api/shop/status`, `GET /api/shop/products` (published only, per-category counts), `GET /api/shop/products/[id]`, `POST|DELETE /api/shop/products/[id]/interest` (signed-in; answers a JSON 401 rather than the middleware's HTML redirect because `/api/shop` is on the public list), `GET /api/shop/images/[id]`. Admin `GET|POST /api/admin/shop/products`, `GET|PATCH|DELETE …/[id]`, `POST|PATCH …/[id]/images` (upload / reorder), `DELETE …/[id]/images/[imageId]`, `GET|PUT /api/admin/shop/settings`.
+
+**Permissions**: Admin → Marketplace is a **full-admin** surface, exactly like Offers — pricing and stock are not a floor task. Moderators are blocked in the middleware (`/admin/shop` is in the blocklist), rejected by every `/api/admin/shop/*` route (`requireShopAdmin` in `src/app/api/admin/shop/shared.ts` = `requireCenterAdmin` + `!isModerator`), and the link is hidden in `layout.tsx` / `AdminMobileNav`.
+
+**Key files**: `src/lib/marketplace.ts` (catalog, config, Zod, WhatsApp link/message helpers, image sniffing), `src/lib/marketplace-server.ts` (Prisma selects/mappers, config resolution, image storage), `src/lib/addresses.ts`, `src/lib/marketplace-status.tsx`, `src/components/shop/` (`ProductCard` — the one tile used by `/shop` and the landing page — `ProductImage`, `ShopBadges`, gallery/detail/list clients, `LandingShopSection`, `MarketplacePromoBanner`), `src/app/shop/`, `src/app/profile/`, `src/components/profile/`, `src/app/admin/shop/page.tsx`, `src/components/admin/shop/`.
+
 ### Per-center Razorpay (phase 6)
 
 Each `Center` row may store its own `razorpayKeyId`, `razorpayKeySecret`, and `razorpayWebhookSecret`. When set, every Razorpay operation for that center routes to its own merchant account; centers without keys fall back to the env (`RAZORPAY_KEY_ID` / `RAZORPAY_KEY_SECRET` / `RAZORPAY_WEBHOOK_SECRET`).
@@ -432,6 +461,8 @@ The legacy `getRazorpayInstance()` and `verifyPaymentSignature(...)` are depreca
 | Package, UserPackage | center via Package | `Package.centerId` is authoritative; `UserPackage` derives via join |
 | Payment, Refund | center | per-center Razorpay account |
 | LedgerEntry | center | manual revenue + expenses; `(centerId, kind, entryDate)` index |
+| MarketplaceProduct, MarketplaceProductImage, MarketplaceInterest | center (via product) | the Shop catalog; image bytes live in `MarketplaceProductImage.data` |
+| **UserAddress** | **global** | delivery addresses on `/profile`; one default per user |
 | **Wallet, WalletTransaction** | **center** | `(userId, centerId)` unique; per-center balances; refunds at center X credit user's center-X wallet only |
 | PromotionalOffer, RecurringSlotDiscount | center | |
 | OperatorAssignment, CashPaymentUser | center | |
