@@ -1,7 +1,8 @@
 'use client';
 
-import { BadgeCheck, Mail, Phone, UserRound } from 'lucide-react';
+import { BadgeCheck, Phone, UserRound } from 'lucide-react';
 import type { CurrentUser } from '@/lib/current-user';
+import { ProfileEmailEditor } from './ProfileEmailEditor';
 import { ProfileNameEditor } from './ProfileNameEditor';
 import { formatMobileDisplay, initialsOf } from './profile-format';
 
@@ -14,7 +15,8 @@ interface AccountCardProps {
 /**
  * Who the signed-in account is: avatar initials, the editable name, the
  * mobile number the account is keyed on (with its verified state) and
- * the email when a legacy Google account has one.
+ * the editable email — added for receipts and store enquiries, since a
+ * WhatsApp login supplies none.
  */
 export function AccountCard({ user, onRefresh }: AccountCardProps) {
   const initials = initialsOf(user.name);
@@ -59,13 +61,16 @@ export function AccountCard({ user, onRefresh }: AccountCardProps) {
               )}
             </div>
 
-            {user.email && (
-              <div className="flex items-center gap-2 text-sm min-w-0">
-                <dt className="sr-only">Email</dt>
-                <Mail className="w-3.5 h-3.5 text-slate-500 shrink-0" aria-hidden="true" />
-                <dd className="text-slate-300 truncate">{user.email}</dd>
-              </div>
-            )}
+            <div className="min-w-0">
+              <dt className="sr-only">Email</dt>
+              <dd>
+                <ProfileEmailEditor
+                  email={user.email}
+                  hasMobile={!!user.mobileNumber}
+                  onSaved={onRefresh}
+                />
+              </dd>
+            </div>
           </dl>
         </div>
       </div>

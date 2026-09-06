@@ -20,9 +20,9 @@ type Params = { id: string };
  * capped per product. The client resizes before sending, so a phone
  * photo arrives at a few hundred KB, not ten MB.
  */
-async function ownedProduct(id: string, centerId: string) {
-  const row = await prisma.marketplaceProduct.findUnique({ where: { id }, select: { id: true, centerId: true } });
-  return row && row.centerId === centerId ? row : null;
+async function productExists(id: string): Promise<boolean> {
+  const row = await prisma.marketplaceProduct.findUnique({ where: { id }, select: { id: true } });
+  return !!row;
 }
 
 const notFound = () => NextResponse.json({ error: 'Product not found' }, { status: 404 });
@@ -32,7 +32,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<Params> }) {
     const auth = await requireShopAdmin(req);
     if (!auth) return forbidden();
     const { id } = await ctx.params;
-    if (!(await ownedProduct(id, auth.center.id))) return notFound();
+    if (!(await productExists(id))) return notFound();
 
     const upload = await readImageUpload(req);
     if (!upload.ok) return NextResponse.json({ error: upload.error }, { status: upload.status });
@@ -53,7 +53,7 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<Params> }) 
     const auth = await requireShopAdmin(req);
     if (!auth) return forbidden();
     const { id } = await ctx.params;
-    if (!(await ownedProduct(id, auth.center.id))) return notFound();
+    if (!(await productExists(id))) return notFound();
 
     const body = (await readJson(req)) as { order?: unknown } | undefined;
     const order = Array.isArray(body?.order) ? body!.order.filter((x): x is string => typeof x === 'string') : null;

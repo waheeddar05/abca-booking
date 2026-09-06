@@ -81,7 +81,6 @@ model Center {
   centerPolicies      CenterPolicy[]
   wallets             Wallet[]
   ledgerEntries       LedgerEntry[]
-  marketplaceProducts MarketplaceProduct[]
 }
 
 enum BookingModel {
@@ -350,6 +349,12 @@ model User {
   // Persistent super-admin flag. Source of truth from now on; the
   // SUPER_ADMIN_EMAIL env var is kept as a bootstrap fallback.
   isSuperAdmin            Boolean              @default(false)
+  // Runs the Cricket Store (Admin -> Cricket Store): products, photos,
+  // prices, launch settings. A platform-level grant like isSuperAdmin,
+  // NOT a center membership — the store is one catalog for all of
+  // PlayOrbit. Written only by a super admin (PATCH /api/admin/users)
+  // or scripts/make-admin.ts --store.
+  isStoreAdmin            Boolean              @default(false)
   image                   String?
   isBlacklisted           Boolean              @default(false)
   isFreeUser              Boolean              @default(false)
@@ -1239,18 +1244,19 @@ enum LedgerPaymentMethod {
   OTHER
 }
 
-// ─── Marketplace ────────────────────────────────────────────────────
+// ─── Cricket Store ──────────────────────────────────────────────────
 //
-// The in-app store (Admin -> Marketplace, user /shop): cricket gear —
-// bats first, then gloves, thigh guards and the rest. Center-scoped like
-// every other domain table: each center runs its own catalog through the
-// admin center switcher, and the user-side /shop shows the current
-// center's products. Launch state ("Coming soon") is the per-center
-// MARKETPLACE_CONFIG policy, not a column here.
+// The in-app store (Admin -> Cricket Store, user /shop): cricket gear —
+// bats first, then gloves, thigh guards and the rest. Deliberately NOT
+// center-scoped: PlayOrbit sells one catalog to every customer, whichever
+// center they book at, and hand-pick/collection happens at one configured
+// location (initially Toplay). Managed by store admins
+// (User.isStoreAdmin) and super admins, never by center admins. Launch
+// state ("Coming soon") and the pickup note are the global
+// MARKETPLACE_CONFIG policy, not columns here.
 
 model MarketplaceProduct {
-  id       String @id @default(cuid())
-  centerId String
+  id String @id @default(cuid())
 
   name        String
   // Category code validated against the catalog in src/lib/marketplace.ts
@@ -1286,14 +1292,13 @@ model MarketplaceProduct {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  center    Center                    @relation(fields: [centerId], references: [id], onDelete: Cascade)
   createdBy User?                     @relation("MarketplaceProductsCreated", fields: [createdById], references: [id], onDelete: SetNull)
   images    MarketplaceProductImage[]
   interests MarketplaceInterest[]
 
-  // /shop listing: published products at a center, per category.
-  @@index([centerId, isActive, category])
-  @@index([centerId, displayOrder])
+  // /shop listing: published products, per category.
+  @@index([isActive, category])
+  @@index([displayOrder])
 }
 
 // Product photos, stored in Postgres (bytea) and served by

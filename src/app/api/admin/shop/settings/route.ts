@@ -8,31 +8,22 @@ import { getMarketplaceConfig, resolveEnquiryPhone } from '@/lib/marketplace-ser
 import { forbidden, readJson, requireShopAdmin } from '../shared';
 
 /**
- * Store launch settings for the current center — the MARKETPLACE_CONFIG
- * policy behind "Coming soon".
+ * Cricket Store launch settings — the MARKETPLACE_CONFIG policy behind
+ * "Coming soon", the pickup note and the enquiry number.
  *
- *   GET /api/admin/shop/settings   resolved config (center → global → default)
- *   PUT /api/admin/shop/settings   write the center override
+ *   GET /api/admin/shop/settings   resolved config (global → default)
+ *   PUT /api/admin/shop/settings   write it
  *
- * Writes go to CenterPolicy(currentCenter, MARKETPLACE_CONFIG), exactly
- * like a Save on Admin → Configuration, and invalidate the policy cache
- * so /shop picks the change up immediately.
+ * The store is one catalog for all of PlayOrbit, so this is the **global**
+ * `Policy` row — never a `CenterPolicy` — and the cache is invalidated for
+ * every center so /shop picks the change up immediately.
  */
 export async function GET(req: NextRequest) {
   try {
     const auth = await requireShopAdmin(req);
     if (!auth) return forbidden();
-    const config = await getMarketplaceConfig(auth.center.id);
-    return NextResponse.json({
-      config,
-      enquiryPhone: resolveEnquiryPhone(config, auth.center),
-      // What the shop uses when the store's own number is blank — the
-      // center's contact list, resolved the same way the shop does it, so
-      // the settings card previews the real fallback rather than guessing
-      // from the single legacy contactPhone column.
-      fallbackEnquiryPhone: resolveEnquiryPhone({ ...config, enquiryPhone: '' }, auth.center),
-      centerContactPhone: auth.center.contactPhone,
-    });
+    const config = await getMarketplaceConfig();
+    return NextResponse.json({ config, enquiryPhone: resolveEnquiryPhone(config) });
   } catch (error) {
     const { message, status } = sanitizeApiError(error, 'admin.shop.settings.get');
     return NextResponse.json({ error: message }, { status });
@@ -55,16 +46,17 @@ export async function PUT(req: NextRequest) {
     }
 
     const value = JSON.stringify(parsed.data);
-    await prisma.centerPolicy.upsert({
-      where: { centerId_key: { centerId: auth.center.id, key: MARKETPLACE_POLICY_KEY } },
+    await prisma.policy.upsert({
+      where: { key: MARKETPLACE_POLICY_KEY },
       update: { value },
-      create: { centerId: auth.center.id, key: MARKETPLACE_POLICY_KEY, value },
+      create: { key: MARKETPLACE_POLICY_KEY, value },
     });
-    invalidatePolicy(MARKETPLACE_POLICY_KEY, auth.center.id);
+    // Every cached variant of the key (global and any per-center reads).
+    invalidatePolicy(MARKETPLACE_POLICY_KEY);
     invalidatePolicyCache(MARKETPLACE_POLICY_KEY);
 
-    const config = await getMarketplaceConfig(auth.center.id);
-    return NextResponse.json({ config, enquiryPhone: resolveEnquiryPhone(config, auth.center) });
+    const config = await getMarketplaceConfig();
+    return NextResponse.json({ config, enquiryPhone: resolveEnquiryPhone(config) });
   } catch (error) {
     const { message, status } = sanitizeApiError(error, 'admin.shop.settings.put');
     return NextResponse.json({ error: message }, { status });

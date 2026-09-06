@@ -1,8 +1,9 @@
 'use client';
 
 /**
- * Store settings for the current center — the `MARKETPLACE_CONFIG`
- * policy behind "Coming soon".
+ * Cricket Store settings — the global `MARKETPLACE_CONFIG` policy behind
+ * "Coming soon", the pickup location and the enquiry number. One store
+ * for all of PlayOrbit, so there is no center in sight here.
  *
  * Reads `GET /api/admin/shop/settings`, writes `PUT`. The two toggles
  * are the launch levers: **Store enabled** shows or hides the shop
@@ -17,7 +18,7 @@
  */
 
 import { useCallback, useEffect, useState } from 'react';
-import { Clock, Loader2, MessageCircle, Save, Store } from 'lucide-react';
+import { Clock, Loader2, MapPin, MessageCircle, Save, Store } from 'lucide-react';
 import { AdminCard } from '@/components/admin/AdminCard';
 import { AdminToggle } from '@/components/admin/AdminToggle';
 import { ErrorState } from '@/components/ui/ErrorState';
@@ -84,6 +85,7 @@ export function MarketplaceSettingsCard({ onSaved }: Props) {
     (form.enabled !== saved.config.enabled ||
       form.comingSoon !== saved.config.comingSoon ||
       form.launchNote.trim() !== saved.config.launchNote ||
+      form.pickupNote.trim() !== saved.config.pickupNote ||
       form.enquiryPhone.trim() !== saved.config.enquiryPhone);
 
   const save = async () => {
@@ -93,6 +95,7 @@ export function MarketplaceSettingsCard({ onSaved }: Props) {
       enabled: form.enabled,
       comingSoon: form.comingSoon,
       launchNote: form.launchNote.trim(),
+      pickupNote: form.pickupNote.trim(),
       enquiryPhone: form.enquiryPhone.trim(),
     };
     const parsed = MarketplaceConfigSchema.safeParse(candidate);
@@ -123,22 +126,17 @@ export function MarketplaceSettingsCard({ onSaved }: Props) {
     }
   };
 
-  // The number the shop's WhatsApp buttons will actually open. A typed
-  // number wins; blank falls back to the center's contact phone. While a
-  // typed number is unusable the buttons would be hidden on the shop, so
-  // say so here rather than after the save.
+  // The number the store's WhatsApp buttons will actually open. There is
+  // no fallback to a center's phone — the store is not a center's — so a
+  // blank or unusable number hides the buttons; say so here rather than
+  // after the save.
   const typedPhone = form?.enquiryPhone.trim() ?? '';
-  const typedDigits = typedPhone ? toWhatsAppDigits(typedPhone) : null;
-  // The server resolves the blank-number fallback from the center's whole
-  // contact list, exactly as the shop does, so the preview is what will
-  // actually be dialled.
-  const fallbackDigits = saved?.fallbackEnquiryPhone ?? null;
-  const resolvedDigits = typedPhone ? typedDigits : fallbackDigits;
+  const resolvedDigits = typedPhone ? toWhatsAppDigits(typedPhone) : null;
 
   return (
     <AdminCard
       title="Store settings"
-      subtitle="Launch state and the number customers reach on WhatsApp"
+      subtitle="Launch state, pickup location and the WhatsApp number customers reach"
       icon={
         <div className="w-8 h-8 rounded-lg bg-accent/10 flex items-center justify-center">
           <Store className="w-4 h-4 text-accent" />
@@ -161,7 +159,7 @@ export function MarketplaceSettingsCard({ onSaved }: Props) {
               enabled={form.enabled}
               onToggle={() => set('enabled', !form.enabled)}
               label="Store enabled"
-              description="Show the shop in the app, on the landing page and at /shop"
+              description="Show the Cricket Store in the app, on the landing page and at /shop"
               icon={Store}
               disabled={saving}
             />
@@ -197,6 +195,30 @@ export function MarketplaceSettingsCard({ onSaved }: Props) {
           </div>
 
           <div>
+            <label htmlFor="shop-pickup-note" className={labelClass}>
+              Pickup / hand-pick location
+            </label>
+            <div className="relative">
+              <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-500" />
+              <input
+                id="shop-pickup-note"
+                value={form.pickupNote}
+                onChange={(e) => set('pickupNote', e.target.value)}
+                maxLength={MARKETPLACE_LIMITS.pickupNote}
+                placeholder="Hand-pick and collect your gear at Toplay."
+                className={`${inputClass} pl-9`}
+                disabled={saving}
+              />
+            </div>
+            <p className="flex justify-between gap-3 text-[11px] text-slate-500 mt-1">
+              <span>Shown on the store and every product page. Leave blank to hide it.</span>
+              <span className="tabular-nums shrink-0">
+                {form.pickupNote.length}/{MARKETPLACE_LIMITS.pickupNote}
+              </span>
+            </p>
+          </div>
+
+          <div>
             <label htmlFor="shop-enquiry-phone" className={labelClass}>
               Enquiry WhatsApp number
             </label>
@@ -210,13 +232,13 @@ export function MarketplaceSettingsCard({ onSaved }: Props) {
                 value={form.enquiryPhone}
                 onChange={(e) => set('enquiryPhone', e.target.value)}
                 maxLength={20}
-                placeholder={saved.centerContactPhone || '10-digit mobile number'}
+                placeholder="10-digit mobile number"
                 className={`${inputClass} pl-9`}
                 disabled={saving}
               />
             </div>
             <p className="text-[11px] mt-1 leading-relaxed">
-              {typedPhone && !typedDigits ? (
+              {typedPhone && !resolvedDigits ? (
                 <span className="text-red-400">
                   Not a valid Indian mobile number — enter 10 digits or leave blank.
                 </span>
@@ -226,12 +248,12 @@ export function MarketplaceSettingsCard({ onSaved }: Props) {
                   <span className="text-slate-300 font-semibold tabular-nums">
                     {formatWhatsAppDigits(resolvedDigits)}
                   </span>
-                  {!typedPhone && ' (the center contact number)'}.
+                  .
                 </span>
               ) : (
                 <span className="text-amber-300">
-                  No usable number — the shop&apos;s WhatsApp buttons will be hidden until one is set
-                  here or on the center.
+                  No number set — the store&apos;s WhatsApp buttons stay hidden until one is entered
+                  here.
                 </span>
               )}
             </p>

@@ -42,6 +42,14 @@ export interface SessionTokenPayload extends JWTPayload {
   mobileNumber?: string | null;
   role?: string;
   mobileVerified?: boolean;
+  /**
+   * Platform-level grants, so the middleware can route a store admin who
+   * is otherwise a plain USER into /admin/shop and keep a center admin
+   * out of it. Absent on tokens issued before these claims existed; the
+   * middleware treats "absent" as unknown and leaves it to the API guard.
+   */
+  isSuperAdmin?: boolean;
+  isStoreAdmin?: boolean;
 }
 
 export async function signToken(payload: SessionTokenPayload): Promise<string> {

@@ -1,7 +1,5 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { getAuthenticatedUser } from '@/lib/auth';
-import { resolveCurrentCenter } from '@/lib/centers';
 import { sanitizeApiError } from '@/lib/api-errors';
 import type { MarketplaceStatus } from '@/lib/marketplace';
 import {
@@ -14,35 +12,34 @@ import {
 
 /**
  * GET /api/shop/status — the one light payload every store highlight
- * reads: the Navbar / BottomNav "Shop" entry, the landing page's Gear Up
- * section, and the promo strip on /slots. Public (no session needed);
- * the center is resolved the same way as everywhere else (query →
- * cookie → membership → default).
+ * reads: the Navbar / BottomNav "Store" entry, the landing page's Gear Up
+ * section, and the promo strip on /slots. Public (no session needed) and
+ * the same for every visitor: the Cricket Store is one catalog for all of
+ * PlayOrbit, not a center's.
  *
- * Returns the launch state, the enquiry number, a product count and up
- * to four published products (featured first) for the landing teaser.
+ * Returns the launch state, the pickup note, the enquiry number, a product
+ * count and up to four published products (featured first) for the
+ * landing teaser.
  */
-export async function GET(req: NextRequest) {
+export async function GET() {
   try {
-    const user = await getAuthenticatedUser(req);
-    const center = await resolveCurrentCenter(req, user);
-    const config = await getMarketplaceConfig(center?.id ?? null);
+    const config = await getMarketplaceConfig();
 
     const base: MarketplaceStatus = {
-      enabled: !!center && config.enabled,
+      enabled: config.enabled,
       comingSoon: config.comingSoon,
       launchNote: config.launchNote,
-      enquiryPhone: resolveEnquiryPhone(config, center),
-      center: center ? { id: center.id, name: center.name, slug: center.slug } : null,
+      pickupNote: config.pickupNote,
+      enquiryPhone: resolveEnquiryPhone(config),
       productCount: 0,
       featured: [],
     };
 
-    if (!center || !config.enabled) {
+    if (!config.enabled) {
       return NextResponse.json(base, { headers: CACHE_HEADERS });
     }
 
-    const where = { centerId: center.id, isActive: true };
+    const where = { isActive: true };
     const [productCount, featured] = await Promise.all([
       prisma.marketplaceProduct.count({ where }),
       prisma.marketplaceProduct.findMany({
@@ -63,11 +60,10 @@ export async function GET(req: NextRequest) {
   }
 }
 
-// Not browser-cached: the payload depends on the center cookie, so a
-// cached copy would replay the previous center's store for half a minute
-// after a switch, and an admin's own settings save would read back stale
-// through `invalidateMarketplaceStatus()`. De-duplication within a page
-// load is the job of the module-level cache in `marketplace-status.tsx`.
+// Not browser-cached: an admin's own settings save reads back through
+// `invalidateMarketplaceStatus()` and must see the new value at once.
+// De-duplication within a page load is the job of the module-level cache
+// in `marketplace-status.tsx`.
 const CACHE_HEADERS = {
   'Cache-Control': 'private, no-store',
 };

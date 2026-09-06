@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   DEFAULT_MARKETPLACE_CONFIG,
+  DEFAULT_PICKUP_NOTE,
   MARKETPLACE_CATEGORIES,
   MARKETPLACE_CATEGORY_IDS,
   MARKETPLACE_LIMITS,
@@ -32,13 +33,15 @@ describe('normalizeMarketplaceConfig', () => {
     }
   });
 
-  it('defaults to enabled + coming soon with no note and no phone', () => {
+  it('defaults to enabled + coming soon, pickup at Toplay, no note and no phone', () => {
     expect(DEFAULT_MARKETPLACE_CONFIG).toEqual({
       enabled: true,
       comingSoon: true,
       launchNote: '',
+      pickupNote: DEFAULT_PICKUP_NOTE,
       enquiryPhone: '',
     });
+    expect(DEFAULT_PICKUP_NOTE).toContain('Toplay');
   });
 
   it('returns a fresh object — mutating the result cannot corrupt the defaults', () => {
@@ -51,14 +54,27 @@ describe('normalizeMarketplaceConfig', () => {
 
   it('parses a JSON string the way the policy row stores it', () => {
     const config = normalizeMarketplaceConfig(
-      '{"enabled":false,"comingSoon":false,"launchNote":"Diwali 2026","enquiryPhone":"9876543210"}',
+      '{"enabled":false,"comingSoon":false,"launchNote":"Diwali 2026","pickupNote":"Collect at Toplay, Baner","enquiryPhone":"9876543210"}',
     );
     expect(config).toEqual({
       enabled: false,
       comingSoon: false,
       launchNote: 'Diwali 2026',
+      pickupNote: 'Collect at Toplay, Baner',
       enquiryPhone: '9876543210',
     });
+  });
+
+  it('keeps a cleared pickup note empty but defaults a missing one', () => {
+    // A stored empty string is a real value — the admin hid the line.
+    expect(normalizeMarketplaceConfig({ pickupNote: '' }).pickupNote).toBe('');
+    expect(normalizeMarketplaceConfig({ pickupNote: '   ' }).pickupNote).toBe('');
+    // A row written before the field existed carries no key → default.
+    expect(normalizeMarketplaceConfig({ enabled: true }).pickupNote).toBe(DEFAULT_PICKUP_NOTE);
+    expect(normalizeMarketplaceConfig({ pickupNote: 42 }).pickupNote).toBe(DEFAULT_PICKUP_NOTE);
+    expect(normalizeMarketplaceConfig({ pickupNote: 'x'.repeat(300) }).pickupNote).toHaveLength(
+      MARKETPLACE_LIMITS.pickupNote,
+    );
   });
 
   it('tolerates the string booleans a hand-edited policy row can carry', () => {
@@ -75,7 +91,13 @@ describe('normalizeMarketplaceConfig', () => {
 
   it('drops unknown keys', () => {
     const config = normalizeMarketplaceConfig({ enabled: true, cart: true, theme: 'dark' });
-    expect(Object.keys(config).sort()).toEqual(['comingSoon', 'enabled', 'enquiryPhone', 'launchNote']);
+    expect(Object.keys(config).sort()).toEqual([
+      'comingSoon',
+      'enabled',
+      'enquiryPhone',
+      'launchNote',
+      'pickupNote',
+    ]);
   });
 
   it('trims the launch note and caps it at the limit', () => {
@@ -104,7 +126,13 @@ describe('normalizeMarketplaceConfig', () => {
 });
 
 describe('MarketplaceConfigSchema (admin settings PUT)', () => {
-  const valid = { enabled: true, comingSoon: false, launchNote: 'Open now', enquiryPhone: '' };
+  const valid = {
+    enabled: true,
+    comingSoon: false,
+    launchNote: 'Open now',
+    pickupNote: 'Hand-pick at Toplay',
+    enquiryPhone: '',
+  };
 
   it('accepts real booleans and a blank phone', () => {
     expect(MarketplaceConfigSchema.safeParse(valid).success).toBe(true);
@@ -112,6 +140,14 @@ describe('MarketplaceConfigSchema (admin settings PUT)', () => {
 
   it('does not coerce string booleans — the editor sends real ones', () => {
     expect(MarketplaceConfigSchema.safeParse({ ...valid, enabled: 'true' }).success).toBe(false);
+  });
+
+  it('requires the pickup note field (blank allowed) and caps its length', () => {
+    expect(MarketplaceConfigSchema.safeParse({ ...valid, pickupNote: '' }).success).toBe(true);
+    expect(MarketplaceConfigSchema.safeParse({ ...valid, pickupNote: 'x'.repeat(201) }).success).toBe(false);
+    const { pickupNote: _omitted, ...withoutPickup } = valid;
+    void _omitted;
+    expect(MarketplaceConfigSchema.safeParse(withoutPickup).success).toBe(false);
   });
 
   it('rejects an unusable enquiry phone but accepts a formatted Indian mobile', () => {

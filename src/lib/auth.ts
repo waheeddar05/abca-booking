@@ -24,6 +24,7 @@ const AUTH_USER_SELECT = {
   email: true,
   role: true,
   isSuperAdmin: true,
+  isStoreAdmin: true,
   isFreeUser: true,
   isSpecialUser: true,
   mobileVerified: true,
@@ -48,6 +49,11 @@ export interface AuthenticatedUser {
   role: string;
   email?: string;
   isSuperAdmin: boolean;
+  /**
+   * Runs the Cricket Store — a platform-level grant like `isSuperAdmin`,
+   * never a center membership. See `canManageStore`.
+   */
+  isStoreAdmin: boolean;
   isFreeUser: boolean;
   isSpecialUser: boolean;
   mobileVerified: boolean;
@@ -63,6 +69,7 @@ type DbAuthUser = {
   email: string | null;
   role: string;
   isSuperAdmin: boolean;
+  isStoreAdmin: boolean;
   isFreeUser: boolean;
   isSpecialUser: boolean;
   mobileVerified: boolean;
@@ -90,6 +97,7 @@ function toAuthenticatedUser(dbUser: DbAuthUser): AuthenticatedUser {
     role: dbUser.role,
     email: dbUser.email || undefined,
     isSuperAdmin,
+    isStoreAdmin: dbUser.isStoreAdmin || false,
     isFreeUser: dbUser.isFreeUser || false,
     isSpecialUser: dbUser.isSpecialUser || false,
     mobileVerified: dbUser.mobileVerified || false,
@@ -123,6 +131,17 @@ export async function getAuthenticatedUser(req: NextRequest): Promise<Authentica
   }
 
   return null;
+}
+
+// ─── Cricket Store ──────────────────────────────────────────────────
+
+/**
+ * True for the people who run the Cricket Store: store admins and super
+ * admins. Center admins and moderators are deliberately NOT included —
+ * the store is one catalog for all of PlayOrbit, not a center's.
+ */
+export function canManageStore(user: Pick<AuthenticatedUser, 'isSuperAdmin' | 'isStoreAdmin'>): boolean {
+  return user.isSuperAdmin || user.isStoreAdmin;
 }
 
 // ─── Center scoping helpers ─────────────────────────────────────────

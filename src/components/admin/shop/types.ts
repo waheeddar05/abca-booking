@@ -10,19 +10,15 @@ export interface AdminProductsResponse {
   config: MarketplaceConfig;
   /** WhatsApp digits the shop's buttons resolve to, or null. */
   enquiryPhone: string | null;
-  center: { id: string; name: string; slug: string };
-  /** Center-wide counts — they ignore the list's filters. */
+  /** Store-wide counts — they ignore the list's filters. */
   totals: { active: number; inactive: number };
 }
 
 /** `GET /api/admin/shop/settings` */
 export interface ShopSettingsResponse {
   config: MarketplaceConfig;
-  /** Resolved WhatsApp digits (typed number → center contact), or null. */
+  /** The configured number as WhatsApp digits, or null when none is set. */
   enquiryPhone: string | null;
-  /** The center-contact digits the shop falls back to when the typed number is blank. */
-  fallbackEnquiryPhone: string | null;
-  centerContactPhone: string | null;
 }
 
 /** `PUT /api/admin/shop/settings` */

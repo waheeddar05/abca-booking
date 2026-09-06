@@ -1,20 +1,21 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { Prisma } from '@prisma/client';
-import { requireCenterAdmin } from '@/lib/adminAuth';
+import { canManageStore, getAuthenticatedUser, type AuthenticatedUser } from '@/lib/auth';
 import { PRODUCT_SELECT, toProductView, type ProductRow } from '@/lib/marketplace-server';
 import type { MarketplaceProductAdminView } from '@/lib/marketplace';
 
 /**
- * Admin → Marketplace is a **full-admin** surface, like Offers: moderators
- * run the floor (bookings, slots, packages, ledger) but do not price or
- * stock the store. `requireCenterAdmin` admits both roles and reports
- * `isModerator`, so every route here rejects on that flag — the second
- * layer behind the middleware's /admin/shop block.
+ * Admin → Cricket Store is run by **store admins** (`User.isStoreAdmin`)
+ * and super admins. The store is one catalog for all of PlayOrbit, so
+ * this deliberately does NOT go through `requireCenterAdmin`: a center
+ * admin or moderator has no say over it, whichever center they run. The
+ * middleware keeps them off /admin/shop as a first layer; this is the
+ * layer that counts.
  */
-export async function requireShopAdmin(req: NextRequest) {
-  const auth = await requireCenterAdmin(req);
-  if (!auth || auth.isModerator) return null;
-  return auth;
+export async function requireShopAdmin(req: NextRequest): Promise<{ user: AuthenticatedUser } | null> {
+  const user = await getAuthenticatedUser(req);
+  if (!user || !canManageStore(user)) return null;
+  return { user };
 }
 
 export const forbidden = () => NextResponse.json({ error: 'Unauthorized' }, { status: 403 });
@@ -32,7 +33,7 @@ export function toAdminProductView(row: AdminProductRow): MarketplaceProductAdmi
   return { ...toProductView(rest as ProductRow), interestCount: _count.interests };
 }
 
-/** Parse a JSON body, or return null (caller answers 400). */
+/** Parse a JSON body, or return undefined (caller answers 400). */
 export async function readJson(req: NextRequest): Promise<unknown | undefined> {
   try {
     return await req.json();

@@ -120,6 +120,8 @@ export async function POST(req: NextRequest) {
       mobileNumber: user.mobileNumber,
       role: promote ? 'ADMIN' : user.role,
       mobileVerified: true,
+      isSuperAdmin: promote || user.isSuperAdmin === true,
+      isStoreAdmin: user.isStoreAdmin === true,
     });
 
     const response = NextResponse.json({ message: 'Login successful' });

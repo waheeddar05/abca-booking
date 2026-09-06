@@ -18,7 +18,6 @@ import { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 import { runSerializable } from '@/lib/serializable-tx';
 import { getPolicyJson } from '@/lib/policy';
-import type { CenterSummary } from '@/lib/centers';
 import {
   ALLOWED_IMAGE_TYPES,
   DEFAULT_MARKETPLACE_CONFIG,
@@ -39,32 +38,23 @@ import {
 
 // ─── Config ──────────────────────────────────────────────────────────
 
-/** Resolved MARKETPLACE_CONFIG for a center (center → global → default). */
-export async function getMarketplaceConfig(centerId: string | null): Promise<MarketplaceConfig> {
-  const raw = await getPolicyJson<unknown>(MARKETPLACE_POLICY_KEY, centerId, null);
+/**
+ * The store's MARKETPLACE_CONFIG — the **global** `Policy` row (never a
+ * `CenterPolicy`: the store is one catalog for all of PlayOrbit), falling
+ * back to `DEFAULT_MARKETPLACE_CONFIG`.
+ */
+export async function getMarketplaceConfig(): Promise<MarketplaceConfig> {
+  const raw = await getPolicyJson<unknown>(MARKETPLACE_POLICY_KEY, null, null);
   return raw == null ? { ...DEFAULT_MARKETPLACE_CONFIG } : normalizeMarketplaceConfig(raw);
 }
 
 /**
- * The WhatsApp number enquiries go to: the store's own configured number
- * first, then the center's contact list, then its single contact phone.
- * Returned as click-to-chat digits ("91…") or null when nothing usable.
+ * The WhatsApp number store enquiries go to, as click-to-chat digits
+ * ("91…"), or null when none is configured. Deliberately no fallback to
+ * a center's phone — the store is not a center's.
  */
-export function resolveEnquiryPhone(
-  config: MarketplaceConfig,
-  center: Pick<CenterSummary, 'contactPhone' | 'contactPhones'> | null,
-): string | null {
-  const candidates: Array<string | null | undefined> = [config.enquiryPhone];
-  if (center) {
-    const list = Array.isArray(center.contactPhones) ? center.contactPhones : [];
-    for (const c of list) candidates.push(c?.number);
-    candidates.push(center.contactPhone);
-  }
-  for (const c of candidates) {
-    const digits = toWhatsAppDigits(c);
-    if (digits) return digits;
-  }
-  return null;
+export function resolveEnquiryPhone(config: MarketplaceConfig): string | null {
+  return toWhatsAppDigits(config.enquiryPhone);
 }
 
 // ─── Selects + mappers ───────────────────────────────────────────────
@@ -82,7 +72,6 @@ export const PRODUCT_IMAGE_META_SELECT = {
 
 export const PRODUCT_SELECT = {
   id: true,
-  centerId: true,
   name: true,
   category: true,
   brand: true,

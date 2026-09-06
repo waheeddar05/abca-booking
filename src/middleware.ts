@@ -162,13 +162,36 @@ export async function middleware(req: NextRequest) {
   // the /admin/sidearm and /admin/coach pages (the layout gates every
   // other link away from them).
   if (pathname.startsWith("/admin")) {
-    if (
-      userRole !== "ADMIN" &&
-      userRole !== "MODERATOR" &&
-      userRole !== "SIDEARM_SPECIALIST" &&
-      userRole !== "COACH"
-    ) {
-      return NextResponse.redirect(new URL("/", req.url));
+    const isStorePath = pathname === "/admin/shop" || pathname.startsWith("/admin/shop/");
+    // Platform-level grants ride in the WhatsApp session token (set at
+    // OTP verify). A token issued before those claims existed carries
+    // neither, and is treated as "unknown" — the API guard decides.
+    const storeAdminClaim = otpToken?.isStoreAdmin === true;
+    const superAdminClaim = otpToken?.isSuperAdmin === true;
+    const claimsKnown =
+      typeof otpToken?.isStoreAdmin === "boolean" && typeof otpToken?.isSuperAdmin === "boolean";
+
+    const hasAdminRole =
+      userRole === "ADMIN" ||
+      userRole === "MODERATOR" ||
+      userRole === "SIDEARM_SPECIALIST" ||
+      userRole === "COACH";
+
+    if (!hasAdminRole) {
+      // A store admin who is otherwise a plain USER gets exactly one
+      // admin surface: the Cricket Store. Everything else under /admin
+      // bounces there, the same way a specialist only gets their tab.
+      if (!storeAdminClaim) {
+        return NextResponse.redirect(new URL("/", req.url));
+      }
+      if (!isStorePath) {
+        return NextResponse.redirect(new URL("/admin/shop", req.url));
+      }
+    } else if (isStorePath && claimsKnown && !storeAdminClaim && !superAdminClaim) {
+      // The store is not a center's: a center admin / specialist / coach
+      // without the store grant is turned away at the edge. The API
+      // rejects them regardless (requireShopAdmin).
+      return NextResponse.redirect(new URL("/admin", req.url));
     }
 
     // Moderators are restricted admins. They reach most of the panel but

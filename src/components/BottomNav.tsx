@@ -3,10 +3,10 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useCurrentUser } from '@/lib/current-user';
-import { Calendar, ClipboardList, Package, Wallet, Bell, Zap, UserCog, ShoppingBag } from 'lucide-react';
+import { Calendar, ClipboardList, Package, Wallet, Bell, Zap, UserCog, ShoppingBag, UserRound } from 'lucide-react';
 import { useCenter } from '@/lib/center-context';
 import { useMarketplaceStatus } from '@/lib/marketplace-status';
-import { SHOP_PATH } from '@/lib/marketplace';
+import { PROFILE_PATH, SHOP_PATH, STORE_NAV_LABEL } from '@/lib/marketplace';
 
 interface Tab {
   href: string;
@@ -24,11 +24,13 @@ const baseTabs: Tab[] = [
 
 // The store sits after Packages. It is per center, so a center that has it
 // switched off shows no tab at all.
-const shopTab: Tab = { href: SHOP_PATH, label: 'Shop', icon: ShoppingBag };
+const shopTab: Tab = { href: SHOP_PATH, label: STORE_NAV_LABEL, icon: ShoppingBag };
 
 const accountTabs: Tab[] = [
   { href: '/wallet', label: 'Wallet', icon: Wallet },
   { href: '/notifications', label: 'Alerts', icon: Bell },
+  // Name, email and delivery addresses — always one tap away.
+  { href: PROFILE_PATH, label: 'Profile', icon: UserRound },
 ];
 
 // Sidearm specialists get an extra tab to manage their own availability.
@@ -65,8 +67,9 @@ export default function BottomNav() {
     ...(isCoachAtCurrentCenter ? [coachTab] : []),
   ];
 
-  // Six tabs fit a 360px phone at 10px; a staff member with both extra
-  // tabs (7–8) needs the smaller label so nothing overflows its tab.
+  // Six tabs fit a 360px phone at 10px; seven or more (the store plus
+  // Profile, or a staff member's extra tabs) take the smaller label so
+  // nothing overflows its tab.
   const labelSize = tabs.length >= 7 ? 'text-[9px]' : 'text-[10px]';
 
   return (

@@ -28,14 +28,9 @@ vi.mock('@/lib/auth', () => ({
   getAuthenticatedUser: (req: unknown) => getAuthenticatedUserMock(req),
 }));
 
-// The POST applies the product page's visibility gate: the product's
-// center must be active and its store switched on. Both are stubbed at
-// the module boundary so the real config normaliser still runs.
-const findCenterByIdMock = vi.fn();
-vi.mock('@/lib/centers', () => ({
-  findCenterById: (id: string) => findCenterByIdMock(id),
-}));
-
+// The POST applies the product page's visibility gate: the store must be
+// switched on. Stubbed at the policy boundary so the real config
+// normaliser still runs.
 const getPolicyJsonMock = vi.fn();
 vi.mock('@/lib/policy', () => ({
   getPolicyJson: (...args: unknown[]) => getPolicyJsonMock(...args),
@@ -50,8 +45,7 @@ const ctx = { params: Promise.resolve({ id: 'p1' }) };
 beforeEach(() => {
   vi.clearAllMocks();
   getAuthenticatedUserMock.mockResolvedValue({ id: 'usr_1' });
-  productFindUniqueMock.mockResolvedValue({ id: 'p1', isActive: true, centerId: 'ctr_abca' });
-  findCenterByIdMock.mockResolvedValue({ id: 'ctr_abca', isActive: true });
+  productFindUniqueMock.mockResolvedValue({ id: 'p1', isActive: true });
   // No MARKETPLACE_CONFIG row → defaults (enabled, coming soon).
   getPolicyJsonMock.mockResolvedValue(null);
   interestCreateMock.mockResolvedValue({ id: 'int_1' });
@@ -140,26 +134,8 @@ describe('DELETE /api/shop/products/[id]/interest', () => {
 });
 
 describe('POST /api/shop/products/[id]/interest — store visibility gate', () => {
-  it('is 404 when the product’s center is inactive, like the product page', async () => {
-    findCenterByIdMock.mockResolvedValue({ id: 'ctr_abca', isActive: false });
-
-    const res = await POST(req(), ctx);
-
-    expect(res.status).toBe(404);
-    expect(interestCreateMock).not.toHaveBeenCalled();
-  });
-
-  it('is 404 when the center has the store switched off', async () => {
+  it('is 404 when the store is switched off, like the product page', async () => {
     getPolicyJsonMock.mockResolvedValue({ enabled: false, comingSoon: true });
-
-    const res = await POST(req(), ctx);
-
-    expect(res.status).toBe(404);
-    expect(interestCreateMock).not.toHaveBeenCalled();
-  });
-
-  it('is 404 when the center row is missing', async () => {
-    findCenterByIdMock.mockResolvedValue(null);
 
     const res = await POST(req(), ctx);
 

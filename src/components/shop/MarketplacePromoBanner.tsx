@@ -77,7 +77,7 @@ export function MarketplacePromoBanner() {
         {/* Wraps onto a second line on narrow phones instead of truncating. */}
         <div className="flex-1 min-w-0 flex flex-wrap items-center gap-x-2 gap-y-1">
           <span className="text-slate-300 leading-snug">
-            <span className="font-semibold text-white">PlayOrbit Shop</span> — bats, gloves &amp; gear.
+            <span className="font-semibold text-white">PlayOrbit Cricket Store</span> — bats, gloves &amp; gear.
           </span>
           {comingSoon ? (
             <ComingSoonBadge />

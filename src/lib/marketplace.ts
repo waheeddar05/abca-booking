@@ -1,11 +1,14 @@
 /**
- * Marketplace — the in-app store (Admin → Marketplace, user-side /shop).
+ * Cricket Store — the in-app store (Admin → Cricket Store, user-side /shop).
  *
  * PlayOrbit sells cricket gear alongside the booking product: bats first,
- * then gloves, thigh guards, pads and the rest. This module is the single
+ * then gloves, thigh guards, pads and the rest. The store is one catalog
+ * for all of PlayOrbit — not center-scoped — run by store admins
+ * (`User.isStoreAdmin`) and super admins, with hand-pick/collection at one
+ * configured location (initially Toplay). This module is the single
  * definition of what a product looks like — the category catalog, the
- * validation schema shared by the create and update routes, the
- * per-center launch configuration ("Coming soon"), and the small pure
+ * validation schema shared by the create and update routes, the global
+ * launch configuration ("Coming soon", pickup note), and the small pure
  * helpers the store pages need (price maths, WhatsApp enquiry links,
  * image sniffing for uploads).
  *
@@ -16,13 +19,18 @@
 
 import { z } from 'zod';
 
-/** Per-center policy key. Resolved center → global → `DEFAULT_MARKETPLACE_CONFIG`. */
+/** Global policy key (the `Policy` table, never `CenterPolicy`). Falls back to `DEFAULT_MARKETPLACE_CONFIG`. */
 export const MARKETPLACE_POLICY_KEY = 'MARKETPLACE_CONFIG';
 
 /** User-facing routes, in one place so nav links and deep links can't drift. */
 export const SHOP_PATH = '/shop';
 export const ADMIN_SHOP_PATH = '/admin/shop';
 export const PROFILE_PATH = '/profile';
+
+/** What customers and admins see it called. Code keeps the `marketplace` identifiers. */
+export const STORE_NAME = 'Cricket Store';
+/** Short label for nav tabs and pills. */
+export const STORE_NAV_LABEL = 'Store';
 
 // ─── Categories ──────────────────────────────────────────────────────
 
@@ -69,6 +77,12 @@ export interface MarketplaceConfig {
   /** Master switch. Off hides the store everywhere (nav, landing, /shop). */
   enabled: boolean;
   /**
+   * Where gear is hand-picked / collected, shown on the store and every
+   * product page. One location for now (Toplay); the "advanced version"
+   * turns this into structured pickup options.
+   */
+  pickupNote: string;
+  /**
    * Pre-launch mode: products are browsable but not orderable. Cards carry
    * a "Coming soon" ribbon and the product page offers "Notify me" instead
    * of ordering. Flip off to open enquiries/orders over WhatsApp.
@@ -77,21 +91,26 @@ export interface MarketplaceConfig {
   /** Optional line shown under the store heading ("Launching Diwali 2026"). */
   launchNote: string;
   /**
-   * WhatsApp number for enquiries / orders. Blank falls back to the
-   * center's contact phone. Stored as typed; normalised on use.
+   * WhatsApp number for store enquiries / orders. Blank hides the
+   * WhatsApp buttons — the store is not tied to any center's phone.
+   * Stored as typed; normalised on use.
    */
   enquiryPhone: string;
 }
+
+export const DEFAULT_PICKUP_NOTE = 'Hand-pick and collect your gear at Toplay.';
 
 export const DEFAULT_MARKETPLACE_CONFIG: MarketplaceConfig = {
   enabled: true,
   comingSoon: true,
   launchNote: '',
+  pickupNote: DEFAULT_PICKUP_NOTE,
   enquiryPhone: '',
 };
 
 export const MARKETPLACE_LIMITS = {
   launchNote: 160,
+  pickupNote: 200,
   name: 120,
   brand: 60,
   sku: 40,
@@ -146,6 +165,12 @@ export function normalizeMarketplaceConfig(raw: unknown): MarketplaceConfig {
     enabled: readBool(obj.enabled, DEFAULT_MARKETPLACE_CONFIG.enabled),
     comingSoon: readBool(obj.comingSoon, DEFAULT_MARKETPLACE_CONFIG.comingSoon),
     launchNote: readText(obj.launchNote, MARKETPLACE_LIMITS.launchNote),
+    // A missing key means "never set" and takes the default; a stored
+    // empty string is a real value (the admin cleared it).
+    pickupNote:
+      typeof obj.pickupNote === 'string'
+        ? readText(obj.pickupNote, MARKETPLACE_LIMITS.pickupNote)
+        : DEFAULT_PICKUP_NOTE,
     enquiryPhone: readText(obj.enquiryPhone, 20),
   };
 }
@@ -155,6 +180,7 @@ export const MarketplaceConfigSchema = z.object({
   enabled: z.boolean(),
   comingSoon: z.boolean(),
   launchNote: z.string().trim().max(MARKETPLACE_LIMITS.launchNote, 'Launch note is too long'),
+  pickupNote: z.string().trim().max(MARKETPLACE_LIMITS.pickupNote, 'Pickup note is too long'),
   enquiryPhone: z
     .string()
     .trim()
@@ -334,9 +360,10 @@ export interface MarketplaceStatus {
   enabled: boolean;
   comingSoon: boolean;
   launchNote: string;
+  /** Where gear is hand-picked / collected. */
+  pickupNote: string;
   /** WhatsApp digits with country code (e.g. "919876543210"), or null. */
   enquiryPhone: string | null;
-  center: { id: string; name: string; slug: string } | null;
   productCount: number;
   /** Up to four published products, featured first — for the landing page. */
   featured: MarketplaceProductView[];

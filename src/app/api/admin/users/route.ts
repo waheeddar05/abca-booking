@@ -163,6 +163,7 @@ export async function GET(req: NextRequest) {
         isBlacklisted: true,
         isFreeUser: true,
         isSpecialUser: true,
+        isStoreAdmin: true,
         specialDiscountType: true,
         specialDiscountValue: true,
         createdAt: true,
@@ -333,6 +334,7 @@ export async function PATCH(req: NextRequest) {
       role,
       isFreeUser,
       isSpecialUser,
+      isStoreAdmin,
       specialDiscountType,
       specialDiscountValue,
       centerId: bodyCenterId,
@@ -376,6 +378,15 @@ export async function PATCH(req: NextRequest) {
       return NextResponse.json({ error: 'Only super admin can set free user status' }, { status: 403 });
     }
 
+    // The store grant is platform-level (the Cricket Store is not a
+    // center's), so only a super admin hands it out — never a center admin.
+    if (isStoreAdmin !== undefined && typeof isStoreAdmin !== 'boolean') {
+      return NextResponse.json({ error: 'isStoreAdmin must be true or false' }, { status: 400 });
+    }
+    if (typeof isStoreAdmin === 'boolean' && !actor.isSuperAdmin) {
+      return NextResponse.json({ error: 'Only super admin can grant store admin' }, { status: 403 });
+    }
+
     // Resolve the target center for membership updates. Super admins may
     // pass bodyCenterId; everyone else uses the cookie-resolved center.
     let centerId: string | null = null;
@@ -402,6 +413,7 @@ export async function PATCH(req: NextRequest) {
         data: {
           ...(role && { role }),
           ...(typeof isFreeUser === 'boolean' ? { isFreeUser } : {}),
+          ...(typeof isStoreAdmin === 'boolean' ? { isStoreAdmin } : {}),
           ...(typeof isSpecialUser === 'boolean' ? { isSpecialUser } : {}),
           ...(specialDiscountType !== undefined ? { specialDiscountType } : {}),
           ...(specialDiscountValue !== undefined ? { specialDiscountValue } : {}),

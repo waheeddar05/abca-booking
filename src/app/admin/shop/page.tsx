@@ -1,16 +1,17 @@
 'use client';
 
 /**
- * Admin → Marketplace.
+ * Admin → Cricket Store.
  *
- * The store's back office for the current center: launch settings
- * (enabled / coming soon / launch note / WhatsApp number) and the
- * product catalog — create, edit, photos, publish and feature toggles,
- * delete, and the "Notify me" interest list per product.
+ * The store's back office — one catalog for all of PlayOrbit, not a
+ * center's: launch settings (enabled / coming soon / launch note /
+ * pickup location / WhatsApp number) and the product catalog — create,
+ * edit, photos, publish and feature toggles, delete, and the "Notify me"
+ * interest list per product.
  *
- * Full admins only. Moderators are blocked by the middleware and every
- * `/api/admin/shop/*` route; the role check here is a courtesy notice
- * for anyone who reaches the page through a stale link.
+ * Store admins (`User.isStoreAdmin`) and super admins only. The
+ * middleware and every `/api/admin/shop/*` route enforce it; the check
+ * here is a courtesy notice for anyone who reaches the page otherwise.
  */
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
@@ -32,6 +33,7 @@ import { useToast } from '@/components/ui/Toast';
 import {
   MARKETPLACE_CATEGORIES,
   SHOP_PATH,
+  STORE_NAME,
   isMarketplaceCategory,
   type MarketplaceImageMeta,
   type MarketplaceProductAdminView,
@@ -51,7 +53,7 @@ const STATUS_OPTIONS: Array<{ value: ProductStatusFilter; label: string }> = [
 ];
 
 export default function AdminShopPage() {
-  const { isModerator, loading: roleLoading } = useAdminRole();
+  const { canManageStore, loading: roleLoading } = useAdminRole();
   const toast = useToast();
 
   // ─── Filters ────────────────────────────────────────────────────
@@ -79,7 +81,7 @@ export default function AdminShopPage() {
   const [reloadKey, setReloadKey] = useState(0);
 
   useEffect(() => {
-    if (roleLoading || isModerator) return;
+    if (roleLoading || !canManageStore) return;
     const controller = new AbortController();
     (async () => {
       setLoading(true);
@@ -96,7 +98,7 @@ export default function AdminShopPage() {
       }
     })();
     return () => controller.abort();
-  }, [queryString, reloadKey, roleLoading, isModerator]);
+  }, [queryString, reloadKey, roleLoading, canManageStore]);
 
   const refresh = useCallback(() => setReloadKey((k) => k + 1), []);
 
@@ -225,13 +227,15 @@ export default function AdminShopPage() {
   // ─── Render ─────────────────────────────────────────────────────
   if (roleLoading) return <LoadingState message="Loading…" />;
 
-  if (isModerator) {
+  if (!canManageStore) {
     return (
       <div className="space-y-4 pb-10">
-        <AdminPageHeader icon={Store} title="Marketplace" description="Bats, gloves & gear sold through the app" />
+        <AdminPageHeader icon={Store} title={STORE_NAME} description="Bats, gloves & gear sold through the app" />
         <div className="rounded-xl border border-amber-500/20 bg-amber-500/[0.07] px-4 py-3 flex items-start gap-3">
           <ShieldAlert className="w-4 h-4 text-amber-400 mt-0.5 shrink-0" />
-          <p className="text-sm text-amber-200">Marketplace is managed by full admins.</p>
+          <p className="text-sm text-amber-200">
+            The Cricket Store is run by store admins. Ask a super admin to grant you store access.
+          </p>
         </div>
       </div>
     );
@@ -249,8 +253,8 @@ export default function AdminShopPage() {
     <div className="space-y-4 pb-10">
       <AdminPageHeader
         icon={Store}
-        title="Marketplace"
-        description="Bats, gloves & gear sold through the app"
+        title={STORE_NAME}
+        description="Bats, gloves & gear sold through the app — one store for all of PlayOrbit"
       >
         <Link
           href={SHOP_PATH}

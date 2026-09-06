@@ -2,7 +2,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { NextRequest } from 'next/server';
 
 // ─── Mocks ──────────────────────────────────────────────────────────
-// Anonymous visitor, one center, no MARKETPLACE_CONFIG row (defaults).
+// Anonymous visitor, no MARKETPLACE_CONFIG row (defaults). The store is
+// one catalog for all of PlayOrbit, so no center is resolved anywhere.
 // The config normaliser, the view mapper and the pagination maths run
 // for real; only the data layer is stubbed.
 
@@ -20,21 +21,6 @@ vi.mock('@/lib/prisma', () => ({
   },
 }));
 
-vi.mock('@/lib/auth', () => ({
-  getAuthenticatedUser: vi.fn(async () => null),
-}));
-
-const center = {
-  id: 'ctr_abca',
-  slug: 'abca',
-  name: 'ABCA',
-  isActive: true,
-  contactPhone: '9876543210',
-  contactPhones: null,
-};
-vi.mock('@/lib/centers', () => ({
-  resolveCurrentCenter: vi.fn(async () => center),
-}));
 
 const getPolicyJsonMock = vi.fn();
 vi.mock('@/lib/policy', () => ({
@@ -48,7 +34,6 @@ const req = (query = '') =>
 
 const product = (id: string) => ({
   id,
-  centerId: 'ctr_abca',
   name: `Bat ${id}`,
   category: 'BAT',
   brand: 'SS',
@@ -111,17 +96,13 @@ describe('GET /api/shop/products — paging', () => {
     expect(findManyMock.mock.calls[1][0]).toMatchObject({ skip: 0, take: 60 });
   });
 
-  it('scopes to published products at the current center and honours the category filter', async () => {
+  it('lists published products with no center scope and honours the category filter', async () => {
     findManyMock.mockResolvedValue([]);
     countMock.mockResolvedValue(0);
 
     await GET(req('?category=BAT'));
 
-    expect(findManyMock.mock.calls[0][0].where).toMatchObject({
-      centerId: 'ctr_abca',
-      isActive: true,
-      category: 'BAT',
-    });
+    expect(findManyMock.mock.calls[0][0].where).toEqual({ isActive: true, category: 'BAT' });
     // The chip counts ignore the category filter so the chips keep their numbers.
     expect(groupByMock.mock.calls[0][0].where).not.toHaveProperty('category');
   });
@@ -143,13 +124,19 @@ describe('GET /api/shop/products — paging', () => {
     expect(findManyMock).not.toHaveBeenCalled();
   });
 
-  it('falls back to the center contact number for WhatsApp enquiries', async () => {
+  it('uses the configured store number for WhatsApp enquiries and none otherwise', async () => {
     findManyMock.mockResolvedValue([]);
     countMock.mockResolvedValue(0);
 
-    const json = await (await GET(req())).json();
+    const defaults = await (await GET(req())).json();
+    expect(defaults.enquiryPhone).toBeNull();
+    expect(defaults.config.comingSoon).toBe(true);
+    expect(defaults.config.pickupNote).toContain('Toplay');
+    expect(defaults).not.toHaveProperty('center');
 
-    expect(json.enquiryPhone).toBe('919876543210');
-    expect(json.config.comingSoon).toBe(true);
+    getPolicyJsonMock.mockResolvedValue({ enquiryPhone: '9876543210', pickupNote: 'Collect at Toplay, Baner' });
+    const configured = await (await GET(req())).json();
+    expect(configured.enquiryPhone).toBe('919876543210');
+    expect(configured.config.pickupNote).toBe('Collect at Toplay, Baner');
   });
 });

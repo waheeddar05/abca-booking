@@ -66,7 +66,17 @@ describe('middleware — the store is public', () => {
   });
 });
 
-describe('middleware — moderators are kept out of Admin → Marketplace', () => {
+describe('middleware — the Cricket Store is run by store admins', () => {
+  it('routes a store admin who holds no admin role to /admin/shop and nowhere else', () => {
+    expect(middleware).toContain('const storeAdminClaim = otpToken?.isStoreAdmin === true;');
+    expect(middleware).toMatch(/if \(!storeAdminClaim\) \{\s*return NextResponse\.redirect\(new URL\("\/", req\.url\)\);/);
+    expect(middleware).toMatch(/if \(!isStorePath\) \{\s*return NextResponse\.redirect\(new URL\("\/admin\/shop", req\.url\)\);/);
+  });
+
+  it('turns a role holder without the store grant away from /admin/shop', () => {
+    expect(middleware).toContain('isStorePath && claimsKnown && !storeAdminClaim && !superAdminClaim');
+  });
+
   it('lists /admin/shop among the moderator-blocked prefixes', () => {
     expect(moderatorBlockedBlock()).toContain('"/admin/shop"');
   });
@@ -104,10 +114,39 @@ describe('schema', () => {
     }
   });
 
-  it('scopes products to a center like every other domain table', () => {
+  it('does NOT scope products to a center — the store is one catalog for all of PlayOrbit', () => {
     const body = modelBody('MarketplaceProduct');
-    expect(body).toMatch(/^\s+centerId String/m);
-    expect(body).toContain('@@index([centerId, isActive, category])');
+    expect(body).not.toMatch(/centerId/);
+    expect(body).toContain('@@index([isActive, category])');
+  });
+
+  it('carries the platform-level store grant on User, next to isSuperAdmin', () => {
+    const body = modelBody('User');
+    expect(body).toMatch(/^\s+isSuperAdmin\s+Boolean\s+@default\(false\)/m);
+    expect(body).toMatch(/^\s+isStoreAdmin\s+Boolean\s+@default\(false\)/m);
+  });
+});
+
+describe('migration 20260906120000_store_platform_wide', () => {
+  const followUp = readFileSync(
+    path.join(root, 'prisma/migrations/20260906120000_store_platform_wide/migration.sql'),
+    'utf8',
+  );
+
+  it('drops the center column from products and adds the store grant to users', () => {
+    expect(followUp).toContain('ALTER TABLE "MarketplaceProduct" DROP COLUMN IF EXISTS "centerId"');
+    expect(followUp).toContain('DROP CONSTRAINT IF EXISTS "MarketplaceProduct_centerId_fkey"');
+    expect(followUp).toContain('ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "isStoreAdmin" BOOLEAN NOT NULL DEFAULT false');
+    expect(followUp).toContain('CREATE INDEX IF NOT EXISTS "MarketplaceProduct_isActive_category_idx"');
+  });
+
+  it('touches nothing but the store tables and the user flag', () => {
+    const altered = followUp.match(/^ALTER TABLE "(\w+)"/gm) ?? [];
+    for (const line of altered) {
+      const table = line.match(/"(\w+)"/)?.[1] ?? '';
+      expect(['MarketplaceProduct', 'User'], line).toContain(table);
+    }
+    expect(followUp).not.toMatch(/^\s*DROP TABLE/m);
   });
 });
 
