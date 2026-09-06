@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { getAuthenticatedUser } from '@/lib/auth';
-import { findCenterById } from '@/lib/centers';
 import { sanitizeApiError } from '@/lib/api-errors';
 import {
   PRODUCT_SELECT,
@@ -15,10 +14,9 @@ type Params = { id: string };
 /**
  * GET /api/shop/products/[id] — one published product.
  *
- * Looked up by id alone, not by the viewer's current center: a product
- * link shared on WhatsApp must open for whoever taps it, whichever
- * center their cookie happens to point at. The launch config and the
- * enquiry number therefore come from the product's own center.
+ * Public. The Cricket Store is one catalog for all of PlayOrbit, so a
+ * product link shared on WhatsApp opens for whoever taps it, whichever
+ * center they book at.
  *
  * `interested` is whether the signed-in viewer has already tapped
  * "Notify me"; false for anonymous visitors.
@@ -26,20 +24,12 @@ type Params = { id: string };
 export async function GET(req: NextRequest, ctx: { params: Promise<Params> }) {
   try {
     const { id } = await ctx.params;
-    const row = await prisma.marketplaceProduct.findUnique({
-      where: { id },
-      select: PRODUCT_SELECT,
-    });
-    if (!row || !row.isActive) {
-      return NextResponse.json({ error: 'Product not found' }, { status: 404 });
-    }
-
-    const [center, config, user] = await Promise.all([
-      findCenterById(row.centerId),
-      getMarketplaceConfig(row.centerId),
+    const [row, config, user] = await Promise.all([
+      prisma.marketplaceProduct.findUnique({ where: { id }, select: PRODUCT_SELECT }),
+      getMarketplaceConfig(),
       getAuthenticatedUser(req),
     ]);
-    if (!center || !center.isActive || !config.enabled) {
+    if (!row || !row.isActive || !config.enabled) {
       return NextResponse.json({ error: 'Product not found' }, { status: 404 });
     }
 
@@ -56,9 +46,9 @@ export async function GET(req: NextRequest, ctx: { params: Promise<Params> }) {
         enabled: config.enabled,
         comingSoon: config.comingSoon,
         launchNote: config.launchNote,
+        pickupNote: config.pickupNote,
       },
-      enquiryPhone: resolveEnquiryPhone(config, center),
-      center: { id: center.id, name: center.name, slug: center.slug },
+      enquiryPhone: resolveEnquiryPhone(config),
       interested,
       signedIn: !!user,
     });

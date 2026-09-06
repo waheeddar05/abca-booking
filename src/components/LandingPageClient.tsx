@@ -8,7 +8,7 @@ import { Calendar, Zap, Instagram, Phone, Target, Shield, Users, Star, ArrowRigh
 import LoginModal from './LoginModal';
 import { LandingShopSection } from './shop/LandingShopSection';
 import { INSTAGRAM_URL } from '@/lib/client-constants';
-import { SHOP_PATH } from '@/lib/marketplace';
+import { SHOP_PATH, STORE_NAV_LABEL } from '@/lib/marketplace';
 import { DEFAULT_POST_LOGIN_PATH, safeNextPath } from '@/lib/login-href';
 import { useMarketplaceStatus } from '@/lib/marketplace-status';
 import { useCenter } from '@/lib/center-context';
@@ -197,7 +197,7 @@ export default function LandingPageClient() {
                 }`}
               >
                 <ShoppingBag className="w-3.5 h-3.5" />
-                Shop
+                {STORE_NAV_LABEL}
                 {shopSoon && <span className="hidden sm:inline">&middot; Soon</span>}
               </Link>
             )}

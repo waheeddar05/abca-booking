@@ -29,6 +29,8 @@ interface UserData {
   isBlacklisted: boolean;
   isFreeUser: boolean;
   isSpecialUser: boolean;
+  /** Runs the Cricket Store — platform-level, granted by super admins only. */
+  isStoreAdmin: boolean;
   specialDiscountType: 'PERCENTAGE' | 'FIXED' | null;
   specialDiscountValue: number | null;
   createdAt: string;
@@ -258,6 +260,42 @@ export default function AdminUsers() {
           const data = await res.json();
           if (res.ok) {
             toast.success(`${user.name || user.email} ${newStatus ? 'now has free lifetime booking' : 'no longer has free booking'}`);
+            fetchUsers();
+          } else {
+            toast.error(data.error || 'Failed to update user');
+          }
+        } catch {
+          toast.error('Internal server error');
+        }
+      },
+    });
+  };
+
+  // The Cricket Store is one catalog for all of PlayOrbit, so the grant is
+  // platform-level and super-admin only — a center admin never hands it
+  // out. Takes effect at the user's next WhatsApp login (it rides in the
+  // session token), which the confirmation says.
+  const handleToggleStoreAdmin = (user: UserData) => {
+    const newStatus = !user.isStoreAdmin;
+    setPendingConfirm({
+      title: newStatus ? 'Make Store Admin' : 'Remove Store Admin',
+      message: newStatus
+        ? `${user.name || user.email || user.mobileNumber} will be able to manage the Cricket Store — products, photos, prices and launch settings — from Admin → Cricket Store. It takes effect the next time they sign in.`
+        : `${user.name || user.email || user.mobileNumber} will lose access to Admin → Cricket Store the next time they sign in.`,
+      variant: newStatus ? 'default' : 'danger',
+      confirmLabel: newStatus ? 'Grant' : 'Remove',
+      onConfirm: async () => {
+        try {
+          const res = await fetch('/api/admin/users', {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id: user.id, isStoreAdmin: newStatus }),
+          });
+          const data = await res.json();
+          if (res.ok) {
+            toast.success(
+              `${user.name || user.email || user.mobileNumber} ${newStatus ? 'is now a store admin' : 'is no longer a store admin'}`,
+            );
             fetchUsers();
           } else {
             toast.error(data.error || 'Failed to update user');
@@ -559,6 +597,11 @@ export default function AdminUsers() {
                           Special
                         </span>
                       )}
+                      {user.isStoreAdmin && (
+                        <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider bg-amber-500/10 text-amber-400">
+                          Store admin
+                        </span>
+                      )}
                       {user.isBlacklisted && (
                         <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider bg-red-500/10 text-red-400">
                           Blocked
@@ -726,6 +769,21 @@ export default function AdminUsers() {
                               <span className="truncate">Remove Free Booking</span>
                             ) : (
                               <span className="truncate">Grant Free Lifetime Booking</span>
+                            )}
+                          </button>
+                        )}
+                        {isSuperAdmin && (
+                          <button
+                            onClick={() => handleToggleStoreAdmin(user)}
+                            className={`flex items-center justify-center gap-1.5 py-2 text-xs font-medium rounded-lg transition-colors cursor-pointer ${user.isStoreAdmin
+                              ? 'text-amber-400 bg-amber-500/10 hover:bg-amber-500/20'
+                              : 'text-slate-400 bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.1]'
+                              }`}
+                          >
+                            {user.isStoreAdmin ? (
+                              <span className="truncate">Remove Store Admin</span>
+                            ) : (
+                              <span className="truncate">Make Store Admin</span>
                             )}
                           </button>
                         )}

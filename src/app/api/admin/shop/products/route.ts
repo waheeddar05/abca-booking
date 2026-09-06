@@ -7,13 +7,13 @@ import { PRODUCT_ORDER_BY, getMarketplaceConfig, resolveEnquiryPhone } from '@/l
 import { ADMIN_PRODUCT_SELECT, forbidden, readJson, requireShopAdmin, toAdminProductView } from '../shared';
 
 /**
- * Admin → Marketplace: the current center's catalog.
+ * Admin → Cricket Store: the catalog.
  *
  *   GET  /api/admin/shop/products?status=all|active|inactive&category=BAT&q=
  *   POST /api/admin/shop/products
  *
- * Full admins only (moderators 403). Everything is scoped to the resolved
- * current center — a product is center stock and never leaks across.
+ * Store admins and super admins only (see `requireShopAdmin`). One
+ * catalog for all of PlayOrbit — nothing here is scoped to a center.
  */
 export async function GET(req: NextRequest) {
   try {
@@ -29,7 +29,6 @@ export async function GET(req: NextRequest) {
     }
 
     const where: Prisma.MarketplaceProductWhereInput = {
-      centerId: auth.center.id,
       ...(status === 'active' ? { isActive: true } : status === 'inactive' ? { isActive: false } : {}),
       ...(category ? { category } : {}),
       ...(q
@@ -45,10 +44,9 @@ export async function GET(req: NextRequest) {
 
     const [rows, config, counts] = await Promise.all([
       prisma.marketplaceProduct.findMany({ where, orderBy: PRODUCT_ORDER_BY, select: ADMIN_PRODUCT_SELECT }),
-      getMarketplaceConfig(auth.center.id),
+      getMarketplaceConfig(),
       prisma.marketplaceProduct.groupBy({
         by: ['isActive'],
-        where: { centerId: auth.center.id },
         _count: { _all: true },
       }),
     ]);
@@ -56,8 +54,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({
       products: rows.map(toAdminProductView),
       config,
-      enquiryPhone: resolveEnquiryPhone(config, auth.center),
-      center: { id: auth.center.id, name: auth.center.name, slug: auth.center.slug },
+      enquiryPhone: resolveEnquiryPhone(config),
       totals: {
         active: counts.find((c) => c.isActive)?._count._all ?? 0,
         inactive: counts.find((c) => !c.isActive)?._count._all ?? 0,
@@ -89,7 +86,6 @@ export async function POST(req: NextRequest) {
       data: {
         ...fields,
         specs: specs as Prisma.InputJsonValue,
-        centerId: auth.center.id,
         createdById: auth.user.id,
       },
       select: ADMIN_PRODUCT_SELECT,

@@ -10,8 +10,7 @@ type Params = { id: string; imageId: string };
  * DELETE /api/admin/shop/products/[id]/images/[imageId]
  *
  * Removes one photo and closes the gap in the remaining sort order so the
- * primary image is always at 0. The image must belong to the product and
- * the product to the caller's center.
+ * primary image is always at 0. The image must belong to the product.
  */
 export async function DELETE(req: NextRequest, ctx: { params: Promise<Params> }) {
   try {
@@ -21,9 +20,9 @@ export async function DELETE(req: NextRequest, ctx: { params: Promise<Params> })
 
     const image = await prisma.marketplaceProductImage.findUnique({
       where: { id: imageId },
-      select: { id: true, productId: true, product: { select: { centerId: true } } },
+      select: { id: true, productId: true },
     });
-    if (!image || image.productId !== id || image.product.centerId !== auth.center.id) {
+    if (!image || image.productId !== id) {
       return NextResponse.json({ error: 'Image not found' }, { status: 404 });
     }
 

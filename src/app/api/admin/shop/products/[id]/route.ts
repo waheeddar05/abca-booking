@@ -12,26 +12,21 @@ type Params = { id: string };
  *   PATCH  /api/admin/shop/products/[id]   replace (complete body)
  *   DELETE /api/admin/shop/products/[id]   remove (cascades images + interests)
  *
- * Every verb re-fetches the row and checks it belongs to the caller's
- * current center before touching it. PATCH takes the whole product, same
- * schema as create, so a field can't be blanked in isolation.
+ * PATCH takes the whole product, same schema as create, so a field can't
+ * be blanked in isolation.
  */
-async function ownedProduct(id: string, centerId: string) {
-  const row = await prisma.marketplaceProduct.findUnique({
-    where: { id },
-    select: { id: true, centerId: true },
-  });
-  return row && row.centerId === centerId ? row : null;
-}
-
 const notFound = () => NextResponse.json({ error: 'Product not found' }, { status: 404 });
+
+async function productExists(id: string): Promise<boolean> {
+  const row = await prisma.marketplaceProduct.findUnique({ where: { id }, select: { id: true } });
+  return !!row;
+}
 
 export async function GET(req: NextRequest, ctx: { params: Promise<Params> }) {
   try {
     const auth = await requireShopAdmin(req);
     if (!auth) return forbidden();
     const { id } = await ctx.params;
-    if (!(await ownedProduct(id, auth.center.id))) return notFound();
 
     const [row, interestRows] = await Promise.all([
       prisma.marketplaceProduct.findUnique({ where: { id }, select: ADMIN_PRODUCT_SELECT }),
@@ -67,7 +62,7 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<Params> }) 
     const auth = await requireShopAdmin(req);
     if (!auth) return forbidden();
     const { id } = await ctx.params;
-    if (!(await ownedProduct(id, auth.center.id))) return notFound();
+    if (!(await productExists(id))) return notFound();
 
     const body = await readJson(req);
     if (body === undefined) return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 });
@@ -97,7 +92,7 @@ export async function DELETE(req: NextRequest, ctx: { params: Promise<Params> })
     const auth = await requireShopAdmin(req);
     if (!auth) return forbidden();
     const { id } = await ctx.params;
-    if (!(await ownedProduct(id, auth.center.id))) return notFound();
+    if (!(await productExists(id))) return notFound();
 
     await prisma.marketplaceProduct.delete({ where: { id } });
     return NextResponse.json({ deleted: true });

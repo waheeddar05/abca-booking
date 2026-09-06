@@ -2,10 +2,11 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { NextRequest } from 'next/server';
 
 // ─── Mocks ──────────────────────────────────────────────────────────
-// Stub the admin guard and the data layer. The product schema and the
-// row → view mapping are NOT mocked, so a create round-trips through the
-// real validation and the real `toAdminProductView`. The marketplace
-// config comes from the real resolver over a stubbed policy lookup.
+// Stub the session and the data layer. The product schema, the row → view
+// mapping and the store guard (`requireShopAdmin` → `canManageStore`) are
+// NOT mocked, so a create round-trips through the real validation and the
+// real permission rule. The store config comes from the real resolver
+// over a stubbed policy lookup.
 
 const productCreateMock = vi.fn();
 const productFindManyMock = vi.fn();
@@ -21,27 +22,23 @@ vi.mock('@/lib/prisma', () => ({
   },
 }));
 
-const requireCenterAdminMock = vi.fn();
-vi.mock('@/lib/adminAuth', () => ({
-  requireCenterAdmin: (req: unknown) => requireCenterAdminMock(req),
-}));
+const getAuthenticatedUserMock = vi.fn();
+vi.mock('@/lib/auth', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/auth')>();
+  return { ...actual, getAuthenticatedUser: (req: unknown) => getAuthenticatedUserMock(req) };
+});
 
+const getPolicyJsonMock = vi.fn();
 vi.mock('@/lib/policy', () => ({
-  getPolicyJson: vi.fn(async () => null),
+  getPolicyJson: (...args: unknown[]) => getPolicyJsonMock(...args),
 }));
 
 import { GET, POST } from './route';
 
-const center = {
-  id: 'ctr_abca',
-  name: 'ABCA',
-  slug: 'abca',
-  contactPhone: '9876543210',
-  contactPhones: null,
-};
-
-const fullAdmin = { user: { id: 'admin_1' }, center, isModerator: false };
-const moderator = { user: { id: 'mod_1' }, center, isModerator: true };
+const storeAdmin = { id: 'store_1', role: 'USER', isSuperAdmin: false, isStoreAdmin: true };
+const superAdmin = { id: 'super_1', role: 'ADMIN', isSuperAdmin: true, isStoreAdmin: false };
+const centerAdmin = { id: 'admin_1', role: 'ADMIN', isSuperAdmin: false, isStoreAdmin: false };
+const moderator = { id: 'mod_1', role: 'MODERATOR', isSuperAdmin: false, isStoreAdmin: false };
 
 const validBody = {
   name: 'Player Edition',
@@ -64,7 +61,8 @@ const getReq = (query = '') =>
 
 beforeEach(() => {
   vi.clearAllMocks();
-  requireCenterAdminMock.mockResolvedValue(fullAdmin);
+  getAuthenticatedUserMock.mockResolvedValue(storeAdmin);
+  getPolicyJsonMock.mockResolvedValue(null);
   productFindManyMock.mockResolvedValue([]);
   productGroupByMock.mockResolvedValue([]);
   productCreateMock.mockImplementation(async ({ data }: { data: Record<string, unknown> }) => ({
@@ -77,9 +75,9 @@ beforeEach(() => {
   }));
 });
 
-describe('admin guard', () => {
-  it('answers 403 to a moderator on GET and POST — the store is full-admin only', async () => {
-    requireCenterAdminMock.mockResolvedValue(moderator);
+describe('store guard — the Cricket Store is not a center’s', () => {
+  it('answers 403 to a center admin on GET and POST', async () => {
+    getAuthenticatedUserMock.mockResolvedValue(centerAdmin);
 
     const listRes = await GET(getReq());
     expect(listRes.status).toBe(403);
@@ -91,16 +89,32 @@ describe('admin guard', () => {
     expect(productCreateMock).not.toHaveBeenCalled();
   });
 
-  it('answers 403 when the guard resolves nobody', async () => {
-    requireCenterAdminMock.mockResolvedValue(null);
+  it('answers 403 to a moderator', async () => {
+    getAuthenticatedUserMock.mockResolvedValue(moderator);
+    expect((await GET(getReq())).status).toBe(403);
+    expect((await POST(postReq(validBody))).status).toBe(403);
+  });
+
+  it('answers 403 when nobody is signed in', async () => {
+    getAuthenticatedUserMock.mockResolvedValue(null);
     expect((await GET(getReq())).status).toBe(403);
     expect((await POST(postReq(validBody))).status).toBe(403);
     expect(productCreateMock).not.toHaveBeenCalled();
   });
+
+  it('lets a store admin who is otherwise a plain USER in', async () => {
+    getAuthenticatedUserMock.mockResolvedValue(storeAdmin);
+    expect((await GET(getReq())).status).toBe(200);
+  });
+
+  it('lets a super admin in without the store flag', async () => {
+    getAuthenticatedUserMock.mockResolvedValue(superAdmin);
+    expect((await GET(getReq())).status).toBe(200);
+  });
 });
 
 describe('GET /api/admin/shop/products', () => {
-  it("scopes the list to the admin's current center and reports the totals", async () => {
+  it('lists the whole catalog (no center scope) and reports the totals', async () => {
     productGroupByMock.mockResolvedValue([
       { isActive: true, _count: { _all: 3 } },
       { isActive: false, _count: { _all: 2 } },
@@ -110,16 +124,25 @@ describe('GET /api/admin/shop/products', () => {
     const json = await res.json();
     expect(json.products).toEqual([]);
     expect(json.totals).toEqual({ active: 3, inactive: 2 });
-    expect(json.center).toEqual({ id: 'ctr_abca', name: 'ABCA', slug: 'abca' });
-    // No policy row → code defaults; enquiries fall back to the center's phone.
-    expect(json.config).toEqual({ enabled: true, comingSoon: true, launchNote: '', enquiryPhone: '' });
-    expect(json.enquiryPhone).toBe('919876543210');
+    expect(json).not.toHaveProperty('center');
+    // No policy row → code defaults; no number configured → no WhatsApp buttons.
+    expect(json.config).toMatchObject({ enabled: true, comingSoon: true, launchNote: '', enquiryPhone: '' });
+    expect(json.config.pickupNote).toContain('Toplay');
+    expect(json.enquiryPhone).toBeNull();
 
     const where = (productFindManyMock.mock.calls[0][0] as { where: Record<string, unknown> }).where;
-    expect(where.centerId).toBe('ctr_abca');
+    expect(where).not.toHaveProperty('centerId');
     expect(where.isActive).toBe(true);
     expect(where.category).toBe('BAT');
     expect(where.OR).toHaveLength(3);
+    // Totals are store-wide too.
+    expect(productGroupByMock.mock.calls[0][0]).not.toHaveProperty('where');
+  });
+
+  it('uses the configured store number for WhatsApp enquiries', async () => {
+    getPolicyJsonMock.mockResolvedValue({ enquiryPhone: '+91 98765 43210' });
+    const json = await (await GET(getReq())).json();
+    expect(json.enquiryPhone).toBe('919876543210');
   });
 
   it('rejects a category outside the catalog', async () => {
@@ -150,14 +173,14 @@ describe('POST /api/admin/shop/products', () => {
     expect(productCreateMock).not.toHaveBeenCalled();
   });
 
-  it("creates the product against the admin's center and stamps who added it", async () => {
+  it('creates the product with no center and stamps who added it', async () => {
     const res = await POST(postReq(validBody));
     expect(res.status).toBe(201);
     expect(productCreateMock).toHaveBeenCalledTimes(1);
 
     const data = (productCreateMock.mock.calls[0][0] as { data: Record<string, unknown> }).data;
-    expect(data.centerId).toBe('ctr_abca');
-    expect(data.createdById).toBe('admin_1');
+    expect(data).not.toHaveProperty('centerId');
+    expect(data.createdById).toBe('store_1');
     expect(data.specs).toEqual(validBody.specs);
     expect(data.brand).toBeNull();
     expect(data.sizes).toEqual(['SH']);

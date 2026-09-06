@@ -20,10 +20,15 @@ export function useAdminRole() {
   const { user, loading } = useCurrentUser();
   const isSuperAdmin = user?.isSuperAdmin === true;
   const isModerator = user?.role === 'MODERATOR' && !isSuperAdmin;
+  const isStoreAdmin = user?.isStoreAdmin === true;
   return {
     role: user?.role,
     isSuperAdmin,
     isModerator,
+    /** Holds the platform-level store grant (super admins implicitly do). */
+    isStoreAdmin,
+    /** May run the Cricket Store: store admin or super admin. Never a center admin as such. */
+    canManageStore: isStoreAdmin || isSuperAdmin,
     /** Full admin or super admin — everything a moderator can't do. */
     isFullAdmin: user?.role === 'ADMIN' || isSuperAdmin,
     /** True until the profile has loaded — don't decide gating on a blank. */

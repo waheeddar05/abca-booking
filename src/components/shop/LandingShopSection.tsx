@@ -94,7 +94,7 @@ export function LandingShopSection() {
             href={SHOP_PATH}
             className="inline-flex items-center justify-center gap-2 bg-accent hover:bg-accent-light text-primary font-bold rounded-xl px-5 py-2.5 text-xs md:text-sm transition-all active:scale-[0.98]"
           >
-            EXPLORE THE SHOP
+            EXPLORE THE STORE
             <ArrowRight className="w-4 h-4" />
           </Link>
           {productCount > 0 && (

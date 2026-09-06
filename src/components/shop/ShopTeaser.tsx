@@ -1,6 +1,6 @@
 'use client';
 
-import { MessageCircle, Sparkles } from 'lucide-react';
+import { MapPin, MessageCircle, Sparkles } from 'lucide-react';
 import { buildWhatsAppLink, type MarketplaceCategoryId } from '@/lib/marketplace';
 import { CATEGORY_TILES } from './categoryIcons';
 
@@ -22,9 +22,10 @@ const TEASER_TILES = TEASER_CATEGORIES.flatMap((value) => {
 const TEASER_ENQUIRY = 'Hi PlayOrbit, I’m interested in your upcoming cricket gear store.';
 
 interface ShopTeaserProps {
-  centerName: string | null;
-  /** WhatsApp digits (with country code) or null when the center has none. */
+  /** WhatsApp digits (with country code) or null when the store has none. */
   enquiryPhone: string | null;
+  /** Where gear is hand-picked / collected; blank hides the line. */
+  pickupNote: string;
 }
 
 /**
@@ -32,7 +33,7 @@ interface ShopTeaserProps {
  * products yet: the categories that are coming, plus a WhatsApp line for
  * anyone who wants to ask before the shelves fill.
  */
-export function ShopTeaser({ centerName, enquiryPhone }: ShopTeaserProps) {
+export function ShopTeaser({ enquiryPhone, pickupNote }: ShopTeaserProps) {
   const whatsAppLink = buildWhatsAppLink(enquiryPhone, TEASER_ENQUIRY);
 
   return (
@@ -43,9 +44,14 @@ export function ShopTeaser({ centerName, enquiryPhone }: ShopTeaserProps) {
         </div>
         <h2 className="text-lg font-black text-white">Gear is on its way</h2>
         <p className="text-xs text-slate-400 mt-1 max-w-sm mx-auto leading-relaxed">
-          We’re stocking bats, gloves, guards and more{centerName ? ` for ${centerName}` : ''}. Here’s
-          what’s coming to the shelves first.
+          We’re stocking bats, gloves, guards and more. Here’s what’s coming to the shelves first.
         </p>
+        {pickupNote && (
+          <p className="text-[11px] text-slate-500 mt-2 inline-flex items-center gap-1">
+            <MapPin className="w-3 h-3 text-accent/70" aria-hidden="true" />
+            {pickupNote}
+          </p>
+        )}
       </div>
 
       <ul className="grid grid-cols-2 gap-2.5">

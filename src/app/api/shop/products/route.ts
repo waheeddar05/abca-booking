@@ -1,8 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
-import { getAuthenticatedUser } from '@/lib/auth';
-import { resolveCurrentCenter } from '@/lib/centers';
 import { sanitizeApiError } from '@/lib/api-errors';
 import {
   MARKETPLACE_CATEGORIES,
@@ -24,34 +22,29 @@ const MAX_OFFSET = 10_000;
 /**
  * GET /api/shop/products?category=BAT&q=kashmir&limit=24&offset=0
  *
- * Public catalog for the current center: published products only, with
- * per-category counts for the filter chips. Anyone can browse — the
- * store is a marketing surface, like /centers — so sign-in is not
- * required; the center resolves from the cookie or the platform default.
+ * The public Cricket Store catalog: published products only, with
+ * per-category counts for the filter chips. One catalog for all of
+ * PlayOrbit — not scoped to the visitor's center. Anyone can browse; the
+ * store is a marketing surface, like /centers, so sign-in is not required.
  *
  * Paged by offset: `total` is the count for the active filter and
  * `hasMore` tells the page whether a "Load more" is worth showing, so the
  * grid can never silently stop short of what the chip counts promise.
  *
- * With the store switched off for the center (MARKETPLACE_CONFIG.enabled
- * = false) the list is empty and `config.enabled` tells the page why.
+ * With the store switched off (MARKETPLACE_CONFIG.enabled = false) the
+ * list is empty and `config.enabled` tells the page why.
  */
 export async function GET(req: NextRequest) {
   try {
-    const user = await getAuthenticatedUser(req);
-    const center = await resolveCurrentCenter(req, user);
-    if (!center) {
-      return NextResponse.json({ error: 'No center available' }, { status: 404 });
-    }
-    const config = await getMarketplaceConfig(center.id);
+    const config = await getMarketplaceConfig();
     const shared = {
       config: {
         enabled: config.enabled,
         comingSoon: config.comingSoon,
         launchNote: config.launchNote,
+        pickupNote: config.pickupNote,
       },
-      enquiryPhone: resolveEnquiryPhone(config, center),
-      center: { id: center.id, name: center.name, slug: center.slug },
+      enquiryPhone: resolveEnquiryPhone(config),
     };
     if (!config.enabled) {
       return NextResponse.json({
@@ -79,7 +72,7 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: 'Unknown category' }, { status: 400 });
     }
 
-    const base: Prisma.MarketplaceProductWhereInput = { centerId: center.id, isActive: true };
+    const base: Prisma.MarketplaceProductWhereInput = { isActive: true };
     const search: Prisma.MarketplaceProductWhereInput = q
       ? {
           OR: [

@@ -31,6 +31,8 @@ export interface CurrentUser {
   authProvider: string | null;
   image: string | null;
   isSuperAdmin: boolean;
+  /** Runs the Cricket Store — platform-level, not a center membership. */
+  isStoreAdmin: boolean;
   isFreeUser: boolean;
   isSpecialUser: boolean;
 }

@@ -2,10 +2,10 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { Loader2, MessageCircle, Search, SearchX, ShoppingBag, Store, X } from 'lucide-react';
-import { useCenter } from '@/lib/center-context';
+import { Loader2, MapPin, MessageCircle, Search, SearchX, ShoppingBag, Store, X } from 'lucide-react';
 import {
   SHOP_PATH,
+  STORE_NAME,
   buildWhatsAppLink,
   isMarketplaceCategory,
   type MarketplaceCategoryCount,
@@ -21,9 +21,8 @@ import { ShopTeaser } from './ShopTeaser';
 
 /** `GET /api/shop/products` */
 interface ShopCatalogResponse {
-  config: { enabled: boolean; comingSoon: boolean; launchNote: string };
+  config: { enabled: boolean; comingSoon: boolean; launchNote: string; pickupNote: string };
   enquiryPhone: string | null;
-  center: { id: string; name: string; slug: string };
   products: MarketplaceProductView[];
   categories: MarketplaceCategoryCount[];
   /** Count for the active filter — what the grid can grow to via Load more. */
@@ -65,7 +64,6 @@ function buildShopUrl(patch: { category?: string; q?: string }): string {
 export function ShopPageClient() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { centers } = useCenter();
 
   const rawCategory = searchParams.get('category') ?? '';
   // An unknown code would make the API answer 400; treat it as "All".
@@ -217,7 +215,6 @@ export function ShopPageClient() {
   };
 
   const config = data?.config ?? null;
-  const center = data?.center ?? null;
   const enabled = config ? config.enabled : true;
   const comingSoon = config ? config.comingSoon : false;
   const hasFilter = category !== '' || q !== '';
@@ -236,13 +233,18 @@ export function ShopPageClient() {
         </div>
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2 flex-wrap">
-            <h1 className="text-xl font-bold text-white leading-tight">PlayOrbit Shop</h1>
+            <h1 className="text-xl font-bold text-white leading-tight">{STORE_NAME}</h1>
             {comingSoon && <ComingSoonBadge size="lg" />}
           </div>
           {config?.launchNote && (
             <p className="text-xs text-amber-300/90 mt-1 leading-snug break-words">{config.launchNote}</p>
           )}
-          {center && <p className="text-[11px] text-slate-500 mt-0.5 truncate">at {center.name}</p>}
+          {config?.pickupNote && (
+            <p className="text-[11px] text-slate-500 mt-1 flex items-start gap-1 leading-snug">
+              <MapPin className="w-3 h-3 mt-px shrink-0 text-accent/70" aria-hidden="true" />
+              {config.pickupNote}
+            </p>
+          )}
         </div>
       </header>
 
@@ -256,16 +258,11 @@ export function ShopPageClient() {
       ) : !enabled ? (
         <EmptyState
           icon={Store}
-          title="The shop isn’t available at this center yet"
-          description="Check back soon, or browse the store at another PlayOrbit center."
-          action={
-            centers.length > 1
-              ? { label: 'Browse other centers', onClick: () => router.push('/centers') }
-              : undefined
-          }
+          title="The store is closed right now"
+          description="Check back soon — we’ll reopen with fresh gear."
         />
       ) : data && data.products.length === 0 && !hasFilter ? (
-        <ShopTeaser centerName={center?.name ?? null} enquiryPhone={data.enquiryPhone} />
+        <ShopTeaser enquiryPhone={data.enquiryPhone} pickupNote={config?.pickupNote ?? ''} />
       ) : data ? (
         <>
           <SearchBox

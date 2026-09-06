@@ -3,7 +3,7 @@
 import { useEffect, useState, useSyncExternalStore } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { ArrowLeft, Check, Copy, MessageCircle, Minus, PackageSearch, Plus } from 'lucide-react';
+import { ArrowLeft, Check, Copy, MapPin, MessageCircle, Minus, PackageSearch, Plus } from 'lucide-react';
 import { useCurrentUser } from '@/lib/current-user';
 import { useToast } from '@/components/ui/Toast';
 import { PageBackground } from '@/components/ui/PageBackground';
@@ -25,9 +25,8 @@ import { DeliveryAddressHint, useDefaultAddress } from './DeliveryAddressHint';
 /** `GET /api/shop/products/[id]` */
 interface ProductDetailResponse {
   product: MarketplaceProductView;
-  config: { enabled: boolean; comingSoon: boolean; launchNote: string };
+  config: { enabled: boolean; comingSoon: boolean; launchNote: string; pickupNote: string };
   enquiryPhone: string | null;
-  center: { id: string; name: string; slug: string };
   interested: boolean;
   signedIn: boolean;
 }
@@ -273,6 +272,13 @@ function ProductDetail({
         <PriceTag product={product} size="lg" className="mt-3" />
         {!comingSoon && <StockPill product={product} className="mt-2" />}
 
+        {config.pickupNote && (
+          <p className="mt-3 flex items-start gap-1.5 text-xs text-slate-400 leading-snug">
+            <MapPin className="w-3.5 h-3.5 mt-px shrink-0 text-accent/70" aria-hidden="true" />
+            {config.pickupNote}
+          </p>
+        )}
+
         {product.sizes.length > 0 && (
           <div className="mt-4">
             <p className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1.5">Size</p>
@@ -383,7 +389,7 @@ function ProductDetail({
                 </div>
                 {!orderLink && (
                   <p className="text-[11px] text-slate-500 mt-2">
-                    Ordering isn’t set up at this center yet — please contact the center directly.
+                    Ordering isn’t open yet — the store hasn’t set a WhatsApp number.
                   </p>
                 )}
               </>

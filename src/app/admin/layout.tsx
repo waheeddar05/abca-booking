@@ -39,6 +39,10 @@ export default function AdminLayout({
   const isModerator = sessionUser?.role === 'MODERATOR';
   const isAdminLevel = isAdmin || isModerator;
   const isCenterAdmin = !isSuperAdmin && isAdmin && !!currentCenter;
+  // The Cricket Store is one catalog for all of PlayOrbit, run by store
+  // admins (a platform-level flag) and super admins — never by center
+  // admins as such. Store-only users reach exactly this link.
+  const canManageStore = isSuperAdmin || sessionUser?.isStoreAdmin === true;
 
   // We also allow Sidearm Specialists to access the /admin/sidearm page
   // so they can manage their own availability. The middleware is updated
@@ -87,9 +91,9 @@ export default function AdminLayout({
     { href: '/admin/ground-staff', label: 'Ground Staff', icon: HardHat, models: ['RESOURCE_BASED'], hidden: !isAdmin },
     // Offers — full admins only. Restricted for moderators.
     { href: '/admin/offers', label: 'Offers', icon: Tag, hidden: !isAdmin },
-    // Marketplace — the in-app store's back office. Full admins only,
-    // like Offers: moderators are blocked in the middleware and the API.
-    { href: '/admin/shop', label: 'Marketplace', icon: Store, hidden: !isAdmin },
+    // Cricket Store — the store's back office. Store admins and super
+    // admins only; the middleware and every /api/admin/shop route agree.
+    { href: '/admin/shop', label: 'Cricket Store', icon: Store, hidden: !canManageStore },
     { href: '/admin/packages', label: 'Packages', icon: Package, hidden: !isAdminLevel },
     // Ledger — hand-entered revenue + expenses. Admins and moderators
     // both get it: moderators can add and edit entries, only full
