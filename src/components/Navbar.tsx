@@ -6,9 +6,11 @@ import { useSession, signOut } from 'next-auth/react';
 import { useCurrentUser } from '@/lib/current-user';
 import { usePathname, useRouter } from 'next/navigation';
 import { useState, useEffect } from 'react';
-import { Shield, Power, LogIn, ArrowLeft, Calendar, ClipboardList, Package, Wallet, Bell, Headset } from 'lucide-react';
+import { Shield, Power, LogIn, ArrowLeft, Calendar, ClipboardList, Package, Wallet, Bell, Headset, ShoppingBag, UserRound, type LucideIcon } from 'lucide-react';
 import { CenterSelector } from './CenterSelector';
 import { useCenter } from '@/lib/center-context';
+import { useMarketplaceStatus } from '@/lib/marketplace-status';
+import { PROFILE_PATH, SHOP_PATH } from '@/lib/marketplace';
 
 export default function Navbar() {
   // `session` is only consulted to decide which sign-out to run — a
@@ -20,6 +22,9 @@ export default function Navbar() {
   const router = useRouter();
   const { canAccessAdminPanelAtCurrentCenter, isStaffAtCurrentCenter, loading: centerLoading } = useCenter();
   const [scrolled, setScrolled] = useState(false);
+  // The store is per center: a center that has it switched off shows no
+  // Shop link at all, and one still pre-launch gets a "Soon" pill.
+  const { loading: shopLoading, enabled: shopEnabled, comingSoon: shopComingSoon } = useMarketplaceStatus();
 
   useEffect(() => {
     const handleScroll = () => setScrolled(window.scrollY > 10);
@@ -44,10 +49,13 @@ export default function Navbar() {
 
   if (pathname === '/') return null;
 
-  const desktopNavLinks = [
+  const desktopNavLinks: Array<{ href: string; label: string; icon: LucideIcon; soon?: boolean }> = [
     { href: '/slots', label: 'Book Slot', icon: Calendar },
     { href: '/bookings', label: 'My Bookings', icon: ClipboardList },
     { href: '/packages', label: 'Packages', icon: Package },
+    // Only marked "Soon" once the status is known — the optimistic default
+    // would flash the pill on a live store and then pull it.
+    ...(shopEnabled ? [{ href: SHOP_PATH, label: 'Shop', icon: ShoppingBag, soon: !shopLoading && shopComingSoon }] : []),
     { href: '/wallet', label: 'Wallet', icon: Wallet },
     { href: '/notifications', label: 'Alerts', icon: Bell },
   ];
@@ -92,7 +100,7 @@ export default function Navbar() {
           {/* Desktop Navigation Links — hidden on mobile (BottomNav handles mobile) */}
           {isLoggedIn && !isInAdminMode && !isInStaffMode && (
             <div className="hidden md:flex items-center gap-1">
-              {desktopNavLinks.map(({ href, label, icon: Icon }) => {
+              {desktopNavLinks.map(({ href, label, icon: Icon, soon }) => {
                 const active = isNavActive(href);
                 return (
                   <Link
@@ -106,6 +114,11 @@ export default function Navbar() {
                   >
                     <Icon className="w-4 h-4" />
                     {label}
+                    {soon && (
+                      <span className="px-1.5 py-px rounded-full bg-amber-500/15 border border-amber-500/30 text-amber-300 text-[9px] font-bold uppercase">
+                        Soon
+                      </span>
+                    )}
                   </Link>
                 );
               })}
@@ -130,6 +143,22 @@ export default function Navbar() {
                   >
                     <ArrowLeft className="w-4 h-4" />
                     User Mode
+                  </Link>
+                )}
+
+                {/* User mode: Profile — name and delivery addresses. Admin and
+                    staff layouts carry their own chrome, so it stays out of those. */}
+                {!isInAdminMode && !isInStaffMode && (
+                  <Link
+                    href={PROFILE_PATH}
+                    className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium transition-all ${
+                      isNavActive(PROFILE_PATH)
+                        ? 'text-accent bg-accent/10'
+                        : 'text-white/70 hover:text-white hover:bg-white/10'
+                    }`}
+                  >
+                    <UserRound className="w-4 h-4" />
+                    <span className="hidden md:inline">Profile</span>
                   </Link>
                 )}
 

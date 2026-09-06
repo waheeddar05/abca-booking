@@ -81,6 +81,7 @@ model Center {
   centerPolicies      CenterPolicy[]
   wallets             Wallet[]
   ledgerEntries       LedgerEntry[]
+  marketplaceProducts MarketplaceProduct[]
 }
 
 enum BookingModel {
@@ -382,6 +383,10 @@ model User {
   centerMemberships       CenterMembership[]
   ledgerEntries           LedgerEntry[]        @relation("LedgerEntriesRecorded")
   ledgerEntriesCollected  LedgerEntry[]        @relation("LedgerEntriesCollected")
+  // Marketplace (Admin -> Marketplace, /shop) + delivery addresses.
+  addresses               UserAddress[]
+  marketplaceInterests    MarketplaceInterest[]
+  marketplaceProducts     MarketplaceProduct[] @relation("MarketplaceProductsCreated")
 }
 
 // Global policy / feature flags. Keys without a centerId in
@@ -1232,4 +1237,123 @@ enum LedgerPaymentMethod {
   CASH
   ONLINE
   OTHER
+}
+
+// ─── Marketplace ────────────────────────────────────────────────────
+//
+// The in-app store (Admin -> Marketplace, user /shop): cricket gear —
+// bats first, then gloves, thigh guards and the rest. Center-scoped like
+// every other domain table: each center runs its own catalog through the
+// admin center switcher, and the user-side /shop shows the current
+// center's products. Launch state ("Coming soon") is the per-center
+// MARKETPLACE_CONFIG policy, not a column here.
+
+model MarketplaceProduct {
+  id       String @id @default(cuid())
+  centerId String
+
+  name        String
+  // Category code validated against the catalog in src/lib/marketplace.ts
+  // (BAT, GLOVES, THIGH_GUARD, ...). Text rather than a Postgres enum so
+  // the catalog can grow without a migration — same rule as the ledger's
+  // expense subcategories.
+  category    String
+  brand       String?
+  sku         String?
+  description String?
+
+  // Selling price and the strike-through MRP, both in INR.
+  price Float
+  mrp   Float?
+
+  // null = stock not tracked (only the inStock flag matters).
+  stockQty Int?
+  inStock  Boolean @default(true)
+
+  // Published to /shop. New products start hidden so an admin can add
+  // images before anyone sees them.
+  isActive     Boolean @default(false)
+  isFeatured   Boolean @default(false)
+  displayOrder Int     @default(0)
+
+  // Size labels shown as chips ("SH", "Harrow", "Men's L") — enough for
+  // bats / gloves / guards without a full variant model.
+  sizes String[] @default([])
+  // [{ label, value }] free-form spec rows (willow grade, weight, ...).
+  specs Json?
+
+  createdById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  center    Center                    @relation(fields: [centerId], references: [id], onDelete: Cascade)
+  createdBy User?                     @relation("MarketplaceProductsCreated", fields: [createdById], references: [id], onDelete: SetNull)
+  images    MarketplaceProductImage[]
+  interests MarketplaceInterest[]
+
+  // /shop listing: published products at a center, per category.
+  @@index([centerId, isActive, category])
+  @@index([centerId, displayOrder])
+}
+
+// Product photos, stored in Postgres (bytea) and served by
+// /api/shop/images/[id] with immutable caching — an image row is never
+// edited, only replaced, so its id is a safe cache key. Kept off every
+// list query (`data` is selected only by the image route).
+model MarketplaceProductImage {
+  id          String   @id @default(cuid())
+  productId   String
+  data        Bytes
+  contentType String
+  sizeBytes   Int
+  width       Int?
+  height      Int?
+  // 0 = primary image (the card thumbnail).
+  sortOrder   Int      @default(0)
+  alt         String?
+  createdAt   DateTime @default(now())
+
+  product MarketplaceProduct @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@index([productId, sortOrder])
+}
+
+// "Notify me when available" — a signed-in user's interest in a product
+// while the store is in Coming Soon mode. One row per user per product;
+// admins read them as launch leads.
+model MarketplaceInterest {
+  id        String   @id @default(cuid())
+  productId String
+  userId    String
+  createdAt DateTime @default(now())
+
+  product MarketplaceProduct @relation(fields: [productId], references: [id], onDelete: Cascade)
+  user    User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([productId, userId])
+  @@index([userId])
+}
+
+// Delivery addresses on the user's profile (/profile). Global, not
+// center-scoped — a user's home address does not change with the center
+// they book at. At most one default per user, enforced in the API.
+model UserAddress {
+  id        String   @id @default(cuid())
+  userId    String
+  label     String?
+  fullName  String
+  phone     String
+  line1     String
+  line2     String?
+  landmark  String?
+  city      String
+  state     String
+  pincode   String
+  isDefault Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
 }

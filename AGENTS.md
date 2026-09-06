@@ -245,3 +245,6 @@ The legacy `getRazorpayInstance()` and `verifyPaymentSignature(...)` are depreca
 A `WALLET_SCOPE` policy ('CENTER' | 'GLOBAL') is reserved for future use — wallets stay per-center for now. To switch to global wallets later: relax `Wallet.centerId` to nullable, add a resolver that picks the right wallet based on the policy, and migrate existing per-center balances into a single global row per user.
 
 ## Imported Claude Cowork project instructions
+
+### Marketplace (Shop)
+The in-app store — bats, gloves, thigh guards and other gear. Public `/shop` (browsable signed-out), admin `/admin/shop` (full admins only; moderators blocked). Products are center-scoped; launch state is the per-center `MARKETPLACE_CONFIG` policy (`{ enabled, comingSoon, launchNote, enquiryPhone }`, default Coming soon). Product photos are stored in Postgres (`MarketplaceProductImage.data`) and served by `/api/shop/images/[id]`. Users keep delivery addresses on `/profile` (`UserAddress`, global). See the "Marketplace (Shop)" section of `CLAUDE.md` for the full design.

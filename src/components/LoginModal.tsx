@@ -18,6 +18,12 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 interface LoginModalProps {
   isOpen: boolean;
   onClose: () => void;
+  /**
+   * Same-origin path to load after a successful sign-in. Defaults to the
+   * booking screen; the landing page passes a validated `?next=` here so
+   * a visitor sent to sign in from the shop lands back on the product.
+   */
+  redirectTo?: string;
 }
 
 type Step = 'mobile' | 'otp';
@@ -25,7 +31,7 @@ type Step = 'mobile' | 'otp';
 const OTP_LENGTH = 6;
 const RESEND_SECONDS = 30;
 
-export default function LoginModal({ isOpen, onClose }: LoginModalProps) {
+export default function LoginModal({ isOpen, onClose, redirectTo = '/slots' }: LoginModalProps) {
   const [step, setStep] = useState<Step>('mobile');
   const [mobile, setMobile] = useState('');
   const [otp, setOtp] = useState('');
@@ -130,7 +136,7 @@ export default function LoginModal({ isOpen, onClose }: LoginModalProps) {
         return;
       }
       // Full load so every provider picks up the new session cookie.
-      window.location.href = '/slots';
+      window.location.href = redirectTo;
     } catch {
       setError('Network error. Please check your connection and try again.');
       setLoading(false);

@@ -56,6 +56,7 @@ import { useCurrentUser } from '@/lib/current-user';
 import { useToast } from '@/components/ui/Toast';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { PageBackground } from '@/components/ui/PageBackground';
+import { MarketplacePromoBanner } from '@/components/shop/MarketplacePromoBanner';
 import { DateSelector } from '@/components/slots/DateSelector';
 import { PaymentMethodSelector } from '@/components/ui/PaymentMethodSelector';
 import { ContactFooter } from '@/components/ContactFooter';
@@ -1510,6 +1511,7 @@ export default function ResourceSlotsPage() {
   return (
     <div className="max-w-2xl mx-auto px-4 py-5 pb-40 md:pb-28">
       <PageBackground />
+      <MarketplacePromoBanner />
 
       {/* Page header — same calendar-icon header as ABCA's /slots */}
       <div className="flex items-center gap-3 mb-5">
