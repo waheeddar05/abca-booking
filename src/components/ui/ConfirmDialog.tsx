@@ -59,14 +59,17 @@ export function ConfirmDialog({
     };
   }, [open, onCancel]);
 
-  // Prevent body scroll when open
+  // Prevent body scroll while open. Only touch the style while actually
+  // open, and restore whatever was there before: this dialog is often
+  // mounted (closed) inside another dialog that holds its own lock, and
+  // the old unconditional `overflow = ''` on mount/close undid the parent's.
   useEffect(() => {
-    if (open) {
-      document.body.style.overflow = 'hidden';
-    } else {
-      document.body.style.overflow = '';
-    }
-    return () => { document.body.style.overflow = ''; };
+    if (!open) return;
+    const before = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.body.style.overflow = before;
+    };
   }, [open]);
 
   const handleBackdropClick = useCallback((e: React.MouseEvent) => {

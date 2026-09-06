@@ -19,7 +19,8 @@ import Link from 'next/link';
 import { LogIn, MapPin, Plus, UserRound } from 'lucide-react';
 import { useCurrentUser } from '@/lib/current-user';
 import { MAX_ADDRESSES_PER_USER, formatAddressSummary, type UserAddressView } from '@/lib/addresses';
-import { SHOP_PATH } from '@/lib/marketplace';
+import { PROFILE_PATH, SHOP_PATH } from '@/lib/marketplace';
+import { loginHref } from '@/lib/login-href';
 import { PageBackground } from '@/components/ui/PageBackground';
 import { LoadingState } from '@/components/ui/LoadingState';
 import { EmptyState } from '@/components/ui/EmptyState';
@@ -75,7 +76,7 @@ function SignedOutState() {
       <p className="text-sm font-medium text-slate-300 mb-1">Please sign in</p>
       <p className="text-xs text-slate-500">Sign in to see your account details and delivery addresses.</p>
       <Link
-        href="/login"
+        href={loginHref(PROFILE_PATH)}
         className="inline-flex items-center gap-2 mt-5 bg-accent hover:bg-accent-light text-primary font-bold rounded-xl px-4 py-2.5 text-sm transition-colors"
       >
         <LogIn className="w-4 h-4" aria-hidden="true" />

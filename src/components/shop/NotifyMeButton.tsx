@@ -60,7 +60,7 @@ export function NotifyMeButton({ productId, interested, signedIn, onChange, clas
           : !interested;
       onChange(next);
       if (next) {
-        toast.success('You’re on the list', 'We’ll message you when this is available.');
+        toast.success('You’re on the list', 'The store will get in touch when this is available.');
       } else {
         toast.info('Reminder removed', 'You won’t be notified about this product.');
       }

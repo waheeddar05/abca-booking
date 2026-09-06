@@ -46,9 +46,16 @@ function load(force = false): Promise<MarketplaceStatus | null> {
   return inflight;
 }
 
-/** Drop the cached status; the next `useMarketplaceStatus` mount refetches. */
+/**
+ * Drop the cached status and fetch it again right away. Consumers that
+ * are already mounted — the Navbar and BottomNav live in the root layout
+ * and survive every navigation, including into /admin — are updated
+ * through the listener set, so an admin's settings save shows in the
+ * chrome without a reload.
+ */
 export function invalidateMarketplaceStatus(): void {
   cached = null;
+  if (typeof window !== 'undefined') void load(true);
 }
 
 export interface MarketplaceStatusState {

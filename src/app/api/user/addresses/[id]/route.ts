@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { prisma } from '@/lib/prisma';
 import { runSerializable } from '@/lib/serializable-tx';
 import { getAuthenticatedUser } from '@/lib/auth';
 import { sanitizeApiError } from '@/lib/api-errors';
@@ -21,20 +20,31 @@ type Params = { id: string };
  * The current default can't be *unset* (there'd be no default while
  * addresses remain) — it only moves when another address takes it.
  * Deleting the default promotes the oldest remaining address.
+ *
+ * The ownership read and the default decision happen INSIDE the
+ * serializable transaction, not before it. Read outside, the decision
+ * would be baked into the closure: a concurrent "set as default" on a
+ * sibling row could commit in between, and the retry that Postgres'
+ * serialization conflict triggers would re-run the same stale decision —
+ * leaving two defaults, or none. Inside, every attempt re-reads.
  */
+
+/** Thrown inside the transaction; mapped to a 404 by the handler. */
+class AddressNotFoundError extends Error {
+  constructor() {
+    super('Address not found');
+    this.name = 'AddressNotFoundError';
+  }
+}
+
+const notFound = () => NextResponse.json({ error: 'Address not found' }, { status: 404 });
+
 export async function PATCH(req: NextRequest, ctx: { params: Promise<Params> }) {
   try {
     const user = await getAuthenticatedUser(req);
     if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
     const { id } = await ctx.params;
-    const existing = await prisma.userAddress.findUnique({
-      where: { id },
-      select: { id: true, userId: true, isDefault: true },
-    });
-    if (!existing || existing.userId !== user.id) {
-      return NextResponse.json({ error: 'Address not found' }, { status: 404 });
-    }
 
     let body: unknown;
     try {
@@ -50,9 +60,16 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<Params> }) 
       );
     }
     const { isDefault, ...fields } = parsed.data;
-    const makeDefault = existing.isDefault || isDefault;
 
     const updated = await runSerializable(async (tx) => {
+      const existing = await tx.userAddress.findUnique({
+        where: { id },
+        select: { id: true, userId: true, isDefault: true },
+      });
+      if (!existing || existing.userId !== user.id) throw new AddressNotFoundError();
+
+      // The current default stays the default unless another row takes it.
+      const makeDefault = existing.isDefault || isDefault;
       if (makeDefault && !existing.isDefault) {
         await tx.userAddress.updateMany({
           where: { userId: user.id, isDefault: true },
@@ -68,6 +85,7 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<Params> }) 
 
     return NextResponse.json({ address: toAddressView(updated), addresses: await listAddresses(user.id) });
   } catch (error) {
+    if (error instanceof AddressNotFoundError) return notFound();
     const { message, status } = sanitizeApiError(error, 'user.addresses.update');
     return NextResponse.json({ error: message }, { status });
   }
@@ -79,30 +97,39 @@ export async function DELETE(req: NextRequest, ctx: { params: Promise<Params> })
     if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
     const { id } = await ctx.params;
-    const existing = await prisma.userAddress.findUnique({
-      where: { id },
-      select: { id: true, userId: true, isDefault: true },
-    });
-    if (!existing || existing.userId !== user.id) {
-      return NextResponse.json({ error: 'Address not found' }, { status: 404 });
-    }
 
     await runSerializable(async (tx) => {
+      const existing = await tx.userAddress.findUnique({
+        where: { id },
+        select: { id: true, userId: true },
+      });
+      if (!existing || existing.userId !== user.id) throw new AddressNotFoundError();
+
       await tx.userAddress.delete({ where: { id } });
-      if (existing.isDefault) {
-        const next = await tx.userAddress.findFirst({
+
+      // Keep "exactly one default while any address remains" true from
+      // the remaining rows themselves, rather than from what the deleted
+      // row used to be — that also repairs a stale state instead of
+      // carrying it forward.
+      const stillDefault = await tx.userAddress.findFirst({
+        where: { userId: user.id, isDefault: true },
+        select: { id: true },
+      });
+      if (!stillDefault) {
+        const oldest = await tx.userAddress.findFirst({
           where: { userId: user.id },
           orderBy: { createdAt: 'asc' },
           select: { id: true },
         });
-        if (next) {
-          await tx.userAddress.update({ where: { id: next.id }, data: { isDefault: true } });
+        if (oldest) {
+          await tx.userAddress.update({ where: { id: oldest.id }, data: { isDefault: true } });
         }
       }
     });
 
     return NextResponse.json({ deleted: true, addresses: await listAddresses(user.id) });
   } catch (error) {
+    if (error instanceof AddressNotFoundError) return notFound();
     const { message, status } = sanitizeApiError(error, 'user.addresses.delete');
     return NextResponse.json({ error: message }, { status });
   }

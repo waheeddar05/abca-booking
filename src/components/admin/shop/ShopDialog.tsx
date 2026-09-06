@@ -12,6 +12,12 @@ interface ShopDialogProps {
    * an unmounted component.
    */
   busy?: boolean;
+  /**
+   * True while a nested dialog (a delete confirm) is open on top. ESC and
+   * backdrop taps then belong to that dialog — without this, one Escape
+   * reached both document listeners and closed the whole thing.
+   */
+  suspendDismiss?: boolean;
   size?: 'sm' | 'md' | 'lg';
   onClose: () => void;
   children: ReactNode;
@@ -36,6 +42,7 @@ export function ShopDialog({
   title,
   subtitle,
   busy = false,
+  suspendDismiss = false,
   size = 'md',
   onClose,
   children,
@@ -58,21 +65,25 @@ export function ShopDialog({
     };
   }, []);
 
+  const canDismiss = !busy && !suspendDismiss;
+
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key !== 'Escape') return;
+      // Let the nested dialog's own listener handle it.
+      if (suspendDismiss) return;
       e.preventDefault();
       if (!busy) onClose();
     };
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [busy, onClose]);
+  }, [busy, suspendDismiss, onClose]);
 
   const handleBackdropClick = useCallback(
     (e: React.MouseEvent) => {
-      if (e.target === e.currentTarget && !busy) onClose();
+      if (e.target === e.currentTarget && canDismiss) onClose();
     },
-    [busy, onClose],
+    [canDismiss, onClose],
   );
 
   return (

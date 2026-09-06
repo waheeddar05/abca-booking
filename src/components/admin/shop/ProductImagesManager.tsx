@@ -159,6 +159,7 @@ export function ProductImagesManager({ product, onClose, onImagesChanged }: Prop
         title="Photos"
         subtitle={product.name}
         busy={busy}
+        suspendDismiss={confirmDelete !== null}
         size="lg"
         onClose={onClose}
         footer={
