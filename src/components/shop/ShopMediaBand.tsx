@@ -6,7 +6,7 @@ import { ShoppingBag } from 'lucide-react';
 
 export const SHOP_BAND = {
   image: '/images/kis-gear-band.jpg',
-  video: '/kis-hero.mp4',
+  video: '/images/kis-hero.mp4',
   alt: 'KIS cricket bats in Kashmir willow at the Khan International Sports workshop, Anantnag',
 };
 
