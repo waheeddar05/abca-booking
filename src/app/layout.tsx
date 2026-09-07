@@ -10,9 +10,26 @@ import { ErrorBoundary } from "@/components/ui/ErrorBoundary";
 import { ToastProvider } from "@/components/ui/Toast";
 
 import PWARegister from "@/components/PWARegister";
+import { siteOrigin } from "@/lib/site-url";
 import "./globals.css";
 
+/**
+ * The 1200×630 card WhatsApp, Instagram and Facebook show under a shared
+ * link. Static asset under /images so the middleware never intercepts a
+ * crawler's fetch of it; `metadataBase` turns it into the absolute URL the
+ * Open Graph spec requires. Without it a shared playorbit.in link rendered
+ * as a bare grey box — for a business marketed over WhatsApp, that card is
+ * the storefront.
+ */
+const SHARE_IMAGE = {
+  url: "/images/og-cover.jpg",
+  width: 1200,
+  height: 630,
+  alt: "PlayOrbit — Train like a champion. Pro bowling machines, indoor nets and coaching in Pune.",
+};
+
 export const metadata: Metadata = {
+  metadataBase: siteOrigin(),
   title: "PlayOrbit - Book Cricket Practice Sessions",
   description: "Book professional cricket practice sessions with advanced bowling machines. 4 pro machines, 3 pitch types, flexible 30-min slots.",
   manifest: "/manifest.json",
@@ -22,15 +39,18 @@ export const metadata: Metadata = {
     title: "PlayOrbit",
   },
   openGraph: {
-    title: "PlayOrbit",
-    description: "Book professional cricket practice sessions. 4 bowling machines, 3 pitch types, morning & evening slots.",
+    title: "PlayOrbit — Book Cricket Practice in Pune",
+    description: "Pro bowling machines, indoor nets, coaching and sidearm sessions. Pick a 30-minute slot and book in one tap.",
     type: "website",
     siteName: "PlayOrbit",
+    locale: "en_IN",
+    images: [SHARE_IMAGE],
   },
   twitter: {
-    card: "summary",
-    title: "PlayOrbit",
-    description: "Book professional cricket practice sessions with advanced bowling machines.",
+    card: "summary_large_image",
+    title: "PlayOrbit — Book Cricket Practice in Pune",
+    description: "Pro bowling machines, indoor nets, coaching and sidearm sessions. Book a 30-minute slot in one tap.",
+    images: [SHARE_IMAGE.url],
   },
   icons: {
     icon: [

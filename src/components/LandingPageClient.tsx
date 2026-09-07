@@ -4,11 +4,11 @@ import React, { useEffect, useState, useSyncExternalStore } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import Image from 'next/image';
-import { Calendar, Zap, Instagram, Phone, Target, Shield, Users, Star, ArrowRight, MapPin, Building2, Mail, Crosshair, GraduationCap, LayoutGrid, Maximize2, Wallet, ShoppingBag } from 'lucide-react';
+import { Calendar, Zap, Instagram, Phone, Target, Shield, Users, Star, ArrowRight, MapPin, Building2, Mail, Crosshair, GraduationCap, LayoutGrid, Maximize2, Wallet, ShoppingBag, MessageCircle } from 'lucide-react';
 import LoginModal from './LoginModal';
 import { LandingShopSection } from './shop/LandingShopSection';
 import { INSTAGRAM_URL } from '@/lib/client-constants';
-import { SHOP_PATH, STORE_NAV_LABEL } from '@/lib/marketplace';
+import { SHOP_PATH, STORE_NAV_LABEL, buildWhatsAppLink } from '@/lib/marketplace';
 import { DEFAULT_POST_LOGIN_PATH, safeNextPath } from '@/lib/login-href';
 import { useMarketplaceStatus } from '@/lib/marketplace-status';
 import { useCenter } from '@/lib/center-context';
@@ -65,6 +65,14 @@ function getNextPathServerSnapshot(): string {
   return DEFAULT_POST_LOGIN_PATH;
 }
 
+/**
+ * One chip in the "Ready to play?" strip. A fixed width on phones so three
+ * sit per row and the text inside never has to truncate; natural width
+ * from `md` up where the whole strip fits on one line.
+ */
+const contactChipClass =
+  'flex flex-col items-center gap-0.5 md:gap-1.5 group active:scale-95 transition-transform w-[92px] md:w-auto md:min-w-[96px]';
+
 export default function LandingPageClient() {
   const [loginOpen, setLoginOpen] = useState(false);
   // Once the visitor closes a `?login=1` modal it stays closed; the Login
@@ -112,6 +120,16 @@ export default function LandingPageClient() {
     return single.length > 0 ? [{ name: null, number: single }] : [];
   })();
 
+  // WhatsApp is the channel most visitors actually use (sign-in itself is
+  // WhatsApp-only), so the strip and the footer's Support link open a chat
+  // with the center's primary number. `buildWhatsAppLink` rejects anything
+  // that isn't an Indian mobile, so a center with no usable number simply
+  // gets no chip — same "missing field, no chip" rule as the rest.
+  const whatsAppHref = buildWhatsAppLink(
+    (currentCenter?.contactPhone ?? '').trim() || phoneContacts[0]?.number,
+    `Hi PlayOrbit, I'd like to book a session${currentCenter ? ` at ${currentCenter.shortName || currentCenter.name}` : ''}.`,
+  );
+
   // A signed-in visitor should never be looking at this page.
   //
   // `src/app/page.tsx` already redirects them on the server, but that read
@@ -157,8 +175,12 @@ export default function LandingPageClient() {
         <div className="absolute top-[40%] left-[50%] -translate-x-1/2 w-[30%] h-[30%] bg-cyan-500/4 rounded-full blur-[120px]"></div>
       </div>
 
-      {/* Navigation */}
-      <nav className="fixed top-0 left-0 right-0 z-50 glass-dark border-b border-white/5 px-4 md:px-6 py-1.5 md:py-2">
+      {/* Navigation — a fixed bar the whole page scrolls under, so it needs
+          a real backdrop: a near-opaque tint plus blur. The bat and machine
+          photos are bright, and at 20% black the buttons sat on top of the
+          content scrolling past. Tailwind's own backdrop utility rather
+          than `.glass-dark` so the (unlayered) class can't override the bg. */}
+      <nav className="fixed top-0 left-0 right-0 z-50 bg-[#030712]/85 backdrop-blur-xl border-b border-white/5 px-4 md:px-6 py-1.5 md:py-2">
         <div className="max-w-7xl mx-auto flex justify-between items-center h-10 md:h-10">
           <div className="flex items-center gap-1.5 md:gap-2">
             <Image
@@ -394,14 +416,15 @@ export default function LandingPageClient() {
               </div>
             </div>
 
-            {/* Machine Card 4: Leverage Outdoor */}
+            {/* Machine Card 4: Leverage Outdoor — the full tripod shot, so the
+                two iWinner cards don't show the same close-up twice. */}
             <div className="group relative rounded-xl md:rounded-2xl overflow-hidden border border-white/[0.06] hover:border-accent/20 transition-all duration-500 bg-[#060d1b]/80 hover:shadow-[0_8px_40px_rgba(56,189,248,0.08)]">
               <div className="relative aspect-[4/3] bg-[#050b14] overflow-hidden">
                 <Image
-                  src="/images/leverage-tennis.jpeg"
-                  alt="iWinner outdoor tennis machine"
+                  src="/images/tennismachine.jpeg"
+                  alt="iWinner outdoor tennis machine on its tripod"
                   fill
-                  className="object-cover object-[center_25%] group-hover:scale-105 transition-transform duration-700 opacity-85 group-hover:opacity-100"
+                  className="object-cover object-[center_20%] group-hover:scale-105 transition-transform duration-700 opacity-85 group-hover:opacity-100"
                   loading="lazy"
                   sizes="(max-width: 768px) 50vw, 600px"
                 />
@@ -529,42 +552,56 @@ export default function LandingPageClient() {
               Instagram handle, and the center's Google Maps link.
               Missing fields render no chip rather than a generic
               fallback. */}
-          {/* Single horizontal row. We let it scroll horizontally on
-              narrow screens (overflow-x-auto) rather than wrap so all
-              five entries — multiple phones + Instagram + Location —
-              stay in one line per the design requirement. The wrap
-              variant was rendering 2–3 rows on phone widths which
-              admins complained looked cluttered. */}
-          <div className="flex flex-nowrap items-start justify-center gap-3 md:gap-8 w-full overflow-x-auto -mx-2 px-2 snap-x">
+          {/* Fixed-width chips that wrap and stay centred. The previous
+              single scrolling row gave every chip `min-w-0`, so at phone
+              widths six of them shrank to ~44px and `truncate` cut the
+              phone numbers to "997501…" — the one thing a visitor came
+              here to read. Three chips per row on a phone, one row on
+              desktop; nothing here is ever truncated. */}
+          <div className="flex flex-wrap items-start justify-center gap-x-4 gap-y-4 md:gap-x-8">
             {phoneContacts.map((c, idx) => (
               <a
                 key={`${c.number}-${idx}`}
                 href={`tel:${c.number}`}
-                className="flex flex-col items-center gap-0.5 md:gap-1.5 group active:scale-95 transition-transform min-w-0"
+                className={contactChipClass}
               >
                 <div className="w-9 h-9 md:w-12 md:h-12 rounded-xl bg-white/[0.04] border border-white/[0.08] flex items-center justify-center group-hover:bg-accent group-hover:text-primary group-hover:border-accent/40 transition-all group-hover:shadow-[0_0_24px_rgba(56,189,248,0.25)] mb-0.5 md:mb-1 flex-shrink-0">
                   <Phone className="w-3.5 h-3.5 md:w-5 md:h-5" />
                 </div>
-                <span className="text-[8px] md:text-[11px] uppercase font-bold tracking-wider text-slate-600 truncate w-full text-center">
+                <span className="text-[8px] md:text-[11px] uppercase font-bold tracking-wider text-slate-600 w-full text-center leading-tight">
                   {c.name || currentCenter?.shortName || currentCenter?.name || 'Phone'}
                 </span>
-                <span className="text-white font-bold text-[9px] md:text-sm truncate w-full tabular-nums text-center">
+                <span className="text-white font-bold text-[10px] md:text-sm w-full tabular-nums whitespace-nowrap text-center">
                   {c.number}
                 </span>
               </a>
             ))}
+            {whatsAppHref && (
+              <a
+                href={whatsAppHref}
+                target="_blank"
+                rel="noopener noreferrer"
+                className={contactChipClass}
+              >
+                <div className="w-9 h-9 md:w-12 md:h-12 rounded-xl bg-emerald-500/10 border border-emerald-500/25 text-emerald-400 flex items-center justify-center group-hover:bg-[#25D366] group-hover:text-white group-hover:border-[#25D366]/40 transition-all group-hover:shadow-[0_0_24px_rgba(37,211,102,0.3)] mb-0.5 md:mb-1 flex-shrink-0">
+                  <MessageCircle className="w-3.5 h-3.5 md:w-5 md:h-5" />
+                </div>
+                <span className="text-[8px] md:text-[11px] uppercase font-bold tracking-wider text-slate-600 w-full text-center leading-tight">WhatsApp</span>
+                <span className="text-white font-bold text-[10px] md:text-sm w-full text-center whitespace-nowrap">Chat with us</span>
+              </a>
+            )}
             {centerEmail && (
               <a
                 href={`mailto:${centerEmail}`}
-                className="flex flex-col items-center gap-0.5 md:gap-1.5 group active:scale-95 transition-transform min-w-0"
+                className={contactChipClass}
               >
                 <div className="w-9 h-9 md:w-12 md:h-12 rounded-xl bg-white/[0.04] border border-white/[0.08] flex items-center justify-center group-hover:bg-accent group-hover:text-primary group-hover:border-accent/40 transition-all group-hover:shadow-[0_0_24px_rgba(56,189,248,0.25)] mb-0.5 md:mb-1 flex-shrink-0">
                   <Mail className="w-3.5 h-3.5 md:w-5 md:h-5" />
                 </div>
-                <span className="text-[8px] md:text-[11px] uppercase font-bold tracking-wider text-slate-600 truncate w-full text-center">
+                <span className="text-[8px] md:text-[11px] uppercase font-bold tracking-wider text-slate-600 w-full text-center leading-tight">
                   Email
                 </span>
-                <span className="text-white font-bold text-[9px] md:text-sm truncate w-full text-center">
+                <span className="text-white font-bold text-[10px] md:text-sm w-full text-center break-all leading-tight">
                   {centerEmail}
                 </span>
               </a>
@@ -573,26 +610,26 @@ export default function LandingPageClient() {
               href={INSTAGRAM_URL}
               target="_blank"
               rel="noopener noreferrer"
-              className="flex flex-col items-center gap-0.5 md:gap-1.5 group active:scale-95 transition-transform min-w-0"
+              className={contactChipClass}
             >
               <div className="w-9 h-9 md:w-12 md:h-12 rounded-xl bg-white/[0.04] border border-white/[0.08] flex items-center justify-center group-hover:bg-[#E1306C] group-hover:text-white group-hover:border-[#E1306C]/40 transition-all group-hover:shadow-[0_0_24px_rgba(225,48,108,0.3)] mb-0.5 md:mb-1 flex-shrink-0">
                 <Instagram className="w-3.5 h-3.5 md:w-5 md:h-5" />
               </div>
-              <span className="text-[8px] md:text-[11px] uppercase font-bold tracking-wider text-slate-600 truncate w-full text-center">Instagram</span>
-              <span className="text-white font-bold text-[9px] md:text-sm truncate w-full text-center">@playorbit.in</span>
+              <span className="text-[8px] md:text-[11px] uppercase font-bold tracking-wider text-slate-600 w-full text-center leading-tight">Instagram</span>
+              <span className="text-white font-bold text-[10px] md:text-sm w-full text-center whitespace-nowrap">@playorbit.in</span>
             </a>
             {centerMapUrl && (
               <a
                 href={centerMapUrl}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="flex flex-col items-center gap-0.5 md:gap-1.5 group active:scale-95 transition-transform min-w-0"
+                className={contactChipClass}
               >
                 <div className="w-9 h-9 md:w-12 md:h-12 rounded-xl bg-white/[0.04] border border-white/[0.08] flex items-center justify-center group-hover:bg-accent group-hover:text-primary group-hover:border-accent/40 transition-all group-hover:shadow-[0_0_24px_rgba(56,189,248,0.25)] mb-0.5 md:mb-1 flex-shrink-0">
                   <MapPin className="w-3.5 h-3.5 md:w-5 md:h-5" />
                 </div>
-                <span className="text-[8px] md:text-[11px] uppercase font-bold tracking-wider text-slate-600 truncate w-full text-center">Location</span>
-                <span className="text-white font-bold text-[9px] md:text-sm truncate w-full text-center">Directions</span>
+                <span className="text-[8px] md:text-[11px] uppercase font-bold tracking-wider text-slate-600 w-full text-center leading-tight">Location</span>
+                <span className="text-white font-bold text-[10px] md:text-sm w-full text-center whitespace-nowrap">Directions</span>
               </a>
             )}
           </div>
@@ -614,18 +651,32 @@ export default function LandingPageClient() {
             />
           </div>
 
+          {/* Customer-facing links only. "Admin" used to sit here but only
+              opened the same login modal as Book Now — staff reach the
+              panel from the navbar once signed in. Support goes to
+              WhatsApp, falling back to email; with neither configured
+              the link is dropped rather than pointing at "#". */}
           <div className="flex items-center gap-6 md:gap-6">
             <button onClick={openLogin} className="text-xs md:text-sm font-bold uppercase tracking-wider text-slate-500 hover:text-accent transition-colors py-3 min-h-[44px] flex items-center cursor-pointer">Book Now</button>
-            <button onClick={openLogin} className="text-xs md:text-sm font-bold uppercase tracking-wider text-slate-500 hover:text-accent transition-colors py-3 min-h-[44px] flex items-center cursor-pointer">Admin</button>
-            <a href="#" className="text-xs md:text-sm font-bold uppercase tracking-wider text-slate-500 hover:text-accent transition-colors py-3 min-h-[44px] flex items-center">Support</a>
+            {shopEnabled && (
+              <Link href={SHOP_PATH} className="text-xs md:text-sm font-bold uppercase tracking-wider text-slate-500 hover:text-accent transition-colors py-3 min-h-[44px] flex items-center">
+                {STORE_NAV_LABEL}
+              </Link>
+            )}
+            {(whatsAppHref || centerEmail) && (
+              <a
+                href={whatsAppHref ?? `mailto:${centerEmail}`}
+                {...(whatsAppHref ? { target: '_blank', rel: 'noopener noreferrer' } : {})}
+                className="text-xs md:text-sm font-bold uppercase tracking-wider text-slate-500 hover:text-accent transition-colors py-3 min-h-[44px] flex items-center"
+              >
+                Support
+              </a>
+            )}
           </div>
 
           <div className="text-center md:text-right">
             <p className="text-[10px] md:text-xs font-black uppercase tracking-[0.2em] text-slate-700 leading-none">&copy; {new Date().getFullYear()} PlayOrbit. Designed for Champions.</p>
           </div>
-        </div>
-        <div className="mt-2 md:mt-4 text-center">
-          <p className="text-xs font-bold text-slate-800 uppercase tracking-[0.3em]">Built with Excellence by Waheed</p>
         </div>
       </footer>
 

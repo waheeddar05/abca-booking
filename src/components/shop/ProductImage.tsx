@@ -41,11 +41,16 @@ export function ProductImage({ image, category, alt, className = '', sizes, prio
       </div>
     );
   }
+  // The caller's `alt` wins: every caller passes the product's name (or
+  // "name — photo 2 of 3"), which is what a card or gallery slot means. The
+  // stored `image.alt` describes the photograph itself and, seeded from one
+  // supplier shoot, read "KIS bats in Kashmir willow…" under an English
+  // willow bat. It stays the fallback when a caller has nothing better.
   return (
     <div className={`relative overflow-hidden bg-[#050b14] ${className}`}>
       <Image
         src={image.url}
-        alt={image.alt || alt}
+        alt={alt || image.alt || ''}
         fill
         unoptimized
         priority={priority}

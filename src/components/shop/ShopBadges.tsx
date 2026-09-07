@@ -3,13 +3,20 @@
 import { Clock, Star } from 'lucide-react';
 import { formatRupees, stockLabel, type MarketplaceProductView } from '@/lib/marketplace';
 
-/** The store-wide pre-launch marker. `size="lg"` for page headers. */
+/**
+ * The store-wide pre-launch marker. `size="lg"` for page headers, where it
+ * sits on the dark page background; the small one is a ribbon over a
+ * product photo, so it gets an opaque dark backdrop — the translucent amber
+ * alone was unreadable across pale willow and wood.
+ */
 export function ComingSoonBadge({ size = 'sm', className = '' }: { size?: 'sm' | 'lg'; className?: string }) {
   const lg = size === 'lg';
   return (
     <span
-      className={`inline-flex items-center gap-1 rounded-full bg-amber-500/15 border border-amber-500/30 text-amber-300 font-bold uppercase tracking-wider ${
-        lg ? 'px-3 py-1 text-[11px] md:text-xs' : 'px-2 py-0.5 text-[9px]'
+      className={`inline-flex items-center gap-1 rounded-full border text-amber-300 font-bold uppercase tracking-wider ${
+        lg
+          ? 'bg-amber-500/15 border-amber-500/30 px-3 py-1 text-[11px] md:text-xs'
+          : 'bg-[#030712]/85 backdrop-blur-md border-amber-500/40 px-2 py-0.5 text-[9px] shadow-[0_2px_8px_rgba(0,0,0,0.6)]'
       } ${className}`}
     >
       <Clock className={lg ? 'w-3.5 h-3.5' : 'w-2.5 h-2.5'} />
@@ -18,10 +25,11 @@ export function ComingSoonBadge({ size = 'sm', className = '' }: { size?: 'sm' |
   );
 }
 
+/** Ribbon over a product photo once the store is open — same opaque backdrop as the small Coming soon. */
 export function FeaturedBadge({ className = '' }: { className?: string }) {
   return (
     <span
-      className={`inline-flex items-center gap-1 rounded-full bg-accent/15 border border-accent/30 text-accent px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider ${className}`}
+      className={`inline-flex items-center gap-1 rounded-full bg-[#030712]/85 backdrop-blur-md border border-accent/40 text-accent px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider shadow-[0_2px_8px_rgba(0,0,0,0.6)] ${className}`}
     >
       <Star className="w-2.5 h-2.5 fill-current" />
       Featured

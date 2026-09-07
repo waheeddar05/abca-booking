@@ -92,19 +92,21 @@ export function LandingShopSection() {
           </div>
         )}
 
-        <div className="mt-3 md:mt-6 flex flex-col sm:flex-row items-center justify-center gap-2 sm:gap-4">
+        {/* The catalog size rides inside the button as a count pill. As a
+            separate line under it on phones it read as a stray caption. */}
+        <div className="mt-3 md:mt-6 flex items-center justify-center">
           <Link
             href={SHOP_PATH}
             className="inline-flex items-center justify-center gap-2 bg-accent hover:bg-accent-light text-primary font-bold rounded-xl px-5 py-2.5 text-xs md:text-sm transition-all active:scale-[0.98]"
           >
             EXPLORE THE STORE
+            {productCount > 0 && (
+              <span className="inline-flex items-center rounded-full bg-primary/15 px-2 py-0.5 text-[10px] md:text-[11px] font-black tabular-nums">
+                {productCount} {productCount === 1 ? 'product' : 'products'}
+              </span>
+            )}
             <ArrowRight className="w-4 h-4" />
           </Link>
-          {productCount > 0 && (
-            <p className="text-slate-500 text-[10px] md:text-xs">
-              {productCount} {productCount === 1 ? 'product' : 'products'}
-            </p>
-          )}
         </div>
       </div>
     </section>

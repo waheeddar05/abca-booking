@@ -170,25 +170,31 @@ input[type="number"] {
   appearance: textfield;
 }
 
-/* Glassmorphism utilities */
+/* Glassmorphism utilities.
+   Prefixed declaration FIRST, standard one last — the same order
+   Tailwind's own backdrop-* utilities use. Written the other way round,
+   the build's CSS minifier (Lightning CSS) kept only the
+   `-webkit-backdrop-filter` line, and Chrome never implemented that
+   alias, so every Chrome/Android visitor got a see-through nav with no
+   blur while Safari looked fine. */
 .glass {
   background: rgba(255, 255, 255, 0.03);
-  backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
   border: 1px solid rgba(255, 255, 255, 0.08);
 }
 
 .glass-dark {
   background: rgba(0, 0, 0, 0.2);
-  backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
+  backdrop-filter: blur(16px);
   border: 1px solid rgba(255, 255, 255, 0.05);
 }
 
 .glass-accent {
   background: rgba(56, 189, 248, 0.05);
-  backdrop-filter: blur(8px);
   -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
   border: 1px solid rgba(56, 189, 248, 0.1);
 }
 
