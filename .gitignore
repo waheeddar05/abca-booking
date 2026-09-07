@@ -45,3 +45,7 @@ next-env.d.ts
 
 # Play Store signing keys (KEEP PRIVATE)
 /play-store/
+
+kis-raw/
+kis-assets/
+kis-inbox/

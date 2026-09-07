@@ -7,6 +7,7 @@ import { useMarketplaceStatus } from '@/lib/marketplace-status';
 import { CATEGORY_TILES } from './categoryIcons';
 import { ProductCard } from './ProductCard';
 import { ComingSoonBadge } from './ShopBadges';
+import { SHOP_BAND, ShopMediaBand } from './ShopMediaBand';
 
 const DEFAULT_TAGLINE = 'Bats, gloves, thigh guards & more — sold straight from PlayOrbit.';
 
@@ -59,6 +60,8 @@ export function LandingShopSection() {
           </div>
           <p className="text-slate-500 text-[10px] md:text-sm">{tagline}</p>
         </div>
+
+        {SHOP_BAND && <ShopMediaBand {...SHOP_BAND} />}
 
         {featured.length > 0 ? (
           <div className="grid grid-cols-2 md:grid-cols-4 gap-2.5">
